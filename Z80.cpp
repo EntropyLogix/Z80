@@ -455,7 +455,6 @@ void Z80::handle_CB() {
     uint8_t target_reg = opcode & 0x07;
     uint8_t value;
     uint8_t result = 0;
-    bool is_memory_op = (target_reg == 6);
     uint16_t flags_source = 0;
 
     switch (target_reg) {
@@ -487,7 +486,8 @@ void Z80::handle_CB() {
             break;
         case 1: {
             bit_8bit(bit, value);
-            if (is_memory_op) {
+            if (target_reg == 6) {
+                add_ticks(1);
                 set_flag_if(FLAG_X, (flags_source & 0x0800) != 0); // Bit 11 -> F3 (XF)
                 set_flag_if(FLAG_Y, (flags_source & 0x2000) != 0); // Bit 13 -> F5 (YF)
             } else {
