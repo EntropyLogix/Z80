@@ -1006,9 +1006,6 @@ long long Z80::operate(long long ticks_limit) {
                     case 0xB9: opcode_0xED_0xB9_CPDR(); break;
                     case 0xBA: opcode_0xED_0xBA_INDR(); break;
                     case 0xBB: opcode_0xED_0xBB_OTDR(); break;
-                    default:
-                        add_ticks(4); //rest treated as NOP (8 ticks total)
-                        break;
                 }
                 break;
             }
