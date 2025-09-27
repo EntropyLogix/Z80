@@ -2135,16 +2135,20 @@ void Z80::opcode_0xBF_CP_A() {
 }
 
 void Z80::opcode_0xC0_RET_NZ() {
-    // Total Ticks: 5/11
-    add_ticks(1);
+    // Ticks: 5 (warunek niespełniony) / 11 (spełniony)
+    // Koszt bazowy: 4 (fetch)
     if (!is_Z_flag_set()) {
-        set_PC(pop_word()); // 6T
+        set_PC(pop_word());
+        add_ticks(7); // 1 (wew.) + 6 (pop)
+    } else {
+        add_ticks(1); // 1 (wew.)
     }
 }
 
 void Z80::opcode_0xC1_POP_BC() {
-    // Total Ticks: 10 = 4(fetch)+6(pop)
+    // Ticks: 10 = 4 (fetch) + 6 (pop)
     set_BC(pop_word());
+    add_ticks(6);
 }
 
 void Z80::opcode_0xC2_JP_NZ_nn() {
@@ -2161,19 +2165,20 @@ void Z80::opcode_0xC3_JP_nn() {
 }
 
 void Z80::opcode_0xC4_CALL_NZ_nn() {
-    // Total Ticks: 10/17
+    // Ticks: 10 (warunek niespełniony) / 17 (spełniony)
+    // Koszt bazowy: 4 (fetch op) + 6 (fetch addr) = 10
     uint16_t address = fetch_next_word();
     if (!is_Z_flag_set()) {
-        add_ticks(1);
-        push_word(get_PC()); // 6T
+        push_word(get_PC());
         set_PC(address);
+        add_ticks(7); // 1 (wew.) + 6 (push)
     }
 }
 
 void Z80::opcode_0xC5_PUSH_BC() {
-    // Total Ticks: 11 = 4(fetch)+1(op)+6(push)
-    add_ticks(1);
+    // Ticks: 11 = 4 (fetch) + 1 (wew.) + 6 (push)
     push_word(get_BC());
+    add_ticks(7);
 }
 
 void Z80::opcode_0xC6_ADD_A_n() {
@@ -2189,10 +2194,13 @@ void Z80::opcode_0xC7_RST_00H() {
 }
 
 void Z80::opcode_0xC8_RET_Z() {
-    // Total Ticks: 5/11
-    add_ticks(1);
+    // Ticks: 5 (warunek niespełniony) / 11 (spełniony)
+    // Koszt bazowy: 4 (fetch)
     if (is_Z_flag_set()) {
-        set_PC(pop_word()); // 6T
+        set_PC(pop_word());
+        add_ticks(7); // 1 (wew.) + 6 (pop)
+    } else {
+        add_ticks(1); // 1 (wew.)
     }
 }
 
@@ -2210,12 +2218,13 @@ void Z80::opcode_0xCA_JP_Z_nn() {
 }
 
 void Z80::opcode_0xCC_CALL_Z_nn() {
-    // Total Ticks: 10/17
+    // Ticks: 10 (warunek niespełniony) / 17 (spełniony)
+    // Koszt bazowy: 4 (fetch op) + 6 (fetch addr) = 10
     uint16_t address = fetch_next_word();
     if (is_Z_flag_set()) {
-        add_ticks(1);
-        push_word(get_PC()); // 6T
+        push_word(get_PC());
         set_PC(address);
+        add_ticks(7); // 1 (wew.) + 6 (push)
     }
 }
 
@@ -2240,16 +2249,20 @@ void Z80::opcode_0xCF_RST_08H() {
 }
 
 void Z80::opcode_0xD0_RET_NC() {
-    // Total Ticks: 5/11
-    add_ticks(1);
+    // Ticks: 5 (warunek niespełniony) / 11 (spełniony)
+    // Koszt bazowy: 4 (fetch)
     if (!is_C_flag_set()) {
         set_PC(pop_word());
+        add_ticks(7); // 1 (wew.) + 6 (pop)
+    } else {
+        add_ticks(1); // 1 (wew.)
     }
 }
 
 void Z80::opcode_0xD1_POP_DE() {
-    // Total Ticks: 10
+    // Ticks: 10 = 4 (fetch) + 6 (pop)
     set_DE(pop_word());
+    add_ticks(6);
 }
 
 void Z80::opcode_0xD2_JP_NC_nn() {
@@ -2268,19 +2281,20 @@ void Z80::opcode_0xD3_OUT_n_ptr_A() {
 }
 
 void Z80::opcode_0xD4_CALL_NC_nn() {
-    // Total Ticks: 10/17
+    // Ticks: 10 (warunek niespełniony) / 17 (spełniony)
+    // Koszt bazowy: 4 (fetch op) + 6 (fetch addr) = 10
     uint16_t address = fetch_next_word();
     if (!is_C_flag_set()) {
-        add_ticks(1);
         push_word(get_PC());
         set_PC(address);
+        add_ticks(7); // 1 (wew.) + 6 (push)
     }
 }
 
 void Z80::opcode_0xD5_PUSH_DE() {
-    // Total Ticks: 11
-    add_ticks(1);
+    // Ticks: 11 = 4 (fetch) + 1 (wew.) + 6 (push)
     push_word(get_DE());
+    add_ticks(7);
 }
 
 void Z80::opcode_0xD6_SUB_n() {
@@ -2296,10 +2310,13 @@ void Z80::opcode_0xD7_RST_10H() {
 }
 
 void Z80::opcode_0xD8_RET_C() {
-    // Total Ticks: 5/11
-    add_ticks(1);
+    // Ticks: 5 (warunek niespełniony) / 11 (spełniony)
+    // Koszt bazowy: 4 (fetch)
     if (is_C_flag_set()) {
         set_PC(pop_word());
+        add_ticks(7); // 1 (wew.) + 6 (pop)
+    } else {
+        add_ticks(1); // 1 (wew.)
     }
 }
 
@@ -2333,12 +2350,13 @@ void Z80::opcode_0xDB_IN_A_n_ptr() {
 }
 
 void Z80::opcode_0xDC_CALL_C_nn() {
-    // Total Ticks: 10/17
+    // Ticks: 10 (warunek niespełniony) / 17 (spełniony)
+    // Koszt bazowy: 4 (fetch op) + 6 (fetch addr) = 10
     uint16_t address = fetch_next_word();
     if (is_C_flag_set()) {
-        add_ticks(1);
         push_word(get_PC());
         set_PC(address);
+        add_ticks(7); // 1 (wew.) + 6 (push)
     }
 }
 
@@ -2355,20 +2373,25 @@ void Z80::opcode_0xDF_RST_18H() {
 }
 
 void Z80::opcode_0xE0_RET_PO() {
-    // Total Ticks: 5/11
-    add_ticks(1);
+    // Ticks: 5 (warunek niespełniony) / 11 (spełniony)
+    // Koszt bazowy: 4 (fetch)
     if (!is_PV_flag_set()) {
         set_PC(pop_word());
+        add_ticks(7); // 1 (wew.) + 6 (pop)
+    } else {
+        add_ticks(1); // 1 (wew.)
     }
 }
 
 void Z80::opcode_0xE1_POP_HL() {
-    // Total Ticks HL: 10, IX/IY: 14
+    // Ticks HL: 10 = 4 (fetch) + 6 (op)
+    // Ticks IX/IY: 14 = 4 (DD) + 4 (fetch) + 6 (op)
     switch (get_index_mode()) {
         case IndexMode::HL: set_HL(pop_word()); break;
         case IndexMode::IX: set_IX(pop_word()); break;
         case IndexMode::IY: set_IY(pop_word()); break;
     }
+    add_ticks(6);
 }
 
 void Z80::opcode_0xE2_JP_PO_nn() {
@@ -2402,23 +2425,25 @@ void Z80::opcode_0xE3_EX_SP_ptr_HL() {
 }
 
 void Z80::opcode_0xE4_CALL_PO_nn() {
-    // Total Ticks: 10/17
+    // Ticks: 10 (warunek niespełniony) / 17 (spełniony)
+    // Koszt bazowy: 4 (fetch op) + 6 (fetch addr) = 10
     uint16_t address = fetch_next_word();
     if (!is_PV_flag_set()) {
-        add_ticks(1);
         push_word(get_PC());
         set_PC(address);
+        add_ticks(7); // 1 (wew.) + 6 (push)
     }
 }
 
 void Z80::opcode_0xE5_PUSH_HL() {
-    // Total Ticks HL: 11, IX/IY: 15
-    add_ticks(1);
+    // Ticks HL: 11 = 4 (fetch) + 7 (op)
+    // Ticks IX/IY: 15 = 4 (DD) + 4 (fetch) + 7 (op)
     switch (get_index_mode()) {
         case IndexMode::HL: push_word(get_HL()); break;
         case IndexMode::IX: push_word(get_IX()); break;
         case IndexMode::IY: push_word(get_IY()); break;
     }
+    add_ticks(7); // 1 (wew.) + 6 (push)
 }
 
 void Z80::opcode_0xE6_AND_n() {
@@ -2434,10 +2459,13 @@ void Z80::opcode_0xE7_RST_20H() {
 }
 
 void Z80::opcode_0xE8_RET_PE() {
-    // Total Ticks: 5/11
-    add_ticks(1);
+    // Ticks: 5 (warunek niespełniony) / 11 (spełniony)
+    // Koszt bazowy: 4 (fetch)
     if (is_PV_flag_set()) {
         set_PC(pop_word());
+        add_ticks(7); // 1 (wew.) + 6 (pop)
+    } else {
+        add_ticks(1); // 1 (wew.)
     }
 }
 
@@ -2466,12 +2494,13 @@ void Z80::opcode_0xEB_EX_DE_HL() {
 }
 
 void Z80::opcode_0xEC_CALL_PE_nn() {
-    // Total Ticks: 10/17
+    // Ticks: 10 (warunek niespełniony) / 17 (spełniony)
+    // Koszt bazowy: 4 (fetch op) + 6 (fetch addr) = 10
     uint16_t address = fetch_next_word();
     if (is_PV_flag_set()) {
-        add_ticks(1);
         push_word(get_PC());
         set_PC(address);
+        add_ticks(7); // 1 (wew.) + 6 (push)
     }
 }
 
@@ -2488,16 +2517,20 @@ void Z80::opcode_0xEF_RST_28H() {
 }
 
 void Z80::opcode_0xF0_RET_P() {
-    // Total Ticks: 5/11
-    add_ticks(1);
+    // Ticks: 5 (warunek niespełniony) / 11 (spełniony)
+    // Koszt bazowy: 4 (fetch)
     if (!is_S_flag_set()) {
         set_PC(pop_word());
+        add_ticks(7); // 1 (wew.) + 6 (pop)
+    } else {
+        add_ticks(1); // 1 (wew.)
     }
 }
 
 void Z80::opcode_0xF1_POP_AF() {
-    // Total Ticks: 10
+    // Ticks: 10 = 4 (fetch) + 6 (pop)
     set_AF(pop_word());
+    add_ticks(6);
 }
 
 void Z80::opcode_0xF2_JP_P_nn() {
@@ -2515,19 +2548,20 @@ void Z80::opcode_0xF3_DI() {
 }
 
 void Z80::opcode_0xF4_CALL_P_nn() {
-    // Total Ticks: 10/17
+    // Ticks: 10 (warunek niespełniony) / 17 (spełniony)
+    // Koszt bazowy: 4 (fetch op) + 6 (fetch addr) = 10
     uint16_t address = fetch_next_word();
     if (!is_S_flag_set()) {
-        add_ticks(1);
         push_word(get_PC());
         set_PC(address);
+        add_ticks(7); // 1 (wew.) + 6 (push)
     }
 }
 
 void Z80::opcode_0xF5_PUSH_AF() {
-    // Total Ticks: 11
-    add_ticks(1);
+    // Ticks: 11 = 4 (fetch) + 1 (wew.) + 6 (push)
     push_word(get_AF());
+    add_ticks(7);
 }
 
 void Z80::opcode_0xF6_OR_n() {
@@ -2543,10 +2577,13 @@ void Z80::opcode_0xF7_RST_30H() {
 }
 
 void Z80::opcode_0xF8_RET_M() {
-    // Total Ticks: 5/11
-    add_ticks(1);
+    // Ticks: 5 (warunek niespełniony) / 11 (spełniony)
+    // Koszt bazowy: 4 (fetch)
     if (is_S_flag_set()) {
         set_PC(pop_word());
+        add_ticks(7); // 1 (wew.) + 6 (pop)
+    } else {
+        add_ticks(1); // 1 (wew.)
     }
 }
 
@@ -2574,12 +2611,13 @@ void Z80::opcode_0xFB_EI() {
 }
 
 void Z80::opcode_0xFC_CALL_M_nn() {
-    // Total Ticks: 10/17
+    // Ticks: 10 (warunek niespełniony) / 17 (spełniony)
+    // Koszt bazowy: 4 (fetch op) + 6 (fetch addr) = 10
     uint16_t address = fetch_next_word();
     if (is_S_flag_set()) {
-        add_ticks(1);
         push_word(get_PC());
         set_PC(address);
+        add_ticks(7); // 1 (wew.) + 6 (push)
     }
 }
 
