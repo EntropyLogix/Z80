@@ -6,7 +6,6 @@
 #include <chrono>
 #include "Z80.h"
 
-
 class Memory : public Z80::MemoryBus {
 public:
     Memory() { m_ram.resize(0x10000, 0); }
@@ -117,11 +116,9 @@ int main() {
     long long seconds = total_seconds % 60;
     long long minutes = total_seconds / 60;
 
-
     std::cout << std::endl << "Time: " << std::setfill('0') << std::setw(2) << minutes << "m " << 
                             std::setfill('0') << std::setw(2) << seconds <<  "s " <<
                             std::setw(3) << ms << "ms" << std::endl;
-              
 
     return 0;
 }

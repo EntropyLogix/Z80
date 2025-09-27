@@ -1,8 +1,6 @@
 #ifndef __Z80_H__
 #define __Z80_H__
 
-#include <iostream>
-#include <iomanip>
 #include <cstdint>
 
 class Z80 {
