@@ -1,0 +1,13 @@
+# Pliki generowane
+*.o
+*.a
+*.so
+*.dll
+
+# Katalogi
+build/
+.cache/
+
+# Pliki IDE i edytorów
+.vscode/
+*~
