@@ -235,8 +235,15 @@ private:
 
     void set_ticks(long long value) { ticks = value; }
     
-    uint8_t read_byte(uint16_t address) { return memory.read(address); }
-    void write_byte(uint16_t address, uint8_t value) { memory.write(address, value); }
+    uint8_t read_byte(uint16_t address) {
+        add_ticks(3);
+        return memory.read(address); 
+    }
+    
+    void write_byte(uint16_t address, uint8_t value) {
+        add_ticks(3);
+        memory.write(address, value);
+    }
     
     uint16_t read_word(uint16_t address) {
         uint8_t low_byte = read_byte(address);
@@ -250,14 +257,12 @@ private:
     }
     
     void push_word(uint16_t value) {
-        add_ticks(6);
         uint16_t new_sp = get_SP() - 2;
         set_SP(new_sp);
         write_word(new_sp, value);
     }
 
     uint16_t pop_word() {
-        add_ticks(6);
         uint16_t current_sp = get_SP();
         uint16_t value = read_word(current_sp);
         set_SP(current_sp + 2);
@@ -265,7 +270,7 @@ private:
     }
 
     uint8_t fetch_next_opcode() {
-        add_ticks(4);
+        add_ticks(1);
         uint8_t r_val = get_R();
         set_R(((r_val + 1) & 0x7F) | (r_val & 0x80));
         
@@ -276,7 +281,6 @@ private:
     }
 
     uint8_t fetch_next_byte() {
-        add_ticks(3);
         uint16_t current_pc = get_PC();
         uint8_t byte_val = read_byte(current_pc);
         set_PC(current_pc + 1);
