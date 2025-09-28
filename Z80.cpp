@@ -1,6 +1,18 @@
 #include "Z80.h"
 #include <cstdint>
 
+void Z80::precompute_parity() {
+    for (int i = 0; i < 256; ++i) {
+        int count = 0;
+        int temp = i;
+        while (temp > 0) {
+            temp &= (temp - 1);
+            count++;
+        }
+        parity_table[i] = (count % 2) == 0;
+    }
+}
+
 void Z80::reset() {
     set_AF(0); set_BC(0); set_DE(0); set_HL(0);
     set_AFp(0); set_BCp(0); set_DEp(0); set_HLp(0);

@@ -63,6 +63,7 @@ public:
 
     // --- Constructor ---
     Z80(MemoryBus& mem_bus, IOBus& io_bus) : memory(mem_bus), io(io_bus) {
+        precompute_parity();
         memory.connect(this);
         io.connect(this);
         memory.reset();
@@ -219,14 +220,10 @@ private:
     uint8_t fetch_next_byte();
     uint16_t fetch_next_word();
     
-    bool is_parity_even(uint8_t value) {
-        int count = 0;
-        while (value > 0) {
-            value &= (value - 1);
-            count++;
-        }
-        return (count % 2) == 0;
-    }
+    bool parity_table[256];
+    void precompute_parity();
+    bool is_parity_even(uint8_t value) { return parity_table[value]; }
+
 
     uint16_t get_indexed_HL() const;
     void set_indexed_HL(uint16_t value);
