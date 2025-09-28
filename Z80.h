@@ -65,7 +65,6 @@ public:
     Z80(MemoryBus& mem_bus, IOBus& io_bus) : memory(mem_bus), io(io_bus) {
         memory.connect(this);
         io.connect(this);
-
         memory.reset();
         io.reset();
         reset();
@@ -74,6 +73,7 @@ public:
     // Main execution and control interface
     long long run(long long ticks_limit) {return operate<OperateMode::ToLimit>(ticks_limit);}
     int step() {return operate<OperateMode::SingleStep>(0);}
+    void reset(); 
     void request_interrupt(uint8_t data);
     void request_nmi();
 
@@ -83,6 +83,7 @@ public:
 
     // Cycle counter
     long long get_ticks() const { return ticks; }
+    void set_ticks(long long value) { ticks = value; }
     void add_ticks(int delta) { ticks += delta; }
 
     // 16-bit main registers
@@ -170,27 +171,6 @@ public:
     IndexMode get_index_mode() const { return index_mode;}
     void set_index_mode(IndexMode mode) { index_mode = mode; }
 
-    void reset() {
-        set_AF(0); set_BC(0); set_DE(0); set_HL(0);
-        set_AFp(0); set_BCp(0); set_DEp(0); set_HLp(0);
-        set_IX(0); set_IY(0);
-        set_SP(0xFFFF);
-        set_PC(0);
-        set_R(0);
-        set_I(0);
-        set_IFF1(false);
-        set_IFF2(false);
-        set_halted(false);
-        set_nmi_pending(false);
-        set_interrupt_pending(false);
-        set_interrupt_enable_pending(false);
-        set_reti_signaled(false);
-        set_interrupt_data(0);
-        set_interrupt_mode(0);
-        set_ticks(0);
-        set_index_mode(IndexMode::HL);
-    }
-
     // --- Flag constants and helpers ---
     static constexpr uint8_t FLAG_C  = 1 << 0;
     static constexpr uint8_t FLAG_N  = 1 << 1;
@@ -200,26 +180,22 @@ public:
     static constexpr uint8_t FLAG_Y  = 1 << 5;
     static constexpr uint8_t FLAG_Z  = 1 << 6;
     static constexpr uint8_t FLAG_S  = 1 << 7;
-
     bool is_S_flag_set() const { return (get_F() & FLAG_S) != 0; }
     bool is_Z_flag_set() const { return (get_F() & FLAG_Z) != 0; }
     bool is_H_flag_set() const { return (get_F() & FLAG_H) != 0; }
     bool is_PV_flag_set() const { return (get_F() & FLAG_PV) != 0; }
     bool is_N_flag_set() const { return (get_F() & FLAG_N) != 0; }
     bool is_C_flag_set() const { return (get_F() & FLAG_C) != 0; }
-    
     void set_flag(uint8_t mask) { set_F(get_F() | mask); }
     void clear_flag(uint8_t mask) { set_F(get_F() & ~mask); }
     void set_flag_if(uint8_t mask, bool condition) {
-        if (condition) {
+        if (condition)
             set_flag(mask);
-        } else {
+        else
             clear_flag(mask);
-        }
     }
     
 private:
-    // --- Internal CPU state ---
     uint16_t AF, BC, DE, HL;
     uint16_t AFp, BCp, DEp, HLp;
     uint16_t IX, IY;
@@ -232,100 +208,16 @@ private:
 
     MemoryBus& memory;
     IOBus& io;
-
-    void set_ticks(long long value) { ticks = value; }
     
-    uint8_t read_byte(uint16_t address) {
-        add_ticks(3);
-        return memory.read(address); 
-    }
-    
-    void write_byte(uint16_t address, uint8_t value) {
-        add_ticks(3);
-        memory.write(address, value);
-    }
-    
-    uint16_t read_word(uint16_t address) {
-        uint8_t low_byte = read_byte(address);
-        uint8_t high_byte = read_byte(address + 1);
-        return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
-    }
-    
-    void write_word(uint16_t address, uint16_t value) {
-        write_byte(address, value & 0xFF);
-        write_byte(address + 1, (value >> 8) & 0xFF);
-    }
-    
-    void push_word(uint16_t value) {
-        uint16_t new_sp = get_SP() - 2;
-        set_SP(new_sp);
-        write_word(new_sp, value);
-    }
-
-    uint16_t pop_word() {
-        uint16_t current_sp = get_SP();
-        uint16_t value = read_word(current_sp);
-        set_SP(current_sp + 2);
-        return value;
-    }
-
-    uint8_t fetch_next_opcode() {
-        add_ticks(1);
-        uint8_t r_val = get_R();
-        set_R(((r_val + 1) & 0x7F) | (r_val & 0x80));
-        
-        uint16_t current_pc = get_PC();
-        uint8_t opcode = read_byte(current_pc);
-        set_PC(current_pc + 1);
-        return opcode;
-    }
-
-    uint8_t fetch_next_byte() {
-        uint16_t current_pc = get_PC();
-        uint8_t byte_val = read_byte(current_pc);
-        set_PC(current_pc + 1);
-        return byte_val;
-    }
-
-    uint16_t fetch_next_word() {
-        uint8_t low_byte = fetch_next_byte();
-        uint8_t high_byte = fetch_next_byte();
-        return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
-    }
-
-private:
-    uint16_t get_active_index_register() {
-        switch (get_index_mode()) {
-            case IndexMode::HL: return get_HL();
-            case IndexMode::IX: return get_IX();
-            case IndexMode::IY: return get_IY();
-        }
-        return 0;
-    }
-
-    void set_active_index_register(uint16_t value) {
-        switch (get_index_mode()) {
-            case IndexMode::HL: set_HL(value); break;
-            case IndexMode::IX: set_IX(value); break;
-            case IndexMode::IY: set_IY(value); break;
-        }
-    }
-
-    uint16_t get_indexed_address() {
-        if (get_index_mode() == IndexMode::HL) {
-            return get_HL();
-        } else {
-            add_ticks(5);
-            int8_t offset = static_cast<int8_t>(fetch_next_byte());
-            return get_active_index_register() + offset;
-        }
-    }
-
-    void handle_nmi();
-    void handle_interrupt();
-    
-    virtual uint8_t read_byte_from_io(uint16_t port_address) { return 0; }
-    virtual void write_byte_to_io(uint16_t port_address, uint8_t value) {}
+    uint8_t read_byte(uint16_t address);
+    void write_byte(uint16_t address, uint8_t value);
+    uint16_t read_word(uint16_t address);
+    void write_word(uint16_t address, uint16_t value);
+    void push_word(uint16_t value);
+    uint16_t pop_word();
+    uint8_t fetch_next_opcode();
+    uint8_t fetch_next_byte();
+    uint16_t fetch_next_word();
     
     bool is_parity_even(uint8_t value) {
         int count = 0;
@@ -335,6 +227,18 @@ private:
         }
         return (count % 2) == 0;
     }
+
+    uint16_t get_indexed_register() const;
+    void set_indexed_register(uint16_t value);
+    uint8_t get_indexed_register_high_byte() const;
+    void set_indexed_register_high_byte(uint8_t value);
+    uint8_t get_indexed_register_low_byte() const;
+    void set_indexed_register_low_byte(uint8_t value);
+
+    uint16_t get_indexed_address();
+    uint8_t read_byte_from_indexed_address();
+    void write_byte_to_indexed_address(uint8_t value);
+
     uint8_t inc_8bit(uint8_t value);
     uint8_t dec_8bit(uint8_t value);
     void and_8bit(uint8_t value);
@@ -361,6 +265,9 @@ private:
     uint8_t set_8bit(uint8_t bit, uint8_t value);
     uint8_t in_r_c();
     void out_c_r(uint8_t value);
+
+    void handle_nmi();
+    void handle_interrupt();
 
     void handle_CB();
     void handle_CB_indexed(uint16_t index_register);

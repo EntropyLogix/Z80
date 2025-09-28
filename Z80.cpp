@@ -1,52 +1,25 @@
 #include "Z80.h"
 #include <cstdint>
 
-void Z80::request_interrupt(uint8_t data) {
-    set_interrupt_pending(true);
-    set_interrupt_data(data);
-}
-
-void Z80::handle_nmi() {
-    add_ticks(5);
+void Z80::reset() {
+    set_AF(0); set_BC(0); set_DE(0); set_HL(0);
+    set_AFp(0); set_BCp(0); set_DEp(0); set_HLp(0);
+    set_IX(0); set_IY(0);
+    set_SP(0xFFFF);
+    set_PC(0);
+    set_R(0);
+    set_I(0);
+    set_IFF1(false);
+    set_IFF2(false);
     set_halted(false);
-    set_IFF2(get_IFF1());
-    set_IFF1(false);
-    push_word(get_PC());
-    set_PC(0x0066);
     set_nmi_pending(false);
-}
-
-void Z80::handle_interrupt() {
-    add_ticks(7);
-    set_IFF2(get_IFF1());
-    set_IFF1(false);
-    push_word(get_PC());
-    switch (get_interrupt_mode()) {
-        case 0: {
-            uint8_t opcode = get_interrupt_data();
-            switch (opcode) {
-                case 0xC7: set_PC(0x0000); break;
-                case 0xCF: set_PC(0x0008); break;
-                case 0xD7: set_PC(0x0010); break;
-                case 0xDF: set_PC(0x0018); break;
-                case 0xE7: set_PC(0x0020); break;
-                case 0xEF: set_PC(0x0028); break;
-                case 0xF7: set_PC(0x0030); break;
-                case 0xFF: set_PC(0x0038); break;
-            }
-            break;
-        }
-        case 1: {
-            set_PC(0x0038);
-            break;
-        }
-        case 2: {
-            uint16_t vector_address = (static_cast<uint16_t>(get_I()) << 8) | get_interrupt_data();
-            uint16_t handler_address = read_word(vector_address);
-            set_PC(handler_address);
-            break;
-        }
-    }
+    set_interrupt_pending(false);
+    set_interrupt_enable_pending(false);
+    set_reti_signaled(false);
+    set_interrupt_data(0);
+    set_interrupt_mode(0);
+    set_ticks(0);
+    set_index_mode(IndexMode::HL);
 }
 
 Z80::State Z80::save_state() const {
@@ -103,6 +76,135 @@ void Z80::load_state(const Z80::State& state) {
     set_interrupt_mode(state.interrupt_mode);
     set_index_mode(state.index_mode);
     set_ticks(state.ticks);
+}
+
+uint8_t Z80::read_byte(uint16_t address) {
+    add_ticks(3);
+    return memory.read(address); 
+}
+
+void Z80::write_byte(uint16_t address, uint8_t value) {
+    add_ticks(3);
+    memory.write(address, value);
+}
+
+uint16_t Z80::read_word(uint16_t address) {
+    uint8_t low_byte = read_byte(address);
+    uint8_t high_byte = read_byte(address + 1);
+    return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
+}
+
+void Z80::write_word(uint16_t address, uint16_t value) {
+    write_byte(address, value & 0xFF);
+    write_byte(address + 1, (value >> 8) & 0xFF);
+}
+
+void Z80::push_word(uint16_t value) {
+    uint16_t new_sp = get_SP() - 2;
+    set_SP(new_sp);
+    write_word(new_sp, value);
+}
+
+uint16_t Z80::pop_word() {
+    uint16_t current_sp = get_SP();
+    uint16_t value = read_word(current_sp);
+    set_SP(current_sp + 2);
+    return value;
+}
+
+uint8_t Z80::fetch_next_opcode() {
+    add_ticks(1);
+    uint8_t r_val = get_R();
+    set_R(((r_val + 1) & 0x7F) | (r_val & 0x80));
+    
+    uint16_t current_pc = get_PC();
+    uint8_t opcode = read_byte(current_pc);
+    set_PC(current_pc + 1);
+    return opcode;
+}
+
+uint8_t Z80::fetch_next_byte() {
+    uint16_t current_pc = get_PC();
+    uint8_t byte_val = read_byte(current_pc);
+    set_PC(current_pc + 1);
+    return byte_val;
+}
+
+uint16_t Z80::fetch_next_word() {
+    uint8_t low_byte = fetch_next_byte();
+    uint8_t high_byte = fetch_next_byte();
+    return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
+}
+
+uint16_t Z80::get_indexed_register() const {
+    switch (get_index_mode()) {
+        case IndexMode::HL: return get_HL();
+        case IndexMode::IX: return get_IX();
+        case IndexMode::IY: return get_IY();
+    }
+    return 0;
+}
+
+void Z80::set_indexed_register(uint16_t value) {
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(value); break;
+        case IndexMode::IX: set_IX(value); break;
+        case IndexMode::IY: set_IY(value); break;
+    }
+}
+
+uint8_t Z80::get_indexed_register_high_byte() const {
+    switch (get_index_mode()) {
+        case IndexMode::HL: return get_H();
+        case IndexMode::IX: return get_IXH();
+        case IndexMode::IY: return get_IYH();
+    }
+    return 0;
+}
+
+void Z80::set_indexed_register_high_byte(uint8_t value) {
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_H(value); break;
+        case IndexMode::IX: set_IXH(value); break;
+        case IndexMode::IY: set_IYH(value); break;
+    }
+}
+
+uint8_t Z80::get_indexed_register_low_byte() const {
+    switch (get_index_mode()) {
+        case IndexMode::HL: return get_L();
+        case IndexMode::IX: return get_IXL();
+        case IndexMode::IY: return get_IYL();
+    }
+    return 0;
+}
+
+void Z80::set_indexed_register_low_byte(uint8_t value) {
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_L(value); break;
+        case IndexMode::IX: set_IXL(value); break;
+        case IndexMode::IY: set_IYL(value); break;
+    }
+}
+
+uint16_t Z80::get_indexed_address() {
+    if (get_index_mode() == IndexMode::HL) {
+        return get_HL();
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        return get_indexed_register() + offset;
+    }
+}
+
+uint8_t Z80::read_byte_from_indexed_address() {
+    uint16_t address = get_indexed_address();
+    return read_byte(address);
+}
+
+void Z80::write_byte_to_indexed_address(uint8_t value) {
+    uint16_t address = get_indexed_address();
+    write_byte(address, value);
 }
 
 uint8_t Z80::inc_8bit(uint8_t value) {
@@ -381,9 +483,11 @@ uint8_t Z80::srl_8bit(uint8_t value) {
 void Z80::bit_8bit(uint8_t bit, uint8_t value) {
     set_flag(FLAG_H);
     clear_flag(FLAG_N);
+
     bool bit_is_zero = (value & (1 << bit)) == 0;
     set_flag_if(FLAG_Z, bit_is_zero);
     set_flag_if(FLAG_PV, bit_is_zero);
+
     if (bit == 7) {
         set_flag_if(FLAG_S, (value & 0x80) != 0);
     } else
@@ -399,7 +503,7 @@ uint8_t Z80::set_8bit(uint8_t bit, uint8_t value) {
 }
 
 uint8_t Z80::in_r_c() {
-    uint8_t value = read_byte_from_io(get_BC());
+    uint8_t value = io.read(get_BC());
     set_flag_if(FLAG_S, (value & 0x80) != 0);
     set_flag_if(FLAG_Z, value == 0);
     clear_flag(FLAG_H | FLAG_N);
@@ -410,7 +514,55 @@ uint8_t Z80::in_r_c() {
 }
 
 void Z80::out_c_r(uint8_t value) {
-    write_byte_to_io(get_BC(), value);
+    io.write(get_BC(), value);
+}
+
+void Z80::request_interrupt(uint8_t data) {
+    set_interrupt_pending(true);
+    set_interrupt_data(data);
+}
+
+void Z80::handle_nmi() {
+    add_ticks(5);
+    set_halted(false);
+    set_IFF2(get_IFF1());
+    set_IFF1(false);
+    push_word(get_PC());
+    set_PC(0x0066);
+    set_nmi_pending(false);
+}
+
+void Z80::handle_interrupt() {
+    add_ticks(7);
+    set_IFF2(get_IFF1());
+    set_IFF1(false);
+    push_word(get_PC());
+    switch (get_interrupt_mode()) {
+        case 0: {
+            uint8_t opcode = get_interrupt_data();
+            switch (opcode) {
+                case 0xC7: set_PC(0x0000); break;
+                case 0xCF: set_PC(0x0008); break;
+                case 0xD7: set_PC(0x0010); break;
+                case 0xDF: set_PC(0x0018); break;
+                case 0xE7: set_PC(0x0020); break;
+                case 0xEF: set_PC(0x0028); break;
+                case 0xF7: set_PC(0x0030); break;
+                case 0xFF: set_PC(0x0038); break;
+            }
+            break;
+        }
+        case 1: {
+            set_PC(0x0038);
+            break;
+        }
+        case 2: {
+            uint16_t vector_address = (static_cast<uint16_t>(get_I()) << 8) | get_interrupt_data();
+            uint16_t handler_address = read_word(vector_address);
+            set_PC(handler_address);
+            break;
+        }
+    }
 }
 
 void Z80::handle_CB() {
@@ -421,6 +573,7 @@ void Z80::handle_CB() {
     uint8_t value;
     uint8_t result = 0;
     uint16_t flags_source = 0;
+
     switch (target_reg) {
         case 0: value = get_B(); break;
         case 1: value = get_C(); break;
@@ -572,9 +725,12 @@ void Z80::opcode_0x08_EX_AF_AFp() {
 
 void Z80::opcode_0x09_ADD_HL_BC() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = add_16bit(current_val, get_BC());
-    set_active_index_register(result);
+    uint16_t val_bc = get_BC();
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(add_16bit(get_HL(), val_bc)); break;
+        case IndexMode::IX: set_IX(add_16bit(get_IX(), val_bc)); break;
+        case IndexMode::IY: set_IY(add_16bit(get_IY(), val_bc)); break;
+    }
 }
 
 void Z80::opcode_0x0A_LD_A_BC_ptr() {
@@ -665,9 +821,18 @@ void Z80::opcode_0x18_JR_d() {
 
 void Z80::opcode_0x19_ADD_HL_DE() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = add_16bit(current_val, get_DE());
-    set_active_index_register(result);
+    uint16_t val_de = get_DE();
+    switch (get_index_mode()) {
+        case IndexMode::HL:
+            set_HL(add_16bit(get_HL(), val_de));
+            break;
+        case IndexMode::IX:
+            set_IX(add_16bit(get_IX(), val_de));
+            break;
+        case IndexMode::IY:
+            set_IY(add_16bit(get_IY(), val_de));
+            break;
+    }
 }
 
 void Z80::opcode_0x1A_LD_A_DE_ptr() {
@@ -713,17 +878,29 @@ void Z80::opcode_0x20_JR_NZ_d() {
 
 void Z80::opcode_0x21_LD_HL_nn() {
     uint16_t value = fetch_next_word();
-    set_active_index_register(value);
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(value); break;
+        case IndexMode::IX: set_IX(value); break;
+        case IndexMode::IY: set_IY(value); break;
+    }
 }
 
 void Z80::opcode_0x22_LD_nn_ptr_HL() {
     uint16_t address = fetch_next_word();
-    write_word(address, get_active_index_register());
+    switch (get_index_mode()) {
+        case IndexMode::HL: write_word(address, get_HL()); break;
+        case IndexMode::IX: write_word(address, get_IX()); break;
+        case IndexMode::IY: write_word(address, get_IY()); break;
+    }
 }
 
 void Z80::opcode_0x23_INC_HL() {
     add_ticks(2);
-    set_active_index_register(get_active_index_register() + 1);
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(get_HL() + 1); break;
+        case IndexMode::IX: set_IX(get_IX() + 1); break;
+        case IndexMode::IY: set_IY(get_IY() + 1); break;
+    }
 }
 
 void Z80::opcode_0x24_INC_H() {
@@ -792,19 +969,41 @@ void Z80::opcode_0x28_JR_Z_d() {
 
 void Z80::opcode_0x29_ADD_HL_HL() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = add_16bit(current_val, current_val);
-    set_active_index_register(result);
+    switch (get_index_mode()) {
+        case IndexMode::HL:
+            set_HL(add_16bit(get_HL(), get_HL()));
+            break;
+        case IndexMode::IX:
+            set_IX(add_16bit(get_IX(), get_IX()));
+            break;
+        case IndexMode::IY:
+            set_IY(add_16bit(get_IY(), get_IY()));
+            break;
+    }
 }
 
 void Z80::opcode_0x2A_LD_HL_nn_ptr() {
     uint16_t address = fetch_next_word();
-    set_active_index_register(read_word(address));
+    switch (get_index_mode()) {
+        case IndexMode::HL:
+            set_HL(read_word(address));
+            break;
+        case IndexMode::IX:
+            set_IX(read_word(address));
+            break;
+        case IndexMode::IY:
+            set_IY(read_word(address));
+            break;
+    }
 }
 
 void Z80::opcode_0x2B_DEC_HL() {
     add_ticks(2);
-    set_active_index_register(get_active_index_register() - 1);
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(get_HL() - 1); break;
+        case IndexMode::IX: set_IX(get_IX() - 1); break;
+        case IndexMode::IY: set_IY(get_IY() - 1); break;
+    }
 }
 
 void Z80::opcode_0x2C_INC_L() {
@@ -864,17 +1063,33 @@ void Z80::opcode_0x33_INC_SP() {
 }
 
 void Z80::opcode_0x34_INC_HL_ptr() {
-    add_ticks(1);
-    uint16_t address = get_indexed_address();
-    uint8_t value = read_byte(address);
-    write_byte(address, inc_8bit(value));
+    if (get_index_mode() == IndexMode::HL) {
+        add_ticks(1);
+        uint16_t address = get_HL();
+        uint8_t value = read_byte(address);
+        write_byte(address, inc_8bit(value));
+    } else {
+        add_ticks(6);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        uint8_t value = read_byte(address);
+        write_byte(address, inc_8bit(value));
+    }
 }
 
 void Z80::opcode_0x35_DEC_HL_ptr() {
-    add_ticks(1);
-    uint16_t address = get_indexed_address();
-    uint8_t value = read_byte(address);
-    write_byte(address, dec_8bit(value));
+    if (get_index_mode() == IndexMode::HL) {
+        add_ticks(1);
+        uint16_t address = get_HL();
+        uint8_t value = read_byte(address);
+        write_byte(address, dec_8bit(value));
+    } else {
+        add_ticks(6);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        uint8_t value = read_byte(address);
+        write_byte(address, dec_8bit(value));
+    }
 }
 
 void Z80::opcode_0x36_LD_HL_ptr_n() {
@@ -885,7 +1100,7 @@ void Z80::opcode_0x36_LD_HL_ptr_n() {
         add_ticks(2);
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         uint8_t value = fetch_next_byte();
-        uint16_t address = get_active_index_register() + offset;
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
         write_byte(address, value);
     }
 }
@@ -907,9 +1122,18 @@ void Z80::opcode_0x38_JR_C_d() {
 
 void Z80::opcode_0x39_ADD_HL_SP() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = add_16bit(current_val, get_SP());
-    set_active_index_register(result);
+    uint16_t val_sp = get_SP();
+    switch (get_index_mode()) {
+        case IndexMode::HL:
+            set_HL(add_16bit(get_HL(), val_sp));
+            break;
+        case IndexMode::IX:
+            set_IX(add_16bit(get_IX(), val_sp));
+            break;
+        case IndexMode::IY:
+            set_IY(add_16bit(get_IY(), val_sp));
+            break;
+    }
 }
 
 void Z80::opcode_0x3A_LD_A_nn_ptr() {
@@ -943,10 +1167,20 @@ void Z80::opcode_0x3F_CCF() {
     set_flag_if(FLAG_X, (get_A() & FLAG_X) != 0);
 }
 
-void Z80::opcode_0x40_LD_B_B() {}
-void Z80::opcode_0x41_LD_B_C() { set_B(get_C()); }
-void Z80::opcode_0x42_LD_B_D() { set_B(get_D()); }
-void Z80::opcode_0x43_LD_B_E() { set_B(get_E()); }
+void Z80::opcode_0x40_LD_B_B() {
+}
+
+void Z80::opcode_0x41_LD_B_C() {
+    set_B(get_C());
+}
+
+void Z80::opcode_0x42_LD_B_D() {
+    set_B(get_D());
+}
+
+void Z80::opcode_0x43_LD_B_E() {
+    set_B(get_E());
+}
 
 void Z80::opcode_0x44_LD_B_H() {
     switch (get_index_mode()) {
@@ -965,15 +1199,34 @@ void Z80::opcode_0x45_LD_B_L() {
 }
 
 void Z80::opcode_0x46_LD_B_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    set_B(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        set_B(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        set_B(read_byte(address));
+    }
 }
 
-void Z80::opcode_0x47_LD_B_A() { set_B(get_A()); }
-void Z80::opcode_0x48_LD_C_B() { set_C(get_B()); }
-void Z80::opcode_0x49_LD_C_C() {}
-void Z80::opcode_0x4A_LD_C_D() { set_C(get_D()); }
-void Z80::opcode_0x4B_LD_C_E() { set_C(get_E()); }
+void Z80::opcode_0x47_LD_B_A() {
+    set_B(get_A());
+}
+
+void Z80::opcode_0x48_LD_C_B() {
+    set_C(get_B());
+}
+
+void Z80::opcode_0x49_LD_C_C() {
+}
+
+void Z80::opcode_0x4A_LD_C_D() {
+    set_C(get_D());
+}
+
+void Z80::opcode_0x4B_LD_C_E() {
+    set_C(get_E());
+}
 
 void Z80::opcode_0x4C_LD_C_H() {
     switch (get_index_mode()) {
@@ -992,15 +1245,34 @@ void Z80::opcode_0x4D_LD_C_L() {
 }
 
 void Z80::opcode_0x4E_LD_C_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    set_C(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        set_C(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        set_C(read_byte(address));
+    }
 }
 
-void Z80::opcode_0x4F_LD_C_A() { set_C(get_A()); }
-void Z80::opcode_0x50_LD_D_B() { set_D(get_B()); }
-void Z80::opcode_0x51_LD_D_C() { set_D(get_C()); }
-void Z80::opcode_0x52_LD_D_D() {}
-void Z80::opcode_0x53_LD_D_E() { set_D(get_E()); }
+void Z80::opcode_0x4F_LD_C_A() {
+    set_C(get_A());
+}
+
+void Z80::opcode_0x50_LD_D_B() {
+    set_D(get_B());
+}
+
+void Z80::opcode_0x51_LD_D_C() {
+    set_D(get_C());
+}
+
+void Z80::opcode_0x52_LD_D_D() {
+}
+
+void Z80::opcode_0x53_LD_D_E() {
+    set_D(get_E());
+}
 
 void Z80::opcode_0x54_LD_D_H() {
     switch (get_index_mode()) {
@@ -1019,15 +1291,34 @@ void Z80::opcode_0x55_LD_D_L() {
 }
 
 void Z80::opcode_0x56_LD_D_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    set_D(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        set_D(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        set_D(read_byte(address));
+    }
 }
 
-void Z80::opcode_0x57_LD_D_A() { set_D(get_A()); }
-void Z80::opcode_0x58_LD_E_B() { set_E(get_B()); }
-void Z80::opcode_0x59_LD_E_C() { set_E(get_C()); }
-void Z80::opcode_0x5A_LD_E_D() { set_E(get_D()); }
-void Z80::opcode_0x5B_LD_E_E() {}
+void Z80::opcode_0x57_LD_D_A() {
+    set_D(get_A());
+}
+
+void Z80::opcode_0x58_LD_E_B() {
+    set_E(get_B());
+}
+
+void Z80::opcode_0x59_LD_E_C() {
+    set_E(get_C());
+}
+
+void Z80::opcode_0x5A_LD_E_D() {
+    set_E(get_D());
+}
+
+void Z80::opcode_0x5B_LD_E_E() {
+}
 
 void Z80::opcode_0x5C_LD_E_H() {
     switch (get_index_mode()) {
@@ -1046,11 +1337,19 @@ void Z80::opcode_0x5D_LD_E_L() {
 }
 
 void Z80::opcode_0x5E_LD_E_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    set_E(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        set_E(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        set_E(read_byte(address));
+    }
 }
 
-void Z80::opcode_0x5F_LD_E_A() { set_E(get_A()); }
+void Z80::opcode_0x5F_LD_E_A() {
+    set_E(get_A());
+}
 
 void Z80::opcode_0x60_LD_H_B() {
     switch (get_index_mode()) {
@@ -1084,7 +1383,8 @@ void Z80::opcode_0x63_LD_H_E() {
     }
 }
 
-void Z80::opcode_0x64_LD_H_H() {}
+void Z80::opcode_0x64_LD_H_H() {
+}
 
 void Z80::opcode_0x65_LD_H_L() {
     switch (get_index_mode()) {
@@ -1095,12 +1395,13 @@ void Z80::opcode_0x65_LD_H_L() {
 }
 
 void Z80::opcode_0x66_LD_H_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    uint8_t val = read_byte(address);
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(val); break;
-        case IndexMode::IX: set_IXH(val); break;
-        case IndexMode::IY: set_IYH(val); break;
+    if (get_index_mode() == IndexMode::HL) {
+        set_H(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        set_H(read_byte(address));
     }
 }
 
@@ -1152,15 +1453,17 @@ void Z80::opcode_0x6C_LD_L_H() {
     }
 }
 
-void Z80::opcode_0x6D_LD_L_L() {}
+void Z80::opcode_0x6D_LD_L_L() {
+}
 
 void Z80::opcode_0x6E_LD_L_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    uint8_t val = read_byte(address);
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(val); break;
-        case IndexMode::IX: set_IXL(val); break;
-        case IndexMode::IY: set_IYL(val); break;
+    if (get_index_mode() == IndexMode::HL) {
+        set_L(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        set_L(read_byte(address));
     }
 }
 
@@ -1173,33 +1476,69 @@ void Z80::opcode_0x6F_LD_L_A() {
 }
 
 void Z80::opcode_0x70_LD_HL_ptr_B() {
-    uint16_t address = get_indexed_address();
-    write_byte(address, get_B());
+    if (get_index_mode() == IndexMode::HL) {
+        write_byte(get_HL(), get_B());
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        write_byte(address, get_B());
+    }
 }
 
 void Z80::opcode_0x71_LD_HL_ptr_C() {
-    uint16_t address = get_indexed_address();
-    write_byte(address, get_C());
+    if (get_index_mode() == IndexMode::HL) {
+        write_byte(get_HL(), get_C());
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        write_byte(address, get_C());
+    }
 }
 
 void Z80::opcode_0x72_LD_HL_ptr_D() {
-    uint16_t address = get_indexed_address();
-    write_byte(address, get_D());
+    if (get_index_mode() == IndexMode::HL) {
+        write_byte(get_HL(), get_D());
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        write_byte(address, get_D());
+    }
 }
 
 void Z80::opcode_0x73_LD_HL_ptr_E() {
-    uint16_t address = get_indexed_address();
-    write_byte(address, get_E());
+    if (get_index_mode() == IndexMode::HL) {
+        write_byte(get_HL(), get_E());
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        write_byte(address, get_E());
+    }
 }
 
 void Z80::opcode_0x74_LD_HL_ptr_H() {
-    uint16_t address = get_indexed_address();
-    write_byte(address, get_H());
+    if (get_index_mode() == IndexMode::HL) {
+        write_byte(get_HL(), get_H());
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        write_byte(address, get_H());
+    }
 }
 
 void Z80::opcode_0x75_LD_HL_ptr_L() {
-    uint16_t address = get_indexed_address();
-    write_byte(address, get_L());
+    if (get_index_mode() == IndexMode::HL) {
+        write_byte(get_HL(), get_L());
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        write_byte(address, get_L());
+    }
 }
 
 void Z80::opcode_0x76_HALT() {
@@ -1207,14 +1546,31 @@ void Z80::opcode_0x76_HALT() {
 }
 
 void Z80::opcode_0x77_LD_HL_ptr_A() {
-    uint16_t address = get_indexed_address();
-    write_byte(address, get_A());
+    if (get_index_mode() == IndexMode::HL) {
+        write_byte(get_HL(), get_A());
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        write_byte(address, get_A());
+    }
 }
 
-void Z80::opcode_0x78_LD_A_B() { set_A(get_B()); }
-void Z80::opcode_0x79_LD_A_C() { set_A(get_C()); }
-void Z80::opcode_0x7A_LD_A_D() { set_A(get_D()); }
-void Z80::opcode_0x7B_LD_A_E() { set_A(get_E()); }
+void Z80::opcode_0x78_LD_A_B() {
+    set_A(get_B());
+}
+
+void Z80::opcode_0x79_LD_A_C() {
+    set_A(get_C());
+}
+
+void Z80::opcode_0x7A_LD_A_D() {
+    set_A(get_D());
+}
+
+void Z80::opcode_0x7B_LD_A_E() {
+    set_A(get_E());
+}
 
 void Z80::opcode_0x7C_LD_A_H() {
     switch (get_index_mode()) {
@@ -1233,15 +1589,34 @@ void Z80::opcode_0x7D_LD_A_L() {
 }
 
 void Z80::opcode_0x7E_LD_A_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    set_A(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        set_A(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        set_A(read_byte(address));
+    }
 }
 
-void Z80::opcode_0x7F_LD_A_A() {}
-void Z80::opcode_0x80_ADD_A_B() { add_8bit(get_B()); }
-void Z80::opcode_0x81_ADD_A_C() { add_8bit(get_C()); }
-void Z80::opcode_0x82_ADD_A_D() { add_8bit(get_D()); }
-void Z80::opcode_0x83_ADD_A_E() { add_8bit(get_E()); }
+void Z80::opcode_0x7F_LD_A_A() {
+}
+
+void Z80::opcode_0x80_ADD_A_B() {
+    add_8bit(get_B());
+}
+
+void Z80::opcode_0x81_ADD_A_C() {
+    add_8bit(get_C());
+}
+
+void Z80::opcode_0x82_ADD_A_D() {
+    add_8bit(get_D());
+}
+
+void Z80::opcode_0x83_ADD_A_E() {
+    add_8bit(get_E());
+}
 
 void Z80::opcode_0x84_ADD_A_H() {
     switch (get_index_mode()) {
@@ -1260,15 +1635,35 @@ void Z80::opcode_0x85_ADD_A_L() {
 }
 
 void Z80::opcode_0x86_ADD_A_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    add_8bit(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        add_8bit(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        add_8bit(read_byte(address));
+    }
 }
 
-void Z80::opcode_0x87_ADD_A_A() { add_8bit(get_A()); }
-void Z80::opcode_0x88_ADC_A_B() { adc_8bit(get_B()); }
-void Z80::opcode_0x89_ADC_A_C() { adc_8bit(get_C()); }
-void Z80::opcode_0x8A_ADC_A_D() { adc_8bit(get_D()); }
-void Z80::opcode_0x8B_ADC_A_E() { adc_8bit(get_E()); }
+void Z80::opcode_0x87_ADD_A_A() {
+    add_8bit(get_A());
+}
+
+void Z80::opcode_0x88_ADC_A_B() {
+    adc_8bit(get_B());
+}
+
+void Z80::opcode_0x89_ADC_A_C() {
+    adc_8bit(get_C());
+}
+
+void Z80::opcode_0x8A_ADC_A_D() {
+    adc_8bit(get_D());
+}
+
+void Z80::opcode_0x8B_ADC_A_E() {
+    adc_8bit(get_E());
+}
 
 void Z80::opcode_0x8C_ADC_A_H() {
     switch (get_index_mode()) {
@@ -1287,15 +1682,35 @@ void Z80::opcode_0x8D_ADC_A_L() {
 }
 
 void Z80::opcode_0x8E_ADC_A_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    adc_8bit(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        adc_8bit(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        adc_8bit(read_byte(address));
+    }
 }
 
-void Z80::opcode_0x8F_ADC_A_A() { adc_8bit(get_A()); }
-void Z80::opcode_0x90_SUB_B() { sub_8bit(get_B()); }
-void Z80::opcode_0x91_SUB_C() { sub_8bit(get_C()); }
-void Z80::opcode_0x92_SUB_D() { sub_8bit(get_D()); }
-void Z80::opcode_0x93_SUB_E() { sub_8bit(get_E()); }
+void Z80::opcode_0x8F_ADC_A_A() {
+    adc_8bit(get_A());
+}
+
+void Z80::opcode_0x90_SUB_B() {
+    sub_8bit(get_B());
+}
+
+void Z80::opcode_0x91_SUB_C() {
+    sub_8bit(get_C());
+}
+
+void Z80::opcode_0x92_SUB_D() {
+    sub_8bit(get_D());
+}
+
+void Z80::opcode_0x93_SUB_E() {
+    sub_8bit(get_E());
+}
 
 void Z80::opcode_0x94_SUB_H() {
     switch (get_index_mode()) {
@@ -1314,15 +1729,35 @@ void Z80::opcode_0x95_SUB_L() {
 }
 
 void Z80::opcode_0x96_SUB_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    sub_8bit(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        sub_8bit(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        sub_8bit(read_byte(address));
+    }
 }
 
-void Z80::opcode_0x97_SUB_A() { sub_8bit(get_A()); }
-void Z80::opcode_0x98_SBC_A_B() { sbc_8bit(get_B()); }
-void Z80::opcode_0x99_SBC_A_C() { sbc_8bit(get_C()); }
-void Z80::opcode_0x9A_SBC_A_D() { sbc_8bit(get_D()); }
-void Z80::opcode_0x9B_SBC_A_E() { sbc_8bit(get_E()); }
+void Z80::opcode_0x97_SUB_A() {
+    sub_8bit(get_A());
+}
+
+void Z80::opcode_0x98_SBC_A_B() {
+    sbc_8bit(get_B());
+}
+
+void Z80::opcode_0x99_SBC_A_C() {
+    sbc_8bit(get_C());
+}
+
+void Z80::opcode_0x9A_SBC_A_D() {
+    sbc_8bit(get_D());
+}
+
+void Z80::opcode_0x9B_SBC_A_E() {
+    sbc_8bit(get_E());
+}
 
 void Z80::opcode_0x9C_SBC_A_H() {
     switch (get_index_mode()) {
@@ -1341,15 +1776,35 @@ void Z80::opcode_0x9D_SBC_A_L() {
 }
 
 void Z80::opcode_0x9E_SBC_A_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    sbc_8bit(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        sbc_8bit(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        sbc_8bit(read_byte(address));
+    }
 }
 
-void Z80::opcode_0x9F_SBC_A_A() { sbc_8bit(get_A()); }
-void Z80::opcode_0xA0_AND_B() { and_8bit(get_B()); }
-void Z80::opcode_0xA1_AND_C() { and_8bit(get_C()); }
-void Z80::opcode_0xA2_AND_D() { and_8bit(get_D()); }
-void Z80::opcode_0xA3_AND_E() { and_8bit(get_E()); }
+void Z80::opcode_0x9F_SBC_A_A() {
+    sbc_8bit(get_A());
+}
+
+void Z80::opcode_0xA0_AND_B() {
+    and_8bit(get_B());
+}
+
+void Z80::opcode_0xA1_AND_C() {
+    and_8bit(get_C());
+}
+
+void Z80::opcode_0xA2_AND_D() {
+    and_8bit(get_D());
+}
+
+void Z80::opcode_0xA3_AND_E() {
+    and_8bit(get_E());
+}
 
 void Z80::opcode_0xA4_AND_H() {
     switch (get_index_mode()) {
@@ -1368,15 +1823,35 @@ void Z80::opcode_0xA5_AND_L() {
 }
 
 void Z80::opcode_0xA6_AND_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    and_8bit(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        and_8bit(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        and_8bit(read_byte(address));
+    }
 }
 
-void Z80::opcode_0xA7_AND_A() { and_8bit(get_A()); }
-void Z80::opcode_0xA8_XOR_B() { xor_8bit(get_B()); }
-void Z80::opcode_0xA9_XOR_C() { xor_8bit(get_C()); }
-void Z80::opcode_0xAA_XOR_D() { xor_8bit(get_D()); }
-void Z80::opcode_0xAB_XOR_E() { xor_8bit(get_E()); }
+void Z80::opcode_0xA7_AND_A() {
+    and_8bit(get_A());
+}
+
+void Z80::opcode_0xA8_XOR_B() {
+    xor_8bit(get_B());
+}
+
+void Z80::opcode_0xA9_XOR_C() {
+    xor_8bit(get_C());
+}
+
+void Z80::opcode_0xAA_XOR_D() {
+    xor_8bit(get_D());
+}
+
+void Z80::opcode_0xAB_XOR_E() {
+    xor_8bit(get_E());
+}
 
 void Z80::opcode_0xAC_XOR_H() {
     switch (get_index_mode()) {
@@ -1395,15 +1870,35 @@ void Z80::opcode_0xAD_XOR_L() {
 }
 
 void Z80::opcode_0xAE_XOR_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    xor_8bit(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        xor_8bit(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        xor_8bit(read_byte(address));
+    }
 }
 
-void Z80::opcode_0xAF_XOR_A() { xor_8bit(get_A()); }
-void Z80::opcode_0xB0_OR_B() { or_8bit(get_B()); }
-void Z80::opcode_0xB1_OR_C() { or_8bit(get_C()); }
-void Z80::opcode_0xB2_OR_D() { or_8bit(get_D()); }
-void Z80::opcode_0xB3_OR_E() { or_8bit(get_E()); }
+void Z80::opcode_0xAF_XOR_A() {
+    xor_8bit(get_A());
+}
+
+void Z80::opcode_0xB0_OR_B() {
+    or_8bit(get_B());
+}
+
+void Z80::opcode_0xB1_OR_C() {
+    or_8bit(get_C());
+}
+
+void Z80::opcode_0xB2_OR_D() {
+    or_8bit(get_D());
+}
+
+void Z80::opcode_0xB3_OR_E() {
+    or_8bit(get_E());
+}
 
 void Z80::opcode_0xB4_OR_H() {
     switch (get_index_mode()) {
@@ -1422,15 +1917,35 @@ void Z80::opcode_0xB5_OR_L() {
 }
 
 void Z80::opcode_0xB6_OR_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    or_8bit(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        or_8bit(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        or_8bit(read_byte(address));
+    }
 }
 
-void Z80::opcode_0xB7_OR_A() { or_8bit(get_A()); }
-void Z80::opcode_0xB8_CP_B() { cp_8bit(get_B()); }
-void Z80::opcode_0xB9_CP_C() { cp_8bit(get_C()); }
-void Z80::opcode_0xBA_CP_D() { cp_8bit(get_D()); }
-void Z80::opcode_0xBB_CP_E() { cp_8bit(get_E()); }
+void Z80::opcode_0xB7_OR_A() {
+    or_8bit(get_A());
+}
+
+void Z80::opcode_0xB8_CP_B() {
+    cp_8bit(get_B());
+}
+
+void Z80::opcode_0xB9_CP_C() {
+    cp_8bit(get_C());
+}
+
+void Z80::opcode_0xBA_CP_D() {
+    cp_8bit(get_D());
+}
+
+void Z80::opcode_0xBB_CP_E() {
+    cp_8bit(get_E());
+}
 
 void Z80::opcode_0xBC_CP_H() {
     switch (get_index_mode()) {
@@ -1449,11 +1964,19 @@ void Z80::opcode_0xBD_CP_L() {
 }
 
 void Z80::opcode_0xBE_CP_HL_ptr() {
-    uint16_t address = get_indexed_address();
-    cp_8bit(read_byte(address));
+    if (get_index_mode() == IndexMode::HL) {
+        cp_8bit(read_byte(get_HL()));
+    } else {
+        add_ticks(5);
+        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        uint16_t address = (get_index_mode() == IndexMode::IX) ? (get_IX() + offset) : (get_IY() + offset);
+        cp_8bit(read_byte(address));
+    }
 }
 
-void Z80::opcode_0xBF_CP_A() { cp_8bit(get_A()); }
+void Z80::opcode_0xBF_CP_A() {
+    cp_8bit(get_A());
+}
 
 void Z80::opcode_0xC0_RET_NZ() {
     add_ticks(1);
@@ -1566,7 +2089,7 @@ void Z80::opcode_0xD2_JP_NC_nn() {
 void Z80::opcode_0xD3_OUT_n_ptr_A() {
     add_ticks(4);
     uint8_t port_lo = fetch_next_byte();
-    write_byte_to_io((get_A() << 8) | port_lo, get_A());
+    io.write((get_A() << 8) | port_lo, get_A());
 }
 
 void Z80::opcode_0xD4_CALL_NC_nn() {
@@ -1623,7 +2146,7 @@ void Z80::opcode_0xDB_IN_A_n_ptr() {
     add_ticks(4);
     uint8_t port_lo = fetch_next_byte();
     uint16_t port = (get_A() << 8) | port_lo;
-    set_A(read_byte_from_io(port));
+    set_A(io.read(port));
 }
 
 void Z80::opcode_0xDC_CALL_C_nn() {
@@ -1653,7 +2176,11 @@ void Z80::opcode_0xE0_RET_PO() {
 }
 
 void Z80::opcode_0xE1_POP_HL() {
-    set_active_index_register(pop_word());
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(pop_word()); break;
+        case IndexMode::IX: set_IX(pop_word()); break;
+        case IndexMode::IY: set_IY(pop_word()); break;
+    }
 }
 
 void Z80::opcode_0xE2_JP_PO_nn() {
@@ -1666,9 +2193,20 @@ void Z80::opcode_0xE2_JP_PO_nn() {
 void Z80::opcode_0xE3_EX_SP_ptr_HL() {
     add_ticks(3);
     uint16_t from_stack = read_word(get_SP());
-    uint16_t reg_val = get_active_index_register();
-    write_word(get_SP(), reg_val);
-    set_active_index_register(from_stack);
+    switch(get_index_mode()) {
+        case IndexMode::HL:
+            write_word(get_SP(), get_HL());
+            set_HL(from_stack);
+            break;
+        case IndexMode::IX:
+            write_word(get_SP(), get_IX());
+            set_IX(from_stack);
+            break;
+        case IndexMode::IY:
+            write_word(get_SP(), get_IY());
+            set_IY(from_stack);
+            break;
+    }
 }
 
 void Z80::opcode_0xE4_CALL_PO_nn() {
@@ -1682,7 +2220,11 @@ void Z80::opcode_0xE4_CALL_PO_nn() {
 
 void Z80::opcode_0xE5_PUSH_HL() {
     add_ticks(1);
-    push_word(get_active_index_register());
+    switch (get_index_mode()) {
+        case IndexMode::HL: push_word(get_HL()); break;
+        case IndexMode::IX: push_word(get_IX()); break;
+        case IndexMode::IY: push_word(get_IY()); break;
+    }
 }
 
 void Z80::opcode_0xE6_AND_n() {
@@ -1703,7 +2245,11 @@ void Z80::opcode_0xE8_RET_PE() {
 }
 
 void Z80::opcode_0xE9_JP_HL_ptr() {
-    set_PC(get_active_index_register());
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_PC(get_HL()); break;
+        case IndexMode::IX: set_PC(get_IX()); break;
+        case IndexMode::IY: set_PC(get_IY()); break;
+    }
 }
 
 void Z80::opcode_0xEA_JP_PE_nn() {
@@ -1794,7 +2340,11 @@ void Z80::opcode_0xF8_RET_M() {
 
 void Z80::opcode_0xF9_LD_SP_HL() {
     add_ticks(2);
-    set_SP(get_active_index_register());
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_SP(get_HL()); break;
+        case IndexMode::IX: set_SP(get_IX()); break;
+        case IndexMode::IY: set_SP(get_IY()); break;
+    }
 }
 
 void Z80::opcode_0xFA_JP_M_nn() {
@@ -1839,9 +2389,12 @@ void Z80::opcode_0xED_0x41_OUT_C_ptr_B() {
 
 void Z80::opcode_0xED_0x42_SBC_HL_BC() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = sbc_16bit(current_val, get_BC());
-    set_active_index_register(result);
+    uint16_t val_bc = get_BC();
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(sbc_16bit(get_HL(), val_bc)); break;
+        case IndexMode::IX: set_IX(sbc_16bit(get_IX(), val_bc)); break;
+        case IndexMode::IY: set_IY(sbc_16bit(get_IY(), val_bc)); break;
+    }
 }
 
 void Z80::opcode_0xED_0x43_LD_nn_ptr_BC() {
@@ -1888,9 +2441,12 @@ void Z80::opcode_0xED_0x49_OUT_C_ptr_C() {
 
 void Z80::opcode_0xED_0x4A_ADC_HL_BC() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = adc_16bit(current_val, get_BC());
-    set_active_index_register(result);
+    uint16_t val_bc = get_BC();
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(adc_16bit(get_HL(), val_bc)); break;
+        case IndexMode::IX: set_IX(adc_16bit(get_IX(), val_bc)); break;
+        case IndexMode::IY: set_IY(adc_16bit(get_IY(), val_bc)); break;
+    }
 }
 
 void Z80::opcode_0xED_0x4B_LD_BC_nn_ptr() {
@@ -1920,9 +2476,12 @@ void Z80::opcode_0xED_0x51_OUT_C_ptr_D() {
 
 void Z80::opcode_0xED_0x52_SBC_HL_DE() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = sbc_16bit(current_val, get_DE());
-    set_active_index_register(result);
+    uint16_t val_de = get_DE();
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(sbc_16bit(get_HL(), val_de)); break;
+        case IndexMode::IX: set_IX(sbc_16bit(get_IX(), val_de)); break;
+        case IndexMode::IY: set_IY(sbc_16bit(get_IY(), val_de)); break;
+    }
 }
 
 void Z80::opcode_0xED_0x53_LD_nn_ptr_DE() {
@@ -1957,9 +2516,12 @@ void Z80::opcode_0xED_0x59_OUT_C_ptr_E() {
 
 void Z80::opcode_0xED_0x5A_ADC_HL_DE() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = adc_16bit(current_val, get_DE());
-    set_active_index_register(result);
+    uint16_t val_de = get_DE();
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(adc_16bit(get_HL(), val_de)); break;
+        case IndexMode::IX: set_IX(adc_16bit(get_IX(), val_de)); break;
+        case IndexMode::IY: set_IY(adc_16bit(get_IY(), val_de)); break;
+    }
 }
 
 void Z80::opcode_0xED_0x5B_LD_DE_nn_ptr() {
@@ -1994,9 +2556,11 @@ void Z80::opcode_0xED_0x61_OUT_C_ptr_H() {
 
 void Z80::opcode_0xED_0x62_SBC_HL_HL() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = sbc_16bit(current_val, current_val);
-    set_active_index_register(result);
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(sbc_16bit(get_HL(), get_HL())); break;
+        case IndexMode::IX: set_IX(sbc_16bit(get_IX(), get_IX())); break;
+        case IndexMode::IY: set_IY(sbc_16bit(get_IY(), get_IY())); break;
+    }
 }
 
 void Z80::opcode_0xED_0x63_LD_nn_ptr_HL_ED() {
@@ -2032,9 +2596,11 @@ void Z80::opcode_0xED_0x69_OUT_C_ptr_L() {
 
 void Z80::opcode_0xED_0x6A_ADC_HL_HL() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = adc_16bit(current_val, current_val);
-    set_active_index_register(result);
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(adc_16bit(get_HL(), get_HL())); break;
+        case IndexMode::IX: set_IX(adc_16bit(get_IX(), get_IX())); break;
+        case IndexMode::IY: set_IY(adc_16bit(get_IY(), get_IY())); break;
+    }
 }
 
 void Z80::opcode_0xED_0x6B_LD_HL_nn_ptr_ED() {
@@ -2070,9 +2636,12 @@ void Z80::opcode_0xED_0x71_OUT_C_ptr_0() {
 
 void Z80::opcode_0xED_0x72_SBC_HL_SP() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = sbc_16bit(current_val, get_SP());
-    set_active_index_register(result);
+    uint16_t val_sp = get_SP();
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(sbc_16bit(get_HL(), val_sp)); break;
+        case IndexMode::IX: set_IX(sbc_16bit(get_IX(), val_sp)); break;
+        case IndexMode::IY: set_IY(sbc_16bit(get_IY(), val_sp)); break;
+    }
 }
 
 void Z80::opcode_0xED_0x73_LD_nn_ptr_SP() {
@@ -2091,9 +2660,12 @@ void Z80::opcode_0xED_0x79_OUT_C_ptr_A() {
 
 void Z80::opcode_0xED_0x7A_ADC_HL_SP() {
     add_ticks(7);
-    uint16_t current_val = get_active_index_register();
-    uint16_t result = adc_16bit(current_val, get_SP());
-    set_active_index_register(result);
+    uint16_t val_sp = get_SP();
+    switch (get_index_mode()) {
+        case IndexMode::HL: set_HL(adc_16bit(get_HL(), val_sp)); break;
+        case IndexMode::IX: set_IX(adc_16bit(get_IX(), val_sp)); break;
+        case IndexMode::IY: set_IY(adc_16bit(get_IY(), val_sp)); break;
+    }
 }
 
 void Z80::opcode_0xED_0x7B_LD_SP_nn_ptr() {
@@ -2134,7 +2706,7 @@ void Z80::opcode_0xED_0xA1_CPI() {
 
 void Z80::opcode_0xED_0xA2_INI() {
     add_ticks(5);
-    uint8_t port_val = read_byte_from_io(get_BC());
+    uint8_t port_val = io.read(get_BC());
     uint8_t b_val = get_B();
     set_B(b_val - 1);
     write_byte(get_HL(), port_val);
@@ -2153,7 +2725,7 @@ void Z80::opcode_0xED_0xA3_OUTI() {
     uint8_t mem_val = read_byte(get_HL());
     uint8_t b_val = get_B();
     set_B(b_val - 1);
-    write_byte_to_io(get_BC(), mem_val);
+    io.write(get_BC(), mem_val);
     set_HL(get_HL() + 1);
     set_flag(FLAG_N);
     set_flag_if(FLAG_Z, b_val - 1 == 0);
@@ -2197,7 +2769,7 @@ void Z80::opcode_0xED_0xA9_CPD() {
 
 void Z80::opcode_0xED_0xAA_IND() {
     add_ticks(5);
-    uint8_t port_val = read_byte_from_io(get_BC());
+    uint8_t port_val = io.read(get_BC());
     uint8_t b_val = get_B();
     set_B(b_val - 1);
     write_byte(get_HL(), port_val);
@@ -2216,7 +2788,7 @@ void Z80::opcode_0xED_0xAB_OUTD() {
     uint8_t mem_val = read_byte(get_HL());
     uint8_t b_val = get_B();
     set_B(b_val - 1);
-    write_byte_to_io(get_BC(), mem_val);
+    io.write(get_BC(), mem_val);
     set_HL(get_HL() - 1);
     set_flag(FLAG_N);
     set_flag_if(FLAG_Z, b_val - 1 == 0);
