@@ -725,12 +725,7 @@ void Z80::opcode_0x08_EX_AF_AFp() {
 
 void Z80::opcode_0x09_ADD_HL_BC() {
     add_ticks(7);
-    uint16_t val_bc = get_BC();
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_HL(add_16bit(get_HL(), val_bc)); break;
-        case IndexMode::IX: set_IX(add_16bit(get_IX(), val_bc)); break;
-        case IndexMode::IY: set_IY(add_16bit(get_IY(), val_bc)); break;
-    }
+    set_indexed_register(add_16bit(get_indexed_register(), get_BC()));
 }
 
 void Z80::opcode_0x0A_LD_A_BC_ptr() {
@@ -821,18 +816,7 @@ void Z80::opcode_0x18_JR_d() {
 
 void Z80::opcode_0x19_ADD_HL_DE() {
     add_ticks(7);
-    uint16_t val_de = get_DE();
-    switch (get_index_mode()) {
-        case IndexMode::HL:
-            set_HL(add_16bit(get_HL(), val_de));
-            break;
-        case IndexMode::IX:
-            set_IX(add_16bit(get_IX(), val_de));
-            break;
-        case IndexMode::IY:
-            set_IY(add_16bit(get_IY(), val_de));
-            break;
-    }
+    set_indexed_register(add_16bit(get_indexed_register(), get_DE()));
 }
 
 void Z80::opcode_0x1A_LD_A_DE_ptr() {
@@ -877,30 +861,16 @@ void Z80::opcode_0x20_JR_NZ_d() {
 }
 
 void Z80::opcode_0x21_LD_HL_nn() {
-    uint16_t value = fetch_next_word();
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_HL(value); break;
-        case IndexMode::IX: set_IX(value); break;
-        case IndexMode::IY: set_IY(value); break;
-    }
+    set_indexed_register(fetch_next_word());
 }
 
 void Z80::opcode_0x22_LD_nn_ptr_HL() {
-    uint16_t address = fetch_next_word();
-    switch (get_index_mode()) {
-        case IndexMode::HL: write_word(address, get_HL()); break;
-        case IndexMode::IX: write_word(address, get_IX()); break;
-        case IndexMode::IY: write_word(address, get_IY()); break;
-    }
+    write_word(fetch_next_word(), get_indexed_register());
 }
 
 void Z80::opcode_0x23_INC_HL() {
     add_ticks(2);
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_HL(get_HL() + 1); break;
-        case IndexMode::IX: set_IX(get_IX() + 1); break;
-        case IndexMode::IY: set_IY(get_IY() + 1); break;
-    }
+    set_indexed_register(get_indexed_register() + 1);
 }
 
 void Z80::opcode_0x24_INC_H() {
@@ -969,17 +939,7 @@ void Z80::opcode_0x28_JR_Z_d() {
 
 void Z80::opcode_0x29_ADD_HL_HL() {
     add_ticks(7);
-    switch (get_index_mode()) {
-        case IndexMode::HL:
-            set_HL(add_16bit(get_HL(), get_HL()));
-            break;
-        case IndexMode::IX:
-            set_IX(add_16bit(get_IX(), get_IX()));
-            break;
-        case IndexMode::IY:
-            set_IY(add_16bit(get_IY(), get_IY()));
-            break;
-    }
+    set_indexed_register(add_16bit(get_indexed_register(), get_indexed_register()));
 }
 
 void Z80::opcode_0x2A_LD_HL_nn_ptr() {
