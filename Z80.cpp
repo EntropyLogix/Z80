@@ -136,7 +136,7 @@ uint16_t Z80::fetch_next_word() {
     return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
 }
 
-uint16_t Z80::get_indexed_register() const {
+uint16_t Z80::get_indexed_HL() const {
     switch (get_index_mode()) {
         case IndexMode::HL: return get_HL();
         case IndexMode::IX: return get_IX();
@@ -145,7 +145,7 @@ uint16_t Z80::get_indexed_register() const {
     return 0;
 }
 
-void Z80::set_indexed_register(uint16_t value) {
+void Z80::set_indexed_HL(uint16_t value) {
     switch (get_index_mode()) {
         case IndexMode::HL: set_HL(value); break;
         case IndexMode::IX: set_IX(value); break;
@@ -153,7 +153,7 @@ void Z80::set_indexed_register(uint16_t value) {
     }
 }
 
-uint8_t Z80::get_indexed_register_high_byte() const {
+uint8_t Z80::get_indexed_H() const {
     switch (get_index_mode()) {
         case IndexMode::HL: return get_H();
         case IndexMode::IX: return get_IXH();
@@ -162,7 +162,7 @@ uint8_t Z80::get_indexed_register_high_byte() const {
     return 0;
 }
 
-void Z80::set_indexed_register_high_byte(uint8_t value) {
+void Z80::set_indexed_H(uint8_t value) {
     switch (get_index_mode()) {
         case IndexMode::HL: set_H(value); break;
         case IndexMode::IX: set_IXH(value); break;
@@ -170,7 +170,7 @@ void Z80::set_indexed_register_high_byte(uint8_t value) {
     }
 }
 
-uint8_t Z80::get_indexed_register_low_byte() const {
+uint8_t Z80::get_indexed_L() const {
     switch (get_index_mode()) {
         case IndexMode::HL: return get_L();
         case IndexMode::IX: return get_IXL();
@@ -179,7 +179,7 @@ uint8_t Z80::get_indexed_register_low_byte() const {
     return 0;
 }
 
-void Z80::set_indexed_register_low_byte(uint8_t value) {
+void Z80::set_indexed_L(uint8_t value) {
     switch (get_index_mode()) {
         case IndexMode::HL: set_L(value); break;
         case IndexMode::IX: set_IXL(value); break;
@@ -193,7 +193,7 @@ uint16_t Z80::get_indexed_address() {
     } else {
         add_ticks(5);
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
-        return get_indexed_register() + offset;
+        return get_indexed_HL() + offset;
     }
 }
 
@@ -725,7 +725,7 @@ void Z80::opcode_0x08_EX_AF_AFp() {
 
 void Z80::opcode_0x09_ADD_HL_BC() {
     add_ticks(7);
-    set_indexed_register(add_16bit(get_indexed_register(), get_BC()));
+    set_indexed_HL(add_16bit(get_indexed_HL(), get_BC()));
 }
 
 void Z80::opcode_0x0A_LD_A_BC_ptr() {
@@ -816,7 +816,7 @@ void Z80::opcode_0x18_JR_d() {
 
 void Z80::opcode_0x19_ADD_HL_DE() {
     add_ticks(7);
-    set_indexed_register(add_16bit(get_indexed_register(), get_DE()));
+    set_indexed_HL(add_16bit(get_indexed_HL(), get_DE()));
 }
 
 void Z80::opcode_0x1A_LD_A_DE_ptr() {
@@ -861,28 +861,28 @@ void Z80::opcode_0x20_JR_NZ_d() {
 }
 
 void Z80::opcode_0x21_LD_HL_nn() {
-    set_indexed_register(fetch_next_word());
+    set_indexed_HL(fetch_next_word());
 }
 
 void Z80::opcode_0x22_LD_nn_ptr_HL() {
-    write_word(fetch_next_word(), get_indexed_register());
+    write_word(fetch_next_word(), get_indexed_HL());
 }
 
 void Z80::opcode_0x23_INC_HL() {
     add_ticks(2);
-    set_indexed_register(get_indexed_register() + 1);
+    set_indexed_HL(get_indexed_HL() + 1);
 }
 
 void Z80::opcode_0x24_INC_H() {
-    set_indexed_register_high_byte(inc_8bit(get_indexed_register_high_byte()));
+    set_indexed_H(inc_8bit(get_indexed_H()));
 }
 
 void Z80::opcode_0x25_DEC_H() {
-    set_indexed_register_high_byte(dec_8bit(get_indexed_register_high_byte()));
+    set_indexed_H(dec_8bit(get_indexed_H()));
 }
 
 void Z80::opcode_0x26_LD_H_n() {
-    set_indexed_register_high_byte(fetch_next_byte());
+    set_indexed_H(fetch_next_byte());
 }
 
 void Z80::opcode_0x27_DAA() {
@@ -926,7 +926,7 @@ void Z80::opcode_0x28_JR_Z_d() {
 
 void Z80::opcode_0x29_ADD_HL_HL() {
     add_ticks(7);
-    set_indexed_register(add_16bit(get_indexed_register(), get_indexed_register()));
+    set_indexed_HL(add_16bit(get_indexed_HL(), get_indexed_HL()));
 }
 
 void Z80::opcode_0x2A_LD_HL_nn_ptr() {
@@ -954,15 +954,15 @@ void Z80::opcode_0x2B_DEC_HL() {
 }
 
 void Z80::opcode_0x2C_INC_L() {
-    set_indexed_register_low_byte(inc_8bit(get_indexed_register_low_byte()));
+    set_indexed_L(inc_8bit(get_indexed_L()));
 }
 
 void Z80::opcode_0x2D_DEC_L() {
-    set_indexed_register_low_byte(dec_8bit(get_indexed_register_low_byte()));
+    set_indexed_L(dec_8bit(get_indexed_L()));
 }
 
 void Z80::opcode_0x2E_LD_L_n() {
-    set_indexed_register_low_byte(fetch_next_byte());
+    set_indexed_L(fetch_next_byte());
 }
 
 void Z80::opcode_0x2F_CPL() {
@@ -1117,11 +1117,11 @@ void Z80::opcode_0x43_LD_B_E() {
 }
 
 void Z80::opcode_0x44_LD_B_H() {
-    set_B(get_indexed_register_high_byte());
+    set_B(get_indexed_H());
 }
 
 void Z80::opcode_0x45_LD_B_L() {
-    set_B(get_indexed_register_low_byte());
+    set_B(get_indexed_L());
 }
 
 void Z80::opcode_0x46_LD_B_HL_ptr() {
@@ -1155,11 +1155,11 @@ void Z80::opcode_0x4B_LD_C_E() {
 }
 
 void Z80::opcode_0x4C_LD_C_H() {
-    set_C(get_indexed_register_high_byte());
+    set_C(get_indexed_H());
 }
 
 void Z80::opcode_0x4D_LD_C_L() {
-    set_C(get_indexed_register_low_byte());
+    set_C(get_indexed_L());
 }
 
 void Z80::opcode_0x4E_LD_C_HL_ptr() {
@@ -1193,11 +1193,11 @@ void Z80::opcode_0x53_LD_D_E() {
 }
 
 void Z80::opcode_0x54_LD_D_H() {
-    set_D(get_indexed_register_high_byte());
+    set_D(get_indexed_H());
 }
 
 void Z80::opcode_0x55_LD_D_L() {
-    set_D(get_indexed_register_low_byte());
+    set_D(get_indexed_L());
 }
 
 void Z80::opcode_0x56_LD_D_HL_ptr() {
@@ -1231,11 +1231,11 @@ void Z80::opcode_0x5B_LD_E_E() {
 }
 
 void Z80::opcode_0x5C_LD_E_H() {
-    set_E(get_indexed_register_high_byte());
+    set_E(get_indexed_H());
 }
 
 void Z80::opcode_0x5D_LD_E_L() {
-    set_E(get_indexed_register_low_byte());
+    set_E(get_indexed_L());
 }
 
 void Z80::opcode_0x5E_LD_E_HL_ptr() {
@@ -1254,26 +1254,26 @@ void Z80::opcode_0x5F_LD_E_A() {
 }
 
 void Z80::opcode_0x60_LD_H_B() {
-    set_indexed_register_high_byte(get_B());
+    set_indexed_H(get_B());
 }
 
 void Z80::opcode_0x61_LD_H_C() {
-    set_indexed_register_high_byte(get_C());
+    set_indexed_H(get_C());
 }
 
 void Z80::opcode_0x62_LD_H_D() {
-    set_indexed_register_high_byte(get_D());
+    set_indexed_H(get_D());
 }
 
 void Z80::opcode_0x63_LD_H_E() {
-    set_indexed_register_high_byte(get_E());
+    set_indexed_H(get_E());
 }
 
 void Z80::opcode_0x64_LD_H_H() {
 }
 
 void Z80::opcode_0x65_LD_H_L() {
-    set_indexed_register_high_byte(get_indexed_register_low_byte());
+    set_indexed_H(get_indexed_L());
 }
 
 void Z80::opcode_0x66_LD_H_HL_ptr() {
@@ -1288,27 +1288,27 @@ void Z80::opcode_0x66_LD_H_HL_ptr() {
 }
 
 void Z80::opcode_0x67_LD_H_A() {
-    set_indexed_register_high_byte(get_A());
+    set_indexed_H(get_A());
 }
 
 void Z80::opcode_0x68_LD_L_B() {
-    set_indexed_register_low_byte(get_B());
+    set_indexed_L(get_B());
 }
 
 void Z80::opcode_0x69_LD_L_C() {
-    set_indexed_register_low_byte(get_C());
+    set_indexed_L(get_C());
 }
 
 void Z80::opcode_0x6A_LD_L_D() {
-    set_indexed_register_low_byte(get_D());
+    set_indexed_L(get_D());
 }
 
 void Z80::opcode_0x6B_LD_L_E() {
-    set_indexed_register_low_byte(get_E());
+    set_indexed_L(get_E());
 }
 
 void Z80::opcode_0x6C_LD_L_H() {
-    set_indexed_register_low_byte(get_indexed_register_high_byte());
+    set_indexed_L(get_indexed_H());
 }
 
 void Z80::opcode_0x6D_LD_L_L() {
@@ -1326,7 +1326,7 @@ void Z80::opcode_0x6E_LD_L_HL_ptr() {
 }
 
 void Z80::opcode_0x6F_LD_L_A() {
-    set_indexed_register_low_byte(get_A());
+    set_indexed_L(get_A());
 }
 
 void Z80::opcode_0x70_LD_HL_ptr_B() {
@@ -1427,11 +1427,11 @@ void Z80::opcode_0x7B_LD_A_E() {
 }
 
 void Z80::opcode_0x7C_LD_A_H() {
-    set_A(get_indexed_register_high_byte());
+    set_A(get_indexed_H());
 }
 
 void Z80::opcode_0x7D_LD_A_L() {
-    set_A(get_indexed_register_low_byte());
+    set_A(get_indexed_L());
 }
 
 void Z80::opcode_0x7E_LD_A_HL_ptr() {
@@ -1465,11 +1465,11 @@ void Z80::opcode_0x83_ADD_A_E() {
 }
 
 void Z80::opcode_0x84_ADD_A_H() {
-    add_8bit(get_indexed_register_high_byte());
+    add_8bit(get_indexed_H());
 }
 
 void Z80::opcode_0x85_ADD_A_L() {
-    add_8bit(get_indexed_register_low_byte());
+    add_8bit(get_indexed_L());
 }
 
 void Z80::opcode_0x86_ADD_A_HL_ptr() {
@@ -1504,11 +1504,11 @@ void Z80::opcode_0x8B_ADC_A_E() {
 }
 
 void Z80::opcode_0x8C_ADC_A_H() {
-    adc_8bit(get_indexed_register_high_byte());
+    adc_8bit(get_indexed_H());
 }
 
 void Z80::opcode_0x8D_ADC_A_L() {
-    adc_8bit(get_indexed_register_low_byte());
+    adc_8bit(get_indexed_L());
 }
 
 void Z80::opcode_0x8E_ADC_A_HL_ptr() {
@@ -1543,11 +1543,11 @@ void Z80::opcode_0x93_SUB_E() {
 }
 
 void Z80::opcode_0x94_SUB_H() {
-    sub_8bit(get_indexed_register_high_byte());
+    sub_8bit(get_indexed_H());
 }
 
 void Z80::opcode_0x95_SUB_L() {
-    sub_8bit(get_indexed_register_low_byte());
+    sub_8bit(get_indexed_L());
 }
 
 void Z80::opcode_0x96_SUB_HL_ptr() {
@@ -1582,11 +1582,11 @@ void Z80::opcode_0x9B_SBC_A_E() {
 }
 
 void Z80::opcode_0x9C_SBC_A_H() {
-    sbc_8bit(get_indexed_register_high_byte());
+    sbc_8bit(get_indexed_H());
 }
 
 void Z80::opcode_0x9D_SBC_A_L() {
-    sbc_8bit(get_indexed_register_low_byte());
+    sbc_8bit(get_indexed_L());
 }
 
 void Z80::opcode_0x9E_SBC_A_HL_ptr() {
@@ -1621,11 +1621,11 @@ void Z80::opcode_0xA3_AND_E() {
 }
 
 void Z80::opcode_0xA4_AND_H() {
-    and_8bit(get_indexed_register_high_byte());
+    and_8bit(get_indexed_H());
 }
 
 void Z80::opcode_0xA5_AND_L() {
-    and_8bit(get_indexed_register_low_byte());
+    and_8bit(get_indexed_L());
 }
 
 void Z80::opcode_0xA6_AND_HL_ptr() {
@@ -1660,11 +1660,11 @@ void Z80::opcode_0xAB_XOR_E() {
 }
 
 void Z80::opcode_0xAC_XOR_H() {
-    xor_8bit(get_indexed_register_high_byte());
+    xor_8bit(get_indexed_H());
 }
 
 void Z80::opcode_0xAD_XOR_L() {
-    xor_8bit(get_indexed_register_low_byte());
+    xor_8bit(get_indexed_L());
 }
 
 void Z80::opcode_0xAE_XOR_HL_ptr() {
@@ -1699,11 +1699,11 @@ void Z80::opcode_0xB3_OR_E() {
 }
 
 void Z80::opcode_0xB4_OR_H() {
-    or_8bit(get_indexed_register_high_byte());
+    or_8bit(get_indexed_H());
 }
 
 void Z80::opcode_0xB5_OR_L() {
-    or_8bit(get_indexed_register_low_byte());
+    or_8bit(get_indexed_L());
 }
 
 void Z80::opcode_0xB6_OR_HL_ptr() {
@@ -1738,11 +1738,11 @@ void Z80::opcode_0xBB_CP_E() {
 }
 
 void Z80::opcode_0xBC_CP_H() {
-    cp_8bit(get_indexed_register_high_byte());
+    cp_8bit(get_indexed_H());
 }
 
 void Z80::opcode_0xBD_CP_L() {
-    cp_8bit(get_indexed_register_low_byte());
+    cp_8bit(get_indexed_L());
 }
 
 void Z80::opcode_0xBE_CP_HL_ptr() {

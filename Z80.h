@@ -228,12 +228,12 @@ private:
         return (count % 2) == 0;
     }
 
-    uint16_t get_indexed_register() const;
-    void set_indexed_register(uint16_t value);
-    uint8_t get_indexed_register_high_byte() const;
-    void set_indexed_register_high_byte(uint8_t value);
-    uint8_t get_indexed_register_low_byte() const;
-    void set_indexed_register_low_byte(uint8_t value);
+    uint16_t get_indexed_HL() const;
+    void set_indexed_HL(uint16_t value);
+    uint8_t get_indexed_H() const;
+    void set_indexed_H(uint8_t value);
+    uint8_t get_indexed_L() const;
+    void set_indexed_L(uint8_t value);
 
     uint16_t get_indexed_address();
     uint8_t read_byte_from_indexed_address();
