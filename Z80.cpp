@@ -7,7 +7,7 @@ void Z80::request_interrupt(uint8_t data) {
 }
 
 void Z80::handle_nmi() {
-    add_ticks(11);
+    add_ticks(5);
     set_halted(false);
     set_IFF2(get_IFF1());
     set_IFF1(false);
@@ -17,7 +17,7 @@ void Z80::handle_nmi() {
 }
 
 void Z80::handle_interrupt() {
-    add_ticks(13);
+    add_ticks(7);
     set_IFF2(get_IFF1());
     set_IFF1(false);
     push_word(get_PC());
@@ -43,8 +43,8 @@ void Z80::handle_interrupt() {
         case 2: {
             uint16_t vector_address = (static_cast<uint16_t>(get_I()) << 8) | get_interrupt_data();
             uint16_t handler_address = read_word(vector_address);
-            set_PC(handler_address);
             add_ticks(6);
+            set_PC(handler_address);
             break;
         }
     }
@@ -262,8 +262,8 @@ uint16_t Z80::adc_16bit(uint16_t reg, uint16_t value) {
     set_flag_if(FLAG_PV, (static_cast<int16_t>((reg ^ result) & (value ^ result)) < 0));
     clear_flag(FLAG_N);
     set_flag_if(FLAG_C, (result & 0x10000) != 0);
-    set_flag_if(FLAG_Y, (result & 0x2000) != 0); 
-    set_flag_if(FLAG_X, (result & 0x0800) != 0); 
+    set_flag_if(FLAG_Y, (result & 0x2000) != 0);
+    set_flag_if(FLAG_X, (result & 0x0800) != 0);
     return static_cast<uint16_t>(result);
 }
 
@@ -389,7 +389,7 @@ void Z80::bit_8bit(uint8_t bit, uint8_t value) {
 
     if (bit == 7) {
         set_flag_if(FLAG_S, (value & 0x80) != 0);
-    } else 
+    } else
         clear_flag(FLAG_S);
 }
 
@@ -403,14 +403,14 @@ uint8_t Z80::set_8bit(uint8_t bit, uint8_t value) {
 
 uint8_t Z80::in_r_c() {
     uint8_t value = read_byte_from_io(get_BC());
-    
+
     set_flag_if(FLAG_S, (value & 0x80) != 0);
     set_flag_if(FLAG_Z, value == 0);
     clear_flag(FLAG_H | FLAG_N);
     set_flag_if(FLAG_PV, is_parity_even(value));
     set_flag_if(FLAG_X, (value & FLAG_X) != 0);
     set_flag_if(FLAG_Y, (value & FLAG_Y) != 0);
-    
+
     return value;
 }
 
@@ -496,7 +496,7 @@ void Z80::handle_CB_indexed(uint16_t index_register) {
     uint8_t bit = (opcode >> 3) & 0x07;
     uint8_t result = value;
     if (operation_group == 1) {
-        bit_8bit(bit, value); 
+        bit_8bit(bit, value);
         add_ticks(1);
         set_flag_if(FLAG_X, (address & 0x0800) != 0);
         set_flag_if(FLAG_Y, (address & 0x2000) != 0);
@@ -795,8 +795,8 @@ void Z80::opcode_0x27_DAA() {
     uint8_t correction = 0;
     bool carry = is_C_flag_set();
     if (is_N_flag_set()) {
-        if (carry || (a > 0x99)) { 
-            correction = 0x60; 
+        if (carry || (a > 0x99)) {
+            correction = 0x60;
         }
         if (is_H_flag_set() || ((a & 0x0F) > 0x09)) {
             correction |= 0x06;
@@ -1903,13 +1903,11 @@ void Z80::opcode_0xC0_RET_NZ() {
     add_ticks(1);
     if (!is_Z_flag_set()) {
         set_PC(pop_word());
-        add_ticks(6);
     }
 }
 
 void Z80::opcode_0xC1_POP_BC() {
     set_BC(pop_word());
-    add_ticks(6);
 }
 
 void Z80::opcode_0xC2_JP_NZ_nn() {
@@ -1928,13 +1926,13 @@ void Z80::opcode_0xC4_CALL_NZ_nn() {
     if (!is_Z_flag_set()) {
         push_word(get_PC());
         set_PC(address);
-        add_ticks(7);
+        add_ticks(1);
     }
 }
 
 void Z80::opcode_0xC5_PUSH_BC() {
     push_word(get_BC());
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xC6_ADD_A_n() {
@@ -1944,20 +1942,18 @@ void Z80::opcode_0xC6_ADD_A_n() {
 void Z80::opcode_0xC7_RST_00H() {
     push_word(get_PC());
     set_PC(0x0000);
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xC8_RET_Z() {
     add_ticks(1);
     if (is_Z_flag_set()) {
         set_PC(pop_word());
-        add_ticks(6);
     }
 }
 
 void Z80::opcode_0xC9_RET() {
     set_PC(pop_word());
-    add_ticks(6);
 }
 
 void Z80::opcode_0xCA_JP_Z_nn() {
@@ -1972,7 +1968,7 @@ void Z80::opcode_0xCC_CALL_Z_nn() {
     if (is_Z_flag_set()) {
         push_word(get_PC());
         set_PC(address);
-        add_ticks(7);
+        add_ticks(1);
     }
 }
 
@@ -1990,20 +1986,18 @@ void Z80::opcode_0xCE_ADC_A_n() {
 void Z80::opcode_0xCF_RST_08H() {
     push_word(get_PC());
     set_PC(0x0008);
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xD0_RET_NC() {
     add_ticks(1);
     if (!is_C_flag_set()) {
         set_PC(pop_word());
-        add_ticks(6);
     }
 }
 
 void Z80::opcode_0xD1_POP_DE() {
     set_DE(pop_word());
-    add_ticks(6);
 }
 
 void Z80::opcode_0xD2_JP_NC_nn() {
@@ -2024,13 +2018,13 @@ void Z80::opcode_0xD4_CALL_NC_nn() {
     if (!is_C_flag_set()) {
         push_word(get_PC());
         set_PC(address);
-        add_ticks(7);
+        add_ticks(1);
     }
 }
 
 void Z80::opcode_0xD5_PUSH_DE() {
     push_word(get_DE());
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xD6_SUB_n() {
@@ -2040,14 +2034,13 @@ void Z80::opcode_0xD6_SUB_n() {
 void Z80::opcode_0xD7_RST_10H() {
     push_word(get_PC());
     set_PC(0x0010);
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xD8_RET_C() {
     add_ticks(1);
     if (is_C_flag_set()) {
         set_PC(pop_word());
-        add_ticks(6);
     }
 }
 
@@ -2082,7 +2075,7 @@ void Z80::opcode_0xDC_CALL_C_nn() {
     if (is_C_flag_set()) {
         push_word(get_PC());
         set_PC(address);
-        add_ticks(7);
+        add_ticks(1);
     }
 }
 
@@ -2093,14 +2086,13 @@ void Z80::opcode_0xDE_SBC_A_n() {
 void Z80::opcode_0xDF_RST_18H() {
     push_word(get_PC());
     set_PC(0x0018);
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xE0_RET_PO() {
     add_ticks(1);
     if (!is_PV_flag_set()) {
         set_PC(pop_word());
-        add_ticks(6);
     }
 }
 
@@ -2110,7 +2102,6 @@ void Z80::opcode_0xE1_POP_HL() {
         case IndexMode::IX: set_IX(pop_word()); break;
         case IndexMode::IY: set_IY(pop_word()); break;
     }
-    add_ticks(6);
 }
 
 void Z80::opcode_0xE2_JP_PO_nn() {
@@ -2121,19 +2112,26 @@ void Z80::opcode_0xE2_JP_PO_nn() {
 }
 
 void Z80::opcode_0xE3_EX_SP_ptr_HL() {
-    uint16_t from_stack = read_word(get_SP()); add_ticks(6);
+    uint16_t from_stack = read_word(get_SP());
+    add_ticks(6);
     add_ticks(2);
     switch(get_index_mode()) {
         case IndexMode::HL:
-            write_word(get_SP(), get_HL()); add_ticks(7);
+            write_word(get_SP(), get_HL());
+            add_ticks(6);
+            add_ticks(1);
             set_HL(from_stack);
             break;
         case IndexMode::IX:
-            write_word(get_SP(), get_IX()); add_ticks(7);
+            write_word(get_SP(), get_IX());
+            add_ticks(6);
+            add_ticks(1);
             set_IX(from_stack);
             break;
         case IndexMode::IY:
-            write_word(get_SP(), get_IY()); add_ticks(7);
+            write_word(get_SP(), get_IY());
+            add_ticks(6);
+            add_ticks(1);
             set_IY(from_stack);
             break;
     }
@@ -2144,7 +2142,7 @@ void Z80::opcode_0xE4_CALL_PO_nn() {
     if (!is_PV_flag_set()) {
         push_word(get_PC());
         set_PC(address);
-        add_ticks(7);
+        add_ticks(1);
     }
 }
 
@@ -2154,7 +2152,7 @@ void Z80::opcode_0xE5_PUSH_HL() {
         case IndexMode::IX: push_word(get_IX()); break;
         case IndexMode::IY: push_word(get_IY()); break;
     }
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xE6_AND_n() {
@@ -2164,14 +2162,13 @@ void Z80::opcode_0xE6_AND_n() {
 void Z80::opcode_0xE7_RST_20H() {
     push_word(get_PC());
     set_PC(0x0020);
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xE8_RET_PE() {
     add_ticks(1);
     if (is_PV_flag_set()) {
         set_PC(pop_word());
-        add_ticks(6);
     }
 }
 
@@ -2201,7 +2198,7 @@ void Z80::opcode_0xEC_CALL_PE_nn() {
     if (is_PV_flag_set()) {
         push_word(get_PC());
         set_PC(address);
-        add_ticks(7);
+        add_ticks(1);
     }
 }
 
@@ -2212,20 +2209,18 @@ void Z80::opcode_0xEE_XOR_n() {
 void Z80::opcode_0xEF_RST_28H() {
     push_word(get_PC());
     set_PC(0x0028);
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xF0_RET_P() {
     add_ticks(1);
     if (!is_S_flag_set()) {
         set_PC(pop_word());
-        add_ticks(6);
     }
 }
 
 void Z80::opcode_0xF1_POP_AF() {
     set_AF(pop_word());
-    add_ticks(6);
 }
 
 void Z80::opcode_0xF2_JP_P_nn() {
@@ -2245,13 +2240,13 @@ void Z80::opcode_0xF4_CALL_P_nn() {
     if (!is_S_flag_set()) {
         push_word(get_PC());
         set_PC(address);
-        add_ticks(7);
+        add_ticks(1);
     }
 }
 
 void Z80::opcode_0xF5_PUSH_AF() {
     push_word(get_AF());
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xF6_OR_n() {
@@ -2261,14 +2256,13 @@ void Z80::opcode_0xF6_OR_n() {
 void Z80::opcode_0xF7_RST_30H() {
     push_word(get_PC());
     set_PC(0x0030);
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xF8_RET_M() {
     add_ticks(1);
     if (is_S_flag_set()) {
         set_PC(pop_word());
-        add_ticks(6);
     }
 }
 
@@ -2297,7 +2291,7 @@ void Z80::opcode_0xFC_CALL_M_nn() {
     if (is_S_flag_set()) {
         push_word(get_PC());
         set_PC(address);
-        add_ticks(7);
+        add_ticks(1);
     }
 }
 
@@ -2308,7 +2302,7 @@ void Z80::opcode_0xFE_CP_n() {
 void Z80::opcode_0xFF_RST_38H() {
     push_word(get_PC());
     set_PC(0x0038);
-    add_ticks(7);
+    add_ticks(1);
 }
 
 void Z80::opcode_0xED_0x40_IN_B_C_ptr() {
@@ -2344,7 +2338,7 @@ void Z80::opcode_0xED_0x44_NEG() {
     set_flag_if(FLAG_Z, result == 0);
     set_flag_if(FLAG_H, (0x00 & 0x0F) < (value & 0x0F));
     set_flag(FLAG_N);
-    set_flag_if(FLAG_C, value != 0); 
+    set_flag_if(FLAG_C, value != 0);
     set_flag_if(FLAG_PV, value == 0x80);
     set_flag_if(FLAG_X, (result & FLAG_X) != 0);
     set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
@@ -2352,7 +2346,6 @@ void Z80::opcode_0xED_0x44_NEG() {
 
 void Z80::opcode_0xED_0x45_RETN() {
     set_PC(pop_word());
-    add_ticks(6);
     set_IFF1(get_IFF2());
 }
 
@@ -2392,7 +2385,6 @@ void Z80::opcode_0xED_0x4B_LD_BC_nn_ptr() {
 
 void Z80::opcode_0xED_0x4D_RETI() {
     set_PC(pop_word());
-    add_ticks(6);
     set_IFF1(get_IFF2());
     set_reti_signaled(true);
 }

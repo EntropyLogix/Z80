@@ -250,12 +250,14 @@ private:
     }
     
     void push_word(uint16_t value) {
+        add_ticks(6);
         uint16_t new_sp = get_SP() - 2;
         set_SP(new_sp);
         write_word(new_sp, value);
     }
 
     uint16_t pop_word() {
+        add_ticks(6);
         uint16_t current_sp = get_SP();
         uint16_t value = read_word(current_sp);
         set_SP(current_sp + 2);
