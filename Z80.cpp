@@ -874,28 +874,15 @@ void Z80::opcode_0x23_INC_HL() {
 }
 
 void Z80::opcode_0x24_INC_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(inc_8bit(get_H())); break;
-        case IndexMode::IX: set_IXH(inc_8bit(get_IXH())); break;
-        case IndexMode::IY: set_IYH(inc_8bit(get_IYH())); break;
-    }
+    set_indexed_register_high_byte(inc_8bit(get_indexed_register_high_byte()));
 }
 
 void Z80::opcode_0x25_DEC_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(dec_8bit(get_H())); break;
-        case IndexMode::IX: set_IXH(dec_8bit(get_IXH())); break;
-        case IndexMode::IY: set_IYH(dec_8bit(get_IYH())); break;
-    }
+    set_indexed_register_high_byte(dec_8bit(get_indexed_register_high_byte()));
 }
 
 void Z80::opcode_0x26_LD_H_n() {
-    uint8_t value = fetch_next_byte();
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(value); break;
-        case IndexMode::IX: set_IXH(value); break;
-        case IndexMode::IY: set_IYH(value); break;
-    }
+    set_indexed_register_high_byte(fetch_next_byte());
 }
 
 void Z80::opcode_0x27_DAA() {
@@ -967,28 +954,15 @@ void Z80::opcode_0x2B_DEC_HL() {
 }
 
 void Z80::opcode_0x2C_INC_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(inc_8bit(get_L())); break;
-        case IndexMode::IX: set_IXL(inc_8bit(get_IXL())); break;
-        case IndexMode::IY: set_IYL(inc_8bit(get_IYL())); break;
-    }
+    set_indexed_register_low_byte(inc_8bit(get_indexed_register_low_byte()));
 }
 
 void Z80::opcode_0x2D_DEC_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(dec_8bit(get_L())); break;
-        case IndexMode::IX: set_IXL(dec_8bit(get_IXL())); break;
-        case IndexMode::IY: set_IYL(dec_8bit(get_IYL())); break;
-    }
+    set_indexed_register_low_byte(dec_8bit(get_indexed_register_low_byte()));
 }
 
 void Z80::opcode_0x2E_LD_L_n() {
-    uint8_t value = fetch_next_byte();
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(value); break;
-        case IndexMode::IX: set_IXL(value); break;
-        case IndexMode::IY: set_IYL(value); break;
-    }
+    set_indexed_register_low_byte(fetch_next_byte());
 }
 
 void Z80::opcode_0x2F_CPL() {
@@ -1143,19 +1117,11 @@ void Z80::opcode_0x43_LD_B_E() {
 }
 
 void Z80::opcode_0x44_LD_B_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_B(get_H()); break;
-        case IndexMode::IX: set_B(get_IXH()); break;
-        case IndexMode::IY: set_B(get_IYH()); break;
-    }
+    set_B(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x45_LD_B_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_B(get_L()); break;
-        case IndexMode::IX: set_B(get_IXL()); break;
-        case IndexMode::IY: set_B(get_IYL()); break;
-    }
+    set_B(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x46_LD_B_HL_ptr() {
@@ -1189,19 +1155,11 @@ void Z80::opcode_0x4B_LD_C_E() {
 }
 
 void Z80::opcode_0x4C_LD_C_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_C(get_H()); break;
-        case IndexMode::IX: set_C(get_IXH()); break;
-        case IndexMode::IY: set_C(get_IYH()); break;
-    }
+    set_C(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x4D_LD_C_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_C(get_L()); break;
-        case IndexMode::IX: set_C(get_IXL()); break;
-        case IndexMode::IY: set_C(get_IYL()); break;
-    }
+    set_C(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x4E_LD_C_HL_ptr() {
@@ -1235,19 +1193,11 @@ void Z80::opcode_0x53_LD_D_E() {
 }
 
 void Z80::opcode_0x54_LD_D_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_D(get_H()); break;
-        case IndexMode::IX: set_D(get_IXH()); break;
-        case IndexMode::IY: set_D(get_IYH()); break;
-    }
+    set_D(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x55_LD_D_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_D(get_L()); break;
-        case IndexMode::IX: set_D(get_IXL()); break;
-        case IndexMode::IY: set_D(get_IYL()); break;
-    }
+    set_D(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x56_LD_D_HL_ptr() {
@@ -1281,19 +1231,11 @@ void Z80::opcode_0x5B_LD_E_E() {
 }
 
 void Z80::opcode_0x5C_LD_E_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_E(get_H()); break;
-        case IndexMode::IX: set_E(get_IXH()); break;
-        case IndexMode::IY: set_E(get_IYH()); break;
-    }
+    set_E(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x5D_LD_E_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_E(get_L()); break;
-        case IndexMode::IX: set_E(get_IXL()); break;
-        case IndexMode::IY: set_E(get_IYL()); break;
-    }
+    set_E(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x5E_LD_E_HL_ptr() {
@@ -1312,46 +1254,26 @@ void Z80::opcode_0x5F_LD_E_A() {
 }
 
 void Z80::opcode_0x60_LD_H_B() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(get_B()); break;
-        case IndexMode::IX: set_IXH(get_B()); break;
-        case IndexMode::IY: set_IYH(get_B()); break;
-    }
+    set_indexed_register_high_byte(get_B());
 }
 
 void Z80::opcode_0x61_LD_H_C() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(get_C()); break;
-        case IndexMode::IX: set_IXH(get_C()); break;
-        case IndexMode::IY: set_IYH(get_C()); break;
-    }
+    set_indexed_register_high_byte(get_C());
 }
 
 void Z80::opcode_0x62_LD_H_D() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(get_D()); break;
-        case IndexMode::IX: set_IXH(get_D()); break;
-        case IndexMode::IY: set_IYH(get_D()); break;
-    }
+    set_indexed_register_high_byte(get_D());
 }
 
 void Z80::opcode_0x63_LD_H_E() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(get_E()); break;
-        case IndexMode::IX: set_IXH(get_E()); break;
-        case IndexMode::IY: set_IYH(get_E()); break;
-    }
+    set_indexed_register_high_byte(get_E());
 }
 
 void Z80::opcode_0x64_LD_H_H() {
 }
 
 void Z80::opcode_0x65_LD_H_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(get_L()); break;
-        case IndexMode::IX: set_IXH(get_IXL()); break;
-        case IndexMode::IY: set_IYH(get_IYL()); break;
-    }
+    set_indexed_register_high_byte(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x66_LD_H_HL_ptr() {
@@ -1366,51 +1288,27 @@ void Z80::opcode_0x66_LD_H_HL_ptr() {
 }
 
 void Z80::opcode_0x67_LD_H_A() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_H(get_A()); break;
-        case IndexMode::IX: set_IXH(get_A()); break;
-        case IndexMode::IY: set_IYH(get_A()); break;
-    }
+    set_indexed_register_high_byte(get_A());
 }
 
 void Z80::opcode_0x68_LD_L_B() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(get_B()); break;
-        case IndexMode::IX: set_IXL(get_B()); break;
-        case IndexMode::IY: set_IYL(get_B()); break;
-    }
+    set_indexed_register_low_byte(get_B());
 }
 
 void Z80::opcode_0x69_LD_L_C() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(get_C()); break;
-        case IndexMode::IX: set_IXL(get_C()); break;
-        case IndexMode::IY: set_IYL(get_C()); break;
-    }
+    set_indexed_register_low_byte(get_C());
 }
 
 void Z80::opcode_0x6A_LD_L_D() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(get_D()); break;
-        case IndexMode::IX: set_IXL(get_D()); break;
-        case IndexMode::IY: set_IYL(get_D()); break;
-    }
+    set_indexed_register_low_byte(get_D());
 }
 
 void Z80::opcode_0x6B_LD_L_E() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(get_E()); break;
-        case IndexMode::IX: set_IXL(get_E()); break;
-        case IndexMode::IY: set_IYL(get_E()); break;
-    }
+    set_indexed_register_low_byte(get_E());
 }
 
 void Z80::opcode_0x6C_LD_L_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(get_H()); break;
-        case IndexMode::IX: set_IXL(get_IXH()); break;
-        case IndexMode::IY: set_IYL(get_IYH()); break;
-    }
+    set_indexed_register_low_byte(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x6D_LD_L_L() {
@@ -1428,11 +1326,7 @@ void Z80::opcode_0x6E_LD_L_HL_ptr() {
 }
 
 void Z80::opcode_0x6F_LD_L_A() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_L(get_A()); break;
-        case IndexMode::IX: set_IXL(get_A()); break;
-        case IndexMode::IY: set_IYL(get_A()); break;
-    }
+    set_indexed_register_low_byte(get_A());
 }
 
 void Z80::opcode_0x70_LD_HL_ptr_B() {
@@ -1533,19 +1427,11 @@ void Z80::opcode_0x7B_LD_A_E() {
 }
 
 void Z80::opcode_0x7C_LD_A_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_A(get_H()); break;
-        case IndexMode::IX: set_A(get_IXH()); break;
-        case IndexMode::IY: set_A(get_IYH()); break;
-    }
+    set_A(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x7D_LD_A_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: set_A(get_L()); break;
-        case IndexMode::IX: set_A(get_IXL()); break;
-        case IndexMode::IY: set_A(get_IYL()); break;
-    }
+    set_A(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x7E_LD_A_HL_ptr() {
@@ -1579,19 +1465,11 @@ void Z80::opcode_0x83_ADD_A_E() {
 }
 
 void Z80::opcode_0x84_ADD_A_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: add_8bit(get_H()); break;
-        case IndexMode::IX: add_8bit(get_IXH()); break;
-        case IndexMode::IY: add_8bit(get_IYH()); break;
-    }
+    add_8bit(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x85_ADD_A_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: add_8bit(get_L()); break;
-        case IndexMode::IX: add_8bit(get_IXL()); break;
-        case IndexMode::IY: add_8bit(get_IYL()); break;
-    }
+    add_8bit(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x86_ADD_A_HL_ptr() {
@@ -1626,19 +1504,11 @@ void Z80::opcode_0x8B_ADC_A_E() {
 }
 
 void Z80::opcode_0x8C_ADC_A_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: adc_8bit(get_H()); break;
-        case IndexMode::IX: adc_8bit(get_IXH()); break;
-        case IndexMode::IY: adc_8bit(get_IYH()); break;
-    }
+    adc_8bit(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x8D_ADC_A_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: adc_8bit(get_L()); break;
-        case IndexMode::IX: adc_8bit(get_IXL()); break;
-        case IndexMode::IY: adc_8bit(get_IYL()); break;
-    }
+    adc_8bit(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x8E_ADC_A_HL_ptr() {
@@ -1673,19 +1543,11 @@ void Z80::opcode_0x93_SUB_E() {
 }
 
 void Z80::opcode_0x94_SUB_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: sub_8bit(get_H()); break;
-        case IndexMode::IX: sub_8bit(get_IXH()); break;
-        case IndexMode::IY: sub_8bit(get_IYH()); break;
-    }
+    sub_8bit(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x95_SUB_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: sub_8bit(get_L()); break;
-        case IndexMode::IX: sub_8bit(get_IXL()); break;
-        case IndexMode::IY: sub_8bit(get_IYL()); break;
-    }
+    sub_8bit(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x96_SUB_HL_ptr() {
@@ -1720,19 +1582,11 @@ void Z80::opcode_0x9B_SBC_A_E() {
 }
 
 void Z80::opcode_0x9C_SBC_A_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: sbc_8bit(get_H()); break;
-        case IndexMode::IX: sbc_8bit(get_IXH()); break;
-        case IndexMode::IY: sbc_8bit(get_IYH()); break;
-    }
+    sbc_8bit(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0x9D_SBC_A_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: sbc_8bit(get_L()); break;
-        case IndexMode::IX: sbc_8bit(get_IXL()); break;
-        case IndexMode::IY: sbc_8bit(get_IYL()); break;
-    }
+    sbc_8bit(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0x9E_SBC_A_HL_ptr() {
@@ -1767,19 +1621,11 @@ void Z80::opcode_0xA3_AND_E() {
 }
 
 void Z80::opcode_0xA4_AND_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: and_8bit(get_H()); break;
-        case IndexMode::IX: and_8bit(get_IXH()); break;
-        case IndexMode::IY: and_8bit(get_IYH()); break;
-    }
+    and_8bit(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0xA5_AND_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: and_8bit(get_L()); break;
-        case IndexMode::IX: and_8bit(get_IXL()); break;
-        case IndexMode::IY: and_8bit(get_IYL()); break;
-    }
+    and_8bit(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0xA6_AND_HL_ptr() {
@@ -1814,19 +1660,11 @@ void Z80::opcode_0xAB_XOR_E() {
 }
 
 void Z80::opcode_0xAC_XOR_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: xor_8bit(get_H()); break;
-        case IndexMode::IX: xor_8bit(get_IXH()); break;
-        case IndexMode::IY: xor_8bit(get_IYH()); break;
-    }
+    xor_8bit(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0xAD_XOR_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: xor_8bit(get_L()); break;
-        case IndexMode::IX: xor_8bit(get_IXL()); break;
-        case IndexMode::IY: xor_8bit(get_IYL()); break;
-    }
+    xor_8bit(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0xAE_XOR_HL_ptr() {
@@ -1861,19 +1699,11 @@ void Z80::opcode_0xB3_OR_E() {
 }
 
 void Z80::opcode_0xB4_OR_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: or_8bit(get_H()); break;
-        case IndexMode::IX: or_8bit(get_IXH()); break;
-        case IndexMode::IY: or_8bit(get_IYH()); break;
-    }
+    or_8bit(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0xB5_OR_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: or_8bit(get_L()); break;
-        case IndexMode::IX: or_8bit(get_IXL()); break;
-        case IndexMode::IY: or_8bit(get_IYL()); break;
-    }
+    or_8bit(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0xB6_OR_HL_ptr() {
@@ -1908,19 +1738,11 @@ void Z80::opcode_0xBB_CP_E() {
 }
 
 void Z80::opcode_0xBC_CP_H() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: cp_8bit(get_H()); break;
-        case IndexMode::IX: cp_8bit(get_IXH()); break;
-        case IndexMode::IY: cp_8bit(get_IYH()); break;
-    }
+    cp_8bit(get_indexed_register_high_byte());
 }
 
 void Z80::opcode_0xBD_CP_L() {
-    switch (get_index_mode()) {
-        case IndexMode::HL: cp_8bit(get_L()); break;
-        case IndexMode::IX: cp_8bit(get_IXL()); break;
-        case IndexMode::IY: cp_8bit(get_IYL()); break;
-    }
+    cp_8bit(get_indexed_register_low_byte());
 }
 
 void Z80::opcode_0xBE_CP_HL_ptr() {
