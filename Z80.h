@@ -293,6 +293,34 @@ private:
         return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
 
+private:
+    uint16_t get_active_index_register() {
+        switch (get_index_mode()) {
+            case IndexMode::HL: return get_HL();
+            case IndexMode::IX: return get_IX();
+            case IndexMode::IY: return get_IY();
+        }
+        return 0;
+    }
+
+    void set_active_index_register(uint16_t value) {
+        switch (get_index_mode()) {
+            case IndexMode::HL: set_HL(value); break;
+            case IndexMode::IX: set_IX(value); break;
+            case IndexMode::IY: set_IY(value); break;
+        }
+    }
+
+    uint16_t get_indexed_address() {
+        if (get_index_mode() == IndexMode::HL) {
+            return get_HL();
+        } else {
+            add_ticks(5);
+            int8_t offset = static_cast<int8_t>(fetch_next_byte());
+            return get_active_index_register() + offset;
+        }
+    }
+
     void handle_nmi();
     void handle_interrupt();
     
