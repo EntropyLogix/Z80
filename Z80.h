@@ -236,8 +236,8 @@ private:
     void set_indexed_L(uint8_t value);
 
     uint16_t get_indexed_address();
-    uint8_t read_byte_from_indexed_address();
-    void write_byte_to_indexed_address(uint8_t value);
+    uint8_t get_indexed_HL_ptr();
+    void set_indexed_HL_ptr(uint8_t value);
 
     uint8_t inc_8bit(uint8_t value);
     uint8_t dec_8bit(uint8_t value);
