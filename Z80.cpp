@@ -402,14 +402,12 @@ uint8_t Z80::set_8bit(uint8_t bit, uint8_t value) {
 
 uint8_t Z80::in_r_c() {
     uint8_t value = read_byte_from_io(get_BC());
-
     set_flag_if(FLAG_S, (value & 0x80) != 0);
     set_flag_if(FLAG_Z, value == 0);
     clear_flag(FLAG_H | FLAG_N);
     set_flag_if(FLAG_PV, is_parity_even(value));
     set_flag_if(FLAG_X, (value & FLAG_X) != 0);
     set_flag_if(FLAG_Y, (value & FLAG_Y) != 0);
-
     return value;
 }
 
@@ -764,7 +762,7 @@ void Z80::opcode_0x24_INC_H() {
 }
 
 void Z80::opcode_0x25_DEC_H() {
-     switch (get_index_mode()) {
+    switch (get_index_mode()) {
         case IndexMode::HL: set_H(dec_8bit(get_H())); break;
         case IndexMode::IX: set_IXH(dec_8bit(get_IXH())); break;
         case IndexMode::IY: set_IYH(dec_8bit(get_IYH())); break;
@@ -788,9 +786,8 @@ void Z80::opcode_0x27_DAA() {
         if (carry || (a > 0x99)) {
             correction = 0x60;
         }
-        if (is_H_flag_set() || ((a & 0x0F) > 0x09)) {
+        if (is_H_flag_set() || ((a & 0x0F) > 0x09))
             correction |= 0x06;
-        }
         set_flag_if(FLAG_H, is_H_flag_set() && ((a & 0x0F) < 0x06));
         set_A(a - correction);
     } else {
@@ -798,15 +795,13 @@ void Z80::opcode_0x27_DAA() {
             correction = 0x60;
             set_flag(FLAG_C);
         }
-        if (is_H_flag_set() || ((a & 0x0F) > 0x09)) {
+        if (is_H_flag_set() || ((a & 0x0F) > 0x09))
             correction |= 0x06;
-        }
         set_flag_if(FLAG_H, (a & 0x0F) > 0x09);
         set_A(a + correction);
     }
-    if (correction >= 0x60) {
+    if (correction >= 0x60)
         set_flag(FLAG_C);
-    }
     set_flag_if(FLAG_S, get_A() & 0x80);
     set_flag_if(FLAG_Z, get_A() == 0);
     set_flag_if(FLAG_PV, is_parity_even(get_A()));
