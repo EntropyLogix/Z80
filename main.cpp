@@ -54,11 +54,11 @@ public:
 
 private:
     void handle_bdos_call() {
-        uint8_t func = cpu->get_C();
+        uint8_t func = m_cpu->get_C();
         if (func == 2) { // C_WRITE
-            std::cout << static_cast<char>(cpu->get_E());
+            std::cout << static_cast<char>(m_cpu->get_E());
         } else if (func == 9) { // C_WRITESTR
-            uint16_t addr = cpu->get_DE();
+            uint16_t addr = m_cpu->get_DE();
             char c;
             while ((c = m_ram[addr++]) != '$') {
                 std::cout << c;

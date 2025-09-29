@@ -7,58 +7,41 @@ class Z80 {
 public:
     enum class IndexMode { HL, IX, IY };
     struct State {
-        // 16-bit Main Registers
-        uint16_t AF, BC, DE, HL;
-        uint16_t IX, IY, SP, PC;
-        
-        // 16-bit Alternate Registers
-        uint16_t AFp, BCp, DEp, HLp;
-        
-        // 8-bit Special Registers
-        uint8_t I, R;
-        
-        // Core State Flags
-        bool IFF1, IFF2;
-        bool halted;
-        
-        // Interrupt State
-        bool nmi_pending;
-        bool interrupt_pending;
-        bool interrupt_enable_pending;
-        uint8_t interrupt_data;
-        uint8_t interrupt_mode;
-        
-        // Index mode
-        IndexMode index_mode;
-
-        // Cycle Counter
-        long long ticks;
+        uint16_t m_AF, m_BC, m_DE, m_HL;
+        uint16_t m_IX, m_IY, m_SP, m_PC;
+        uint16_t m_AFp, m_BCp, m_DEp, m_HLp;
+        uint8_t m_I, m_R;
+        bool m_IFF1, m_IFF2;
+        bool m_halted;
+        bool m_nmi_pending;
+        bool m_interrupt_pending;
+        bool m_interrupt_enable_pending;
+        uint8_t m_interrupt_data;
+        uint8_t m_interrupt_mode;
+        IndexMode m_index_mode;
+        long long m_ticks;
     };
 
     class MemoryBus {
     public:
         virtual ~MemoryBus() = default;
-
-        virtual void connect(Z80* processor) {cpu = processor;}
+        virtual void connect(Z80* processor) {m_cpu = processor;}
         virtual void reset() = 0;
-
         virtual uint8_t read(uint16_t address) = 0;
         virtual void write(uint16_t address, uint8_t value) = 0;
     protected:
-        Z80* cpu;
+        Z80* m_cpu;
     };
 
     class IOBus {
     public:
         virtual ~IOBus() = default;
-
-        virtual void connect(Z80* processor) {cpu = processor;}
+        virtual void connect(Z80* processor) {m_cpu = processor;}
         virtual void reset() = 0;
-
         virtual uint8_t read(uint16_t port) = 0;
         virtual void write(uint16_t port, uint8_t value) = 0;
     protected:
-        Z80* cpu;
+        Z80* m_cpu;
     };
 
     // --- Flags
@@ -73,16 +56,11 @@ public:
         static constexpr uint8_t Z  = 1 << 6;
         static constexpr uint8_t S  = 1 << 7;
 
-        Flags(uint8_t initial_value) : m_value(initial_value) {}
-
+        Flags(uint8_t value) : m_value(value) {}
         operator uint8_t() const { return m_value; }
-        Flags& operator=(uint8_t new_value) {
-            return assign(new_value);
-        }
-
+        Flags& operator=(uint8_t new_value) { return assign(new_value); }
         Flags& zero() { m_value = 0; return *this; }
         Flags& assign(uint8_t value) { m_value = value; return *this; }
-
         Flags& set(uint8_t mask) { m_value |= mask; return *this; }
         Flags& clear(uint8_t mask) { m_value &= ~mask; return *this; }
         Flags& update(uint8_t mask, bool state) {
@@ -93,18 +71,17 @@ public:
             return *this;
         }
         bool is_set(uint8_t mask) const { return (m_value & mask) != 0; }
-
     private:
         uint8_t m_value;
     };
 
     // --- Constructor ---
-    Z80(MemoryBus& mem_bus, IOBus& io_bus) : memory(mem_bus), io(io_bus) {
+    Z80(MemoryBus& mem_bus, IOBus& io_bus) : m_memory(mem_bus), m_io(io_bus) {
         precompute_parity();
-        memory.connect(this);
-        io.connect(this);
-        memory.reset();
-        io.reset();
+        m_memory.connect(this);
+        m_io.connect(this);
+        m_memory.reset();
+        m_io.reset();
         reset();
     }
 
@@ -120,37 +97,37 @@ public:
     void load_state(const State& state);
 
     // Cycle counter
-    long long get_ticks() const { return ticks; }
-    void set_ticks(long long value) { ticks = value; }
-    void add_ticks(int delta) { ticks += delta; }
+    long long get_ticks() const { return m_ticks; }
+    void set_ticks(long long value) { m_ticks = value; }
+    void add_ticks(int delta) { m_ticks += delta; }
 
     // 16-bit main registers
-    uint16_t get_AF() const { return AF; }
-    void set_AF(uint16_t value) { AF = value; }
-    uint16_t get_BC() const { return BC; }
-    void set_BC(uint16_t value) { BC = value; }
-    uint16_t get_DE() const { return DE; }
-    void set_DE(uint16_t value) { DE = value; }
-    uint16_t get_HL() const { return HL; }
-    void set_HL(uint16_t value) { HL = value; }
-    uint16_t get_IX() const { return IX; }
-    void set_IX(uint16_t value) { IX = value; }
-    uint16_t get_IY() const { return IY; }
-    void set_IY(uint16_t value) { IY = value; }
-    uint16_t get_SP() const { return SP; }
-    void set_SP(uint16_t value) { SP = value; }
-    uint16_t get_PC() const { return PC; }
-    void set_PC(uint16_t value) { PC = value; }
+    uint16_t get_AF() const { return m_AF; }
+    void set_AF(uint16_t value) { m_AF = value; }
+    uint16_t get_BC() const { return m_BC; }
+    void set_BC(uint16_t value) { m_BC = value; }
+    uint16_t get_DE() const { return m_DE; }
+    void set_DE(uint16_t value) { m_DE = value; }
+    uint16_t get_HL() const { return m_HL; }
+    void set_HL(uint16_t value) { m_HL = value; }
+    uint16_t get_IX() const { return m_IX; }
+    void set_IX(uint16_t value) { m_IX = value; }
+    uint16_t get_IY() const { return m_IY; }
+    void set_IY(uint16_t value) { m_IY = value; }
+    uint16_t get_SP() const { return m_SP; }
+    void set_SP(uint16_t value) { m_SP = value; }
+    uint16_t get_PC() const { return m_PC; }
+    void set_PC(uint16_t value) { m_PC = value; }
 
     // 16-bit alternate registers
-    uint16_t get_AFp() const { return AFp; }
-    void set_AFp(uint16_t value) { AFp = value; }
-    uint16_t get_BCp() const { return BCp; }
-    void set_BCp(uint16_t value) { BCp = value; }
-    uint16_t get_DEp() const { return DEp; }
-    void set_DEp(uint16_t value) { DEp = value; }
-    uint16_t get_HLp() const { return HLp; }
-    void set_HLp(uint16_t value) { HLp = value; }
+    uint16_t get_AFp() const { return m_AFp; }
+    void set_AFp(uint16_t value) { m_AFp = value; }
+    uint16_t get_BCp() const { return m_BCp; }
+    void set_BCp(uint16_t value) { m_BCp = value; }
+    uint16_t get_DEp() const { return m_DEp; }
+    void set_DEp(uint16_t value) { m_DEp = value; }
+    uint16_t get_HLp() const { return m_HLp; }
+    void set_HLp(uint16_t value) { m_HLp = value; }
 
     // 8-bit registers (computed from 16-bit pairs)
     uint8_t get_A() const { return (get_AF() >> 8) & 0xFF; }
@@ -179,49 +156,49 @@ public:
     void set_IYL(uint8_t value) { set_IY((get_IY() & 0xFF00) | value); }
 
     // Special purpose registers
-    uint8_t get_I() const { return I; }
-    void set_I(uint8_t value) { I = value; }
-    uint8_t get_R() const { return R; }
-    void set_R(uint8_t value) { R = value; }
+    uint8_t get_I() const { return m_I; }
+    void set_I(uint8_t value) { m_I = value; }
+    uint8_t get_R() const { return m_R; }
+    void set_R(uint8_t value) { m_R = value; }
 
     // CPU state flags
-    bool get_IFF1() const { return IFF1; }
-    void set_IFF1(bool state) { IFF1 = state; }
-    bool get_IFF2() const { return IFF2; }
-    void set_IFF2(bool state) { IFF2 = state; }
-    bool is_halted() const { return halted; }
-    void set_halted(bool state) { halted = state; }
+    bool get_IFF1() const { return m_IFF1; }
+    void set_IFF1(bool state) { m_IFF1 = state; }
+    bool get_IFF2() const { return m_IFF2; }
+    void set_IFF2(bool state) { m_IFF2 = state; }
+    bool is_halted() const { return m_halted; }
+    void set_halted(bool state) { m_halted = state; }
     
     // Interrupt state flags
-    bool is_nmi_pending() const { return nmi_pending; }
-    void set_nmi_pending(bool state) { nmi_pending = state; }
-    bool is_interrupt_pending() const { return interrupt_pending; }
-    void set_interrupt_pending(bool state) { interrupt_pending = state; }
-    bool is_interrupt_enable_pending() const { return interrupt_enable_pending; }
-    void set_interrupt_enable_pending(bool state) { interrupt_enable_pending = state; }
-    uint8_t get_interrupt_data() const { return interrupt_data; }
-    void set_interrupt_data(uint8_t data) { interrupt_data = data; }
-    uint8_t get_interrupt_mode() const { return interrupt_mode; }
-    void set_interrupt_mode(uint8_t mode) { interrupt_mode = mode; }
-    void set_reti_signaled(bool state) { reti_signaled = state; }
+    bool is_nmi_pending() const { return m_nmi_pending; }
+    void set_nmi_pending(bool state) { m_nmi_pending = state; }
+    bool is_interrupt_pending() const { return m_interrupt_pending; }
+    void set_interrupt_pending(bool state) { m_interrupt_pending = state; }
+    bool is_interrupt_enable_pending() const { return m_interrupt_enable_pending; }
+    void set_interrupt_enable_pending(bool state) { m_interrupt_enable_pending = state; }
+    uint8_t get_interrupt_data() const { return m_interrupt_data; }
+    void set_interrupt_data(uint8_t data) { m_interrupt_data = data; }
+    uint8_t get_interrupt_mode() const { return m_interrupt_mode; }
+    void set_interrupt_mode(uint8_t mode) { m_interrupt_mode = mode; }
+    void set_reti_signaled(bool state) { m_reti_signaled = state; }
     
     // Processing opcodes DD and FD index
-    IndexMode get_index_mode() const { return index_mode;}
-    void set_index_mode(IndexMode mode) { index_mode = mode; }
+    IndexMode get_index_mode() const { return m_index_mode;}
+    void set_index_mode(IndexMode mode) { m_index_mode = mode; }
     
 private:
-    uint16_t AF, BC, DE, HL;
-    uint16_t AFp, BCp, DEp, HLp;
-    uint16_t IX, IY;
-    uint16_t SP, PC;
-    uint8_t I, R;
-    bool IFF1, IFF2, halted, nmi_pending, interrupt_pending, interrupt_enable_pending, reti_signaled;
-    uint8_t interrupt_data, interrupt_mode;
-    long long ticks;
-    IndexMode index_mode;
+    uint16_t m_AF, m_BC, m_DE, m_HL;
+    uint16_t m_AFp, m_BCp, m_DEp, m_HLp;
+    uint16_t m_IX, m_IY;
+    uint16_t m_SP, m_PC;
+    uint8_t m_I, m_R;
+    bool m_IFF1, m_IFF2, m_halted, m_nmi_pending, m_interrupt_pending, m_interrupt_enable_pending, m_reti_signaled;
+    uint8_t m_interrupt_data, m_interrupt_mode;
+    long long m_ticks;
+    IndexMode m_index_mode;
 
-    MemoryBus& memory;
-    IOBus& io;
+    MemoryBus& m_memory;
+    IOBus& m_io;
     
     uint8_t read_byte(uint16_t address);
     void write_byte(uint16_t address, uint8_t value);

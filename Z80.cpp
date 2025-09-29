@@ -36,68 +36,68 @@ void Z80::reset() {
 
 Z80::State Z80::save_state() const {
     Z80::State state;
-    state.AF = get_AF();
-    state.BC = get_BC();
-    state.DE = get_DE();
-    state.HL = get_HL();
-    state.IX = get_IX();
-    state.IY = get_IY();
-    state.SP = get_SP();
-    state.PC = get_PC();
-    state.AFp = get_AFp();
-    state.BCp = get_BCp();
-    state.DEp = get_DEp();
-    state.HLp = get_HLp();
-    state.I = get_I();
-    state.R = get_R();
-    state.IFF1 = get_IFF1();
-    state.IFF2 = get_IFF2();
-    state.halted = is_halted();
-    state.nmi_pending = is_nmi_pending();
-    state.interrupt_pending = is_interrupt_pending();
-    state.interrupt_enable_pending = is_interrupt_enable_pending();
-    state.interrupt_data = get_interrupt_data();
-    state.interrupt_mode = get_interrupt_mode();
-    state.index_mode = get_index_mode();
-    state.ticks = get_ticks();
+    state.m_AF = get_AF();
+    state.m_BC = get_BC();
+    state.m_DE = get_DE();
+    state.m_HL = get_HL();
+    state.m_IX = get_IX();
+    state.m_IY = get_IY();
+    state.m_SP = get_SP();
+    state.m_PC = get_PC();
+    state.m_AFp = get_AFp();
+    state.m_BCp = get_BCp();
+    state.m_DEp = get_DEp();
+    state.m_HLp = get_HLp();
+    state.m_I = get_I();
+    state.m_R = get_R();
+    state.m_IFF1 = get_IFF1();
+    state.m_IFF2 = get_IFF2();
+    state.m_halted = is_halted();
+    state.m_nmi_pending = is_nmi_pending();
+    state.m_interrupt_pending = is_interrupt_pending();
+    state.m_interrupt_enable_pending = is_interrupt_enable_pending();
+    state.m_interrupt_data = get_interrupt_data();
+    state.m_interrupt_mode = get_interrupt_mode();
+    state.m_index_mode = get_index_mode();
+    state.m_ticks = get_ticks();
     return state;
 }
 
 void Z80::load_state(const Z80::State& state) {
-    set_AF(state.AF);
-    set_BC(state.BC);
-    set_DE(state.DE);
-    set_HL(state.HL);
-    set_IX(state.IX);
-    set_IY(state.IY);
-    set_SP(state.SP);
-    set_PC(state.PC);
-    set_AFp(state.AFp);
-    set_BCp(state.BCp);
-    set_DEp(state.DEp);
-    set_HLp(state.HLp);
-    set_I(state.I);
-    set_R(state.R);
-    set_IFF1(state.IFF1);
-    set_IFF2(state.IFF2);
-    set_halted(state.halted);
-    set_nmi_pending(state.nmi_pending);
-    set_interrupt_pending(state.interrupt_pending);
-    set_interrupt_enable_pending(state.interrupt_enable_pending);
-    set_interrupt_data(state.interrupt_data);
-    set_interrupt_mode(state.interrupt_mode);
-    set_index_mode(state.index_mode);
-    set_ticks(state.ticks);
+    set_AF(state.m_AF);
+    set_BC(state.m_BC);
+    set_DE(state.m_DE);
+    set_HL(state.m_HL);
+    set_IX(state.m_IX);
+    set_IY(state.m_IY);
+    set_SP(state.m_SP);
+    set_PC(state.m_PC);
+    set_AFp(state.m_AFp);
+    set_BCp(state.m_BCp);
+    set_DEp(state.m_DEp);
+    set_HLp(state.m_HLp);
+    set_I(state.m_I);
+    set_R(state.m_R);
+    set_IFF1(state.m_IFF1);
+    set_IFF2(state.m_IFF2);
+    set_halted(state.m_halted);
+    set_nmi_pending(state.m_nmi_pending);
+    set_interrupt_pending(state.m_interrupt_pending);
+    set_interrupt_enable_pending(state.m_interrupt_enable_pending);
+    set_interrupt_data(state.m_interrupt_data);
+    set_interrupt_mode(state.m_interrupt_mode);
+    set_index_mode(state.m_index_mode);
+    set_ticks(state.m_ticks);
 }
 
 uint8_t Z80::read_byte(uint16_t address) {
     add_ticks(3);
-    return memory.read(address); 
+    return m_memory.read(address); 
 }
 
 void Z80::write_byte(uint16_t address, uint8_t value) {
     add_ticks(3);
-    memory.write(address, value);
+    m_memory.write(address, value);
 }
 
 uint16_t Z80::read_word(uint16_t address) {
@@ -537,7 +537,7 @@ uint8_t Z80::set_8bit(uint8_t bit, uint8_t value) {
 }
 
 uint8_t Z80::in_r_c() {
-    uint8_t value = io.read(get_BC());
+    uint8_t value = m_io.read(get_BC());
     Flags flags = get_F();
     flags.update(Flags::S, (value & 0x80) != 0)
         .update(Flags::Z, value == 0)
@@ -550,7 +550,7 @@ uint8_t Z80::in_r_c() {
 }
 
 void Z80::out_c_r(uint8_t value) {
-    io.write(get_BC(), value);
+    m_io.write(get_BC(), value);
 }
 
 void Z80::request_interrupt(uint8_t data) {
@@ -1722,7 +1722,7 @@ void Z80::opcode_0xD2_JP_NC_nn() {
 void Z80::opcode_0xD3_OUT_n_ptr_A() {
     add_ticks(4);
     uint8_t port_lo = fetch_next_byte();
-    io.write((get_A() << 8) | port_lo, get_A());
+    m_io.write((get_A() << 8) | port_lo, get_A());
 }
 
 void Z80::opcode_0xD4_CALL_NC_nn() {
@@ -1777,7 +1777,7 @@ void Z80::opcode_0xDB_IN_A_n_ptr() {
     add_ticks(4);
     uint8_t port_lo = fetch_next_byte();
     uint16_t port = (get_A() << 8) | port_lo;
-    set_A(io.read(port));
+    set_A(m_io.read(port));
 }
 
 void Z80::opcode_0xDC_CALL_C_nn() {
@@ -2277,7 +2277,7 @@ void Z80::opcode_0xED_0xA1_CPI() {
 
 void Z80::opcode_0xED_0xA2_INI() {
     add_ticks(5);
-    uint8_t port_val = io.read(get_BC());
+    uint8_t port_val = m_io.read(get_BC());
     uint8_t b_val = get_B();
     set_B(b_val - 1);
     write_byte(get_HL(), port_val);
@@ -2298,7 +2298,7 @@ void Z80::opcode_0xED_0xA3_OUTI() {
     uint8_t mem_val = read_byte(get_HL());
     uint8_t b_val = get_B();
     set_B(b_val - 1);
-    io.write(get_BC(), mem_val);
+    m_io.write(get_BC(), mem_val);
     set_HL(get_HL() + 1);
     Flags flags = get_F();
     uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
@@ -2347,7 +2347,7 @@ void Z80::opcode_0xED_0xA9_CPD() {
 
 void Z80::opcode_0xED_0xAA_IND() {
     add_ticks(5);
-    uint8_t port_val = io.read(get_BC());
+    uint8_t port_val = m_io.read(get_BC());
     uint8_t b_val = get_B();
     set_B(b_val - 1);
     write_byte(get_HL(), port_val);
@@ -2368,7 +2368,7 @@ void Z80::opcode_0xED_0xAB_OUTD() {
     uint8_t mem_val = read_byte(get_HL());
     uint8_t b_val = get_B();
     set_B(b_val - 1);
-    io.write(get_BC(), mem_val);
+    m_io.write(get_BC(), mem_val);
     set_HL(get_HL() - 1);
     Flags flags = get_F();
     uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
