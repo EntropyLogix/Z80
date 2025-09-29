@@ -173,6 +173,44 @@ public:
     void set_index_mode(IndexMode mode) { index_mode = mode; }
 
     // --- Flag constants and helpers ---
+class Flags {
+    public:
+        // Definicje Masek Flag (bez prefiksu)
+        static constexpr uint8_t C  = 1 << 0;
+        static constexpr uint8_t N  = 1 << 1;
+        static constexpr uint8_t PV = 1 << 2;
+        static constexpr uint8_t X  = 1 << 3;
+        static constexpr uint8_t H  = 1 << 4;
+        static constexpr uint8_t Y  = 1 << 5;
+        static constexpr uint8_t Z  = 1 << 6;
+        static constexpr uint8_t S  = 1 << 7;
+
+        Flags(uint8_t initial_value) : m_value(initial_value) {}
+
+        operator uint8_t() const { return m_value; }
+        Flags& operator=(uint8_t new_value) {
+            return assign(new_value);
+        }
+
+        Flags& zero() { m_value = 0; return *this; }
+        Flags& assign(uint8_t value) { m_value = value; return *this; }
+
+        Flags& set(uint8_t mask) { m_value |= mask; return *this; }
+        Flags& clear(uint8_t mask) { m_value &= ~mask; return *this; }
+        Flags& update(uint8_t mask, bool state) {
+            if (state)
+                m_value |= mask;
+            else
+                m_value &= ~mask;
+            return *this;
+        }
+        bool is_set(uint8_t mask) const { return (m_value & mask) != 0; }
+
+    private:
+        uint8_t m_value;
+    };
+
+
     static constexpr uint8_t FLAG_C  = 1 << 0;
     static constexpr uint8_t FLAG_N  = 1 << 1;
     static constexpr uint8_t FLAG_PV = 1 << 2;

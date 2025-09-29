@@ -221,287 +221,312 @@ void Z80::set_indexed_HL_ptr(uint8_t value) {
 
 uint8_t Z80::inc_8bit(uint8_t value) {
     uint8_t result = value + 1;
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, (value & 0x0F) == 0x0F);
-    set_flag_if(FLAG_PV, value == 0x7F);
-    clear_flag(FLAG_N);
-    set_flag_if(FLAG_Y, (result & 0x20) != 0);
-    set_flag_if(FLAG_X, (result & 0x08) != 0);
+    Flags flags(get_F() & Flags::C);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, (value & 0x0F) == 0x0F)
+        .update(Flags::PV, value == 0x7F)
+        .clear(Flags::N)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 uint8_t Z80::dec_8bit(uint8_t value) {
     uint8_t result = value - 1;
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, (value & 0x0F) == 0x00);
-    set_flag_if(FLAG_PV, value == 0x80);
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_Y, (result & 0x20) != 0);
-    set_flag_if(FLAG_X, (result & 0x08) != 0);
+    Flags flags(get_F() & Flags::C);
+    flags.set(Flags::N)
+         .update(Flags::S, (result & 0x80) != 0)
+         .update(Flags::Z, result == 0)
+         .update(Flags::H, (value & 0x0F) == 0x00)
+         .update(Flags::PV, value == 0x80)
+         .update(Flags::Y, (result & 0x20) != 0)
+         .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 void Z80::and_8bit(uint8_t value) {
-    uint8_t a = get_A();
-    uint8_t result = a & value;
+    uint8_t result = get_A() & value;
     set_A(result);
-    set_flag_if(FLAG_S, result & FLAG_S);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, true);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    clear_flag(FLAG_N);
-    clear_flag(FLAG_C);
-    set_flag_if(FLAG_X, result & FLAG_X);
-    set_flag_if(FLAG_Y, result & FLAG_Y);
+    Flags flags(Flags::H);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
 }
 
 void Z80::or_8bit(uint8_t value) {
-    uint8_t a = get_A();
-    uint8_t result = a | value;
+    uint8_t result = get_A() | value;
     set_A(result);
-    set_flag_if(FLAG_S, result & FLAG_S);
-    set_flag_if(FLAG_Z, result == 0);
-    clear_flag(FLAG_H);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    clear_flag(FLAG_N);
-    clear_flag(FLAG_C);
-    set_flag_if(FLAG_X, result & FLAG_X);
-    set_flag_if(FLAG_Y, result & FLAG_Y);
+    Flags flags(0);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
 }
 
 void Z80::xor_8bit(uint8_t value) {
-    uint8_t a = get_A();
-    uint8_t result = a ^ value;
+    uint8_t result = get_A() ^ value;
     set_A(result);
-    set_flag_if(FLAG_S, result & FLAG_S);
-    set_flag_if(FLAG_Z, result == 0);
-    clear_flag(FLAG_H);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    clear_flag(FLAG_N);
-    clear_flag(FLAG_C);
-    set_flag_if(FLAG_X, result & FLAG_X);
-    set_flag_if(FLAG_Y, result & FLAG_Y);
+    Flags flags(0);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
 }
 
 void Z80::cp_8bit(uint8_t value) {
     uint8_t a = get_A();
     uint8_t result = a - value;
-    set_flag_if(FLAG_S, result & FLAG_S);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, (a & 0x0F) < (value & 0x0F));
-    set_flag_if(FLAG_PV, (a ^ value) & (a ^ result) & 0x80);
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_C, a < value);
-    set_flag_if(FLAG_X, (value & FLAG_X));
-    set_flag_if(FLAG_Y, (value & FLAG_Y));
+    Flags flags(0);
+    flags.set(Flags::N)
+        .update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, (a & 0x0F) < (value & 0x0F))
+        .update(Flags::PV, ((a ^ value) & (a ^ result)) & 0x80)
+        .update(Flags::C, a < value)
+        .update(Flags::X, (value & Flags::X) != 0)
+        .update(Flags::Y, (value & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::add_8bit(uint8_t value) {
     uint8_t a = get_A();
-    uint8_t result = a + value;
+    uint16_t result16 = (uint16_t)a + (uint16_t)value;
+    uint8_t result = result16 & 0xFF;
     set_A(result);
-    set_flag_if(FLAG_S, result & FLAG_S);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, (a & 0x0F) + (value & 0x0F) > 0x0F);
-    set_flag_if(FLAG_PV, ((a ^ value ^ 0x80) & (a ^ result)) & 0x80);
-    clear_flag(FLAG_N);
-    set_flag_if(FLAG_C, (uint16_t)a + (uint16_t)value > 0xFF);
-    set_flag_if(FLAG_X, result & FLAG_X);
-    set_flag_if(FLAG_Y, result & FLAG_Y);
+    Flags flags(0);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, ((a & 0x0F) + (value & 0x0F)) > 0x0F)
+        .update(Flags::PV, ((a ^ value ^ 0x80) & (a ^ result)) & 0x80)
+        .update(Flags::C, result16 > 0xFF)
+        .update(Flags::X, (result & Flags::X) != 0)
+        .update(Flags::Y, (result & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::adc_8bit(uint8_t value) {
     uint8_t a = get_A();
-    uint8_t carry = is_C_flag_set();
-    uint8_t result = a + value + carry;
+    Flags flags(get_F());
+    uint8_t carry = flags.is_set(Flags::C);
+    uint16_t result16 = (uint16_t)a + (uint16_t)value + carry;
+    uint8_t result = result16 & 0xFF;
     set_A(result);
-    set_flag_if(FLAG_S, result & FLAG_S);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, (a & 0x0F) + (value & 0x0F) + carry > 0x0F);
-    set_flag_if(FLAG_PV, ((a ^ value ^ 0x80) & (a ^ result)) & 0x80);
-    clear_flag(FLAG_N);
-    set_flag_if(FLAG_C, (uint16_t)a + (uint16_t)value + (uint16_t)carry > 0xFF);
-    set_flag_if(FLAG_X, result & FLAG_X);
-    set_flag_if(FLAG_Y, result & FLAG_Y);
+    flags.zero()
+        .update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, ((a & 0x0F) + (value & 0x0F) + carry) > 0x0F)
+        .update(Flags::PV, ((a ^ value ^ 0x80) & (a ^ result)) & 0x80)
+        .update(Flags::C, result16 > 0xFF)
+        .update(Flags::X, (result & Flags::X) != 0)
+        .update(Flags::Y, (result & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::sub_8bit(uint8_t value) {
     uint8_t a = get_A();
     uint8_t result = a - value;
     set_A(result);
-    set_flag_if(FLAG_S, result & FLAG_S);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, (a & 0x0F) < (value & 0x0F));
-    set_flag_if(FLAG_PV, ((a ^ value) & (a ^ result)) & 0x80);
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_C, a < value);
-    set_flag_if(FLAG_X, result & FLAG_X);
-    set_flag_if(FLAG_Y, result & FLAG_Y);
+    Flags flags(Flags::N);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, (a & 0x0F) < (value & 0x0F))
+        .update(Flags::PV, ((a ^ value) & (a ^ result)) & 0x80)
+        .update(Flags::C, a < value)
+        .update(Flags::X, (result & Flags::X) != 0)
+        .update(Flags::Y, (result & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::sbc_8bit(uint8_t value) {
+    Flags flags(get_F());
     uint8_t a = get_A();
-    uint8_t carry = is_C_flag_set();
-    uint8_t result = a - value - carry;
+    uint8_t carry = flags.is_set(Flags::C);
+    uint16_t result16 = (uint16_t)a - (uint16_t)value - carry;
+    uint8_t result = result16 & 0xFF;
     set_A(result);
-    set_flag_if(FLAG_S, result & FLAG_S);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, (a & 0x0F) < ((value & 0x0F) + carry));
-    set_flag_if(FLAG_PV, ((a ^ value) & (a ^ result)) & 0x80);
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_C, (uint16_t)a < ((uint16_t)value + (uint16_t)carry));
-    set_flag_if(FLAG_X, result & FLAG_X);
-    set_flag_if(FLAG_Y, result & FLAG_Y);
+    flags.assign(Flags::N)
+        .update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, (a & 0x0F) < ((value & 0x0F) + carry))
+        .update(Flags::PV, ((a ^ value) & (a ^ result)) & 0x80)
+        .update(Flags::C, result16 > 0x00FF)
+        .update(Flags::X, (result & Flags::X) != 0)
+        .update(Flags::Y, (result & Flags::Y) != 0);
+    set_F(flags);
 }
 
 uint16_t Z80::add_16bit(uint16_t reg, uint16_t value) {
-    uint32_t result = (uint32_t)reg + (uint32_t)value;
-    clear_flag(FLAG_N);
-    set_flag_if(FLAG_H, ((reg & 0x0FFF) + (value & 0x0FFF)) > 0x0FFF);
-    set_flag_if(FLAG_C, result > 0xFFFF);
-    set_flag_if(FLAG_Y, (result & 0x2000) != 0);
-    set_flag_if(FLAG_X, (result & 0x0800) != 0);
-    return (uint16_t)result;
+    uint32_t result32 = (uint32_t)reg + (uint32_t)value;
+    uint16_t result = result32 & 0xFFFF;
+    Flags flags(get_F());
+    flags.clear(Flags::N)
+        .update(Flags::H, ((reg & 0x0FFF) + (value & 0x0FFF)) > 0x0FFF)
+        .update(Flags::C, result32 > 0xFFFF)
+        .update(Flags::Y, (result & 0x2000) != 0)
+        .update(Flags::X, (result & 0x0800) != 0);
+    set_F(flags);
+    return result;
 }
 
 uint16_t Z80::adc_16bit(uint16_t reg, uint16_t value) {
-    uint8_t carry = is_C_flag_set();
-    uint32_t result = reg + value + carry;
-    set_flag_if(FLAG_S, (result & 0x8000) != 0);
-    set_flag_if(FLAG_Z, (result & 0xFFFF) == 0);
-    set_flag_if(FLAG_H, ((reg & 0xFFF) + (value & 0xFFF) + carry) & 0x1000);
-    set_flag_if(FLAG_PV, (static_cast<int16_t>((reg ^ result) & (value ^ result)) < 0));
-    clear_flag(FLAG_N);
-    set_flag_if(FLAG_C, (result & 0x10000) != 0);
-    set_flag_if(FLAG_Y, (result & 0x2000) != 0);
-    set_flag_if(FLAG_X, (result & 0x0800) != 0);
-    return static_cast<uint16_t>(result);
+    Flags flags(get_F());
+    uint8_t carry = flags.is_set(Flags::C);
+    uint32_t result32 = (uint32_t)reg + (uint32_t)value + carry;
+    uint16_t result = result32 & 0xFFFF;
+    flags.zero()
+        .update(Flags::S, (result & 0x8000) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, ((reg & 0x0FFF) + (value & 0x0FFF) + carry) > 0x0FFF)
+        .update(Flags::PV, (((reg ^ result) & (value ^ result)) & 0x8000) != 0)
+        .update(Flags::C, result32 > 0xFFFF)
+        .update(Flags::Y, (result & 0x2000) != 0)
+        .update(Flags::X, (result & 0x0800) != 0);
+    set_F(flags);
+    return result;
 }
 
 uint16_t Z80::sbc_16bit(uint16_t reg, uint16_t value) {
-    uint8_t carry = is_C_flag_set();
-    uint32_t result = reg - value - carry;
-    set_flag_if(FLAG_S, (result & 0x8000) != 0);
-    set_flag_if(FLAG_Z, (result & 0xFFFF) == 0);
-    set_flag_if(FLAG_H, ((reg & 0xFFF) - (value & 0xFFF) - carry) & 0x1000);
-    set_flag_if(FLAG_PV, (static_cast<int16_t>((reg ^ result) & (reg ^ value)) < 0));
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_C, (result & 0x10000) != 0);
-    set_flag_if(FLAG_Y, (result & 0x2000) != 0);
-    set_flag_if(FLAG_X, (result & 0x0800) != 0);
-    return static_cast<uint16_t>(result);
+    Flags flags(get_F());
+    uint8_t carry = flags.is_set(Flags::C);
+    uint32_t result32 = (uint32_t)reg - (uint32_t)value - carry;
+    uint16_t result = result32 & 0xFFFF;
+    flags.assign(Flags::N)
+        .update(Flags::S, (result & 0x8000) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, (reg & 0x0FFF) < ((value & 0x0FFF) + carry))
+        .update(Flags::PV, (((reg ^ result) & (reg ^ value)) & 0x8000) != 0)
+        .update(Flags::C, result32 > 0xFFFF)
+        .update(Flags::Y, (result & 0x2000) != 0)
+        .update(Flags::X, (result & 0x0800) != 0);
+    set_F(flags);
+    return result;
 }
 
 uint8_t Z80::rlc_8bit(uint8_t value) {
     uint8_t result = (value << 1) | (value >> 7);
-    set_flag_if(FLAG_C, (value & 0x80) != 0);
-    clear_flag(FLAG_N | FLAG_H);
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
+    Flags flags(0);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::C, (value & 0x80) != 0)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 uint8_t Z80::rrc_8bit(uint8_t value) {
     uint8_t result = (value >> 1) | (value << 7);
-    set_flag_if(FLAG_C, (value & 0x01) != 0);
-    clear_flag(FLAG_N | FLAG_H);
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
+    Flags flags(0);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::C, (value & 0x01) != 0)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 uint8_t Z80::rl_8bit(uint8_t value) {
-    uint8_t old_carry = is_C_flag_set() ? 1 : 0;
-    uint8_t result = (value << 1) | old_carry;
-    set_flag_if(FLAG_C, (value & 0x80) != 0);
-    clear_flag(FLAG_N | FLAG_H);
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
+    Flags flags(get_F());
+    uint8_t result = (value << 1) | (flags.is_set(Flags::C) ? 1 : 0);
+    flags.zero()
+        .update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::C, (value & 0x80) != 0)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 uint8_t Z80::rr_8bit(uint8_t value) {
-    uint8_t old_carry = is_C_flag_set() ? 0x80 : 0;
-    uint8_t result = (value >> 1) | old_carry;
-    set_flag_if(FLAG_C, (value & 0x01) != 0);
-    clear_flag(FLAG_N | FLAG_H);
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
+    Flags flags(get_F());
+    uint8_t result = (value >> 1) | (flags.is_set(Flags::C) ? 0x80 : 0);
+    flags.zero()
+        .update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::C, (value & 0x01) != 0)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 uint8_t Z80::sla_8bit(uint8_t value) {
     uint8_t result = value << 1;
-    set_flag_if(FLAG_C, (value & 0x80) != 0);
-    clear_flag(FLAG_N | FLAG_H);
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
+    Flags flags(0);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::C, (value & 0x80) != 0)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 uint8_t Z80::sra_8bit(uint8_t value) {
     uint8_t result = (value >> 1) | (value & 0x80);
-    set_flag_if(FLAG_C, (value & 0x01) != 0);
-    clear_flag(FLAG_N | FLAG_H);
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
+    Flags flags(0);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::C, (value & 0x01) != 0)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 uint8_t Z80::sll_8bit(uint8_t value) {
     uint8_t result = (value << 1) | 0x01;
-    set_flag_if(FLAG_C, (value & 0x80) != 0);
-    clear_flag(FLAG_N | FLAG_H);
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
+    Flags flags(0);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::C, (value & 0x80) != 0)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 uint8_t Z80::srl_8bit(uint8_t value) {
     uint8_t result = value >> 1;
-    set_flag_if(FLAG_C, (value & 0x01) != 0);
-    clear_flag(FLAG_N | FLAG_H);
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_PV, is_parity_even(result));
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
+    Flags flags(0);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::C, (value & 0x01) != 0)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
+    set_F(flags);
     return result;
 }
 
 void Z80::bit_8bit(uint8_t bit, uint8_t value) {
-    set_flag(FLAG_H);
-    clear_flag(FLAG_N);
     bool bit_is_zero = (value & (1 << bit)) == 0;
-    set_flag_if(FLAG_Z, bit_is_zero);
-    set_flag_if(FLAG_PV, bit_is_zero);
-    if (bit == 7) {
-        set_flag_if(FLAG_S, (value & 0x80) != 0);
-    } else
-        clear_flag(FLAG_S);
+    Flags flags(get_F());
+    flags.set(Flags::H)
+        .clear(Flags::N)
+        .update(Flags::Z, bit_is_zero)
+        .update(Flags::PV, bit_is_zero)
+        .update(Flags::S, bit == 7 && !bit_is_zero);
+    set_F(flags);
 }
 
 uint8_t Z80::res_8bit(uint8_t bit, uint8_t value) {
