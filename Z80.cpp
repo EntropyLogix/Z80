@@ -128,7 +128,6 @@ uint8_t Z80::fetch_next_opcode() {
     add_ticks(1);
     uint8_t r_val = get_R();
     set_R(((r_val + 1) & 0x7F) | (r_val & 0x80));
-    
     uint16_t current_pc = get_PC();
     uint8_t opcode = read_byte(current_pc);
     set_PC(current_pc + 1);
@@ -237,12 +236,12 @@ uint8_t Z80::dec_8bit(uint8_t value) {
     uint8_t result = value - 1;
     Flags flags(get_F() & Flags::C);
     flags.set(Flags::N)
-         .update(Flags::S, (result & 0x80) != 0)
-         .update(Flags::Z, result == 0)
-         .update(Flags::H, (value & 0x0F) == 0x00)
-         .update(Flags::PV, value == 0x80)
-         .update(Flags::Y, (result & 0x20) != 0)
-         .update(Flags::X, (result & 0x08) != 0);
+        .update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, (value & 0x0F) == 0x00)
+        .update(Flags::PV, value == 0x80)
+        .update(Flags::Y, (result & 0x20) != 0)
+        .update(Flags::X, (result & 0x08) != 0);
     set_F(flags);
     return result;
 }
@@ -316,7 +315,7 @@ void Z80::add_8bit(uint8_t value) {
 
 void Z80::adc_8bit(uint8_t value) {
     uint8_t a = get_A();
-    Flags flags(get_F());
+    Flags flags = get_F();
     uint8_t carry = flags.is_set(Flags::C);
     uint16_t result16 = (uint16_t)a + (uint16_t)value + carry;
     uint8_t result = result16 & 0xFF;
@@ -348,7 +347,7 @@ void Z80::sub_8bit(uint8_t value) {
 }
 
 void Z80::sbc_8bit(uint8_t value) {
-    Flags flags(get_F());
+    Flags flags = get_F();
     uint8_t a = get_A();
     uint8_t carry = flags.is_set(Flags::C);
     uint16_t result16 = (uint16_t)a - (uint16_t)value - carry;
@@ -368,7 +367,7 @@ void Z80::sbc_8bit(uint8_t value) {
 uint16_t Z80::add_16bit(uint16_t reg, uint16_t value) {
     uint32_t result32 = (uint32_t)reg + (uint32_t)value;
     uint16_t result = result32 & 0xFFFF;
-    Flags flags(get_F());
+    Flags flags = get_F();
     flags.clear(Flags::N)
         .update(Flags::H, ((reg & 0x0FFF) + (value & 0x0FFF)) > 0x0FFF)
         .update(Flags::C, result32 > 0xFFFF)
@@ -379,7 +378,7 @@ uint16_t Z80::add_16bit(uint16_t reg, uint16_t value) {
 }
 
 uint16_t Z80::adc_16bit(uint16_t reg, uint16_t value) {
-    Flags flags(get_F());
+    Flags flags = get_F();
     uint8_t carry = flags.is_set(Flags::C);
     uint32_t result32 = (uint32_t)reg + (uint32_t)value + carry;
     uint16_t result = result32 & 0xFFFF;
@@ -396,7 +395,7 @@ uint16_t Z80::adc_16bit(uint16_t reg, uint16_t value) {
 }
 
 uint16_t Z80::sbc_16bit(uint16_t reg, uint16_t value) {
-    Flags flags(get_F());
+    Flags flags = get_F();
     uint8_t carry = flags.is_set(Flags::C);
     uint32_t result32 = (uint32_t)reg - (uint32_t)value - carry;
     uint16_t result = result32 & 0xFFFF;
@@ -439,7 +438,7 @@ uint8_t Z80::rrc_8bit(uint8_t value) {
 }
 
 uint8_t Z80::rl_8bit(uint8_t value) {
-    Flags flags(get_F());
+    Flags flags = get_F();
     uint8_t result = (value << 1) | (flags.is_set(Flags::C) ? 1 : 0);
     flags.zero()
         .update(Flags::S, (result & 0x80) != 0)
@@ -453,7 +452,7 @@ uint8_t Z80::rl_8bit(uint8_t value) {
 }
 
 uint8_t Z80::rr_8bit(uint8_t value) {
-    Flags flags(get_F());
+    Flags flags = get_F();
     uint8_t result = (value >> 1) | (flags.is_set(Flags::C) ? 0x80 : 0);
     flags.zero()
         .update(Flags::S, (result & 0x80) != 0)
@@ -520,7 +519,7 @@ uint8_t Z80::srl_8bit(uint8_t value) {
 
 void Z80::bit_8bit(uint8_t bit, uint8_t value) {
     bool bit_is_zero = (value & (1 << bit)) == 0;
-    Flags flags(get_F());
+    Flags flags = get_F();
     flags.set(Flags::H)
         .clear(Flags::N)
         .update(Flags::Z, bit_is_zero)
@@ -539,12 +538,14 @@ uint8_t Z80::set_8bit(uint8_t bit, uint8_t value) {
 
 uint8_t Z80::in_r_c() {
     uint8_t value = io.read(get_BC());
-    set_flag_if(FLAG_S, (value & 0x80) != 0);
-    set_flag_if(FLAG_Z, value == 0);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_PV, is_parity_even(value));
-    set_flag_if(FLAG_X, (value & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (value & FLAG_Y) != 0);
+    Flags flags = get_F();
+    flags.update(Flags::S, (value & 0x80) != 0)
+        .update(Flags::Z, value == 0)
+        .clear(Flags::H | Flags::N)
+        .update(Flags::PV, is_parity_even(value))
+        .update(Flags::X, (value & Flags::X) != 0)
+        .update(Flags::Y, (value & Flags::Y) != 0);
+    set_F(flags);
     return value;
 }
 
@@ -637,14 +638,16 @@ void Z80::handle_CB() {
             break;
         case 1: {
             bit_8bit(bit, value);
+            Flags flags = get_F();
             if (target_reg == 6) {
                 add_ticks(1);
-                set_flag_if(FLAG_X, (flags_source & 0x0800) != 0);
-                set_flag_if(FLAG_Y, (flags_source & 0x2000) != 0);
+                flags.update(Flags::X, (flags_source & 0x0800) != 0);
+                flags.update(Flags::Y, (flags_source & 0x2000) != 0);
             } else {
-                set_flag_if(FLAG_X, (value & 0x08) != 0);
-                set_flag_if(FLAG_Y, (value & 0x20) != 0);
+                flags.update(Flags::X, (value & 0x08) != 0);
+                flags.update(Flags::Y, (value & 0x20) != 0);
             }
+            set_F(flags);
             return;
         }
         case 2: result = res_8bit(bit, value); break;
@@ -677,8 +680,10 @@ void Z80::handle_CB_indexed(uint16_t index_register) {
     if (operation_group == 1) {
         add_ticks(1);
         bit_8bit(bit, value);
-        set_flag_if(FLAG_X, (address & 0x0800) != 0);
-        set_flag_if(FLAG_Y, (address & 0x2000) != 0);
+        Flags flags = get_F();
+        flags.update(Flags::X, (address & 0x0800) != 0);
+        flags.update(Flags::Y, (address & 0x2000) != 0);
+        set_F(flags);
         return;
     }
     switch(operation_group) {
@@ -746,10 +751,12 @@ void Z80::opcode_0x07_RLCA() {
     uint8_t carry_bit = (value >> 7) & 0x01;
     uint8_t result = (value << 1) | carry_bit;
     set_A(result);
-    set_flag_if(FLAG_C, carry_bit == 1);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
+    Flags flags = get_F();
+    flags.update(Flags::C, carry_bit == 1)
+        .clear(Flags::H | Flags::N)
+        .update(Flags::Y, (result & Flags::Y) != 0)
+        .update(Flags::X, (result & Flags::X) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0x08_EX_AF_AFp() {
@@ -789,10 +796,12 @@ void Z80::opcode_0x0F_RRCA() {
     uint8_t carry_bit = value & 0x01;
     uint8_t result = (value >> 1) | (carry_bit << 7);
     set_A(result);
-    set_flag_if(FLAG_C, carry_bit == 1);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
+    Flags flags = get_F();
+    flags.update(Flags::C, carry_bit == 1)
+        .clear(Flags::H | Flags::N)
+        .update(Flags::Y, (result & Flags::Y) != 0)
+        .update(Flags::X, (result & Flags::X) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0x10_DJNZ_d() {
@@ -833,14 +842,16 @@ void Z80::opcode_0x16_LD_D_n() {
 
 void Z80::opcode_0x17_RLA() {
     uint8_t value = get_A();
-    uint8_t old_carry_bit = is_C_flag_set() ? 1 : 0;
+    uint8_t old_carry_bit = get_F().is_set(Flags::C) ? 1 : 0;
     uint8_t new_carry_bit = (value >> 7) & 0x01;
     uint8_t result = (value << 1) | old_carry_bit;
     set_A(result);
-    set_flag_if(FLAG_C, new_carry_bit);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
+    Flags flags = get_F();
+    flags.update(Flags::C, new_carry_bit == 1)
+        .clear(Flags::H | Flags::N)
+        .update(Flags::Y, (result & Flags::Y) != 0)
+        .update(Flags::X, (result & Flags::X) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0x18_JR_d() {
@@ -877,19 +888,21 @@ void Z80::opcode_0x1E_LD_E_n() {
 
 void Z80::opcode_0x1F_RRA() {
     uint8_t value = get_A();
-    bool old_carry_bit = is_C_flag_set();
+    bool old_carry_bit = get_F().is_set(Flags::C);
     bool new_carry_bit = (value & 0x01) != 0;
     uint8_t result = (value >> 1) | (old_carry_bit ? 0x80 : 0);
     set_A(result);
-    set_flag_if(FLAG_C, new_carry_bit);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
+    Flags flags = get_F();
+    flags.update(Flags::C, new_carry_bit)
+        .clear(Flags::H | Flags::N)
+        .update(Flags::Y, (result & Flags::Y) != 0)
+        .update(Flags::X, (result & Flags::X) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0x20_JR_NZ_d() {
     int8_t offset = static_cast<int8_t>(fetch_next_byte());
-    if (!is_Z_flag_set()) {
+    if (!get_F().is_set(Flags::Z)) {
         add_ticks(5);
         set_PC(get_PC() + offset);
     }
@@ -923,37 +936,39 @@ void Z80::opcode_0x26_LD_H_n() {
 void Z80::opcode_0x27_DAA() {
     uint8_t a = get_A();
     uint8_t correction = 0;
-    bool carry = is_C_flag_set();
-    if (is_N_flag_set()) {
-        if (carry || (a > 0x99)) {
+    Flags flags = get_F();
+    bool carry = flags.is_set(Flags::C);
+    if (flags.is_set(Flags::N)) {
+        if (carry || (a > 0x99))
             correction = 0x60;
-        }
-        if (is_H_flag_set() || ((a & 0x0F) > 0x09))
+        if (flags.is_set(Flags::H) || ((a & 0x0F) > 0x09)) 
             correction |= 0x06;
-        set_flag_if(FLAG_H, is_H_flag_set() && ((a & 0x0F) < 0x06));
         set_A(a - correction);
+        flags.update(Flags::H, flags.is_set(Flags::H) && ((a & 0x0F) < 0x06));
     } else {
         if (carry || (a > 0x99)) {
             correction = 0x60;
-            set_flag(FLAG_C);
+            flags.set(Flags::C);
         }
-        if (is_H_flag_set() || ((a & 0x0F) > 0x09))
+        if (flags.is_set(Flags::H) || ((a & 0x0F) > 0x09))
             correction |= 0x06;
-        set_flag_if(FLAG_H, (a & 0x0F) > 0x09);
         set_A(a + correction);
+        flags.update(Flags::H, (a & 0x0F) > 0x09);
     }
     if (correction >= 0x60)
-        set_flag(FLAG_C);
-    set_flag_if(FLAG_S, get_A() & 0x80);
-    set_flag_if(FLAG_Z, get_A() == 0);
-    set_flag_if(FLAG_PV, is_parity_even(get_A()));
-    set_flag_if(FLAG_X, get_A() & FLAG_X);
-    set_flag_if(FLAG_Y, get_A() & FLAG_Y);
+        flags.set(Flags::C);
+    uint8_t result = get_A();
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::PV, is_parity_even(result))
+        .update(Flags::X, (result & Flags::X) != 0)
+        .update(Flags::Y, (result & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0x28_JR_Z_d() {
     int8_t offset = static_cast<int8_t>(fetch_next_byte());
-    if (is_Z_flag_set()) {
+    if (get_F().is_set(Flags::Z)) {
         add_ticks(5);
         set_PC(get_PC() + offset);
     }
@@ -986,17 +1001,18 @@ void Z80::opcode_0x2E_LD_L_n() {
 }
 
 void Z80::opcode_0x2F_CPL() {
-    uint8_t a = get_A();
-    a = ~a;
-    set_A(a);
-    set_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_Y, (a & FLAG_Y) != 0);
-    set_flag_if(FLAG_X, (a & FLAG_X) != 0);
+    uint8_t result = ~get_A();
+    set_A(result);
+    Flags flags = get_F();
+    flags.set(Flags::H | Flags::N)
+        .update(Flags::Y, (result & Flags::Y) != 0)
+        .update(Flags::X, (result & Flags::X) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0x30_JR_NC_d() {
     int8_t offset = static_cast<int8_t>(fetch_next_byte());
-    if (!is_C_flag_set()) {
+    if (!get_F().is_set(Flags::C)) {
         add_ticks(5);
         set_PC(get_PC() + offset);
     }
@@ -1042,15 +1058,17 @@ void Z80::opcode_0x36_LD_HL_ptr_n() {
 }
 
 void Z80::opcode_0x37_SCF() {
-    set_flag(FLAG_C);
-    clear_flag(FLAG_N | FLAG_H);
-    set_flag_if(FLAG_X, (get_A() & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (get_A() & FLAG_Y) != 0);
+    Flags flags = get_F();
+    flags.set(Flags::C)
+        .clear(Flags::H | Flags::N)
+        .update(Flags::X, (get_A() & Flags::X) != 0)
+        .update(Flags::Y, (get_A() & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0x38_JR_C_d() {
     int8_t offset = static_cast<int8_t>(fetch_next_byte());
-    if (is_C_flag_set()) {
+    if (get_F().is_set(Flags::C)) {
         add_ticks(5);
         set_PC(get_PC() + offset);
     }
@@ -1084,12 +1102,14 @@ void Z80::opcode_0x3E_LD_A_n() {
 }
 
 void Z80::opcode_0x3F_CCF() {
-    bool old_C_flag = is_C_flag_set();
-    set_flag_if(FLAG_C, !old_C_flag);
-    clear_flag(FLAG_N);
-    set_flag_if(FLAG_H, old_C_flag);
-    set_flag_if(FLAG_Y, (get_A() & FLAG_Y) != 0);
-    set_flag_if(FLAG_X, (get_A() & FLAG_X) != 0);
+    Flags flags = get_F();
+    bool old_carry = flags.is_set(Flags::C);
+    flags.update(Flags::C, !old_carry)
+        .update(Flags::H, old_carry)
+        .clear(Flags::N)
+        .update(Flags::X, (get_A() & Flags::X) != 0)
+        .update(Flags::Y, (get_A() & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0x40_LD_B_B() {
@@ -1599,7 +1619,7 @@ void Z80::opcode_0xBF_CP_A() {
 
 void Z80::opcode_0xC0_RET_NZ() {
     add_ticks(1);
-    if (!is_Z_flag_set())
+    if (!get_F().is_set(Flags::Z))
         set_PC(pop_word());
 }
 
@@ -1609,7 +1629,7 @@ void Z80::opcode_0xC1_POP_BC() {
 
 void Z80::opcode_0xC2_JP_NZ_nn() {
     uint16_t address = fetch_next_word();
-    if (!is_Z_flag_set())
+    if (!get_F().is_set(Flags::Z))
         set_PC(address);
 }
 
@@ -1619,7 +1639,7 @@ void Z80::opcode_0xC3_JP_nn() {
 
 void Z80::opcode_0xC4_CALL_NZ_nn() {
     uint16_t address = fetch_next_word();
-    if (!is_Z_flag_set()) {
+    if (!get_F().is_set(Flags::Z)) {
         add_ticks(1);
         push_word(get_PC());
         set_PC(address);
@@ -1643,7 +1663,7 @@ void Z80::opcode_0xC7_RST_00H() {
 
 void Z80::opcode_0xC8_RET_Z() {
     add_ticks(1);
-    if (is_Z_flag_set())
+    if (get_F().is_set(Flags::Z))
         set_PC(pop_word());
 }
 
@@ -1653,13 +1673,13 @@ void Z80::opcode_0xC9_RET() {
 
 void Z80::opcode_0xCA_JP_Z_nn() {
     uint16_t address = fetch_next_word();
-    if (is_Z_flag_set())
+    if (get_F().is_set(Flags::Z))
         set_PC(address);
 }
 
 void Z80::opcode_0xCC_CALL_Z_nn() {
     uint16_t address = fetch_next_word();
-    if (is_Z_flag_set()) {
+    if (get_F().is_set(Flags::Z)) {
         add_ticks(1);
         push_word(get_PC());
         set_PC(address);
@@ -1685,7 +1705,7 @@ void Z80::opcode_0xCF_RST_08H() {
 
 void Z80::opcode_0xD0_RET_NC() {
     add_ticks(1);
-    if (!is_C_flag_set())
+    if (!get_F().is_set(Flags::C))
         set_PC(pop_word());
 }
 
@@ -1695,7 +1715,7 @@ void Z80::opcode_0xD1_POP_DE() {
 
 void Z80::opcode_0xD2_JP_NC_nn() {
     uint16_t address = fetch_next_word();
-    if (!is_C_flag_set())
+    if (!get_F().is_set(Flags::C))
         set_PC(address);
 }
 
@@ -1707,7 +1727,7 @@ void Z80::opcode_0xD3_OUT_n_ptr_A() {
 
 void Z80::opcode_0xD4_CALL_NC_nn() {
     uint16_t address = fetch_next_word();
-    if (!is_C_flag_set()) {
+    if (!get_F().is_set(Flags::C)) {
         add_ticks(1);
         push_word(get_PC());
         set_PC(address);
@@ -1731,7 +1751,7 @@ void Z80::opcode_0xD7_RST_10H() {
 
 void Z80::opcode_0xD8_RET_C() {
     add_ticks(1);
-    if (is_C_flag_set())
+    if (get_F().is_set(Flags::C))
         set_PC(pop_word());
 }
 
@@ -1749,7 +1769,7 @@ void Z80::opcode_0xD9_EXX() {
 
 void Z80::opcode_0xDA_JP_C_nn() {
     uint16_t address = fetch_next_word();
-    if (is_C_flag_set())
+    if (get_F().is_set(Flags::C))
         set_PC(address);
 }
 
@@ -1762,7 +1782,7 @@ void Z80::opcode_0xDB_IN_A_n_ptr() {
 
 void Z80::opcode_0xDC_CALL_C_nn() {
     uint16_t address = fetch_next_word();
-    if (is_C_flag_set()) {
+    if (get_F().is_set(Flags::C)) {
         add_ticks(1);
         push_word(get_PC());
         set_PC(address);
@@ -1781,7 +1801,7 @@ void Z80::opcode_0xDF_RST_18H() {
 
 void Z80::opcode_0xE0_RET_PO() {
     add_ticks(1);
-    if (!is_PV_flag_set())
+    if (!get_F().is_set(Flags::PV))
         set_PC(pop_word());
 }
 
@@ -1791,7 +1811,7 @@ void Z80::opcode_0xE1_POP_HL() {
 
 void Z80::opcode_0xE2_JP_PO_nn() {
     uint16_t address = fetch_next_word();
-    if (!is_PV_flag_set())
+    if (!get_F().is_set(Flags::PV))
         set_PC(address);
 }
 
@@ -1804,7 +1824,7 @@ void Z80::opcode_0xE3_EX_SP_ptr_HL() {
 
 void Z80::opcode_0xE4_CALL_PO_nn() {
     uint16_t address = fetch_next_word();
-    if (!is_PV_flag_set()) {
+    if (!get_F().is_set(Flags::PV)) {
         add_ticks(1);
         push_word(get_PC());
         set_PC(address);
@@ -1828,7 +1848,7 @@ void Z80::opcode_0xE7_RST_20H() {
 
 void Z80::opcode_0xE8_RET_PE() {
     add_ticks(1);
-    if (is_PV_flag_set())
+    if (get_F().is_set(Flags::PV))
         set_PC(pop_word());
 }
 
@@ -1838,7 +1858,7 @@ void Z80::opcode_0xE9_JP_HL_ptr() {
 
 void Z80::opcode_0xEA_JP_PE_nn() {
     uint16_t address = fetch_next_word();
-    if (is_PV_flag_set())
+    if (get_F().is_set(Flags::PV))
         set_PC(address);
 }
 
@@ -1850,7 +1870,7 @@ void Z80::opcode_0xEB_EX_DE_HL() {
 
 void Z80::opcode_0xEC_CALL_PE_nn() {
     uint16_t address = fetch_next_word();
-    if (is_PV_flag_set()) {
+    if (get_F().is_set(Flags::PV)) {
         add_ticks(1);
         push_word(get_PC());
         set_PC(address);
@@ -1869,7 +1889,7 @@ void Z80::opcode_0xEF_RST_28H() {
 
 void Z80::opcode_0xF0_RET_P() {
     add_ticks(1);
-    if (!is_S_flag_set())
+    if (!get_F().is_set(Flags::S))
         set_PC(pop_word());
 }
 
@@ -1879,7 +1899,7 @@ void Z80::opcode_0xF1_POP_AF() {
 
 void Z80::opcode_0xF2_JP_P_nn() {
     uint16_t address = fetch_next_word();
-    if (!is_S_flag_set())
+    if (!get_F().is_set(Flags::S))
         set_PC(address);
 }
 
@@ -1890,7 +1910,7 @@ void Z80::opcode_0xF3_DI() {
 
 void Z80::opcode_0xF4_CALL_P_nn() {
     uint16_t address = fetch_next_word();
-    if (!is_S_flag_set()) {
+    if (!get_F().is_set(Flags::S)) {
         add_ticks(1);
         push_word(get_PC());
         set_PC(address);
@@ -1914,7 +1934,7 @@ void Z80::opcode_0xF7_RST_30H() {
 
 void Z80::opcode_0xF8_RET_M() {
     add_ticks(1);
-    if (is_S_flag_set())
+    if (get_F().is_set(Flags::S))
         set_PC(pop_word());
 }
 
@@ -1925,7 +1945,7 @@ void Z80::opcode_0xF9_LD_SP_HL() {
 
 void Z80::opcode_0xFA_JP_M_nn() {
     uint16_t address = fetch_next_word();
-    if (is_S_flag_set())
+    if (get_F().is_set(Flags::S))
         set_PC(address);
 }
 
@@ -1935,7 +1955,7 @@ void Z80::opcode_0xFB_EI() {
 
 void Z80::opcode_0xFC_CALL_M_nn() {
     uint16_t address = fetch_next_word();
-    if (is_S_flag_set()) {
+    if (get_F().is_set(Flags::S)) {
         add_ticks(1);
         push_word(get_PC());
         set_PC(address);
@@ -1975,14 +1995,15 @@ void Z80::opcode_0xED_0x44_NEG() {
     uint8_t value = get_A();
     uint8_t result = -value;
     set_A(result);
-    set_flag_if(FLAG_S, (result & 0x80) != 0);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, (0x00 & 0x0F) < (value & 0x0F));
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_C, value != 0);
-    set_flag_if(FLAG_PV, value == 0x80);
-    set_flag_if(FLAG_X, (result & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (result & FLAG_Y) != 0);
+    Flags flags(Flags::N);
+    flags.update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, (value & 0x0F) != 0)
+        .update(Flags::C, value != 0)
+        .update(Flags::PV, value == 0x80)
+        .update(Flags::X, (result & Flags::X) != 0)
+        .update(Flags::Y, (result & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0x45_RETN() {
@@ -2056,12 +2077,14 @@ void Z80::opcode_0xED_0x57_LD_A_I() {
     add_ticks(1);
     uint8_t i_value = get_I();
     set_A(i_value);
-    set_flag_if(FLAG_S, (i_value & 0x80) != 0);
-    set_flag_if(FLAG_Z, i_value == 0);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_PV, get_IFF2());
-    set_flag_if(FLAG_Y, (i_value & FLAG_Y) != 0);
-    set_flag_if(FLAG_X, (i_value & FLAG_X) != 0);
+    Flags flags(get_F() & Flags::C);
+    flags.clear(Flags::H | Flags::N)
+        .update(Flags::S, (i_value & 0x80) != 0)
+        .update(Flags::Z, i_value == 0)
+        .update(Flags::PV, get_IFF2())
+        .update(Flags::X, (i_value & Flags::X) != 0)
+        .update(Flags::Y, (i_value & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0x58_IN_E_C_ptr() {
@@ -2091,12 +2114,14 @@ void Z80::opcode_0xED_0x5F_LD_A_R() {
     add_ticks(1);
     uint8_t r_value = get_R();
     set_A(r_value);
-    set_flag_if(FLAG_S, (r_value & 0x80) != 0);
-    set_flag_if(FLAG_Z, r_value == 0);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_PV, get_IFF2());
-    set_flag_if(FLAG_Y, (r_value & FLAG_Y) != 0);
-    set_flag_if(FLAG_X, (r_value & FLAG_X) != 0);
+    Flags flags(get_F() & Flags::C);
+    flags.clear(Flags::H | Flags::N)
+        .update(Flags::S, (r_value & 0x80) != 0)
+        .update(Flags::Z, r_value == 0)
+        .update(Flags::PV, get_IFF2())
+        .update(Flags::X, (r_value & Flags::X) != 0)
+        .update(Flags::Y, (r_value & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0x60_IN_H_C_ptr() {
@@ -2128,12 +2153,14 @@ void Z80::opcode_0xED_0x67_RRD() {
     uint8_t new_mem = (mem_val >> 4) | ((a_val & 0x0F) << 4);
     set_A(new_a);
     write_byte(address, new_mem);
-    set_flag_if(FLAG_S, (new_a & 0x80) != 0);
-    set_flag_if(FLAG_Z, new_a == 0);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_PV, is_parity_even(new_a));
-    set_flag_if(FLAG_X, (new_a & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (new_a & FLAG_Y) != 0);
+    Flags flags(get_F() & Flags::C);
+    flags.clear(Flags::H | Flags::N)
+        .update(Flags::S, (new_a & 0x80) != 0)
+        .update(Flags::Z, new_a == 0)
+        .update(Flags::PV, is_parity_even(new_a))
+        .update(Flags::X, (new_a & Flags::X) != 0)
+        .update(Flags::Y, (new_a & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0x68_IN_L_C_ptr() {
@@ -2165,12 +2192,14 @@ void Z80::opcode_0xED_0x6F_RLD() {
     uint8_t new_mem = (mem_val << 4) | (a_val & 0x0F);
     set_A(new_a);
     write_byte(address, new_mem);
-    set_flag_if(FLAG_S, (new_a & 0x80) != 0);
-    set_flag_if(FLAG_Z, new_a == 0);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_PV, is_parity_even(new_a));
-    set_flag_if(FLAG_X, (new_a & FLAG_X) != 0);
-    set_flag_if(FLAG_Y, (new_a & FLAG_Y) != 0);
+    Flags flags(get_F() & Flags::C);
+    flags.clear(Flags::H | Flags::N)
+        .update(Flags::S, (new_a & 0x80) != 0)
+        .update(Flags::Z, new_a == 0)
+        .update(Flags::PV, is_parity_even(new_a))
+        .update(Flags::X, (new_a & Flags::X) != 0)
+        .update(Flags::Y, (new_a & Flags::Y) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0x70_IN_C_ptr() {
@@ -2218,11 +2247,13 @@ void Z80::opcode_0xED_0xA0_LDI() {
     set_HL(get_HL() + 1);
     set_DE(get_DE() + 1);
     set_BC(get_BC() - 1);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_PV, get_BC() != 0);
+    Flags flags = get_F();
     uint8_t temp = get_A() + value;
-    set_flag_if(FLAG_Y, (temp & 0x02) != 0);
-    set_flag_if(FLAG_X, (temp & 0x08) != 0);
+    flags.clear(Flags::H | Flags::N)
+        .update(Flags::PV, get_BC() != 0)
+        .update(Flags::Y, (temp & 0x02) != 0)
+        .update(Flags::X, (temp & 0x08) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0xA1_CPI() {
@@ -2232,14 +2263,16 @@ void Z80::opcode_0xED_0xA1_CPI() {
     bool half_carry = (get_A() & 0x0F) < (value & 0x0F);
     set_HL(get_HL() + 1);
     set_BC(get_BC() - 1);
-    set_flag_if(FLAG_S, result & 0x80);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, half_carry);
-    set_flag_if(FLAG_PV, get_BC() != 0);
-    set_flag(FLAG_N);
+    Flags flags = get_F();
     uint8_t temp = get_A() - value - (half_carry ? 1 : 0);
-    set_flag_if(FLAG_Y, (temp & 0x02) != 0);
-    set_flag_if(FLAG_X, (temp & 0x08) != 0);
+    flags.set(Flags::N)
+        .update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, half_carry)
+        .update(Flags::PV, get_BC() != 0)
+        .update(Flags::Y, (temp & 0x02) != 0)
+        .update(Flags::X, (temp & 0x08) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0xA2_INI() {
@@ -2249,13 +2282,15 @@ void Z80::opcode_0xED_0xA2_INI() {
     set_B(b_val - 1);
     write_byte(get_HL(), port_val);
     set_HL(get_HL() + 1);
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_Z, b_val - 1 == 0);
+    Flags flags = get_F();
     uint16_t temp = static_cast<uint16_t>(get_C()) + 1;
     uint8_t k = port_val + (temp & 0xFF);
-    set_flag_if(FLAG_C, k > 0xFF);
-    set_flag_if(FLAG_H, k > 0xFF);
-    set_flag_if(FLAG_PV, is_parity_even( ((temp & 0x07) ^ (b_val - 1)) & 0xFF));
+    flags.set(Flags::N)
+        .update(Flags::Z, b_val - 1 == 0)
+        .update(Flags::C, k > 0xFF)
+        .update(Flags::H, k > 0xFF)
+        .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ (b_val - 1)) & 0xFF));
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0xA3_OUTI() {
@@ -2265,14 +2300,15 @@ void Z80::opcode_0xED_0xA3_OUTI() {
     set_B(b_val - 1);
     io.write(get_BC(), mem_val);
     set_HL(get_HL() + 1);
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_Z, b_val - 1 == 0);
+    Flags flags = get_F();
     uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
-    set_flag_if(FLAG_C, temp > 0xFF);
-    set_flag_if(FLAG_H, temp > 0xFF);
-    set_flag_if(FLAG_PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF) );
+    flags.set(Flags::N)
+        .update(Flags::Z, b_val - 1 == 0)
+        .update(Flags::C, temp > 0xFF)
+        .update(Flags::H, temp > 0xFF)
+        .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF) );
+    set_F(flags);
 }
-
 
 void Z80::opcode_0xED_0xA8_LDD() {
     add_ticks(2);
@@ -2281,11 +2317,13 @@ void Z80::opcode_0xED_0xA8_LDD() {
     set_HL(get_HL() - 1);
     set_DE(get_DE() - 1);
     set_BC(get_BC() - 1);
-    clear_flag(FLAG_H | FLAG_N);
-    set_flag_if(FLAG_PV, get_BC() != 0);
+    Flags flags = get_F();
     uint8_t temp = get_A() + value;
-    set_flag_if(FLAG_Y, (temp & 0x02) != 0);
-    set_flag_if(FLAG_X, (temp & 0x08) != 0);
+    flags.clear(Flags::H | Flags::N)
+        .update(Flags::PV, get_BC() != 0)
+        .update(Flags::Y, (temp & 0x02) != 0)
+        .update(Flags::X, (temp & 0x08) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0xA9_CPD() {
@@ -2295,14 +2333,16 @@ void Z80::opcode_0xED_0xA9_CPD() {
     bool half_carry = (get_A() & 0x0F) < (value & 0x0F);
     set_HL(get_HL() - 1);
     set_BC(get_BC() - 1);
-    set_flag_if(FLAG_S, result & 0x80);
-    set_flag_if(FLAG_Z, result == 0);
-    set_flag_if(FLAG_H, half_carry);
-    set_flag_if(FLAG_PV, get_BC() != 0);
-    set_flag(FLAG_N);
+    Flags flags = get_F();
     uint8_t temp = get_A() - value - (half_carry ? 1 : 0);
-    set_flag_if(FLAG_Y, (temp & 0x02) != 0);
-    set_flag_if(FLAG_X, (temp & 0x08) != 0);
+    flags.set(Flags::N)
+        .update(Flags::S, (result & 0x80) != 0)
+        .update(Flags::Z, result == 0)
+        .update(Flags::H, half_carry)
+        .update(Flags::PV, get_BC() != 0)
+        .update(Flags::Y, (temp & 0x02) != 0)
+        .update(Flags::X, (temp & 0x08) != 0);
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0xAA_IND() {
@@ -2312,13 +2352,15 @@ void Z80::opcode_0xED_0xAA_IND() {
     set_B(b_val - 1);
     write_byte(get_HL(), port_val);
     set_HL(get_HL() - 1);
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_Z, b_val - 1 == 0);
+    Flags flags = get_F();
     uint16_t temp = static_cast<uint16_t>(get_C()) - 1;
     uint8_t k = port_val + (temp & 0xFF);
-    set_flag_if(FLAG_C, k > 0xFF);
-    set_flag_if(FLAG_H, k > 0xFF);
-    set_flag_if(FLAG_PV, is_parity_even( ((temp & 0x07) ^ (b_val - 1)) & 0xFF));
+    flags.set(Flags::N)
+        .update(Flags::Z, b_val - 1 == 0)
+        .update(Flags::C, k > 0xFF)
+        .update(Flags::H, k > 0xFF)
+        .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ (b_val - 1)) & 0xFF));
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0xAB_OUTD() {
@@ -2328,12 +2370,14 @@ void Z80::opcode_0xED_0xAB_OUTD() {
     set_B(b_val - 1);
     io.write(get_BC(), mem_val);
     set_HL(get_HL() - 1);
-    set_flag(FLAG_N);
-    set_flag_if(FLAG_Z, b_val - 1 == 0);
+    Flags flags = get_F();
     uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
-    set_flag_if(FLAG_C, temp > 0xFF);
-    set_flag_if(FLAG_H, temp > 0xFF);
-    set_flag_if(FLAG_PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF));
+    flags.set(Flags::N)
+        .update(Flags::Z, b_val - 1 == 0)
+        .update(Flags::C, temp > 0xFF)
+        .update(Flags::H, temp > 0xFF)
+        .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF));
+    set_F(flags);
 }
 
 void Z80::opcode_0xED_0xB0_LDIR() {
@@ -2346,7 +2390,7 @@ void Z80::opcode_0xED_0xB0_LDIR() {
 
 void Z80::opcode_0xED_0xB1_CPIR() {
     opcode_0xED_0xA1_CPI();
-    if (get_BC() != 0 && !is_Z_flag_set()) {
+    if (get_BC() != 0 && !get_F().is_set(Flags::Z)) {
         add_ticks(5);
         set_PC(get_PC() - 2);
     }
@@ -2378,7 +2422,7 @@ void Z80::opcode_0xED_0xB8_LDDR() {
 
 void Z80::opcode_0xED_0xB9_CPDR() {
     opcode_0xED_0xA9_CPD();
-    if (get_BC() != 0 && !is_Z_flag_set()) {
+    if (get_BC() != 0 && !get_F().is_set(Flags::Z)) {
         add_ticks(5);
         set_PC(get_PC() - 2);
     }

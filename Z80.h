@@ -49,16 +49,53 @@ public:
     };
 
     class IOBus {
-        public:
-            virtual ~IOBus() = default;
+    public:
+        virtual ~IOBus() = default;
 
-            virtual void connect(Z80* processor) {cpu = processor;}
-            virtual void reset() = 0;
+        virtual void connect(Z80* processor) {cpu = processor;}
+        virtual void reset() = 0;
 
-            virtual uint8_t read(uint16_t port) = 0;
-            virtual void write(uint16_t port, uint8_t value) = 0;
-        protected:
-            Z80* cpu;
+        virtual uint8_t read(uint16_t port) = 0;
+        virtual void write(uint16_t port, uint8_t value) = 0;
+    protected:
+        Z80* cpu;
+    };
+
+    // --- Flags
+    class Flags {
+    public:
+        static constexpr uint8_t C  = 1 << 0;
+        static constexpr uint8_t N  = 1 << 1;
+        static constexpr uint8_t PV = 1 << 2;
+        static constexpr uint8_t X  = 1 << 3;
+        static constexpr uint8_t H  = 1 << 4;
+        static constexpr uint8_t Y  = 1 << 5;
+        static constexpr uint8_t Z  = 1 << 6;
+        static constexpr uint8_t S  = 1 << 7;
+
+        Flags(uint8_t initial_value) : m_value(initial_value) {}
+
+        operator uint8_t() const { return m_value; }
+        Flags& operator=(uint8_t new_value) {
+            return assign(new_value);
+        }
+
+        Flags& zero() { m_value = 0; return *this; }
+        Flags& assign(uint8_t value) { m_value = value; return *this; }
+
+        Flags& set(uint8_t mask) { m_value |= mask; return *this; }
+        Flags& clear(uint8_t mask) { m_value &= ~mask; return *this; }
+        Flags& update(uint8_t mask, bool state) {
+            if (state)
+                m_value |= mask;
+            else
+                m_value &= ~mask;
+            return *this;
+        }
+        bool is_set(uint8_t mask) const { return (m_value & mask) != 0; }
+
+    private:
+        uint8_t m_value;
     };
 
     // --- Constructor ---
@@ -118,8 +155,8 @@ public:
     // 8-bit registers (computed from 16-bit pairs)
     uint8_t get_A() const { return (get_AF() >> 8) & 0xFF; }
     void set_A(uint8_t value) { set_AF((static_cast<uint16_t>(value) << 8) | (get_AF() & 0xFF)); }
-    uint8_t get_F() const { return get_AF() & 0xFF; }
-    void set_F(uint8_t value) { set_AF((get_AF() & 0xFF00) | value); }
+    Flags get_F() const { return get_AF() & 0xFF; }
+    void set_F(Flags value) { set_AF((get_AF() & 0xFF00) | value); }
     uint8_t get_B() const { return (get_BC() >> 8) & 0xFF; }
     void set_B(uint8_t value) { set_BC((static_cast<uint16_t>(value) << 8) | (get_BC() & 0xFF)); }
     uint8_t get_C() const { return get_BC() & 0xFF; }
@@ -171,68 +208,6 @@ public:
     // Processing opcodes DD and FD index
     IndexMode get_index_mode() const { return index_mode;}
     void set_index_mode(IndexMode mode) { index_mode = mode; }
-
-    // --- Flag constants and helpers ---
-class Flags {
-    public:
-        // Definicje Masek Flag (bez prefiksu)
-        static constexpr uint8_t C  = 1 << 0;
-        static constexpr uint8_t N  = 1 << 1;
-        static constexpr uint8_t PV = 1 << 2;
-        static constexpr uint8_t X  = 1 << 3;
-        static constexpr uint8_t H  = 1 << 4;
-        static constexpr uint8_t Y  = 1 << 5;
-        static constexpr uint8_t Z  = 1 << 6;
-        static constexpr uint8_t S  = 1 << 7;
-
-        Flags(uint8_t initial_value) : m_value(initial_value) {}
-
-        operator uint8_t() const { return m_value; }
-        Flags& operator=(uint8_t new_value) {
-            return assign(new_value);
-        }
-
-        Flags& zero() { m_value = 0; return *this; }
-        Flags& assign(uint8_t value) { m_value = value; return *this; }
-
-        Flags& set(uint8_t mask) { m_value |= mask; return *this; }
-        Flags& clear(uint8_t mask) { m_value &= ~mask; return *this; }
-        Flags& update(uint8_t mask, bool state) {
-            if (state)
-                m_value |= mask;
-            else
-                m_value &= ~mask;
-            return *this;
-        }
-        bool is_set(uint8_t mask) const { return (m_value & mask) != 0; }
-
-    private:
-        uint8_t m_value;
-    };
-
-
-    static constexpr uint8_t FLAG_C  = 1 << 0;
-    static constexpr uint8_t FLAG_N  = 1 << 1;
-    static constexpr uint8_t FLAG_PV = 1 << 2;
-    static constexpr uint8_t FLAG_X  = 1 << 3;
-    static constexpr uint8_t FLAG_H  = 1 << 4;
-    static constexpr uint8_t FLAG_Y  = 1 << 5;
-    static constexpr uint8_t FLAG_Z  = 1 << 6;
-    static constexpr uint8_t FLAG_S  = 1 << 7;
-    bool is_S_flag_set() const { return (get_F() & FLAG_S) != 0; }
-    bool is_Z_flag_set() const { return (get_F() & FLAG_Z) != 0; }
-    bool is_H_flag_set() const { return (get_F() & FLAG_H) != 0; }
-    bool is_PV_flag_set() const { return (get_F() & FLAG_PV) != 0; }
-    bool is_N_flag_set() const { return (get_F() & FLAG_N) != 0; }
-    bool is_C_flag_set() const { return (get_F() & FLAG_C) != 0; }
-    void set_flag(uint8_t mask) { set_F(get_F() | mask); }
-    void clear_flag(uint8_t mask) { set_F(get_F() & ~mask); }
-    void set_flag_if(uint8_t mask, bool condition) {
-        if (condition)
-            set_flag(mask);
-        else
-            clear_flag(mask);
-    }
     
 private:
     uint16_t AF, BC, DE, HL;
