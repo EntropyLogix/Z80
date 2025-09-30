@@ -1,7 +1,31 @@
 cmake_minimum_required(VERSION 3.10.0)
 project(Emulator VERSION 0.1.0 LANGUAGES C CXX)
 
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native")
+
 add_executable(Emulator
     main.cpp
 )
 
+option(ENABLE_PGO "Enable Profile-Guided Optimization (PGO)" OFF)
+if(ENABLE_PGO)
+    if(NOT PGO_MODE)
+        message(FATAL_ERROR "PGO_MODE must be set to 'GENERATE' or 'USE' when ENABLE_PGO is ON.")
+    endif()
+    if("${PGO_MODE}" STREQUAL "GENERATE")
+        message(STATUS "PGO: Configuration for Instrumentation (GENERATE profile)")
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+            set(PGO_FLAGS "-fprofile-generate")
+        endif()
+    elseif("${PGO_MODE}" STREQUAL "USE")
+        message(STATUS "PGO: Configuration for Optimization (USE profile)")
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
+            set(PGO_FLAGS "-fprofile-use" "-Wno-missing-profile") 
+        endif()
+    else()
+        message(FATAL_ERROR "Unknown PGO_MODE: ${PGO_MODE}. Use 'GENERATE' or 'USE'.")
+    endif()
+    target_compile_options(Emulator PUBLIC ${PGO_FLAGS})
+    target_link_options(Emulator PUBLIC ${PGO_FLAGS})
+endif()
