@@ -6,37 +6,22 @@
 #include <chrono>
 #include "Z80.h"
 
-class Memory : public Z80::MemoryBus {
+class IO {
+public:
+    void connect(Z80<class Memory, IO>* cpu) { m_cpu = cpu; }
+    void reset() {}
+    uint8_t read(uint16_t port) { return 0xFF; }
+    void write(uint16_t port, uint8_t value) { /* ... */ }
+private:
+    Z80<Memory, IO>* m_cpu;
+};
+
+class Memory {
 public:
     Memory() { m_ram.resize(0x10000, 0); }
-    void reset() override { std::fill(m_ram.begin(), m_ram.end(), 0); }
-    uint8_t read(uint16_t address) override { return m_ram[address]; }
-    void write(uint16_t address, uint8_t value) override { m_ram[address] = value; }
-    std::vector<uint8_t>& get_ram() { return m_ram; }
-private:
-    std::vector<uint8_t> m_ram;
-};
-
-class IO : public Z80::IOBus {
-public:
-    void reset() override {}
-    uint8_t read(uint16_t port) override { return 0xFF; }
-    void write(uint16_t port, uint8_t value) override {}
-};
-
-class ZEXTestBus : public Z80::MemoryBus {
-public:
-    ZEXTestBus() { m_ram.resize(0x10000, 0); }
-    
-    void reset() override {
-        std::fill(m_ram.begin(), m_ram.end(), 0);
-    }
-
-    void write(uint16_t address, uint8_t value) override {
-        m_ram[address] = value;
-    }
-
-    uint8_t read(uint16_t address) override {
+    void connect(Z80<Memory, IO>* cpu) { m_cpu = cpu; }
+    void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
+    uint8_t read(uint16_t address) {
         if (address == 0x0005) { //CP/M BDOS
             handle_bdos_call();
             return 0xC9; //RET
@@ -45,13 +30,10 @@ public:
             std::cout << "\n[System Reset Trap at 0x0000]" << std::endl;
             is_finished = true;
         }
-        
         return m_ram[address];
     }
-
+    void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
     bool has_finished() const { return is_finished; }
-    std::vector<uint8_t>& get_ram() { return m_ram; }
-
 private:
     void handle_bdos_call() {
         uint8_t func = m_cpu->get_C();
@@ -65,11 +47,13 @@ private:
             }
         }
     }
+
+    Z80<Memory, class IO>* m_cpu;
     std::vector<uint8_t> m_ram;
     bool is_finished = false;
 };
 
-bool load_rom(const std::string& filepath, Z80::MemoryBus& memory, uint16_t start_address) {
+bool load_rom(const std::string& filepath, Memory& memory, uint16_t start_address) {
     std::ifstream file(filepath, std::ios::binary | std::ios::ate);
     if (!file) {
         std::cerr << "Error: Cannot open file " << filepath << std::endl;
@@ -97,7 +81,7 @@ int main() {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    ZEXTestBus memory_bus;
+    Memory memory_bus;
     IO io_bus;
     Z80 cpu(memory_bus, io_bus);
     if (!load_rom("zexall.com", memory_bus, 0x0100)) {
