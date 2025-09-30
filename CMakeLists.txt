@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.10.0)
-project(Emulator VERSION 0.1.0 LANGUAGES C CXX)
+project(Z80 VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native")
 
-add_executable(Emulator
+add_executable(Z80
     main.cpp
 )
 
@@ -26,6 +26,6 @@ if(ENABLE_PGO)
     else()
         message(FATAL_ERROR "Unknown PGO_MODE: ${PGO_MODE}. Use 'GENERATE' or 'USE'.")
     endif()
-    target_compile_options(Emulator PUBLIC ${PGO_FLAGS})
-    target_link_options(Emulator PUBLIC ${PGO_FLAGS})
+    target_compile_options(Z80 PUBLIC ${PGO_FLAGS})
+    target_link_options(Z80 PUBLIC ${PGO_FLAGS})
 endif()
