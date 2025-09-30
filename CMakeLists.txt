@@ -3,6 +3,5 @@ project(Emulator VERSION 0.1.0 LANGUAGES C CXX)
 
 add_executable(Emulator
     main.cpp
-    Z80.cpp
 )
 
