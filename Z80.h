@@ -3,11 +3,25 @@
 
 #include <cstdint>
 
+#define Z80_LITTLE_ENDIAN
+
 template<typename TMemoryBus, typename TIOBus> class Z80;
 
 template <typename TMemory, typename TIO>
 class Z80 {
 public:
+    union Register {
+        uint16_t w;
+        struct {
+    #if defined(Z80_LITTLE_ENDIAN)
+            uint8_t l; 
+            uint8_t h; 
+    #elif
+            uint8_t h; 
+            uint8_t l;
+    #endif
+        };
+    };
     enum class IndexMode { HL, IX, IY };
     struct State {
         uint16_t m_AF, m_BC, m_DE, m_HL;
@@ -154,58 +168,58 @@ public:
     void add_ticks(int delta) { m_ticks += delta; }
 
     // 16-bit main registers
-    uint16_t get_AF() const { return m_AF; }
-    void set_AF(uint16_t value) { m_AF = value; }
-    uint16_t get_BC() const { return m_BC; }
-    void set_BC(uint16_t value) { m_BC = value; }
-    uint16_t get_DE() const { return m_DE; }
-    void set_DE(uint16_t value) { m_DE = value; }
-    uint16_t get_HL() const { return m_HL; }
-    void set_HL(uint16_t value) { m_HL = value; }
-    uint16_t get_IX() const { return m_IX; }
-    void set_IX(uint16_t value) { m_IX = value; }
-    uint16_t get_IY() const { return m_IY; }
-    void set_IY(uint16_t value) { m_IY = value; }
+    uint16_t get_AF() const { return m_AF.w; }
+    void set_AF(uint16_t value) { m_AF.w = value; }
+    uint16_t get_BC() const { return m_BC.w; }
+    void set_BC(uint16_t value) { m_BC.w = value; }
+    uint16_t get_DE() const { return m_DE.w; }
+    void set_DE(uint16_t value) { m_DE.w = value; }
+    uint16_t get_HL() const { return m_HL.w; }
+    void set_HL(uint16_t value) { m_HL.w = value; }
+    uint16_t get_IX() const { return m_IX.w; }
+    void set_IX(uint16_t value) { m_IX.w = value; }
+    uint16_t get_IY() const { return m_IY.w; }
+    void set_IY(uint16_t value) { m_IY.w = value; }
     uint16_t get_SP() const { return m_SP; }
     void set_SP(uint16_t value) { m_SP = value; }
     uint16_t get_PC() const { return m_PC; }
     void set_PC(uint16_t value) { m_PC = value; }
 
     // 16-bit alternate registers
-    uint16_t get_AFp() const { return m_AFp; }
-    void set_AFp(uint16_t value) { m_AFp = value; }
-    uint16_t get_BCp() const { return m_BCp; }
-    void set_BCp(uint16_t value) { m_BCp = value; }
-    uint16_t get_DEp() const { return m_DEp; }
-    void set_DEp(uint16_t value) { m_DEp = value; }
-    uint16_t get_HLp() const { return m_HLp; }
-    void set_HLp(uint16_t value) { m_HLp = value; }
+    uint16_t get_AFp() const { return m_AFp.w; }
+    void set_AFp(uint16_t value) { m_AFp.w = value; }
+    uint16_t get_BCp() const { return m_BCp.w; }
+    void set_BCp(uint16_t value) { m_BCp.w = value; }
+    uint16_t get_DEp() const { return m_DEp.w; }
+    void set_DEp(uint16_t value) { m_DEp.w = value; }
+    uint16_t get_HLp() const { return m_HLp.w; }
+    void set_HLp(uint16_t value) { m_HLp.w = value; }
 
-    // 8-bit registers (computed from 16-bit pairs)
-    uint8_t get_A() const { return (get_AF() >> 8) & 0xFF; }
-    void set_A(uint8_t value) { set_AF((static_cast<uint16_t>(value) << 8) | (get_AF() & 0xFF)); }
-    Flags get_F() const { return get_AF() & 0xFF; }
-    void set_F(Flags value) { set_AF((get_AF() & 0xFF00) | value); }
-    uint8_t get_B() const { return (get_BC() >> 8) & 0xFF; }
-    void set_B(uint8_t value) { set_BC((static_cast<uint16_t>(value) << 8) | (get_BC() & 0xFF)); }
-    uint8_t get_C() const { return get_BC() & 0xFF; }
-    void set_C(uint8_t value) { set_BC((get_BC() & 0xFF00) | value); }
-    uint8_t get_D() const { return (get_DE() >> 8) & 0xFF; }
-    void set_D(uint8_t value) { set_DE((static_cast<uint16_t>(value) << 8) | (get_DE() & 0xFF)); }
-    uint8_t get_E() const { return get_DE() & 0xFF; }
-    void set_E(uint8_t value) { set_DE((get_DE() & 0xFF00) | value); }
-    uint8_t get_H() const { return (get_HL() >> 8) & 0xFF; }
-    void set_H(uint8_t value) { set_HL((static_cast<uint16_t>(value) << 8) | (get_HL() & 0xFF)); }
-    uint8_t get_L() const { return get_HL() & 0xFF; }
-    void set_L(uint8_t value) { set_HL((get_HL() & 0xFF00) | value); }
-    uint8_t get_IXH() const { return (get_IX() >> 8) & 0xFF; }
-    void set_IXH(uint8_t value) { set_IX((static_cast<uint16_t>(value) << 8) | (get_IX() & 0xFF)); }
-    uint8_t get_IXL() const { return get_IX() & 0xFF; }
-    void set_IXL(uint8_t value) { set_IX((get_IX() & 0xFF00) | value); }
-    uint8_t get_IYH() const { return (get_IY() >> 8) & 0xFF; }
-    void set_IYH(uint8_t value) { set_IY((static_cast<uint16_t>(value) << 8) | (get_IY() & 0xFF)); }
-    uint8_t get_IYL() const { return get_IY() & 0xFF; }
-    void set_IYL(uint8_t value) { set_IY((get_IY() & 0xFF00) | value); }
+    // 8-bit registers
+    uint8_t get_A() const { return m_AF.h; }
+    void set_A(uint8_t value) { m_AF.h = value; }
+    Flags get_F() const { return m_AF.l; }
+    void set_F(Flags value) { m_AF.l = value; }
+    uint8_t get_B() const { return m_BC.h; }
+    void set_B(uint8_t value) { m_BC.h = value; }
+    uint8_t get_C() const { return m_BC.l; }
+    void set_C(uint8_t value) { m_BC.l = value; }
+    uint8_t get_D() const { return m_DE.h; }
+    void set_D(uint8_t value) { m_DE.h = value; }
+    uint8_t get_E() const { return m_DE.l; }
+    void set_E(uint8_t value) { m_DE.l = value; }
+    uint8_t get_H() const { return m_HL.h; }
+    void set_H(uint8_t value) { m_HL.h = value; }
+    uint8_t get_L() const { return m_HL.l; }
+    void set_L(uint8_t value) { m_HL.l = value; }
+    uint8_t get_IXH() const { return m_IX.h; }
+    void set_IXH(uint8_t value) { m_IX.h = value; }
+    uint8_t get_IXL() const { return m_IX.l; }
+    void set_IXL(uint8_t value) { m_IX.l = value; }
+    uint8_t get_IYH() const { return m_IY.h; }
+    void set_IYH(uint8_t value) { m_IY.h = value; }
+    uint8_t get_IYL() const { return m_IY.l; }
+    void set_IYL(uint8_t value) { m_IY.l = value; }
 
     // Special purpose registers
     uint8_t get_I() const { return m_I; }
@@ -240,9 +254,9 @@ public:
     
 private:
     //CPU registers
-    uint16_t m_AF, m_BC, m_DE, m_HL;
-    uint16_t m_AFp, m_BCp, m_DEp, m_HLp;
-    uint16_t m_IX, m_IY;
+    Register m_AF, m_BC, m_DE, m_HL;
+    Register m_AFp, m_BCp, m_DEp, m_HLp;
+    Register m_IX, m_IY;
     uint16_t m_SP, m_PC;
     uint8_t m_I, m_R;
     bool m_IFF1, m_IFF2;
