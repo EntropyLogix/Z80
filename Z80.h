@@ -2,6 +2,7 @@
 #define __Z80_H__
 
 #include <cstdint>
+#include <vector>
 
 #define Z80_LITTLE_ENDIAN
 
@@ -21,9 +22,38 @@
     #define FORCE_INLINE inline
 #endif
 
-template<typename TMemoryBus, typename TIOBus> class Z80;
+/* Example Z80 interfaces
+template<typename TMemory, typename TIO, typename TEvents> class Z80;
+class Z80Memory {
+public:
+    void connect(Z80<Z80Memory, class IO, class Events>* cpu) { m_cpu = cpu; }
+    void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); } 
+    uint8_t read(uint16_t address) { return m_ram[address]; }
+    void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
+private:
+    Z80<Z80Memory, class IO, class Events>* m_cpu;
+    std::vector<uint8_t> m_ram;
+};
+class Z80IO {
+public:
+    void connect(Z80<class Memory, Z80IO, class Events>* cpu) { m_cpu = cpu; }
+    void reset() {}
+    uint8_t read(uint16_t port) { return 0xFF; }
+    void write(uint16_t port, uint8_t value) {}
+private:
+    Z80<class Memory, Z80IO, class Events>* m_cpu;
+};
+class Z80Events {
+public:
+    void connect(Z80<class Memory, class IO, Z80Events>* cpu) { m_cpu = cpu; }
+    void reset() {}
+    void sync() {}
+private:
+    Z80<class Memory, class IO, Z80Events>* m_cpu;
+};
+*/
 
-template <typename TMemory, typename TIO>
+template <typename TMemory, typename TIO, typename TEvents>
 class Z80 {
 public:
     union Register {
@@ -84,12 +114,14 @@ public:
     };
 
     // Constructor
-    Z80(TMemory& mem, TIO& io) : m_memory(mem), m_io(io) {
+    Z80(TMemory& mem, TIO& io, TEvents& events) : m_memory(mem), m_io(io), m_events(events){
         precompute_parity();
         m_memory.connect(this);
-        m_io.connect(this);
         m_memory.reset();
+        m_io.connect(this);
         m_io.reset();
+        m_events.connect(this);
+        m_events.reset();
         reset();
     }
 
@@ -179,8 +211,8 @@ public:
     }
 
     // Cycle counter
-    long long get_ticks() const { return m_ticks; }
-    void set_ticks(long long value) { m_ticks = value; }
+    FORCE_INLINE long long get_ticks() const { return m_ticks; }
+    FORCE_INLINE void set_ticks(long long value) { m_ticks = value; }
     FORCE_INLINE void add_ticks(int delta) { m_ticks += delta; }
 
     // 16-bit main registers
@@ -249,21 +281,21 @@ public:
     FORCE_INLINE bool get_IFF2() const { return m_IFF2; }
     FORCE_INLINE void set_IFF2(bool state) { m_IFF2 = state; }
     
-    bool is_halted() const { return m_halted; }
-    void set_halted(bool state) { m_halted = state; }
+    FORCE_INLINE bool is_halted() const { return m_halted; }
+    FORCE_INLINE void set_halted(bool state) { m_halted = state; }
     
     // Interrupt state flags
-    bool is_nmi_pending() const { return m_nmi_pending; }
-    void set_nmi_pending(bool state) { m_nmi_pending = state; }
-    bool is_interrupt_pending() const { return m_interrupt_pending; }
-    void set_interrupt_pending(bool state) { m_interrupt_pending = state; }
-    bool is_interrupt_enable_pending() const { return m_interrupt_enable_pending; }
-    void set_interrupt_enable_pending(bool state) { m_interrupt_enable_pending = state; }
-    uint8_t get_interrupt_data() const { return m_interrupt_data; }
-    void set_interrupt_data(uint8_t data) { m_interrupt_data = data; }
-    uint8_t get_interrupt_mode() const { return m_interrupt_mode; }
-    void set_interrupt_mode(uint8_t mode) { m_interrupt_mode = mode; }
-    void set_reti_signaled(bool state) { m_reti_signaled = state; }
+    FORCE_INLINE bool is_nmi_pending() const { return m_nmi_pending; }
+    FORCE_INLINE void set_nmi_pending(bool state) { m_nmi_pending = state; }
+    FORCE_INLINE bool is_interrupt_pending() const { return m_interrupt_pending; }
+    FORCE_INLINE void set_interrupt_pending(bool state) { m_interrupt_pending = state; }
+    FORCE_INLINE bool is_interrupt_enable_pending() const { return m_interrupt_enable_pending; }
+    FORCE_INLINE void set_interrupt_enable_pending(bool state) { m_interrupt_enable_pending = state; }
+    FORCE_INLINE uint8_t get_interrupt_data() const { return m_interrupt_data; }
+    FORCE_INLINE void set_interrupt_data(uint8_t data) { m_interrupt_data = data; }
+    FORCE_INLINE uint8_t get_interrupt_mode() const { return m_interrupt_mode; }
+    FORCE_INLINE void set_interrupt_mode(uint8_t mode) { m_interrupt_mode = mode; }
+    FORCE_INLINE void set_reti_signaled(bool state) { m_reti_signaled = state; }
     
     // Processing opcodes DD and FD index
     FORCE_INLINE IndexMode get_index_mode() const { return m_index_mode;}
@@ -289,6 +321,7 @@ private:
     //Memory and io operations
     TMemory& m_memory;
     TIO& m_io;
+    TEvents& m_events;
 
     //Internal memory access helpers
     FORCE_INLINE uint8_t read_byte(uint16_t address) {
@@ -299,14 +332,17 @@ private:
         add_ticks(3);
         m_memory.write(address, value);
     }
-    uint16_t read_word(uint16_t address) {
-        uint8_t low_byte = read_byte(address);
-        uint8_t high_byte = read_byte(address + 1);
+    FORCE_INLINE uint16_t read_word(uint16_t address) {
+        add_ticks(6);
+        uint8_t low_byte = m_memory.read(address);
+        uint8_t high_byte = m_memory.read(address + 1);
         return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
-    void write_word(uint16_t address, uint16_t value) {
-        write_byte(address, value & 0xFF);
-        write_byte(address + 1, (value >> 8) & 0xFF);
+
+    FORCE_INLINE void write_word(uint16_t address, uint16_t value) {
+        add_ticks(6);
+        m_memory.write(address, value & 0xFF);
+        m_memory.write(address + 1, (value >> 8));
     }
     void push_word(uint16_t value) {
         uint16_t new_sp = get_SP() - 2;
@@ -2314,6 +2350,8 @@ private:
     template<OperateMode TMode> long long operate(long long ticks_limit) {
         long long initial_ticks = get_ticks();
         while (true) {
+            m_events.sync(); 
+
             if (is_halted()) {
                 if (is_nmi_pending() || (is_interrupt_pending() && get_IFF1())) {
                     set_halted(false);

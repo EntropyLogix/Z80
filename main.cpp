@@ -6,20 +6,29 @@
 #include <chrono>
 #include "Z80.h"
 
+class Events {
+public:
+    void connect(Z80<class Memory, class IO, Events>* cpu) { m_cpu = cpu; }
+    void reset() {}
+    void sync() {}
+private:
+    Z80<Memory, IO, Events>* m_cpu;
+};
+
 class IO {
 public:
-    void connect(Z80<class Memory, IO>* cpu) { m_cpu = cpu; }
+    void connect(Z80<class Memory, IO, class Events>* cpu) { m_cpu = cpu; }
     void reset() {}
     uint8_t read(uint16_t port) { return 0xFF; }
-    void write(uint16_t port, uint8_t value) { /* ... */ }
+    void write(uint16_t port, uint8_t value) {}
 private:
-    Z80<Memory, IO>* m_cpu;
+    Z80<Memory, IO, Events>* m_cpu;
 };
 
 class Memory {
 public:
     Memory() { m_ram.resize(0x10000, 0); }
-    void connect(Z80<Memory, IO>* cpu) { m_cpu = cpu; }
+    void connect(Z80<Memory, IO, Events>* cpu) { m_cpu = cpu; }
     void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
     uint8_t read(uint16_t address) {
         if (address == 0x0005) {
@@ -44,7 +53,7 @@ private:
             }
         }
     }
-    Z80<Memory, class IO>* m_cpu;
+    Z80<Memory, class IO, Events>* m_cpu;
     std::vector<uint8_t> m_ram;
     bool is_finished = false;
 };
@@ -93,16 +102,17 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     const char* rom_filename = argv[1];
-    Memory memory_bus;
-    IO io_bus;
-    Z80 cpu(memory_bus, io_bus);
-    if (!load_rom(rom_filename, memory_bus, 0x0100)) {
+    Memory memory;
+    IO io;
+    Events events;
+    Z80 cpu(memory, io, events);
+    if (!load_rom(rom_filename, memory, 0x0100)) {
         std::cerr << "Error: Failed to load ROM file: " << rom_filename << std::endl;
         return 1;
     }
     Timer timer;
     cpu.set_PC(0x0100);
-    while (!memory_bus.has_finished()) {
+    while (!memory.has_finished()) {
         cpu.run(10000000000LL);
     }
     timer.stop();
