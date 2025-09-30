@@ -746,7 +746,7 @@ private:
     }
 
     //Opcodes handling
-    void handle_CB() {
+    void handle_CB_opcodes() {
         uint8_t opcode = fetch_next_opcode();
         uint8_t operation_group = opcode >> 6;
         uint8_t bit = (opcode >> 3) & 0x07;
@@ -811,7 +811,7 @@ private:
             case 7: set_A(result); break;
         }
     }
-    void handle_CB_indexed(uint16_t index_register) {
+    void handle_CB_indexed_opcodes(uint16_t index_register) {
         add_ticks(2);
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         uint8_t opcode = fetch_next_byte();
@@ -820,15 +820,6 @@ private:
         uint8_t operation_group = opcode >> 6;
         uint8_t bit = (opcode >> 3) & 0x07;
         uint8_t result = value;
-        if (operation_group == 1) {
-            add_ticks(1);
-            bit_8bit(bit, value);
-            Flags flags = get_F();
-            flags.update(Flags::X, (address & 0x0800) != 0);
-            flags.update(Flags::Y, (address & 0x2000) != 0);
-            set_F(flags);
-            return;
-        }
         switch(operation_group) {
             case 0:
                 switch(bit) {
@@ -842,6 +833,16 @@ private:
                     case 7: result = srl_8bit(value); break;
                 }
                 break;
+            
+            case 1: {
+                add_ticks(1);
+                bit_8bit(bit, value);
+                Flags flags = get_F();
+                flags.update(Flags::X, (address & 0x0800) != 0);
+                flags.update(Flags::Y, (address & 0x2000) != 0);
+                set_F(flags);
+                return;
+            }
             case 2: result = res_8bit(bit, value); break;
             case 3: result = set_8bit(bit, value); break;
         }
@@ -2313,9 +2314,9 @@ private:
             }
             if (opcode == 0xCB) {
                 if (get_index_mode() != IndexMode::HL)
-                    handle_CB_indexed((get_index_mode() == IndexMode::IX) ? get_IX() : get_IY());
+                    handle_CB_indexed_opcodes((get_index_mode() == IndexMode::IX) ? get_IX() : get_IY());
                 else
-                    handle_CB();
+                    handle_CB_opcodes();
                 continue;
             }
             switch (opcode) {
