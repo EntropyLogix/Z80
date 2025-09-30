@@ -103,7 +103,7 @@ int main(int argc, char* argv[]) {
     Timer timer;
     cpu.set_PC(0x0100);
     while (!memory_bus.has_finished()) {
-        cpu.step();
+        cpu.run(10000000000LL);
     }
     timer.stop();
     return 0;
