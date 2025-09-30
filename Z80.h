@@ -21,6 +21,24 @@
     #define FORCE_INLINE inline
 #endif
 
+/* --- Required interfaces for TMemory and TIO
+class TMemory {
+public:
+    void connect(void* cpu_instance);  // Connects the bus to the CPU instance.
+    void reset(); // Resets the memory to its initial state.
+    uint8_t read(uint16_t address); // Reads a single byte from a 16-bit address.
+    void write(uint16_t address, uint8_t value); //Writes a single byte to a 16-bit address.
+};
+
+class TIO {
+public:
+    void connect(void* cpu_instance); //Connects the bus to the CPU instance.
+    void reset(); //Resets the I/O system to its initial state.
+    uint8_t read(uint16_t port); //Reads a single byte from a 16-bit I/O port address.
+    void write(uint16_t port, uint8_t value); //Writes a single byte to a 16-bit I/O port address.
+};
+*/
+
 template<typename TMemoryBus, typename TIOBus> class Z80;
 
 template <typename TMemory, typename TIO>
