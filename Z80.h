@@ -45,10 +45,7 @@ public:
         Flags& set(uint8_t mask) { m_value |= mask; return *this; }
         Flags& clear(uint8_t mask) { m_value &= ~mask; return *this; }
         Flags& update(uint8_t mask, bool state) {
-            if (state)
-                m_value |= mask;
-            else
-                m_value &= ~mask;
+            m_value = (m_value & ~mask) | (-static_cast<int8_t>(state) & mask);
             return *this;
         }
         bool is_set(uint8_t mask) const { return (m_value & mask) != 0; }
