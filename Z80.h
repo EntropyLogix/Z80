@@ -14,14 +14,6 @@
     #define EXPECT_TRUE(expr)   (expr)
 #endif
 
-#if defined(__GNUC__) || defined(__clang__) // GCC i Clang
-    #define FORCE_INLINE inline __attribute__((always_inline))
-#elif _MSC_VER // Microsoft Visual Studio
-    #define FORCE_INLINE __forceinline
-#else
-    #define FORCE_INLINE inline
-#endif
-
 /* Example external interfaces: memory, io and events
 --------------------------------------------------------------------------------
 template<typename TMemory, typename TIO, typename TEvents> class Z80;
@@ -222,9 +214,9 @@ public:
     }
 
     // Cycle counter
-    FORCE_INLINE long long get_ticks() const { return m_ticks; }
-    FORCE_INLINE void set_ticks(long long value) { m_ticks = value; }
-    FORCE_INLINE void add_ticks(long long delta) {
+    long long get_ticks() const { return m_ticks; }
+    void set_ticks(long long value) { m_ticks = value; }
+    void add_ticks(long long delta) {
         long long target_ticks = m_ticks + delta;
         while (m_ticks < target_ticks) {
             long long cycles_in_step = target_ticks - m_ticks; 
@@ -238,95 +230,94 @@ public:
             }
         }
     }
-    FORCE_INLINE void set_operation_ticks(long long value) { m_operation_ticks = value; }
-    FORCE_INLINE long long get_operation_ticks() const { return m_operation_ticks; }
-    FORCE_INLINE void add_operation_ticks(int delta) { m_operation_ticks += delta; }
+    void set_operation_ticks(long long value) { m_operation_ticks = value; }
+    long long get_operation_ticks() const { return m_operation_ticks; }
+    void add_operation_ticks(int delta) { m_operation_ticks += delta; }
 
     // 16-bit main registers
-    FORCE_INLINE uint16_t get_AF() const { return m_AF.w; }
-    FORCE_INLINE void set_AF(uint16_t value) { m_AF.w = value; }
-    FORCE_INLINE uint16_t get_BC() const { return m_BC.w; }
-    FORCE_INLINE void set_BC(uint16_t value) { m_BC.w = value; }
-    FORCE_INLINE uint16_t get_DE() const { return m_DE.w; }
-    FORCE_INLINE void set_DE(uint16_t value) { m_DE.w = value; }
-    FORCE_INLINE uint16_t get_HL() const { return m_HL.w; }
-    FORCE_INLINE void set_HL(uint16_t value) { m_HL.w = value; }
-    FORCE_INLINE uint16_t get_IX() const { return m_IX.w; }
-    FORCE_INLINE void set_IX(uint16_t value) { m_IX.w = value; }
-    FORCE_INLINE uint16_t get_IY() const { return m_IY.w; }
-    FORCE_INLINE void set_IY(uint16_t value) { m_IY.w = value; }
-    FORCE_INLINE uint16_t get_SP() const { return m_SP; }
-    FORCE_INLINE void set_SP(uint16_t value) { m_SP = value; }
-    FORCE_INLINE uint16_t get_PC() const { return m_PC; }
-    FORCE_INLINE void set_PC(uint16_t value) { m_PC = value; }
+    uint16_t get_AF() const { return m_AF.w; }
+    void set_AF(uint16_t value) { m_AF.w = value; }
+    uint16_t get_BC() const { return m_BC.w; }
+    void set_BC(uint16_t value) { m_BC.w = value; }
+    uint16_t get_DE() const { return m_DE.w; }
+    void set_DE(uint16_t value) { m_DE.w = value; }
+    uint16_t get_HL() const { return m_HL.w; }
+    void set_HL(uint16_t value) { m_HL.w = value; }
+    uint16_t get_IX() const { return m_IX.w; }
+    void set_IX(uint16_t value) { m_IX.w = value; }
+    uint16_t get_IY() const { return m_IY.w; }
+    void set_IY(uint16_t value) { m_IY.w = value; }
+    uint16_t get_SP() const { return m_SP; }
+    void set_SP(uint16_t value) { m_SP = value; }
+    uint16_t get_PC() const { return m_PC; }
+    void set_PC(uint16_t value) { m_PC = value; }
 
     // 16-bit alternate registers
-    FORCE_INLINE uint16_t get_AFp() const { return m_AFp.w; }
-    FORCE_INLINE void set_AFp(uint16_t value) { m_AFp.w = value; }
-    FORCE_INLINE uint16_t get_BCp() const { return m_BCp.w; }
-    FORCE_INLINE void set_BCp(uint16_t value) { m_BCp.w = value; }
-    FORCE_INLINE uint16_t get_DEp() const { return m_DEp.w; }
-    FORCE_INLINE void set_DEp(uint16_t value) { m_DEp.w = value; }
-    FORCE_INLINE uint16_t get_HLp() const { return m_HLp.w; }
-    FORCE_INLINE void set_HLp(uint16_t value) { m_HLp.w = value; }
+    uint16_t get_AFp() const { return m_AFp.w; }
+    void set_AFp(uint16_t value) { m_AFp.w = value; }
+    uint16_t get_BCp() const { return m_BCp.w; }
+    void set_BCp(uint16_t value) { m_BCp.w = value; }
+    uint16_t get_DEp() const { return m_DEp.w; }
+    void set_DEp(uint16_t value) { m_DEp.w = value; }
+    uint16_t get_HLp() const { return m_HLp.w; }
+    void set_HLp(uint16_t value) { m_HLp.w = value; }
 
     // 8-bit registers
-    FORCE_INLINE uint8_t get_A() const { return m_AF.h; }
-    FORCE_INLINE void set_A(uint8_t value) { m_AF.h = value; }
-    FORCE_INLINE Flags get_F() const { return m_AF.l; }
-    FORCE_INLINE void set_F(Flags value) { m_AF.l = value; }
-    FORCE_INLINE uint8_t get_B() const { return m_BC.h; }
-    FORCE_INLINE void set_B(uint8_t value) { m_BC.h = value; }
-    FORCE_INLINE uint8_t get_C() const { return m_BC.l; }
-    FORCE_INLINE void set_C(uint8_t value) { m_BC.l = value; }
-    FORCE_INLINE uint8_t get_D() const { return m_DE.h; }
-    FORCE_INLINE void set_D(uint8_t value) { m_DE.h = value; }
-    FORCE_INLINE uint8_t get_E() const { return m_DE.l; }
-    FORCE_INLINE void set_E(uint8_t value) { m_DE.l = value; }
-    FORCE_INLINE uint8_t get_H() const { return m_HL.h; }
-    FORCE_INLINE void set_H(uint8_t value) { m_HL.h = value; }
-    FORCE_INLINE uint8_t get_L() const { return m_HL.l; }
-    FORCE_INLINE void set_L(uint8_t value) { m_HL.l = value; }
-    FORCE_INLINE uint8_t get_IXH() const { return m_IX.h; }
-    FORCE_INLINE void set_IXH(uint8_t value) { m_IX.h = value; }
-    FORCE_INLINE uint8_t get_IXL() const { return m_IX.l; }
-    FORCE_INLINE void set_IXL(uint8_t value) { m_IX.l = value; }
-    FORCE_INLINE uint8_t get_IYH() const { return m_IY.h; }
-    FORCE_INLINE void set_IYH(uint8_t value) { m_IY.h = value; }
-    FORCE_INLINE uint8_t get_IYL() const { return m_IY.l; }
-    FORCE_INLINE void set_IYL(uint8_t value) { m_IY.l = value; }
+    uint8_t get_A() const { return m_AF.h; }
+    void set_A(uint8_t value) { m_AF.h = value; }
+    Flags get_F() const { return m_AF.l; }
+    void set_F(Flags value) { m_AF.l = value; }
+    uint8_t get_B() const { return m_BC.h; }
+    void set_B(uint8_t value) { m_BC.h = value; }
+    uint8_t get_C() const { return m_BC.l; }
+    void set_C(uint8_t value) { m_BC.l = value; }
+    uint8_t get_D() const { return m_DE.h; }
+    void set_D(uint8_t value) { m_DE.h = value; }
+    uint8_t get_E() const { return m_DE.l; }
+    void set_E(uint8_t value) { m_DE.l = value; }
+    uint8_t get_H() const { return m_HL.h; }
+    void set_H(uint8_t value) { m_HL.h = value; }
+    uint8_t get_L() const { return m_HL.l; }
+    void set_L(uint8_t value) { m_HL.l = value; }
+    uint8_t get_IXH() const { return m_IX.h; }
+    void set_IXH(uint8_t value) { m_IX.h = value; }
+    uint8_t get_IXL() const { return m_IX.l; }
+    void set_IXL(uint8_t value) { m_IX.l = value; }
+    uint8_t get_IYH() const { return m_IY.h; }
+    void set_IYH(uint8_t value) { m_IY.h = value; }
+    uint8_t get_IYL() const { return m_IY.l; }
+    void set_IYL(uint8_t value) { m_IY.l = value; }
 
     // Special purpose registers
-    FORCE_INLINE uint8_t get_I() const { return m_I; }
-    FORCE_INLINE void set_I(uint8_t value) { m_I = value; }
-    FORCE_INLINE uint8_t get_R() const { return m_R; }
-    FORCE_INLINE void set_R(uint8_t value) { m_R = value; }
+    uint8_t get_I() const { return m_I; }
+    void set_I(uint8_t value) { m_I = value; }
+    uint8_t get_R() const { return m_R; }
+    void set_R(uint8_t value) { m_R = value; }
 
     // CPU state flags
-    FORCE_INLINE bool get_IFF1() const { return m_IFF1; }
-    FORCE_INLINE void set_IFF1(bool state) { m_IFF1 = state; }
-    FORCE_INLINE bool get_IFF2() const { return m_IFF2; }
-    FORCE_INLINE void set_IFF2(bool state) { m_IFF2 = state; }
-    
-    FORCE_INLINE bool is_halted() const { return m_halted; }
-    FORCE_INLINE void set_halted(bool state) { m_halted = state; }
+    bool get_IFF1() const { return m_IFF1; }
+    void set_IFF1(bool state) { m_IFF1 = state; }
+    bool get_IFF2() const { return m_IFF2; }
+    void set_IFF2(bool state) { m_IFF2 = state; }
+    bool is_halted() const { return m_halted; }
+    void set_halted(bool state) { m_halted = state; }
     
     // Interrupt state flags
-    FORCE_INLINE bool is_nmi_pending() const { return m_nmi_pending; }
-    FORCE_INLINE void set_nmi_pending(bool state) { m_nmi_pending = state; }
-    FORCE_INLINE bool get_IRQ_request() const { return m_IRQ_request; }
-    FORCE_INLINE void set_IRQ_request(bool state) { m_IRQ_request = state; }
-    FORCE_INLINE bool get_EI_delay() const { return m_EI_delay; }
-    FORCE_INLINE void set_EI_delay(bool state) { m_EI_delay = state; }
-    FORCE_INLINE uint8_t get_interrupt_data() const { return m_interrupt_data; }
-    FORCE_INLINE void set_interrupt_data(uint8_t data) { m_interrupt_data = data; }
-    FORCE_INLINE uint8_t get_interrupt_mode() const { return m_interrupt_mode; }
-    FORCE_INLINE void set_interrupt_mode(uint8_t mode) { m_interrupt_mode = mode; }
-    FORCE_INLINE void set_reti_signaled(bool state) { m_reti_signaled = state; }
+    bool is_nmi_pending() const { return m_nmi_pending; }
+    void set_nmi_pending(bool state) { m_nmi_pending = state; }
+    bool get_IRQ_request() const { return m_IRQ_request; }
+    void set_IRQ_request(bool state) { m_IRQ_request = state; }
+    bool get_EI_delay() const { return m_EI_delay; }
+    void set_EI_delay(bool state) { m_EI_delay = state; }
+    uint8_t get_interrupt_data() const { return m_interrupt_data; }
+    void set_interrupt_data(uint8_t data) { m_interrupt_data = data; }
+    uint8_t get_interrupt_mode() const { return m_interrupt_mode; }
+    void set_interrupt_mode(uint8_t mode) { m_interrupt_mode = mode; }
+    void set_reti_signaled(bool state) { m_reti_signaled = state; }
     
     // Processing opcodes DD and FD index
-    FORCE_INLINE IndexMode get_index_mode() const { return m_index_mode;}
-    FORCE_INLINE void set_index_mode(IndexMode mode) { m_index_mode = mode; }
+    IndexMode get_index_mode() const { return m_index_mode;}
+    void set_index_mode(IndexMode mode) { m_index_mode = mode; }
     
 private:
     //CPU registers
@@ -351,22 +342,22 @@ private:
     TEvents& m_events;
 
     //Internal memory access helpers
-    FORCE_INLINE uint8_t read_byte(uint16_t address) {
+    uint8_t read_byte(uint16_t address) {
         add_operation_ticks(3);
         return m_memory.read(address); 
     }
-    FORCE_INLINE void write_byte(uint16_t address, uint8_t value) {
+    void write_byte(uint16_t address, uint8_t value) {
         add_operation_ticks(3);
         m_memory.write(address, value);
     }
-    FORCE_INLINE uint16_t read_word(uint16_t address) {
+    uint16_t read_word(uint16_t address) {
         add_operation_ticks(6);
         uint8_t low_byte = m_memory.read(address);
         uint8_t high_byte = m_memory.read(address + 1);
         return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
 
-    FORCE_INLINE void write_word(uint16_t address, uint16_t value) {
+    void write_word(uint16_t address, uint16_t value) {
         add_operation_ticks(6);
         m_memory.write(address, value & 0xFF);
         m_memory.write(address + 1, (value >> 8));
