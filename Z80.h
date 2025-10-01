@@ -23,7 +23,7 @@ public:
             #else
             uint8_t l; 
             uint8_t h; 
-            #endif//Z80_LITTLE_ENDIAN
+            #endif
         };
     };
     enum class IndexMode { HL, IX, IY };
@@ -2551,10 +2551,10 @@ private:
                     case 0xC9: opcode_0xC9_RET(); break;
                     case 0xCA: opcode_0xCA_JP_Z_nn(); break;
                     case 0xCB:
-                        if (get_index_mode() != IndexMode::HL)
-                            handle_CB_indexed_opcodes((get_index_mode() == IndexMode::IX) ? get_IX() : get_IY());
-                        else
+                        if (Z80_LIKELY((get_index_mode() == IndexMode::HL)))
                             handle_CB_opcodes();
+                        else
+                            handle_CB_indexed_opcodes((get_index_mode() == IndexMode::IX) ? get_IX() : get_IY());
                         break;
                     case 0xCC: opcode_0xCC_CALL_Z_nn(); break;
                     case 0xCD: opcode_0xCD_CALL_nn(); break;
