@@ -34,6 +34,7 @@ private:
     Z80<Z80Memory, class IO, class Events>* m_cpu;
     std::vector<uint8_t> m_ram;
 };
+
 class Z80IO {
 public:
     void connect(Z80<class Memory, Z80IO, class Events>* cpu) { m_cpu = cpu; }
@@ -43,13 +44,19 @@ public:
 private:
     Z80<class Memory, Z80IO, class Events>* m_cpu;
 };
+
 class Z80Events {
 public:
+    static constexpr bool ACCURATE_TIMING_MODE = false;
+    static constexpr long long CYCLES_PER_EVENT = 1000;
+
     void connect(Z80<class Memory, class IO, Z80Events>* cpu) { m_cpu = cpu; }
-    void reset() {}
-    void sync() {}
+    void reset() {m_next_event_tick = CYCLES_PER_EVENT;}
+    long long get_event_limit() const { return m_next_event_tick; }
+    void handle_event(long long tick) { m_next_event_tick += CYCLES_PER_EVENT; }
 private:
     Z80<class Memory, class IO, Z80Events>* m_cpu;
+    long long m_next_event_tick = CYCLES_PER_EVENT;
 };
 */
 
@@ -213,7 +220,23 @@ public:
     // Cycle counter
     FORCE_INLINE long long get_ticks() const { return m_ticks; }
     FORCE_INLINE void set_ticks(long long value) { m_ticks = value; }
-    FORCE_INLINE void add_ticks(int delta) { m_ticks += delta; }
+    FORCE_INLINE void add_ticks(int delta) {
+        long long target_ticks = m_ticks + delta;
+        if constexpr (TEvents::ACCURATE_TIMING_MODE) {
+            while (m_ticks < target_ticks) {
+                long long cycles_in_step = target_ticks - m_ticks; 
+                long long cycles_to_sync = m_events.get_event_limit() - m_ticks;
+                if (cycles_to_sync > 0 && cycles_to_sync <= cycles_in_step) {
+                    m_ticks += cycles_to_sync; 
+                    m_events.handle_event(m_ticks); 
+                } else {
+                    m_ticks = target_ticks;
+                    break;
+                }
+            }
+        } else
+            m_ticks = target_ticks;
+    }
 
     // 16-bit main registers
     FORCE_INLINE uint16_t get_AF() const { return m_AF.w; }
@@ -2350,8 +2373,13 @@ private:
     template<OperateMode TMode> long long operate(long long ticks_limit) {
         long long initial_ticks = get_ticks();
         while (true) {
-            m_events.sync(); 
-
+            if constexpr (!TEvents::ACCURATE_TIMING_MODE) {
+                if (m_ticks >= m_events.get_event_limit()) {
+                    while (m_ticks >= m_events.get_event_limit()) {
+                        m_events.handle_event(m_events.get_event_limit()); 
+                    }
+                }
+            }
             if (is_halted()) {
                 if (is_nmi_pending() || (is_interrupt_pending() && get_IFF1())) {
                     set_halted(false);

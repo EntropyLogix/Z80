@@ -8,11 +8,23 @@
 
 class Events {
 public:
-    void connect(Z80<class Memory, class IO, Events>* cpu) { m_cpu = cpu; }
-    void reset() {}
-    void sync() {}
+    static constexpr bool ACCURATE_TIMING_MODE = true;
+    static constexpr long long CYCLES_PER_EVENT = 1000;
+
+    FORCE_INLINE void connect(Z80<class Memory, class IO, Events>* cpu) { m_cpu = cpu; }
+    FORCE_INLINE void reset() {
+        m_next_event_tick = CYCLES_PER_EVENT;
+        m_system_timer_value = 0;
+    }
+    FORCE_INLINE long long get_event_limit() const { return m_next_event_tick; }
+    FORCE_INLINE void handle_event(long long tick) {
+        m_system_timer_value++;
+        m_next_event_tick += CYCLES_PER_EVENT;
+    }
 private:
     Z80<Memory, IO, Events>* m_cpu;
+    long long m_next_event_tick = CYCLES_PER_EVENT; 
+    int m_system_timer_value = 0; 
 };
 
 class IO {
