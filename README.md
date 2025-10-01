@@ -58,9 +58,7 @@ int instruction\_cycles \= cpu.step();
 
 The core uses a preprocessor macro to configure register endianness, which is crucial for the internal Register union structure:
 
-* **Little Endian (Domyślne):** Domyślnie używany jest porządek Little Endian, jeśli nie zdefiniowano żadnego makra.  
-* **Big Endian:** Aby włączyć Big Endian, należy zdefiniować makro **Z80\_BIG\_ENDIAN** podczas kompilacji.
+Little Endian (Default): Little Endian order is used by default if no macro is defined.
 
-It also includes optimization hints for certain compilers:
+Big Endian: To enable Big Endian, the macro Z80_BIG_ENDIAN must be defined during compilation.
 
-* \#define EXPECT\_TRUE(expr): Uses compiler intrinsics (\_\_builtin\_expect) or C++20 attributes (\[\[likely\]\]) where available to optimize branch prediction for frequently taken paths (e.g., default index register being HL).
