@@ -8,7 +8,6 @@
 
 class Events {
 public:
-    static constexpr bool ACCURATE_TIMING_MODE = true;
     static constexpr long long CYCLES_PER_EVENT = 1000;
 
     FORCE_INLINE void connect(Z80<class Memory, class IO, Events>* cpu) { m_cpu = cpu; }
