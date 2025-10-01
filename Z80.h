@@ -2,57 +2,14 @@
 #define __Z80_H__
 
 #include <cstdint>
-#include <vector>
-
-#define Z80_LITTLE_ENDIAN
 
 #if defined(__GNUC__) || defined(__clang__) // GCC i Clang
-    #define EXPECT_TRUE(expr)   __builtin_expect(!!(expr), 1)
+    #define Z80_LIKELY(expr)   __builtin_expect(!!(expr), 1)
 #elif __cplusplus >= 202002L // C++20
-    #define EXPECT_TRUE(expr)   (expr) [[likely]]
+    #define Z80_LIKELY(expr)   (expr) [[likely]]
 #else
-    #define EXPECT_TRUE(expr)   (expr)
+    #define Z80_LIKELY(expr)   (expr)
 #endif
-
-/* Example external interfaces: memory, io and events
---------------------------------------------------------------------------------
-template<typename TMemory, typename TIO, typename TEvents> class Z80;
-class Z80Memory {
-public:
-    void connect(Z80<Z80Memory, class IO, class Events>* cpu) { m_cpu = cpu; }
-    void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); } 
-    uint8_t read(uint16_t address) { return m_ram[address]; }
-    void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
-private:
-    Z80<Z80Memory, class IO, class Events>* m_cpu;
-    std::vector<uint8_t> m_ram;
-};
-
-class Z80IO {
-public:
-    void connect(Z80<class Memory, Z80IO, class Events>* cpu) { m_cpu = cpu; }
-    void reset() {}
-    uint8_t read(uint16_t port) { return 0xFF; }
-    void write(uint16_t port, uint8_t value) {}
-private:
-    Z80<class Memory, Z80IO, class Events>* m_cpu;
-};
-
-class Z80Events {
-public:
-    static constexpr bool ACCURATE_TIMING_MODE = false;
-    static constexpr long long CYCLES_PER_EVENT = 1000;
-
-    void connect(Z80<class Memory, class IO, Z80Events>* cpu) { m_cpu = cpu; }
-    void reset() {m_next_event_tick = CYCLES_PER_EVENT;}
-    long long get_event_limit() const { return m_next_event_tick; }
-    void handle_event(long long tick) { m_next_event_tick += CYCLES_PER_EVENT; }
-private:
-    Z80<class Memory, class IO, Z80Events>* m_cpu;
-    long long m_next_event_tick = CYCLES_PER_EVENT;
-};
---------------------------------------------------------------------------------
-*/
 
 template <typename TMemory, typename TIO, typename TEvents>
 class Z80 {
@@ -60,12 +17,12 @@ public:
     union Register {
         uint16_t w;
         struct {
-            #if defined(Z80_LITTLE_ENDIAN)
-            uint8_t l; 
-            uint8_t h; 
-            #else
+            #if defined(Z80_BIG_ENDIAN)
             uint8_t h; 
             uint8_t l;
+            #else
+            uint8_t l; 
+            uint8_t h; 
             #endif//Z80_LITTLE_ENDIAN
         };
     };
@@ -411,7 +368,7 @@ private:
 
     //Indexed opcodes helpers
     uint16_t get_indexed_HL() const {
-        if (EXPECT_TRUE(m_index_mode == IndexMode::HL))
+        if (Z80_LIKELY(m_index_mode == IndexMode::HL))
             return m_HL.w;
         else if (m_index_mode == IndexMode::IX)
             return m_IX.w;
@@ -419,7 +376,7 @@ private:
             return m_IY.w;
     }
     void set_indexed_HL(uint16_t value) {
-        if (EXPECT_TRUE(m_index_mode == IndexMode::HL))
+        if (Z80_LIKELY(m_index_mode == IndexMode::HL))
             set_HL(value);
         else if (m_index_mode == IndexMode::IX)
             set_IX(value);
@@ -427,7 +384,7 @@ private:
             set_IY(value);
     }
     uint8_t get_indexed_H() const {
-        if (EXPECT_TRUE(m_index_mode == IndexMode::HL))
+        if (Z80_LIKELY(m_index_mode == IndexMode::HL))
             return get_H();
         else if (m_index_mode == IndexMode::IX)
             return get_IXH();
@@ -435,7 +392,7 @@ private:
             return get_IYH();
     }
     void set_indexed_H(uint8_t value) {
-        if (EXPECT_TRUE(m_index_mode == IndexMode::HL)) 
+        if (Z80_LIKELY(m_index_mode == IndexMode::HL)) 
             set_H(value);
         else if (m_index_mode == IndexMode::IX) 
             set_IXH(value);
@@ -443,14 +400,14 @@ private:
             set_IYH(value);
     }
     uint8_t get_indexed_L() const {
-        if (EXPECT_TRUE(m_index_mode == IndexMode::HL)) return get_L();
+        if (Z80_LIKELY(m_index_mode == IndexMode::HL)) return get_L();
         else if (m_index_mode == IndexMode::IX)
             return get_IXL();
         else
             return get_IYL();
     }
     void set_indexed_L(uint8_t value) {
-        if (EXPECT_TRUE(m_index_mode == IndexMode::HL))
+        if (Z80_LIKELY(m_index_mode == IndexMode::HL))
             set_L(value);
         else if (m_index_mode == IndexMode::IX)
             set_IXL(value);
@@ -458,7 +415,7 @@ private:
             set_IYL(value);
     }
     uint16_t get_indexed_address() {
-        if (EXPECT_TRUE(m_index_mode == IndexMode::HL))
+        if (Z80_LIKELY(m_index_mode == IndexMode::HL))
             return get_HL(); 
         else {
             add_operation_ticks(5);
