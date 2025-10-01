@@ -149,8 +149,8 @@ public:
         set_IFF2(false);
         set_halted(false);
         set_nmi_pending(false);
-        set_interrupt_pending(false);
-        set_interrupt_enable_pending(false);
+        set_IRQ_request(false);
+        set_EI_delay(false);
         set_reti_signaled(false);
         set_interrupt_data(0);
         set_interrupt_mode(0);
@@ -158,7 +158,7 @@ public:
         set_index_mode(IndexMode::HL);
     }
     void request_interrupt(uint8_t data) {
-        set_interrupt_pending(true);
+        set_IRQ_request(true);
         set_interrupt_data(data);
     }
     void request_nmi() { set_nmi_pending(true); }
@@ -184,8 +184,8 @@ public:
         state.m_IFF2 = get_IFF2();
         state.m_halted = is_halted();
         state.m_nmi_pending = is_nmi_pending();
-        state.m_interrupt_pending = is_interrupt_pending();
-        state.m_interrupt_enable_pending = is_interrupt_enable_pending();
+        state.m_interrupt_pending = get_IRQ_request();
+        state.m_interrupt_enable_pending = get_EI_delay();
         state.m_interrupt_data = get_interrupt_data();
         state.m_interrupt_mode = get_interrupt_mode();
         state.m_index_mode = get_index_mode();
@@ -212,8 +212,8 @@ public:
         set_IFF2(state.m_IFF2);
         set_halted(state.m_halted);
         set_nmi_pending(state.m_nmi_pending);
-        set_interrupt_pending(state.m_interrupt_pending);
-        set_interrupt_enable_pending(state.m_interrupt_enable_pending);
+        set_IRQ_request(state.m_interrupt_pending);
+        set_EI_delay(state.m_interrupt_enable_pending);
         set_interrupt_data(state.m_interrupt_data);
         set_interrupt_mode(state.m_interrupt_mode);
         set_index_mode(state.m_index_mode);
@@ -314,10 +314,10 @@ public:
     // Interrupt state flags
     FORCE_INLINE bool is_nmi_pending() const { return m_nmi_pending; }
     FORCE_INLINE void set_nmi_pending(bool state) { m_nmi_pending = state; }
-    FORCE_INLINE bool is_interrupt_pending() const { return m_interrupt_pending; }
-    FORCE_INLINE void set_interrupt_pending(bool state) { m_interrupt_pending = state; }
-    FORCE_INLINE bool is_interrupt_enable_pending() const { return m_interrupt_enable_pending; }
-    FORCE_INLINE void set_interrupt_enable_pending(bool state) { m_interrupt_enable_pending = state; }
+    FORCE_INLINE bool get_IRQ_request() const { return m_IRQ_request; }
+    FORCE_INLINE void set_IRQ_request(bool state) { m_IRQ_request = state; }
+    FORCE_INLINE bool get_EI_delay() const { return m_EI_delay; }
+    FORCE_INLINE void set_EI_delay(bool state) { m_EI_delay = state; }
     FORCE_INLINE uint8_t get_interrupt_data() const { return m_interrupt_data; }
     FORCE_INLINE void set_interrupt_data(uint8_t data) { m_interrupt_data = data; }
     FORCE_INLINE uint8_t get_interrupt_mode() const { return m_interrupt_mode; }
@@ -338,7 +338,7 @@ private:
     bool m_IFF1, m_IFF2;
     
     //internal CPU states
-    bool m_halted, m_nmi_pending, m_interrupt_pending, m_interrupt_enable_pending, m_reti_signaled;
+    bool m_halted, m_nmi_pending, m_IRQ_request, m_EI_delay, m_reti_signaled;
     uint8_t m_interrupt_data, m_interrupt_mode;
     IndexMode m_index_mode;
     
@@ -1938,7 +1938,7 @@ private:
             set_PC(address);
     }
     void opcode_0xFB_EI() {
-        set_interrupt_enable_pending(true);
+        set_EI_delay(true);
     }
     void opcode_0xFC_CALL_M_nn() {
         uint16_t address = fetch_next_word();
@@ -2379,7 +2379,7 @@ private:
         while (true) { 
             set_operation_ticks(0);
             if (is_halted()) {
-                if (is_nmi_pending() || (is_interrupt_pending() && get_IFF1())) {
+                if (is_nmi_pending() || (get_IRQ_request() && get_IFF1())) {
                     set_halted(false);
                 } else {
                     add_operation_ticks(ticks_limit - get_ticks());
@@ -2392,14 +2392,14 @@ private:
                 add_ticks(get_operation_ticks());
                 continue;
             }
-            if (is_interrupt_enable_pending()) {
+            if (get_EI_delay()) {
                 set_IFF1(true);
                 set_IFF2(true);
-                set_interrupt_enable_pending(false);
+                set_EI_delay(false);
             }
-            if (is_interrupt_pending() && get_IFF1()) {
+            if (get_IRQ_request() && get_IFF1()) {
                 handle_interrupt();
-                set_interrupt_pending(false);
+                set_IRQ_request(false);
                 add_ticks(get_operation_ticks());
                 continue;
             }
