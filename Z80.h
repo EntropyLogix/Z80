@@ -2349,8 +2349,12 @@ private:
                 set_IFF2(true);
                 set_EI_delay(false);
             }                
-            if (is_halted())
-                add_operation_ticks(ticks_limit - get_ticks());
+            if (is_halted()) {
+                if constexpr (TMode == OperateMode::SingleStep)
+                    add_operation_ticks(4); 
+                else 
+                    add_operation_ticks(ticks_limit - get_ticks());
+            }
             else {
                 set_index_mode(IndexMode::HL);
                 uint8_t opcode = fetch_next_opcode();
