@@ -190,6 +190,17 @@ public:
             }
         }
     }
+    long long calculate_next_step_ticks() {
+        State state = save_state();
+        set_IRQ_request(false);
+        set_NMI_pending(false);
+        long long start = m_ticks;
+        step();
+        long long ticks = m_ticks - start;
+        load_state(state);
+        return ticks;
+    }
+
     // 16-bit main registers
     uint16_t get_AF() const { return m_AF.w; }
     void set_AF(uint16_t value) { m_AF.w = value; }
