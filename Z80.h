@@ -190,10 +190,6 @@ public:
             }
         }
     }
-    void set_operation_ticks(long long value) { m_operation_ticks = value; }
-    long long get_operation_ticks() const { return m_operation_ticks; }
-    void add_operation_ticks(int delta) { m_operation_ticks += delta; }
-
     // 16-bit main registers
     uint16_t get_AF() const { return m_AF.w; }
     void set_AF(uint16_t value) { m_AF.w = value; }
@@ -302,6 +298,11 @@ private:
     TMemory& m_memory;
     TIO& m_io;
     TEvents& m_events;
+
+    //Ticks calculated for operation (including IRQ/NMI ticks if any)
+    void set_operation_ticks(long long value) { m_operation_ticks = value; }
+    long long get_operation_ticks() const { return m_operation_ticks; }
+    void add_operation_ticks(int delta) { m_operation_ticks += delta; }
 
     //Internal memory access helpers
     uint8_t read_byte(uint16_t address) {
