@@ -144,7 +144,7 @@ public:
         state.m_RETI_signaled = is_RETI_signaled();
         return state;
     }
-    void load_state(const State& state) {
+    void restore_state(const State& state) {
         set_AF(state.m_AF);
         set_BC(state.m_BC);
         set_DE(state.m_DE);
@@ -189,16 +189,6 @@ public:
                 break;
             }
         }
-    }
-    long long calculate_next_step_ticks() {
-        State state = save_state();
-        set_IRQ_request(false);
-        set_NMI_pending(false);
-        long long start = m_ticks;
-        step();
-        long long ticks = m_ticks - start;
-        load_state(state);
-        return ticks;
     }
 
     // 16-bit main registers
