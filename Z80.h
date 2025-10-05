@@ -172,12 +172,16 @@ public:
     long long get_ticks() const { return m_ticks; }
     void set_ticks(long long value) { m_ticks = value; }
     void add_tick() {
-        ++m_ticks;
-        if (m_ticks == m_events.get_event_limit())
-            m_events.handle_event(m_ticks);
+        if (Z80_LIKELY(++m_ticks != m_events.get_event_limit()))
+            return;
+        m_events.handle_event(m_ticks);
     }
     void add_ticks(long long delta) {
         long long target_ticks = m_ticks + delta;
+        if (Z80_LIKELY(target_ticks < m_events.get_event_limit())) {
+            m_ticks = target_ticks;
+            return;
+        }
         long long next_event;
         while ((next_event = m_events.get_event_limit()) <= target_ticks) {
             m_ticks = next_event;
