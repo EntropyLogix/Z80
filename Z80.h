@@ -11,7 +11,7 @@
     #define Z80_LIKELY(expr)   (expr)
 #endif
 
-template <typename TMemory, typename TIO, typename TEvents>
+template <typename TBus, typename TEvents>
 class Z80 {
 public:
     union Register {
@@ -42,7 +42,6 @@ public:
         uint8_t m_IRQ_mode;
         IndexMode m_index_mode;
         long long m_ticks;
-        long long m_operation_ticks;
     };
 
     // Flags
@@ -73,12 +72,10 @@ public:
     };
 
     // Constructor
-    Z80(TMemory& mem, TIO& io, TEvents& events) : m_memory(mem), m_io(io), m_events(events){
+    Z80(TBus& bus, TEvents& events) : m_bus(bus), m_events(events){
         precompute_parity();
-        m_memory.connect(this);
-        m_memory.reset();
-        m_io.connect(this);
-        m_io.reset();
+        m_bus.connect(this);
+        m_bus.reset();
         m_events.connect(this);
         m_events.reset();
         reset();
@@ -140,7 +137,6 @@ public:
         state.m_IRQ_mode = get_IRQ_mode();
         state.m_index_mode = get_index_mode();
         state.m_ticks = get_ticks();
-        state.m_operation_ticks = get_operation_ticks();
         state.m_RETI_signaled = is_RETI_signaled();
         return state;
     }
@@ -169,13 +165,17 @@ public:
         set_IRQ_mode(state.m_IRQ_mode);
         set_index_mode(state.m_index_mode);
         set_ticks(state.m_ticks);
-        set_operation_ticks(state.m_operation_ticks);
         set_RETI_signaled(state.m_RETI_signaled);
     }
 
     // Cycle counter
     long long get_ticks() const { return m_ticks; }
     void set_ticks(long long value) { m_ticks = value; }
+    void add_tick() {
+        ++m_ticks;
+        if (m_ticks == m_events.get_event_limit())
+            m_events.handle_event(m_ticks);
+    }
     void add_ticks(long long delta) {
         long long target_ticks = m_ticks + delta;
         while (m_ticks < target_ticks) {
@@ -190,6 +190,11 @@ public:
             }
         }
     }
+    //Bus
+    uint16_t get_address_bus() const { return m_address_bus; }
+    void set_address_bus(uint8_t value) { m_address_bus = value; }
+    uint8_t get_data_bus() const { return m_data_bus; }
+    void set_data_bus(uint8_t value) { m_data_bus = value; }
 
     // 16-bit main registers
     uint16_t get_AF() const { return m_AF.w; }
@@ -293,38 +298,42 @@ private:
     IndexMode m_index_mode;
     
     //CPU T-states
-    long long m_ticks, m_operation_ticks;
+    long long m_ticks;
+
+    //Bus
+    uint16_t m_address_bus; //A0-A15
+    uint8_t m_data_bus; //D0-D7
 
     //Memory and IO operations
-    TMemory& m_memory;
-    TIO& m_io;
+    TBus& m_bus;
     TEvents& m_events;
-
-    //Ticks calculated for operation (including IRQ/NMI ticks if any)
-    void set_operation_ticks(long long value) { m_operation_ticks = value; }
-    long long get_operation_ticks() const { return m_operation_ticks; }
-    void add_operation_ticks(int delta) { m_operation_ticks += delta; }
 
     //Internal memory access helpers
     uint8_t read_byte(uint16_t address) {
-        add_operation_ticks(3);
-        return m_memory.read(address); 
-    }
-    void write_byte(uint16_t address, uint8_t value) {
-        add_operation_ticks(3);
-        m_memory.write(address, value);
+        m_address_bus = address;
+        add_tick(); //T1
+        add_tick(); //T2
+        uint8_t data = m_bus.read(address);
+        m_data_bus = data;
+        add_tick(); //T3
+        return data;
     }
     uint16_t read_word(uint16_t address) {
-        add_operation_ticks(6);
-        uint8_t low_byte = m_memory.read(address);
-        uint8_t high_byte = m_memory.read(address + 1);
+        uint8_t low_byte = read_byte(address);
+        uint8_t high_byte = read_byte(address + 1);
         return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
-
+    void write_byte(uint16_t address, uint8_t value) {
+        m_address_bus = address;
+        add_tick(); //T1
+        m_data_bus = value;
+        add_tick(); //T2
+        m_bus.write(address, value);
+        add_tick(); //T3
+    }
     void write_word(uint16_t address, uint16_t value) {
-        add_operation_ticks(6);
-        m_memory.write(address, value & 0xFF);
-        m_memory.write(address + 1, (value >> 8));
+        write_byte(address, value & 0xFF);
+        write_byte(address + 1, value >> 8);
     }
     void push_word(uint16_t value) {
         uint16_t new_sp = get_SP() - 2;
@@ -338,11 +347,16 @@ private:
         return value;
     }
     uint8_t fetch_next_opcode() {
-        add_operation_ticks(1);
+        uint16_t current_pc = get_PC();
+        m_address_bus = current_pc;
+        add_tick(); //T1
+        add_tick(); //T2
+        uint8_t opcode = m_bus.read(current_pc);
+        m_data_bus = opcode;
         uint8_t r_val = get_R();
         set_R(((r_val + 1) & 0x7F) | (r_val & 0x80));
-        uint16_t current_pc = get_PC();
-        uint8_t opcode = read_byte(current_pc);
+        add_tick(); //T3
+        add_tick(); //T4
         set_PC(current_pc + 1);
         return opcode;
     }
@@ -425,8 +439,8 @@ private:
         if (Z80_LIKELY(m_index_mode == IndexMode::HL))
             return get_HL(); 
         else {
-            add_operation_ticks(5);
             int8_t offset = static_cast<int8_t>(fetch_next_byte()); 
+            add_ticks(5);
             return get_indexed_HL() + offset;
         }
     }
@@ -737,7 +751,8 @@ private:
 
     //Input and output helpers
     uint8_t in_r_c() {
-        uint8_t value = m_io.read(get_BC());
+        add_ticks(4);
+        uint8_t value = m_bus.in(get_BC());
         Flags flags = get_F();
         flags.update(Flags::S, (value & 0x80) != 0)
             .update(Flags::Z, value == 0)
@@ -748,25 +763,26 @@ private:
         set_F(flags);
         return value;
     }
-    void out_c_r(uint8_t value) { m_io.write(get_BC(), value); }
+    void out_c_r(uint8_t value) { m_bus.out(get_BC(), value); }
 
     //Interrupt handling
     void handle_NMI() {
-        add_operation_ticks(5);
         set_halted(false);
         set_IFF2(get_IFF1());
         set_IFF1(false);
         push_word(get_PC());
         set_PC(0x0066);
         set_NMI_pending(false);
+        add_ticks(5);
     }
     void handle_interrupt() {
-        add_operation_ticks(7);
+        add_ticks(2); // Two wait states during interrupt acknowledge cycle
         set_IFF2(get_IFF1());
         set_IFF1(false);
         push_word(get_PC());
         switch (get_IRQ_mode()) {
             case 0: {
+                add_ticks(5); // Internal operations for RST
                 uint8_t opcode = get_IRQ_data();
                 switch (opcode) {
                     case 0xC7: set_PC(0x0000); break;
@@ -781,12 +797,14 @@ private:
                 break;
             }
             case 1: {
+                add_ticks(5); // Internal operations for RST 38H
                 set_PC(0x0038);
                 break;
             }
             case 2: {
                 uint16_t vector_address = (static_cast<uint16_t>(get_I()) << 8) | get_IRQ_data();
                 uint16_t handler_address = read_word(vector_address);
+                add_ticks(5); // Internal operations
                 set_PC(handler_address);
                 break;
             }
@@ -833,7 +851,7 @@ private:
                 bit_8bit(bit, value);
                 Flags flags = get_F();
                 if (target_reg == 6) {
-                    add_operation_ticks(1);
+                    add_tick();
                     flags.update(Flags::X, (flags_source & 0x0800) != 0);
                     flags.update(Flags::Y, (flags_source & 0x2000) != 0);
                 } else {
@@ -854,17 +872,17 @@ private:
             case 4: set_H(result); break;
             case 5: set_L(result); break;
             case 6:
-                add_operation_ticks(1);
+                add_tick();
                 write_byte(get_HL(), result);
                 break;
             case 7: set_A(result); break;
         }
     }
     void handle_CB_indexed_opcodes(uint16_t index_register) {
-        add_operation_ticks(2);
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         uint8_t opcode = fetch_next_byte();
         uint16_t address = index_register + offset;
+        add_ticks(2); // 2 T-states for address calculation
         uint8_t value = read_byte(address);
         uint8_t operation_group = opcode >> 6;
         uint8_t bit = (opcode >> 3) & 0x07;
@@ -884,7 +902,7 @@ private:
                 break;
             
             case 1: {
-                add_operation_ticks(1);
+                add_tick(); // 1 T-state for internal operation
                 bit_8bit(bit, value);
                 Flags flags = get_F();
                 flags.update(Flags::X, (address & 0x0800) != 0);
@@ -895,7 +913,7 @@ private:
             case 2: result = res_8bit(bit, value); break;
             case 3: result = set_8bit(bit, value); break;
         }
-        add_operation_ticks(1);
+        add_tick(); // 1 T-state for internal operation
         write_byte(address, result);
         uint8_t target_reg_code = opcode & 0x07;
         if (target_reg_code != 0x06) {
@@ -919,8 +937,8 @@ private:
         write_byte(get_BC(), get_A());
     }
     void opcode_0x03_INC_BC() {
-        add_operation_ticks(2);
         set_BC(get_BC() + 1);
+        add_ticks(2);
     }
     void opcode_0x04_INC_B() {
         set_B(inc_8bit(get_B()));
@@ -949,15 +967,15 @@ private:
         set_AFp(temp_AF);
     }
     void opcode_0x09_ADD_HL_BC() {
-        add_operation_ticks(7);
         set_indexed_HL(add_16bit(get_indexed_HL(), get_BC()));
+        add_ticks(7);
     }
     void opcode_0x0A_LD_A_BC_ptr() {
         set_A(read_byte(get_BC()));
     }
     void opcode_0x0B_DEC_BC() {
-        add_operation_ticks(2);
         set_BC(get_BC() - 1);
+        add_ticks(2);
     }
     void opcode_0x0C_INC_C() {
         set_C(inc_8bit(get_C()));
@@ -981,13 +999,13 @@ private:
         set_F(flags);
     }
     void opcode_0x10_DJNZ_d() {
-        add_operation_ticks(1);
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         uint8_t new_b_value = get_B() - 1;
         set_B(new_b_value);
+        add_tick();
         if (new_b_value != 0) {
-            add_operation_ticks(5);
             set_PC(get_PC() + offset);
+            add_ticks(5);
         }
     }
     void opcode_0x11_LD_DE_nn() {
@@ -997,8 +1015,8 @@ private:
         write_byte(get_DE(), get_A());
     }
     void opcode_0x13_INC_DE() {
-        add_operation_ticks(2);
         set_DE(get_DE() + 1);
+        add_ticks(2);
     }
     void opcode_0x14_INC_D() {
         set_D(inc_8bit(get_D()));
@@ -1023,20 +1041,20 @@ private:
         set_F(flags);
     }
     void opcode_0x18_JR_d() {
-        add_operation_ticks(5);
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         set_PC(get_PC() + offset);
+        add_ticks(5);
     }
     void opcode_0x19_ADD_HL_DE() {
-        add_operation_ticks(7);
         set_indexed_HL(add_16bit(get_indexed_HL(), get_DE()));
+        add_ticks(7);
     }
     void opcode_0x1A_LD_A_DE_ptr() {
         set_A(read_byte(get_DE()));
     }
     void opcode_0x1B_DEC_DE() {
-        add_operation_ticks(2);
         set_DE(get_DE() - 1);
+        add_ticks(2);
     }
     void opcode_0x1C_INC_E() {
         set_E(inc_8bit(get_E()));
@@ -1063,8 +1081,8 @@ private:
     void opcode_0x20_JR_NZ_d() {
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         if (!get_F().is_set(Flags::Z)) {
-            add_operation_ticks(5);
             set_PC(get_PC() + offset);
+            add_ticks(5);
         }
     }
     void opcode_0x21_LD_HL_nn() {
@@ -1074,8 +1092,8 @@ private:
         write_word(fetch_next_word(), get_indexed_HL());
     }
     void opcode_0x23_INC_HL() {
-        add_operation_ticks(2);
         set_indexed_HL(get_indexed_HL() + 1);
+        add_ticks(2);
     }
     void opcode_0x24_INC_H() {
         set_indexed_H(inc_8bit(get_indexed_H()));
@@ -1121,20 +1139,20 @@ private:
     void opcode_0x28_JR_Z_d() {
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         if (get_F().is_set(Flags::Z)) {
-            add_operation_ticks(5);
             set_PC(get_PC() + offset);
+            add_ticks(5);
         }
     }
     void opcode_0x29_ADD_HL_HL() {
-        add_operation_ticks(7);
         set_indexed_HL(add_16bit(get_indexed_HL(), get_indexed_HL()));
+        add_ticks(7);
     }
     void opcode_0x2A_LD_HL_nn_ptr() {
         set_indexed_HL(read_word(fetch_next_word()));
     }
     void opcode_0x2B_DEC_HL() {
-        add_operation_ticks(2);
         set_indexed_HL(get_indexed_HL() - 1);
+        add_ticks(2);
     }
     void opcode_0x2C_INC_L() {
         set_indexed_L(inc_8bit(get_indexed_L()));
@@ -1157,8 +1175,8 @@ private:
     void opcode_0x30_JR_NC_d() {
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         if (!get_F().is_set(Flags::C)) {
-            add_operation_ticks(5);
             set_PC(get_PC() + offset);
+            add_ticks(5);
         }
     }
     void opcode_0x31_LD_SP_nn() {
@@ -1169,28 +1187,30 @@ private:
         write_byte(address, get_A());
     }
     void opcode_0x33_INC_SP() {
-        add_operation_ticks(2);
         set_SP(get_SP() + 1);
+        add_ticks(2);
     }
     void opcode_0x34_INC_HL_ptr() {
-        add_operation_ticks(1);
         uint16_t address = get_indexed_address();
-        write_byte(address, inc_8bit(read_byte(address)));
+        uint8_t value = read_byte(address);
+        add_tick();
+        write_byte(address, inc_8bit(value));
     }
     void opcode_0x35_DEC_HL_ptr() {
-        add_operation_ticks(1);
         uint16_t address = get_indexed_address();
-        write_byte(address, dec_8bit(read_byte(address)));
+        uint8_t value = read_byte(address);
+        add_tick();
+        write_byte(address, dec_8bit(value));
     }
     void opcode_0x36_LD_HL_ptr_n() {
         if (get_index_mode() == IndexMode::HL) {
             uint8_t value = fetch_next_byte();
             write_byte(get_HL(), value);
         } else {
-            add_operation_ticks(2);
             int8_t offset = static_cast<int8_t>(fetch_next_byte());
-            uint8_t value = fetch_next_byte();
             uint16_t address = (get_index_mode() == IndexMode::IX ? get_IX() : get_IY()) + offset;
+            add_ticks(2);
+            uint8_t value = fetch_next_byte();
             write_byte(address, value);
         }
     }
@@ -1205,21 +1225,21 @@ private:
     void opcode_0x38_JR_C_d() {
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         if (get_F().is_set(Flags::C)) {
-            add_operation_ticks(5);
             set_PC(get_PC() + offset);
+            add_ticks(5);
         }
     }
     void opcode_0x39_ADD_HL_SP() {
-        add_operation_ticks(7);
         set_indexed_HL(add_16bit(get_indexed_HL(), get_SP()));
+        add_ticks(7);
     }
     void opcode_0x3A_LD_A_nn_ptr() {
         uint16_t address = fetch_next_word();
         set_A(read_byte(address));
     }
     void opcode_0x3B_DEC_SP() {
-        add_operation_ticks(2);
         set_SP(get_SP() - 1);
+        add_ticks(2);
     }
     void opcode_0x3C_INC_A() {
         set_A(inc_8bit(get_A()));
@@ -1618,7 +1638,7 @@ private:
         cp_8bit(get_A());
     }
     void opcode_0xC0_RET_NZ() {
-        add_operation_ticks(1);
+        add_tick();
         if (!get_F().is_set(Flags::Z))
             set_PC(pop_word());
     }
@@ -1636,25 +1656,25 @@ private:
     void opcode_0xC4_CALL_NZ_nn() {
         uint16_t address = fetch_next_word();
         if (!get_F().is_set(Flags::Z)) {
-            add_operation_ticks(1);
+            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xC5_PUSH_BC() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_BC());
     }
     void opcode_0xC6_ADD_A_n() {
         add_8bit(fetch_next_byte());
     }
     void opcode_0xC7_RST_00H() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_PC());
         set_PC(0x0000);
     }
     void opcode_0xC8_RET_Z() {
-        add_operation_ticks(1);
+        add_tick();
         if (get_F().is_set(Flags::Z))
             set_PC(pop_word());
     }
@@ -1669,13 +1689,13 @@ private:
     void opcode_0xCC_CALL_Z_nn() {
         uint16_t address = fetch_next_word();
         if (get_F().is_set(Flags::Z)) {
-            add_operation_ticks(1);
+            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xCD_CALL_nn() {
-        add_operation_ticks(1);
+        add_tick();
         uint16_t address = fetch_next_word();
         push_word(get_PC());
         set_PC(address);
@@ -1684,12 +1704,12 @@ private:
         adc_8bit(fetch_next_byte());
     }
     void opcode_0xCF_RST_08H() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_PC());
         set_PC(0x0008);
     }
     void opcode_0xD0_RET_NC() {
-        add_operation_ticks(1);
+        add_tick();
         if (!get_F().is_set(Flags::C))
             set_PC(pop_word());
     }
@@ -1702,32 +1722,32 @@ private:
             set_PC(address);
     }
     void opcode_0xD3_OUT_n_ptr_A() {
-        add_operation_ticks(4);
         uint8_t port_lo = fetch_next_byte();
-        m_io.write((get_A() << 8) | port_lo, get_A());
+        m_bus.out((get_A() << 8) | port_lo, get_A());
+        add_ticks(4);
     }
     void opcode_0xD4_CALL_NC_nn() {
         uint16_t address = fetch_next_word();
         if (!get_F().is_set(Flags::C)) {
-            add_operation_ticks(1);
+            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xD5_PUSH_DE() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_DE());
     }
     void opcode_0xD6_SUB_n() {
         sub_8bit(fetch_next_byte());
     }
     void opcode_0xD7_RST_10H() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_PC());
         set_PC(0x0010);
     }
     void opcode_0xD8_RET_C() {
-        add_operation_ticks(1);
+        add_tick();
         if (get_F().is_set(Flags::C))
             set_PC(pop_word());
     }
@@ -1748,15 +1768,15 @@ private:
             set_PC(address);
     }
     void opcode_0xDB_IN_A_n_ptr() {
-        add_operation_ticks(4);
         uint8_t port_lo = fetch_next_byte();
         uint16_t port = (get_A() << 8) | port_lo;
-        set_A(m_io.read(port));
+        set_A(m_bus.in(port));
+        add_ticks(4);
     }
     void opcode_0xDC_CALL_C_nn() {
         uint16_t address = fetch_next_word();
         if (get_F().is_set(Flags::C)) {
-            add_operation_ticks(1);
+            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
@@ -1765,12 +1785,12 @@ private:
         sbc_8bit(fetch_next_byte());
     }
     void opcode_0xDF_RST_18H() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_PC());
         set_PC(0x0018);
     }
     void opcode_0xE0_RET_PO() {
-        add_operation_ticks(1);
+        add_tick();
         if (!get_F().is_set(Flags::PV))
             set_PC(pop_word());
     }
@@ -1783,33 +1803,33 @@ private:
             set_PC(address);
     }
     void opcode_0xE3_EX_SP_ptr_HL() {
-        add_operation_ticks(3);
         uint16_t from_stack = read_word(get_SP());
         write_word(get_SP(), get_indexed_HL());
         set_indexed_HL(from_stack);
+        add_ticks(3);
     }
     void opcode_0xE4_CALL_PO_nn() {
         uint16_t address = fetch_next_word();
         if (!get_F().is_set(Flags::PV)) {
-            add_operation_ticks(1);
+            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xE5_PUSH_HL() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_indexed_HL());
     }
     void opcode_0xE6_AND_n() {
         and_8bit(fetch_next_byte());
     }
     void opcode_0xE7_RST_20H() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_PC());
         set_PC(0x0020);
     }
     void opcode_0xE8_RET_PE() {
-        add_operation_ticks(1);
+        add_tick();
         if (get_F().is_set(Flags::PV))
             set_PC(pop_word());
     }
@@ -1829,7 +1849,7 @@ private:
     void opcode_0xEC_CALL_PE_nn() {
         uint16_t address = fetch_next_word();
         if (get_F().is_set(Flags::PV)) {
-            add_operation_ticks(1);
+            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
@@ -1838,12 +1858,12 @@ private:
         xor_8bit(fetch_next_byte());
     }
     void opcode_0xEF_RST_28H() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_PC());
         set_PC(0x0028);
     }
     void opcode_0xF0_RET_P() {
-        add_operation_ticks(1);
+        add_tick();
         if (!get_F().is_set(Flags::S))
             set_PC(pop_word());
     }
@@ -1862,31 +1882,31 @@ private:
     void opcode_0xF4_CALL_P_nn() {
         uint16_t address = fetch_next_word();
         if (!get_F().is_set(Flags::S)) {
-            add_operation_ticks(1);
+            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xF5_PUSH_AF() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_AF());
     }
     void opcode_0xF6_OR_n() {
         or_8bit(fetch_next_byte());
     }
     void opcode_0xF7_RST_30H() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_PC());
         set_PC(0x0030);
     }
     void opcode_0xF8_RET_M() {
-        add_operation_ticks(1);
+        add_tick();
         if (get_F().is_set(Flags::S))
             set_PC(pop_word());
     }
     void opcode_0xF9_LD_SP_HL() {
-        add_operation_ticks(2);
         set_SP(get_indexed_HL());
+        add_ticks(2);
     }
     void opcode_0xFA_JP_M_nn() {
         uint16_t address = fetch_next_word();
@@ -1899,7 +1919,7 @@ private:
     void opcode_0xFC_CALL_M_nn() {
         uint16_t address = fetch_next_word();
         if (get_F().is_set(Flags::S)) {
-            add_operation_ticks(1);
+            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
@@ -1908,21 +1928,19 @@ private:
         cp_8bit(fetch_next_byte());
     }
     void opcode_0xFF_RST_38H() {
-        add_operation_ticks(1);
+        add_tick();
         push_word(get_PC());
         set_PC(0x0038);
     }
     void opcode_0xED_0x40_IN_B_C_ptr() {
-        add_operation_ticks(4);
         set_B(in_r_c());
     }
     void opcode_0xED_0x41_OUT_C_ptr_B() {
-        add_operation_ticks(4);
         out_c_r(get_B());
     }
     void opcode_0xED_0x42_SBC_HL_BC() {
-        add_operation_ticks(7);
         set_indexed_HL(sbc_16bit(get_indexed_HL(), get_BC()));
+        add_ticks(7);
     }
     void opcode_0xED_0x43_LD_nn_ptr_BC() {
         write_word(fetch_next_word(), get_BC());
@@ -1949,20 +1967,18 @@ private:
         set_IRQ_mode(0);
     }
     void opcode_0xED_0x47_LD_I_A() {
-        add_operation_ticks(1);
+        add_tick();
         set_I(get_A());
     }
     void opcode_0xED_0x48_IN_C_C_ptr() {
-        add_operation_ticks(4);
         set_C(in_r_c());
     }
     void opcode_0xED_0x49_OUT_C_ptr_C() {
-        add_operation_ticks(4);
         out_c_r(get_C());
     }
     void opcode_0xED_0x4A_ADC_HL_BC() {
-        add_operation_ticks(7);
         set_indexed_HL(adc_16bit(get_indexed_HL(), get_BC()));
+        add_ticks(7);
     }
     void opcode_0xED_0x4B_LD_BC_nn_ptr() {
         set_BC(read_word(fetch_next_word()));
@@ -1973,20 +1989,18 @@ private:
         set_RETI_signaled(true);
     }
     void opcode_0xED_0x4F_LD_R_A() {
-        add_operation_ticks(1);
+        add_tick();
         set_R(get_A());
     }
     void opcode_0xED_0x50_IN_D_C_ptr() {
-        add_operation_ticks(4);
         set_D(in_r_c());
     }
     void opcode_0xED_0x51_OUT_C_ptr_D() {
-        add_operation_ticks(4);
         out_c_r(get_D());
     }
     void opcode_0xED_0x52_SBC_HL_DE() {
-        add_operation_ticks(7);
         set_indexed_HL(sbc_16bit(get_indexed_HL(), get_DE()));
+        add_ticks(7);
     }
     void opcode_0xED_0x53_LD_nn_ptr_DE() {
         write_word(fetch_next_word(), get_DE());
@@ -1995,7 +2009,7 @@ private:
         set_IRQ_mode(1);
     }
     void opcode_0xED_0x57_LD_A_I() {
-        add_operation_ticks(1);
+        add_tick();
         uint8_t i_value = get_I();
         set_A(i_value);
         Flags flags(get_F() & Flags::C);
@@ -2008,16 +2022,14 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x58_IN_E_C_ptr() {
-        add_operation_ticks(4);
         set_E(in_r_c());
     }
     void opcode_0xED_0x59_OUT_C_ptr_E() {
-        add_operation_ticks(4);
         out_c_r(get_E());
     }
     void opcode_0xED_0x5A_ADC_HL_DE() {
-        add_operation_ticks(7);
         set_indexed_HL(adc_16bit(get_indexed_HL(), get_DE()));
+        add_ticks(7);
     }
     void opcode_0xED_0x5B_LD_DE_nn_ptr() {
         set_DE(read_word(fetch_next_word()));
@@ -2026,7 +2038,7 @@ private:
         set_IRQ_mode(2);
     }
     void opcode_0xED_0x5F_LD_A_R() {
-        add_operation_ticks(1);
+        add_tick();
         uint8_t r_value = get_R();
         set_A(r_value);
         Flags flags(get_F() & Flags::C);
@@ -2039,29 +2051,27 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x60_IN_H_C_ptr() {
-        add_operation_ticks(4);
         set_H(in_r_c());
     }
     void opcode_0xED_0x61_OUT_C_ptr_H() {
-        add_operation_ticks(4);
         out_c_r(get_H());
     }
     void opcode_0xED_0x62_SBC_HL_HL() {
-        add_operation_ticks(7);
         uint16_t value = get_indexed_HL();
         set_indexed_HL(sbc_16bit(value, value));
+        add_ticks(7);
     }
     void opcode_0xED_0x63_LD_nn_ptr_HL_ED() {
         write_word(fetch_next_word(), get_HL());
     }
     void opcode_0xED_0x67_RRD() {
-        add_operation_ticks(4);
         uint16_t address = get_HL();
         uint8_t mem_val = read_byte(address);
         uint8_t a_val = get_A();
         uint8_t new_a = (a_val & 0xF0) | (mem_val & 0x0F);
         uint8_t new_mem = (mem_val >> 4) | ((a_val & 0x0F) << 4);
         set_A(new_a);
+        add_ticks(4);
         write_byte(address, new_mem);
         Flags flags(get_F() & Flags::C);
         flags.clear(Flags::H | Flags::N)
@@ -2073,29 +2083,27 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x68_IN_L_C_ptr() {
-        add_operation_ticks(4);
         set_L(in_r_c());
     }
     void opcode_0xED_0x69_OUT_C_ptr_L() {
-        add_operation_ticks(4);
         out_c_r(get_L());
     }
     void opcode_0xED_0x6A_ADC_HL_HL() {
-        add_operation_ticks(7);
         uint16_t value = get_indexed_HL();
         set_indexed_HL(adc_16bit(value, value));
+        add_ticks(7);
     }
     void opcode_0xED_0x6B_LD_HL_nn_ptr_ED() {
         set_HL(read_word(fetch_next_word()));
     }
     void opcode_0xED_0x6F_RLD() {
-        add_operation_ticks(4);
         uint16_t address = get_HL();
         uint8_t mem_val = read_byte(address);
         uint8_t a_val = get_A();
         uint8_t new_a = (a_val & 0xF0) | (mem_val >> 4);
         uint8_t new_mem = (mem_val << 4) | (a_val & 0x0F);
         set_A(new_a);
+        add_ticks(4);
         write_byte(address, new_mem);
         Flags flags(get_F() & Flags::C);
         flags.clear(Flags::H | Flags::N)
@@ -2107,42 +2115,38 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x70_IN_C_ptr() {
-        add_operation_ticks(4);
         in_r_c();
     }
     void opcode_0xED_0x71_OUT_C_ptr_0() {
-        add_operation_ticks(4);
         out_c_r(0x00);
     }
     void opcode_0xED_0x72_SBC_HL_SP() {
-        add_operation_ticks(7);
         set_indexed_HL(sbc_16bit(get_indexed_HL(), get_SP()));
+        add_ticks(7);
     }
     void opcode_0xED_0x73_LD_nn_ptr_SP() {
         write_word(fetch_next_word(), get_SP());
     }
     void opcode_0xED_0x78_IN_A_C_ptr() {
-        add_operation_ticks(4);
         set_A(in_r_c());
     }
     void opcode_0xED_0x79_OUT_C_ptr_A() {
-        add_operation_ticks(4);
         out_c_r(get_A());
     }
     void opcode_0xED_0x7A_ADC_HL_SP() {
-        add_operation_ticks(7);
         set_indexed_HL(adc_16bit(get_indexed_HL(), get_SP()));
+        add_ticks(7);
     }
     void opcode_0xED_0x7B_LD_SP_nn_ptr() {
         set_SP(read_word(fetch_next_word()));
     }
     void opcode_0xED_0xA0_LDI() {
-        add_operation_ticks(2);
         uint8_t value = read_byte(get_HL());
-        write_byte(get_DE(), value);
         set_HL(get_HL() + 1);
         set_DE(get_DE() + 1);
         set_BC(get_BC() - 1);
+        add_tick();
+        write_byte(get_DE(), value);
         Flags flags = get_F();
         uint8_t temp = get_A() + value;
         flags.clear(Flags::H | Flags::N)
@@ -2150,9 +2154,9 @@ private:
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
         set_F(flags);
+        add_tick();
     }
     void opcode_0xED_0xA1_CPI() {
-        add_operation_ticks(5);
         uint8_t value = read_byte(get_HL());
         uint8_t result = get_A() - value;
         bool half_carry = (get_A() & 0x0F) < (value & 0x0F);
@@ -2168,10 +2172,11 @@ private:
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
         set_F(flags);
+        add_ticks(5);
     }
     void opcode_0xED_0xA2_INI() {
-        add_operation_ticks(5);
-        uint8_t port_val = m_io.read(get_BC());
+        add_ticks(5);
+        uint8_t port_val = m_bus.in(get_BC());        
         uint8_t b_val = get_B();
         set_B(b_val - 1);
         write_byte(get_HL(), port_val);
@@ -2187,11 +2192,11 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0xA3_OUTI() {
-        add_operation_ticks(5);
         uint8_t mem_val = read_byte(get_HL());
         uint8_t b_val = get_B();
         set_B(b_val - 1);
-        m_io.write(get_BC(), mem_val);
+        add_ticks(5);
+        m_bus.out(get_BC(), mem_val);
         set_HL(get_HL() + 1);
         Flags flags = get_F();
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
@@ -2203,7 +2208,6 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0xA8_LDD() {
-        add_operation_ticks(2);
         uint8_t value = read_byte(get_HL());
         write_byte(get_DE(), value);
         set_HL(get_HL() - 1);
@@ -2216,9 +2220,9 @@ private:
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
         set_F(flags);
+        add_ticks(2);
     }
     void opcode_0xED_0xA9_CPD() {
-        add_operation_ticks(5);
         uint8_t value = read_byte(get_HL());
         uint8_t result = get_A() - value;
         bool half_carry = (get_A() & 0x0F) < (value & 0x0F);
@@ -2234,12 +2238,13 @@ private:
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
         set_F(flags);
+        add_ticks(5);
     }
     void opcode_0xED_0xAA_IND() {
-        add_operation_ticks(5);
-        uint8_t port_val = m_io.read(get_BC());
         uint8_t b_val = get_B();
         set_B(b_val - 1);
+        add_ticks(5);
+        uint8_t port_val = m_bus.in(get_BC());
         write_byte(get_HL(), port_val);
         set_HL(get_HL() - 1);
         Flags flags = get_F();
@@ -2253,11 +2258,9 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0xAB_OUTD() {
-        add_operation_ticks(5);
         uint8_t mem_val = read_byte(get_HL());
         uint8_t b_val = get_B();
         set_B(b_val - 1);
-        m_io.write(get_BC(), mem_val);
         set_HL(get_HL() - 1);
         Flags flags = get_F();
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
@@ -2266,62 +2269,64 @@ private:
             .update(Flags::C, temp > 0xFF)
             .update(Flags::H, temp > 0xFF)
             .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF));
+        add_ticks(5);
+        m_bus.out(get_BC(), mem_val);
         set_F(flags);
     }
     void opcode_0xED_0xB0_LDIR() {
         opcode_0xED_0xA0_LDI();
         if (get_BC() != 0) {
-            add_operation_ticks(5);
             set_PC(get_PC() - 2);
+            add_ticks(5);
         }
     }
     void opcode_0xED_0xB1_CPIR() {
         opcode_0xED_0xA1_CPI();
         if (get_BC() != 0 && !get_F().is_set(Flags::Z)) {
-            add_operation_ticks(5);
             set_PC(get_PC() - 2);
+            add_ticks(5);
         }
     }
     void opcode_0xED_0xB2_INIR() {
         opcode_0xED_0xA2_INI();
         if (get_B() != 0) {
-            add_operation_ticks(5);
             set_PC(get_PC() - 2);
+            add_ticks(5);
         }
     }
     void opcode_0xED_0xB3_OTIR() {
         opcode_0xED_0xA3_OUTI();
         if (get_B() != 0) {
-            add_operation_ticks(5);
             set_PC(get_PC() - 2);
+            add_ticks(5);
         }
     }
     void opcode_0xED_0xB8_LDDR() {
         opcode_0xED_0xA8_LDD();
         if (get_BC() != 0) {
-            add_operation_ticks(5);
             set_PC(get_PC() - 2);
+            add_ticks(5);
         }
     }
     void opcode_0xED_0xB9_CPDR() {
         opcode_0xED_0xA9_CPD();
         if (get_BC() != 0 && !get_F().is_set(Flags::Z)) {
-            add_operation_ticks(5);
             set_PC(get_PC() - 2);
+            add_ticks(5);
         }
     }
     void opcode_0xED_0xBA_INDR() {
         opcode_0xED_0xAA_IND();
         if (get_B() != 0) {
-            add_operation_ticks(5);
             set_PC(get_PC() - 2);
+            add_ticks(5);
         }
     }
     void opcode_0xED_0xBB_OTDR() {
         opcode_0xED_0xAB_OUTD();
         if (get_B() != 0) {
-            add_operation_ticks(5);
             set_PC(get_PC() - 2);
+            add_ticks(5);
         }
     }
 
@@ -2333,7 +2338,6 @@ private:
     template<OperateMode TMode> long long operate(long long ticks_limit) {
         long long initial_ticks = get_ticks();
         while (true) { 
-            set_operation_ticks(0);
             if (get_EI_delay()) {
                 set_IFF1(true);
                 set_IFF2(true);
@@ -2341,9 +2345,9 @@ private:
             }                
             if (is_halted()) {
                 if constexpr (TMode == OperateMode::SingleStep)
-                    add_operation_ticks(4); 
+                    add_ticks(4); 
                 else 
-                    add_operation_ticks(ticks_limit - get_ticks());
+                    add_ticks(ticks_limit - get_ticks());
             }
             else {
                 set_index_mode(IndexMode::HL);
@@ -2683,7 +2687,6 @@ private:
                 handle_NMI();
             else if (is_IRQ_pending())
                 handle_interrupt();
-            add_ticks(get_operation_ticks());
             if constexpr (TMode == OperateMode::SingleStep) {
                 break;
             } else {

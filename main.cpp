@@ -10,7 +10,7 @@ class Events {
 public:
     static constexpr long long CYCLES_PER_EVENT = 1000;
 
-    void connect(Z80<class Memory, class IO, Events>* cpu) { m_cpu = cpu; }
+    void connect(Z80<class Bus, class Events>* cpu) { m_cpu = cpu; }
     void reset() {
         m_next_event_tick = CYCLES_PER_EVENT;
         m_system_timer_value = 0;
@@ -21,25 +21,15 @@ public:
         m_next_event_tick += CYCLES_PER_EVENT;
     }
 private:
-    Z80<Memory, IO, Events>* m_cpu;
+    Z80<class Bus, class Events>* m_cpu;
     long long m_next_event_tick = CYCLES_PER_EVENT; 
     int m_system_timer_value = 0; 
 };
 
-class IO {
+class Bus {
 public:
-    void connect(Z80<class Memory, IO, class Events>* cpu) { m_cpu = cpu; }
-    void reset() {}
-    uint8_t read(uint16_t port) { return 0xFF; }
-    void write(uint16_t port, uint8_t value) {}
-private:
-    Z80<Memory, IO, Events>* m_cpu;
-};
-
-class Memory {
-public:
-    Memory() { m_ram.resize(0x10000, 0); }
-    void connect(Z80<Memory, IO, Events>* cpu) { m_cpu = cpu; }
+    Bus() { m_ram.resize(0x10000, 0); }
+    void connect(Z80<Bus, Events>* cpu) { m_cpu = cpu; }
     void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
     uint8_t read(uint16_t address) {
         if (address == 0x0005) {
@@ -50,7 +40,12 @@ public:
         return m_ram[address];
     }
     void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
+    uint8_t in(uint16_t port) { return 0xFF; }
+    void out(uint16_t port, uint8_t value) {}
     bool has_finished() const { return is_finished; }
+    void contend() {
+        m_cpu->add_ticks(10);
+    }
 private:
     void handle_bdos_call() {
         uint8_t func = m_cpu->get_C();
@@ -64,7 +59,7 @@ private:
             }
         }
     }
-    Z80<Memory, class IO, Events>* m_cpu;
+    Z80<class Bus, class Events>* m_cpu;
     std::vector<uint8_t> m_ram;
     bool is_finished = false;
 };
@@ -87,7 +82,7 @@ private:
     std::chrono::time_point<std::chrono::high_resolution_clock> m_start, m_end;
 };
 
-bool load_rom(const std::string& filepath, Memory& memory, uint16_t start_address) {
+bool load_rom(const std::string& filepath, Bus& bus, uint16_t start_address) {
     std::ifstream file(filepath, std::ios::binary | std::ios::ate);
     if (!file) {
         std::cerr << "Error: Cannot open file " << filepath << std::endl;
@@ -98,7 +93,7 @@ bool load_rom(const std::string& filepath, Memory& memory, uint16_t start_addres
     std::vector<char> buffer(size);
     if (file.read(buffer.data(), size)) {
         for (int i = 0; i < size; ++i) {
-            memory.write(start_address + i, static_cast<uint8_t>(buffer[i]));
+            bus.write(start_address + i, static_cast<uint8_t>(buffer[i]));
         }
         std::cout << "Successfully loaded " << size << " bytes from " << filepath << std::endl;
         return true;
@@ -113,17 +108,16 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     const char* rom_filename = argv[1];
-    Memory memory;
-    IO io;
+    Bus bus;
     Events events;
-    Z80 cpu(memory, io, events);
-    if (!load_rom(rom_filename, memory, 0x0100)) {
+    Z80 cpu(bus, events);
+    if (!load_rom(rom_filename, bus, 0x0100)) {
         std::cerr << "Error: Failed to load ROM file: " << rom_filename << std::endl;
         return 1;
     }
     Timer timer;
     cpu.set_PC(0x0100);
-    while (!memory.has_finished()) {
+    while (!bus.has_finished()) {
         cpu.run(10000000000LL);
     }
     timer.stop();
