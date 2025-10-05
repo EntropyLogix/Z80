@@ -178,17 +178,12 @@ public:
     }
     void add_ticks(long long delta) {
         long long target_ticks = m_ticks + delta;
-        while (m_ticks < target_ticks) {
-            long long cycles_in_step = target_ticks - m_ticks; 
-            long long cycles_to_sync = m_events.get_event_limit() - m_ticks;
-            if (cycles_to_sync > 0 && cycles_to_sync <= cycles_in_step) {
-                m_ticks += cycles_to_sync; 
-                m_events.handle_event(m_ticks); 
-            } else {
-                m_ticks = target_ticks;
-                break;
-            }
+        long long next_event;
+        while ((next_event = m_events.get_event_limit()) <= target_ticks) {
+            m_ticks = next_event;
+            m_events.handle_event(m_ticks);
         }
+        m_ticks = target_ticks;
     }
 
     //Bus
