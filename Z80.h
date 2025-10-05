@@ -336,15 +336,18 @@ private:
         write_byte(address + 1, value >> 8);
     }
     void push_word(uint16_t value) {
-        uint16_t new_sp = get_SP() - 2;
-        set_SP(new_sp);
-        write_word(new_sp, value);
+        set_SP(get_SP() - 1);
+        add_tick();
+        write_byte(get_SP(), value >> 8);
+        set_SP(get_SP() - 1);
+        write_byte(get_SP(), value & 0xFF);
     }
     uint16_t pop_word() {
-        uint16_t current_sp = get_SP();
-        uint16_t value = read_word(current_sp);
-        set_SP(current_sp + 2);
-        return value;
+        uint8_t low_byte = read_byte(get_SP());
+        set_SP(get_SP() + 1);
+        uint8_t high_byte = read_byte(get_SP());
+        set_SP(get_SP() + 1);
+        return  (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
     uint8_t fetch_next_opcode() {
         uint16_t current_pc = get_PC();
@@ -751,7 +754,6 @@ private:
 
     //Input and output helpers
     uint8_t in_r_c() {
-        add_ticks(4);
         uint8_t value = m_bus.in(get_BC());
         Flags flags = get_F();
         flags.update(Flags::S, (value & 0x80) != 0)
@@ -773,7 +775,7 @@ private:
         push_word(get_PC());
         set_PC(0x0066);
         set_NMI_pending(false);
-        add_ticks(5);
+        add_ticks(4);
     }
     void handle_interrupt() {
         add_ticks(2); // Two wait states during interrupt acknowledge cycle
@@ -782,7 +784,7 @@ private:
         push_word(get_PC());
         switch (get_IRQ_mode()) {
             case 0: {
-                add_ticks(5); // Internal operations for RST
+                add_ticks(4); // Internal operations for RST
                 uint8_t opcode = get_IRQ_data();
                 switch (opcode) {
                     case 0xC7: set_PC(0x0000); break;
@@ -797,14 +799,14 @@ private:
                 break;
             }
             case 1: {
-                add_ticks(5); // Internal operations for RST 38H
+                add_ticks(4); // Internal operations for RST 38H
                 set_PC(0x0038);
                 break;
             }
             case 2: {
                 uint16_t vector_address = (static_cast<uint16_t>(get_I()) << 8) | get_IRQ_data();
                 uint16_t handler_address = read_word(vector_address);
-                add_ticks(5); // Internal operations
+                add_ticks(4); // Internal operations
                 set_PC(handler_address);
                 break;
             }
@@ -967,8 +969,8 @@ private:
         set_AFp(temp_AF);
     }
     void opcode_0x09_ADD_HL_BC() {
-        set_indexed_HL(add_16bit(get_indexed_HL(), get_BC()));
         add_ticks(7);
+        set_indexed_HL(add_16bit(get_indexed_HL(), get_BC()));
     }
     void opcode_0x0A_LD_A_BC_ptr() {
         set_A(read_byte(get_BC()));
@@ -1046,8 +1048,8 @@ private:
         add_ticks(5);
     }
     void opcode_0x19_ADD_HL_DE() {
-        set_indexed_HL(add_16bit(get_indexed_HL(), get_DE()));
         add_ticks(7);
+        set_indexed_HL(add_16bit(get_indexed_HL(), get_DE()));
     }
     void opcode_0x1A_LD_A_DE_ptr() {
         set_A(read_byte(get_DE()));
@@ -1144,8 +1146,8 @@ private:
         }
     }
     void opcode_0x29_ADD_HL_HL() {
-        set_indexed_HL(add_16bit(get_indexed_HL(), get_indexed_HL()));
         add_ticks(7);
+        set_indexed_HL(add_16bit(get_indexed_HL(), get_indexed_HL()));
     }
     void opcode_0x2A_LD_HL_nn_ptr() {
         set_indexed_HL(read_word(fetch_next_word()));
@@ -1230,8 +1232,8 @@ private:
         }
     }
     void opcode_0x39_ADD_HL_SP() {
-        set_indexed_HL(add_16bit(get_indexed_HL(), get_SP()));
         add_ticks(7);
+        set_indexed_HL(add_16bit(get_indexed_HL(), get_SP()));
     }
     void opcode_0x3A_LD_A_nn_ptr() {
         uint16_t address = fetch_next_word();
@@ -1656,20 +1658,17 @@ private:
     void opcode_0xC4_CALL_NZ_nn() {
         uint16_t address = fetch_next_word();
         if (!get_F().is_set(Flags::Z)) {
-            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xC5_PUSH_BC() {
-        add_tick();
         push_word(get_BC());
     }
     void opcode_0xC6_ADD_A_n() {
         add_8bit(fetch_next_byte());
     }
     void opcode_0xC7_RST_00H() {
-        add_tick();
         push_word(get_PC());
         set_PC(0x0000);
     }
@@ -1689,13 +1688,11 @@ private:
     void opcode_0xCC_CALL_Z_nn() {
         uint16_t address = fetch_next_word();
         if (get_F().is_set(Flags::Z)) {
-            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xCD_CALL_nn() {
-        add_tick();
         uint16_t address = fetch_next_word();
         push_word(get_PC());
         set_PC(address);
@@ -1704,7 +1701,6 @@ private:
         adc_8bit(fetch_next_byte());
     }
     void opcode_0xCF_RST_08H() {
-        add_tick();
         push_word(get_PC());
         set_PC(0x0008);
     }
@@ -1729,20 +1725,17 @@ private:
     void opcode_0xD4_CALL_NC_nn() {
         uint16_t address = fetch_next_word();
         if (!get_F().is_set(Flags::C)) {
-            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xD5_PUSH_DE() {
-        add_tick();
         push_word(get_DE());
     }
     void opcode_0xD6_SUB_n() {
         sub_8bit(fetch_next_byte());
     }
     void opcode_0xD7_RST_10H() {
-        add_tick();
         push_word(get_PC());
         set_PC(0x0010);
     }
@@ -1776,7 +1769,6 @@ private:
     void opcode_0xDC_CALL_C_nn() {
         uint16_t address = fetch_next_word();
         if (get_F().is_set(Flags::C)) {
-            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
@@ -1785,7 +1777,6 @@ private:
         sbc_8bit(fetch_next_byte());
     }
     void opcode_0xDF_RST_18H() {
-        add_tick();
         push_word(get_PC());
         set_PC(0x0018);
     }
@@ -1804,27 +1795,25 @@ private:
     }
     void opcode_0xE3_EX_SP_ptr_HL() {
         uint16_t from_stack = read_word(get_SP());
+        add_tick(); // 1 T-state for internal operation
         write_word(get_SP(), get_indexed_HL());
         set_indexed_HL(from_stack);
-        add_ticks(3);
+        add_ticks(2); // 2 T-states for internal operation
     }
     void opcode_0xE4_CALL_PO_nn() {
         uint16_t address = fetch_next_word();
         if (!get_F().is_set(Flags::PV)) {
-            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xE5_PUSH_HL() {
-        add_tick();
         push_word(get_indexed_HL());
     }
     void opcode_0xE6_AND_n() {
         and_8bit(fetch_next_byte());
     }
     void opcode_0xE7_RST_20H() {
-        add_tick();
         push_word(get_PC());
         set_PC(0x0020);
     }
@@ -1849,7 +1838,6 @@ private:
     void opcode_0xEC_CALL_PE_nn() {
         uint16_t address = fetch_next_word();
         if (get_F().is_set(Flags::PV)) {
-            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
@@ -1858,12 +1846,10 @@ private:
         xor_8bit(fetch_next_byte());
     }
     void opcode_0xEF_RST_28H() {
-        add_tick();
         push_word(get_PC());
         set_PC(0x0028);
     }
     void opcode_0xF0_RET_P() {
-        add_tick();
         if (!get_F().is_set(Flags::S))
             set_PC(pop_word());
     }
@@ -1882,25 +1868,21 @@ private:
     void opcode_0xF4_CALL_P_nn() {
         uint16_t address = fetch_next_word();
         if (!get_F().is_set(Flags::S)) {
-            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
     }
     void opcode_0xF5_PUSH_AF() {
-        add_tick();
         push_word(get_AF());
     }
     void opcode_0xF6_OR_n() {
         or_8bit(fetch_next_byte());
     }
     void opcode_0xF7_RST_30H() {
-        add_tick();
         push_word(get_PC());
         set_PC(0x0030);
     }
     void opcode_0xF8_RET_M() {
-        add_tick();
         if (get_F().is_set(Flags::S))
             set_PC(pop_word());
     }
@@ -1919,7 +1901,6 @@ private:
     void opcode_0xFC_CALL_M_nn() {
         uint16_t address = fetch_next_word();
         if (get_F().is_set(Flags::S)) {
-            add_tick();
             push_word(get_PC());
             set_PC(address);
         }
@@ -1928,19 +1909,20 @@ private:
         cp_8bit(fetch_next_byte());
     }
     void opcode_0xFF_RST_38H() {
-        add_tick();
         push_word(get_PC());
         set_PC(0x0038);
     }
     void opcode_0xED_0x40_IN_B_C_ptr() {
+        add_ticks(4);
         set_B(in_r_c());
     }
     void opcode_0xED_0x41_OUT_C_ptr_B() {
+        add_ticks(4);
         out_c_r(get_B());
     }
     void opcode_0xED_0x42_SBC_HL_BC() {
-        set_indexed_HL(sbc_16bit(get_indexed_HL(), get_BC()));
         add_ticks(7);
+        set_indexed_HL(sbc_16bit(get_indexed_HL(), get_BC()));
     }
     void opcode_0xED_0x43_LD_nn_ptr_BC() {
         write_word(fetch_next_word(), get_BC());
@@ -1971,14 +1953,16 @@ private:
         set_I(get_A());
     }
     void opcode_0xED_0x48_IN_C_C_ptr() {
+        add_ticks(4);
         set_C(in_r_c());
     }
     void opcode_0xED_0x49_OUT_C_ptr_C() {
+        add_ticks(4);
         out_c_r(get_C());
     }
     void opcode_0xED_0x4A_ADC_HL_BC() {
-        set_indexed_HL(adc_16bit(get_indexed_HL(), get_BC()));
         add_ticks(7);
+        set_indexed_HL(adc_16bit(get_indexed_HL(), get_BC()));
     }
     void opcode_0xED_0x4B_LD_BC_nn_ptr() {
         set_BC(read_word(fetch_next_word()));
@@ -1993,14 +1977,16 @@ private:
         set_R(get_A());
     }
     void opcode_0xED_0x50_IN_D_C_ptr() {
+        add_ticks(4);
         set_D(in_r_c());
     }
     void opcode_0xED_0x51_OUT_C_ptr_D() {
+        add_ticks(4);
         out_c_r(get_D());
     }
     void opcode_0xED_0x52_SBC_HL_DE() {
-        set_indexed_HL(sbc_16bit(get_indexed_HL(), get_DE()));
         add_ticks(7);
+        set_indexed_HL(sbc_16bit(get_indexed_HL(), get_DE()));
     }
     void opcode_0xED_0x53_LD_nn_ptr_DE() {
         write_word(fetch_next_word(), get_DE());
@@ -2022,14 +2008,16 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x58_IN_E_C_ptr() {
+        add_ticks(4);
         set_E(in_r_c());
     }
     void opcode_0xED_0x59_OUT_C_ptr_E() {
+        add_ticks(4);
         out_c_r(get_E());
     }
     void opcode_0xED_0x5A_ADC_HL_DE() {
-        set_indexed_HL(adc_16bit(get_indexed_HL(), get_DE()));
         add_ticks(7);
+        set_indexed_HL(adc_16bit(get_indexed_HL(), get_DE()));
     }
     void opcode_0xED_0x5B_LD_DE_nn_ptr() {
         set_DE(read_word(fetch_next_word()));
@@ -2051,15 +2039,17 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x60_IN_H_C_ptr() {
+        add_ticks(4);
         set_H(in_r_c());
     }
     void opcode_0xED_0x61_OUT_C_ptr_H() {
+        add_ticks(4);
         out_c_r(get_H());
     }
     void opcode_0xED_0x62_SBC_HL_HL() {
+        add_ticks(7);
         uint16_t value = get_indexed_HL();
         set_indexed_HL(sbc_16bit(value, value));
-        add_ticks(7);
     }
     void opcode_0xED_0x63_LD_nn_ptr_HL_ED() {
         write_word(fetch_next_word(), get_HL());
@@ -2083,15 +2073,17 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x68_IN_L_C_ptr() {
+        add_ticks(4);
         set_L(in_r_c());
     }
     void opcode_0xED_0x69_OUT_C_ptr_L() {
+        add_ticks(4);
         out_c_r(get_L());
     }
     void opcode_0xED_0x6A_ADC_HL_HL() {
+        add_ticks(7);
         uint16_t value = get_indexed_HL();
         set_indexed_HL(adc_16bit(value, value));
-        add_ticks(7);
     }
     void opcode_0xED_0x6B_LD_HL_nn_ptr_ED() {
         set_HL(read_word(fetch_next_word()));
@@ -2115,27 +2107,31 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x70_IN_C_ptr() {
+        add_ticks(4);
         in_r_c();
     }
     void opcode_0xED_0x71_OUT_C_ptr_0() {
+        add_ticks(4);
         out_c_r(0x00);
     }
     void opcode_0xED_0x72_SBC_HL_SP() {
-        set_indexed_HL(sbc_16bit(get_indexed_HL(), get_SP()));
         add_ticks(7);
+        set_indexed_HL(sbc_16bit(get_indexed_HL(), get_SP()));
     }
     void opcode_0xED_0x73_LD_nn_ptr_SP() {
         write_word(fetch_next_word(), get_SP());
     }
     void opcode_0xED_0x78_IN_A_C_ptr() {
+        add_ticks(4);
         set_A(in_r_c());
     }
     void opcode_0xED_0x79_OUT_C_ptr_A() {
+        add_ticks(4);
         out_c_r(get_A());
     }
     void opcode_0xED_0x7A_ADC_HL_SP() {
-        set_indexed_HL(adc_16bit(get_indexed_HL(), get_SP()));
         add_ticks(7);
+        set_indexed_HL(adc_16bit(get_indexed_HL(), get_SP()));
     }
     void opcode_0xED_0x7B_LD_SP_nn_ptr() {
         set_SP(read_word(fetch_next_word()));
@@ -2176,7 +2172,7 @@ private:
     }
     void opcode_0xED_0xA2_INI() {
         add_ticks(5);
-        uint8_t port_val = m_bus.in(get_BC());        
+        uint8_t port_val = m_bus.in(get_BC());
         uint8_t b_val = get_B();
         set_B(b_val - 1);
         write_byte(get_HL(), port_val);
