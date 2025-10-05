@@ -190,6 +190,7 @@ public:
             }
         }
     }
+
     //Bus
     uint16_t get_address_bus() const { return m_address_bus; }
     void set_address_bus(uint8_t value) { m_address_bus = value; }
@@ -299,7 +300,7 @@ private:
     
     //CPU T-states
     long long m_ticks;
-
+    
     //Bus
     uint16_t m_address_bus; //A0-A15
     uint8_t m_data_bus; //D0-D7
@@ -374,7 +375,7 @@ private:
         uint8_t high_byte = fetch_next_byte();
         return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
-    
+
     //Parity bits
     bool parity_table[256];
     bool is_parity_even(uint8_t value) { return parity_table[value]; }
@@ -1913,12 +1914,12 @@ private:
         set_PC(0x0038);
     }
     void opcode_0xED_0x40_IN_B_C_ptr() {
-        add_ticks(4);
         set_B(in_r_c());
+        add_ticks(4);
     }
     void opcode_0xED_0x41_OUT_C_ptr_B() {
-        add_ticks(4);
         out_c_r(get_B());
+        add_ticks(4);
     }
     void opcode_0xED_0x42_SBC_HL_BC() {
         add_ticks(7);
@@ -1953,12 +1954,12 @@ private:
         set_I(get_A());
     }
     void opcode_0xED_0x48_IN_C_C_ptr() {
-        add_ticks(4);
         set_C(in_r_c());
+        add_ticks(4);
     }
     void opcode_0xED_0x49_OUT_C_ptr_C() {
-        add_ticks(4);
         out_c_r(get_C());
+        add_ticks(4);
     }
     void opcode_0xED_0x4A_ADC_HL_BC() {
         add_ticks(7);
@@ -1977,12 +1978,12 @@ private:
         set_R(get_A());
     }
     void opcode_0xED_0x50_IN_D_C_ptr() {
-        add_ticks(4);
         set_D(in_r_c());
+        add_ticks(4);
     }
     void opcode_0xED_0x51_OUT_C_ptr_D() {
-        add_ticks(4);
         out_c_r(get_D());
+        add_ticks(4);
     }
     void opcode_0xED_0x52_SBC_HL_DE() {
         add_ticks(7);
@@ -2008,12 +2009,12 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x58_IN_E_C_ptr() {
-        add_ticks(4);
         set_E(in_r_c());
+        add_ticks(4);
     }
     void opcode_0xED_0x59_OUT_C_ptr_E() {
-        add_ticks(4);
         out_c_r(get_E());
+        add_ticks(4);
     }
     void opcode_0xED_0x5A_ADC_HL_DE() {
         add_ticks(7);
@@ -2039,12 +2040,12 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x60_IN_H_C_ptr() {
-        add_ticks(4);
         set_H(in_r_c());
+        add_ticks(4);
     }
     void opcode_0xED_0x61_OUT_C_ptr_H() {
-        add_ticks(4);
         out_c_r(get_H());
+        add_ticks(4);
     }
     void opcode_0xED_0x62_SBC_HL_HL() {
         add_ticks(7);
@@ -2073,12 +2074,12 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x68_IN_L_C_ptr() {
-        add_ticks(4);
         set_L(in_r_c());
+        add_ticks(4);
     }
     void opcode_0xED_0x69_OUT_C_ptr_L() {
-        add_ticks(4);
         out_c_r(get_L());
+        add_ticks(4);
     }
     void opcode_0xED_0x6A_ADC_HL_HL() {
         add_ticks(7);
@@ -2107,12 +2108,12 @@ private:
         set_F(flags);
     }
     void opcode_0xED_0x70_IN_C_ptr() {
-        add_ticks(4);
         in_r_c();
+        add_ticks(4);
     }
     void opcode_0xED_0x71_OUT_C_ptr_0() {
-        add_ticks(4);
         out_c_r(0x00);
+        add_ticks(4);
     }
     void opcode_0xED_0x72_SBC_HL_SP() {
         add_ticks(7);
@@ -2122,12 +2123,12 @@ private:
         write_word(fetch_next_word(), get_SP());
     }
     void opcode_0xED_0x78_IN_A_C_ptr() {
-        add_ticks(4);
         set_A(in_r_c());
+        add_ticks(4);
     }
     void opcode_0xED_0x79_OUT_C_ptr_A() {
-        add_ticks(4);
         out_c_r(get_A());
+        add_ticks(4);
     }
     void opcode_0xED_0x7A_ADC_HL_SP() {
         add_ticks(7);
@@ -2138,19 +2139,19 @@ private:
     }
     void opcode_0xED_0xA0_LDI() {
         uint8_t value = read_byte(get_HL());
+        write_byte(get_DE(), value);
         set_HL(get_HL() + 1);
         set_DE(get_DE() + 1);
         set_BC(get_BC() - 1);
-        add_tick();
-        write_byte(get_DE(), value);
+        add_ticks(2); // 2 T-states for internal operations
         Flags flags = get_F();
         uint8_t temp = get_A() + value;
         flags.clear(Flags::H | Flags::N)
             .update(Flags::PV, get_BC() != 0)
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
+
         set_F(flags);
-        add_tick();
     }
     void opcode_0xED_0xA1_CPI() {
         uint8_t value = read_byte(get_HL());
@@ -2159,6 +2160,7 @@ private:
         set_HL(get_HL() + 1);
         set_BC(get_BC() - 1);
         Flags flags = get_F();
+        add_ticks(5); // 5 T-states for internal operations
         uint8_t temp = get_A() - value - (half_carry ? 1 : 0);
         flags.set(Flags::N)
             .update(Flags::S, (result & 0x80) != 0)
@@ -2168,13 +2170,13 @@ private:
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
         set_F(flags);
-        add_ticks(5);
     }
     void opcode_0xED_0xA2_INI() {
-        add_ticks(5);
         uint8_t port_val = m_bus.in(get_BC());
+        add_ticks(4); // 4 T-states for I/O read cycle
         uint8_t b_val = get_B();
         set_B(b_val - 1);
+        add_tick(); // 1 T-state for wait cycle
         write_byte(get_HL(), port_val);
         set_HL(get_HL() + 1);
         Flags flags = get_F();
@@ -2191,9 +2193,10 @@ private:
         uint8_t mem_val = read_byte(get_HL());
         uint8_t b_val = get_B();
         set_B(b_val - 1);
-        add_ticks(5);
         m_bus.out(get_BC(), mem_val);
+        add_ticks(4); // 4 for I/O write
         set_HL(get_HL() + 1);
+        add_tick(); // 1 for internal ops
         Flags flags = get_F();
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
         flags.set(Flags::N)
@@ -2209,6 +2212,7 @@ private:
         set_HL(get_HL() - 1);
         set_DE(get_DE() - 1);
         set_BC(get_BC() - 1);
+        add_ticks(2); // 2 T-states for internal operations
         Flags flags = get_F();
         uint8_t temp = get_A() + value;
         flags.clear(Flags::H | Flags::N)
@@ -2216,7 +2220,6 @@ private:
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
         set_F(flags);
-        add_ticks(2);
     }
     void opcode_0xED_0xA9_CPD() {
         uint8_t value = read_byte(get_HL());
@@ -2225,6 +2228,7 @@ private:
         set_HL(get_HL() - 1);
         set_BC(get_BC() - 1);
         Flags flags = get_F();
+        add_ticks(5); // 5 T-states for internal operations
         uint8_t temp = get_A() - value - (half_carry ? 1 : 0);
         flags.set(Flags::N)
             .update(Flags::S, (result & 0x80) != 0)
@@ -2234,13 +2238,13 @@ private:
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
         set_F(flags);
-        add_ticks(5);
     }
     void opcode_0xED_0xAA_IND() {
+        uint8_t port_val = m_bus.in(get_BC());
+        add_ticks(4); // 4 T-states for I/O read cycle
         uint8_t b_val = get_B();
         set_B(b_val - 1);
-        add_ticks(5);
-        uint8_t port_val = m_bus.in(get_BC());
+        add_tick(); // 1 T-state for wait cycle
         write_byte(get_HL(), port_val);
         set_HL(get_HL() - 1);
         Flags flags = get_F();
@@ -2257,7 +2261,9 @@ private:
         uint8_t mem_val = read_byte(get_HL());
         uint8_t b_val = get_B();
         set_B(b_val - 1);
+        m_bus.out(get_BC(), mem_val);
         set_HL(get_HL() - 1);
+        add_ticks(5); // 4 for I/O write, 1 for internal ops
         Flags flags = get_F();
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
         flags.set(Flags::N)
@@ -2265,8 +2271,6 @@ private:
             .update(Flags::C, temp > 0xFF)
             .update(Flags::H, temp > 0xFF)
             .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF));
-        add_ticks(5);
-        m_bus.out(get_BC(), mem_val);
         set_F(flags);
     }
     void opcode_0xED_0xB0_LDIR() {

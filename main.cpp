@@ -8,7 +8,7 @@
 
 class Events {
 public:
-    static constexpr long long CYCLES_PER_EVENT = 1000;
+    static constexpr long long CYCLES_PER_EVENT = 100000000;
 
     void connect(Z80<class Bus, class Events>* cpu) { m_cpu = cpu; }
     void reset() {
@@ -17,6 +17,7 @@ public:
     }
     long long get_event_limit() const { return m_next_event_tick; }
     void handle_event(long long tick) {
+        //std::cout << "Here:" << m_system_timer_value << std::endl;
         m_system_timer_value++;
         m_next_event_tick += CYCLES_PER_EVENT;
     }
@@ -40,12 +41,10 @@ public:
         return m_ram[address];
     }
     void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
+    bool has_finished() const { return is_finished; }
     uint8_t in(uint16_t port) { return 0xFF; }
     void out(uint16_t port, uint8_t value) {}
-    bool has_finished() const { return is_finished; }
-    void contend() {
-        m_cpu->add_ticks(10);
-    }
+
 private:
     void handle_bdos_call() {
         uint8_t func = m_cpu->get_C();
@@ -59,7 +58,7 @@ private:
             }
         }
     }
-    Z80<class Bus, class Events>* m_cpu;
+    Z80<class Bus, Events>* m_cpu;
     std::vector<uint8_t> m_ram;
     bool is_finished = false;
 };
@@ -118,6 +117,7 @@ int main(int argc, char* argv[]) {
     Timer timer;
     cpu.set_PC(0x0100);
     while (!bus.has_finished()) {
+        
         cpu.run(10000000000LL);
     }
     timer.stop();
