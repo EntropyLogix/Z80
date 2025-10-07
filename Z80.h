@@ -778,6 +778,7 @@ private:
         add_ticks(4);
     }
     void handle_interrupt() {
+        set_halted(false);
         add_ticks(2); // Two wait states during interrupt acknowledge cycle
         set_IFF2(get_IFF1());
         set_IFF1(false);
