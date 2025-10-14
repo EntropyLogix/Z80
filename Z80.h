@@ -15,12 +15,9 @@
     #define Z80_LIKELY(expr)   (expr)
 #endif
 
-template <typename, typename, typename> class Z80;
-
 class Z80DefaultBus;
 class Z80DefaultEvents;
 class Z80DefaultDebugger;
-
 template <typename TBus = Z80DefaultBus, typename TEvents = Z80DefaultEvents, typename TDebugger = Z80DefaultDebugger>
 class Z80 {
 public:
@@ -83,19 +80,38 @@ public:
     };
 
     // Constructors
-    Z80(TBus& bus, TEvents& events, TDebugger& debugger) : m_bus(bus), m_events(events), m_debugger(debugger) {
-        initialize();
+    Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr) {
+        if (bus) {
+            m_bus = bus;
+            m_owns_bus = false;
+        } else {
+            m_bus = new TBus();
+            m_owns_bus = true;
+        }
+        if (events) {
+            m_events = events;
+            m_owns_events = false;
+        } else {
+            m_events = new TEvents();
+            m_owns_events = true;
+        }
+        if (debugger) {
+            m_debugger = debugger;
+            m_owns_debugger = false;
+        } else {
+            m_debugger = new TDebugger();
+            m_owns_debugger = true;
+        }
+        precompute_parity();
+        m_bus->connect(this);
+        m_events->connect(this);
+        m_debugger->connect(this);
+        reset();
     }
-    template<typename T = TDebugger, std::enable_if_t<std::is_same_v<T, Z80DefaultDebugger>, int> = 0> Z80(TBus& bus, TEvents& events) : m_bus(bus), m_events(events), m_debugger() {
-        initialize();
-    }
-    template<typename B = TBus, typename E = TEvents, typename D = TDebugger,
-        std::enable_if_t<std::is_same_v<E, Z80DefaultEvents> && std::is_same_v<D, Z80DefaultDebugger>, int> = 0> explicit Z80(TBus& bus) : m_bus(bus), m_events(), m_debugger() {
-        initialize();
-    }
-    template<typename B = TBus, typename E = TEvents, typename D = TDebugger,
-        std::enable_if_t<std::is_default_constructible_v<B> && std::is_default_constructible_v<E> && std::is_default_constructible_v<D>, int> = 0> Z80() : m_bus(), m_events(), m_debugger() {
-        initialize();
+    ~Z80() {
+        if (m_owns_bus) delete m_bus;
+        if (m_owns_events) delete m_events;
+        if (m_owns_debugger) delete m_debugger;
     }
     // Main execution and control interface
     long long run(long long ticks_limit) {return operate<OperateMode::ToLimit>(ticks_limit);}
@@ -120,9 +136,9 @@ public:
         set_IRQ_mode(0);
         set_ticks(0);
         set_index_mode(IndexMode::HL);
-        m_bus.reset();
-        m_events.reset();
-        m_debugger.reset();
+        m_bus->reset();
+        m_events->reset();
+        m_debugger->reset();
     }
     void request_interrupt(uint8_t data) {
         set_IRQ_request(true);
@@ -197,9 +213,9 @@ public:
         if constexpr (std::is_same_v<TEvents, Z80DefaultEvents>) {
             ++m_ticks;
         } else {
-            if (Z80_LIKELY(++m_ticks != m_events.get_event_limit()))
+            if (Z80_LIKELY(++m_ticks != m_events->get_event_limit()))
                 return;
-            m_events.handle_event(m_ticks);
+            m_events->handle_event(m_ticks);
         }
     }
     void add_ticks(long long delta) {
@@ -207,14 +223,14 @@ public:
             m_ticks += delta;
         } else {
             long long target_ticks = m_ticks + delta;
-            if (Z80_LIKELY(target_ticks < m_events.get_event_limit())) {
+            if (Z80_LIKELY(target_ticks < m_events->get_event_limit())) {
                 m_ticks = target_ticks;
                 return;
             }
             long long next_event;
-            while ((next_event = m_events.get_event_limit()) <= target_ticks) {
+            while ((next_event = m_events->get_event_limit()) <= target_ticks) {
                 m_ticks = next_event;
-                m_events.handle_event(m_ticks);
+                m_events->handle_event(m_ticks);
             }
             m_ticks = target_ticks;
         }
@@ -227,10 +243,10 @@ public:
     void set_data_bus(uint8_t value) { m_data_bus = value; }
 
     // Access to internal components
-    TBus& get_bus() { return m_bus; } // NOLINT: Getter for internal object
-    const TBus& get_bus() const { return m_bus; } // NOLINT: Getter for internal object
-    TEvents& get_events() { return m_events; } // NOLINT: Getter for internal object
-    const TEvents& get_events() const { return m_events; } // NOLINT: Getter for internal object
+    TBus* get_bus() { return m_bus; }
+    const TBus* get_bus() const { return m_bus; }
+    TEvents* get_events() { return m_events; }
+    const TEvents* get_events() const { return m_events; }
 
     // 16-bit main registers
     uint16_t get_AF() const { return m_AF.w; }
@@ -351,24 +367,19 @@ private:
     uint8_t m_data_bus; //D0-D7
 
     //Memory and IO operations
-    TBus m_bus;
-    TEvents m_events;
-    TDebugger m_debugger;
+    TBus* m_bus;
+    TEvents* m_events;
+    TDebugger* m_debugger;
+    bool m_owns_bus = false;
+    bool m_owns_events = false;
+    bool m_owns_debugger = false;
 
-    //Initialization
-    void initialize() {
-        precompute_parity();
-        m_bus.connect(this);
-        m_events.connect(this);
-        m_debugger.connect(this);
-        reset();
-    }
     //Internal memory access helpers
     uint8_t read_byte(uint16_t address) {
         m_address_bus = address;
         add_tick(); //T1
         add_tick(); //T2
-        uint8_t data = m_bus.read(address);
+        uint8_t data = m_bus->read(address);
         m_data_bus = data;
         add_tick(); //T3
         return data;
@@ -383,7 +394,7 @@ private:
         add_tick(); //T1
         m_data_bus = value;
         add_tick(); //T2
-        m_bus.write(address, value);
+        m_bus->write(address, value);
         add_tick(); //T3
     }
     void write_word(uint16_t address, uint16_t value) {
@@ -409,7 +420,7 @@ private:
         m_address_bus = current_pc;
         add_tick(); //T1
         add_tick(); //T2
-        uint8_t opcode = m_bus.read(current_pc);
+        uint8_t opcode = m_bus->read(current_pc);
         m_data_bus = opcode;
         uint8_t r_val = get_R();
         set_R(((r_val + 1) & 0x7F) | (r_val & 0x80));
@@ -812,7 +823,7 @@ private:
     //Input and output helpers
     uint8_t in_r_c() {
         uint16_t port = get_BC();
-        uint8_t value = m_bus.in(port);
+        uint8_t value = m_bus->in(port);
         Flags flags = get_F();
         set_WZ(port + 1);
         flags.update(Flags::S, (value & 0x80) != 0)
@@ -825,14 +836,14 @@ private:
         return value;
     }
     void out_c_r(uint8_t value) {
-        m_bus.out(get_BC(), value);
+        m_bus->out(get_BC(), value);
         set_WZ(get_BC() + 1);
     }
 
     //Interrupt handling
     void handle_NMI() {
         if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
-            m_debugger.before_NMI();
+            m_debugger->before_NMI();
         }
         set_halted(false);
         set_IFF2(get_IFF1());
@@ -843,12 +854,12 @@ private:
         set_NMI_pending(false);
         add_ticks(4);
         if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
-            m_debugger.after_NMI();
+            m_debugger->after_NMI();
         }
     }
     void handle_IRQ() {
         if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
-            m_debugger.before_IRQ();
+            m_debugger->before_IRQ();
         }
         set_halted(false);
         add_ticks(2); // Two wait states during interrupt acknowledge cycle
@@ -888,7 +899,7 @@ private:
         }
         set_IRQ_request(false);
         if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
-            m_debugger.after_IRQ();
+            m_debugger->after_IRQ();
         }
     }
 
@@ -1852,7 +1863,7 @@ private:
     void handle_opcode_0xD3_OUT_n_ptr_A() {
         uint8_t port_lo = fetch_next_byte();
         uint16_t port = (get_A() << 8) | port_lo;
-        m_bus.out(port, get_A());
+        m_bus->out(port, get_A());
         add_ticks(4);
         set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((port_lo + 1) & 0xFF));
     }
@@ -1904,7 +1915,7 @@ private:
         uint8_t port_lo = fetch_next_byte();
         uint16_t port = (get_A() << 8) | port_lo;
         set_WZ(port + 1);
-        set_A(m_bus.in(port));
+        set_A(m_bus->in(port));
         add_ticks(4);
     }
     void handle_opcode_0xDC_CALL_C_nn() {
@@ -2380,7 +2391,7 @@ private:
         set_F(flags);
     }
     void handle_opcode_0xED_0xA2_INI() {
-        uint8_t port_val = m_bus.in(get_BC());
+        uint8_t port_val = m_bus->in(get_BC());
         set_WZ(get_BC() + 1);
         add_ticks(4); // 4 T-states for I/O read cycle
         uint8_t b_val = get_B();
@@ -2402,7 +2413,7 @@ private:
         uint8_t mem_val = read_byte(get_HL());
         uint8_t b_val = get_B();
         set_B(b_val - 1);
-        m_bus.out(get_BC(), mem_val);
+        m_bus->out(get_BC(), mem_val);
         set_WZ(get_BC() + 1);
         add_ticks(4); // 4 for I/O write
         set_HL(get_HL() + 1);
@@ -2452,7 +2463,7 @@ private:
         set_F(flags);
     }
     void handle_opcode_0xED_0xAA_IND() {
-        uint8_t port_val = m_bus.in(get_BC());
+        uint8_t port_val = m_bus->in(get_BC());
         set_WZ(get_BC() - 1);
         add_ticks(4); // 4 T-states for I/O read cycle
         uint8_t b_val = get_B();
@@ -2474,7 +2485,7 @@ private:
         uint8_t mem_val = read_byte(get_HL());
         uint8_t b_val = get_B();
         set_B(b_val - 1);
-        m_bus.out(get_BC(), mem_val);
+        m_bus->out(get_BC(), mem_val);
         set_WZ(get_BC() - 1);
         set_HL(get_HL() - 1);
         add_ticks(5); // 4 for I/O write, 1 for internal ops
@@ -2586,7 +2597,7 @@ private:
                         opcodes.push_back(opcode);
                 }
                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
-                    m_debugger.before_step(opcodes);
+                    m_debugger->before_step(opcodes);
                 switch (opcode) {
                     case 0x00: handle_opcode_0x00_NOP(); break;
                     case 0x01: handle_opcode_0x01_LD_BC_nn(); break;
@@ -2933,7 +2944,7 @@ private:
             else if (is_IRQ_pending())
                 handle_IRQ();
             if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
-                m_debugger.after_step(opcodes);
+                m_debugger->after_step(opcodes);
                 opcodes.clear();
             }
             if constexpr (TMode == OperateMode::SingleStep) {
