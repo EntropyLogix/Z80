@@ -2360,6 +2360,7 @@ private:
     }
     void handle_opcode_0xED_0xA2_INI() {
         uint8_t port_val = m_bus.in(get_BC());
+        set_WZ(get_BC() + 1);
         add_ticks(4); // 4 T-states for I/O read cycle
         uint8_t b_val = get_B();
         set_B(b_val - 1);
@@ -2430,6 +2431,7 @@ private:
     }
     void handle_opcode_0xED_0xAA_IND() {
         uint8_t port_val = m_bus.in(get_BC());
+        set_WZ(get_BC() - 1);
         add_ticks(4); // 4 T-states for I/O read cycle
         uint8_t b_val = get_B();
         set_B(b_val - 1);
@@ -2481,6 +2483,7 @@ private:
     void handle_opcode_0xED_0xB2_INIR() {
         handle_opcode_0xED_0xA2_INI();
         if (get_B() != 0) {
+            set_WZ(get_PC() + 1);
             set_PC(get_PC() - 2);
             add_ticks(5);
         }
@@ -2512,6 +2515,7 @@ private:
     void handle_opcode_0xED_0xBA_INDR() {
         handle_opcode_0xED_0xAA_IND();
         if (get_B() != 0) {
+            set_WZ(get_PC() + 1);
             set_PC(get_PC() - 2);
             add_ticks(5);
         }
