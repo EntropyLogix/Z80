@@ -373,6 +373,7 @@ private:
     bool m_owns_bus = false;
     bool m_owns_events = false;
     bool m_owns_debugger = false;
+    std::vector<uint8_t> m_opcodes;
 
     //Internal memory access helpers
     uint8_t read_byte(uint16_t address) {
@@ -422,6 +423,8 @@ private:
         add_tick(); //T2
         uint8_t opcode = m_bus->read(current_pc);
         m_data_bus = opcode;
+        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+            m_opcodes.push_back(opcode);
         uint8_t r_val = get_R();
         set_R(((r_val + 1) & 0x7F) | (r_val & 0x80));
         add_tick(); //T3
@@ -432,6 +435,8 @@ private:
     uint8_t fetch_next_byte() {
         uint16_t current_pc = get_PC();
         uint8_t byte_val = read_byte(current_pc);
+        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+            m_opcodes.push_back(byte_val);
         set_PC(current_pc + 1);
         return byte_val;
     }
@@ -2569,11 +2574,8 @@ private:
         SingleStep
     };
     template<OperateMode TMode> long long operate(long long ticks_limit) {
-        std::vector<uint8_t> opcodes;
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
-            opcodes.reserve(4);
         long long initial_ticks = get_ticks();
-        while (true) { 
+        while (true) {
             if (get_EI_delay()) {
                 set_IFF1(true);
                 set_IFF2(true);
@@ -2581,23 +2583,21 @@ private:
             }                
             if (is_halted()) {
                 if constexpr (TMode == OperateMode::SingleStep)
-                    add_ticks(4); 
+                    add_ticks(4);
                 else 
                     add_ticks(ticks_limit - get_ticks());
             }
             else {
+                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+                    m_opcodes.clear();
                 set_index_mode(IndexMode::HL);
                 uint8_t opcode = fetch_next_opcode();
-                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
-                    opcodes.push_back(opcode);
                 while (opcode == 0xDD || opcode == 0xFD) {
                     set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
                     opcode = fetch_next_opcode();
-                    if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
-                        opcodes.push_back(opcode);
                 }
                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
-                    m_debugger->before_step(opcodes);
+                    m_debugger->before_step(m_opcodes);
                 switch (opcode) {
                     case 0x00: handle_opcode_0x00_NOP(); break;
                     case 0x01: handle_opcode_0x01_LD_BC_nn(); break;
@@ -2806,17 +2806,11 @@ private:
                         if (Z80_LIKELY((get_index_mode() == IndexMode::HL)))
                         {
                             uint8_t cb_opcode = fetch_next_opcode();
-                            if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
-                                opcodes.push_back(cb_opcode);
                             handle_CB_opcodes(cb_opcode);
                         } else { // DDCB d xx or FDCB d xx
                             uint16_t index_reg = (get_index_mode() == IndexMode::IX) ? get_IX() : get_IY();
                             int8_t offset = static_cast<int8_t>(fetch_next_byte());
                             uint8_t cb_opcode = fetch_next_byte();
-                            if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
-                                opcodes.push_back(offset);
-                                opcodes.push_back(cb_opcode);
-                            }
                             handle_CB_indexed_opcodes(index_reg, offset, cb_opcode);
                         }
                         break;
@@ -2855,7 +2849,6 @@ private:
                     case 0xED: {
                         uint8_t opcodeED = fetch_next_opcode();
                         set_index_mode(IndexMode::HL);
-                        opcodes.push_back(opcodeED);
                         switch (opcodeED) {
                             case 0x40: handle_opcode_0xED_0x40_IN_B_C_ptr(); break;
                             case 0x41: handle_opcode_0xED_0x41_OUT_C_ptr_B(); break;
@@ -2944,8 +2937,7 @@ private:
             else if (is_IRQ_pending())
                 handle_IRQ();
             if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
-                m_debugger->after_step(opcodes);
-                opcodes.clear();
+                m_debugger->after_step(m_opcodes);
             }
             if constexpr (TMode == OperateMode::SingleStep) {
                 break;
