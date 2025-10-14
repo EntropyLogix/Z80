@@ -1750,6 +1750,7 @@ private:
     }
     void handle_opcode_0xC7_RST_00H() {
         push_word(get_PC());
+        set_WZ(0x0000);
         set_PC(0x0000);
     }
     void handle_opcode_0xC8_RET_Z() {
@@ -1787,6 +1788,7 @@ private:
     }
     void handle_opcode_0xCF_RST_08H() {
         push_word(get_PC());
+        set_WZ(0x0008);
         set_PC(0x0008);
     }
     void handle_opcode_0xD0_RET_NC() {
@@ -1825,6 +1827,7 @@ private:
     }
     void handle_opcode_0xD7_RST_10H() {
         push_word(get_PC());
+        set_WZ(0x0010);
         set_PC(0x0010);
     }
     void handle_opcode_0xD8_RET_C() {
@@ -1869,6 +1872,7 @@ private:
     }
     void handle_opcode_0xDF_RST_18H() {
         push_word(get_PC());
+        set_WZ(0x0018);
         set_PC(0x0018);
     }
     void handle_opcode_0xE0_RET_PO() {
@@ -1909,6 +1913,7 @@ private:
     }
     void handle_opcode_0xE7_RST_20H() {
         push_word(get_PC());
+        set_WZ(0x0020);
         set_PC(0x0020);
     }
     void handle_opcode_0xE8_RET_PE() {
@@ -1944,6 +1949,7 @@ private:
     }
     void handle_opcode_0xEF_RST_28H() {
         push_word(get_PC());
+        set_WZ(0x0028);
         set_PC(0x0028);
     }
     void handle_opcode_0xF0_RET_P() {
@@ -1981,6 +1987,7 @@ private:
     }
     void handle_opcode_0xF7_RST_30H() {
         push_word(get_PC());
+        set_WZ(0x0030);
         set_PC(0x0030);
     }
     void handle_opcode_0xF8_RET_M() {
@@ -2015,6 +2022,7 @@ private:
     }
     void handle_opcode_0xFF_RST_38H() {
         push_word(get_PC());
+        set_WZ(0x0038);
         set_PC(0x0038);
     }
     void handle_opcode_0xED_0x40_IN_B_C_ptr() {
