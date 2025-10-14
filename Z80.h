@@ -1729,11 +1729,14 @@ private:
     }
     void handle_opcode_0xC2_JP_NZ_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (!get_F().is_set(Flags::Z))
             set_PC(address);
     }
     void handle_opcode_0xC3_JP_nn() {
-        set_PC(fetch_next_word());
+        uint16_t address = fetch_next_word();
+        set_WZ(address);
+        set_PC(address);
     }
     void handle_opcode_0xC4_CALL_NZ_nn() {
         uint16_t address = fetch_next_word();
@@ -1768,6 +1771,7 @@ private:
     }
     void handle_opcode_0xCA_JP_Z_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (get_F().is_set(Flags::Z))
             set_PC(address);
     }
@@ -1804,6 +1808,7 @@ private:
     }
     void handle_opcode_0xD2_JP_NC_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (!get_F().is_set(Flags::C))
             set_PC(address);
     }
@@ -1851,6 +1856,7 @@ private:
     }
     void handle_opcode_0xDA_JP_C_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (get_F().is_set(Flags::C))
             set_PC(address);
     }
@@ -1888,6 +1894,7 @@ private:
     }
     void handle_opcode_0xE2_JP_PO_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (!get_F().is_set(Flags::PV))
             set_PC(address);
     }
@@ -1929,6 +1936,7 @@ private:
     }
     void handle_opcode_0xEA_JP_PE_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (get_F().is_set(Flags::PV))
             set_PC(address);
     }
@@ -1965,6 +1973,7 @@ private:
     }
     void handle_opcode_0xF2_JP_P_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (!get_F().is_set(Flags::S))
             set_PC(address);
     }
@@ -2004,6 +2013,7 @@ private:
     }
     void handle_opcode_0xFA_JP_M_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (get_F().is_set(Flags::S))
             set_PC(address);
     }
