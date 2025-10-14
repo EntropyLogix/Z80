@@ -31,21 +31,18 @@ class Z80_SimpleBus {
 public:
     Z80_SimpleBus() { m_ram.resize(0x10000, 0); }
     template <typename TEvents>
-    void connect(Z80<Z80_SimpleBus, TEvents>* cpu) { /* no-op */ }
+    void connect(Z80<Z80_SimpleBus, TEvents>* cpu) {}
     void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
     uint8_t read(uint16_t address) { return m_ram[address]; }
     void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
     uint8_t in(uint16_t port) { return 0xFF; }
-    void out(uint16_t port, uint8_t value) { /* no-op */ }
+    void out(uint16_t port, uint8_t value) {}
 
 private:
     std::vector<uint8_t> m_ram;
 };
 
-template <
-    typename TBus = Z80_SimpleBus, 
-    typename TEvents = Z80_NoEvents
->
+template <typename TBus = Z80_SimpleBus, typename TEvents = Z80_NoEvents>
 class Z80 {
 public:
     union Register {
