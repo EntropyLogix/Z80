@@ -978,8 +978,8 @@ private:
                 add_tick(); // 1 T-state for internal operation
                 bit_8bit(bit, value);
                 Flags flags = get_F();
-                flags.update(Flags::X, (address & 0x0800) != 0);
-                flags.update(Flags::Y, (address & 0x2000) != 0);
+                flags.update(Flags::X, (get_W() & 0x08) != 0);
+                flags.update(Flags::Y, (get_W() & 0x20) != 0);
                 set_F(flags);
                 return;
             }
@@ -2314,7 +2314,7 @@ private:
             .update(Flags::PV, get_BC() != 0)
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
-
+            
         set_F(flags);
     }
     void handle_opcode_0xED_0xA1_CPI() {
