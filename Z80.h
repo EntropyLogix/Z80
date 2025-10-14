@@ -821,8 +821,7 @@ private:
     }
 
     //Opcodes handling
-    void handle_CB_opcodes() {
-        uint8_t opcode = fetch_next_opcode();
+    void handle_CB_opcodes(uint8_t opcode) {
         uint8_t operation_group = opcode >> 6;
         uint8_t bit = (opcode >> 3) & 0x07;
         uint8_t target_reg = opcode & 0x07;
@@ -886,9 +885,7 @@ private:
             case 7: set_A(result); break;
         }
     }
-    void handle_CB_indexed_opcodes(uint16_t index_register) {
-        int8_t offset = static_cast<int8_t>(fetch_next_byte());
-        uint8_t opcode = fetch_next_byte();
+    void handle_CB_indexed_opcodes(uint16_t index_register, int8_t offset, uint8_t opcode) {
         uint16_t address = index_register + offset;
         add_ticks(2); // 2 T-states for address calculation
         uint8_t value = read_byte(address);
@@ -2567,9 +2564,15 @@ private:
                     case 0xCA: handle_opcode_0xCA_JP_Z_nn(); break;
                     case 0xCB:
                         if (Z80_LIKELY((get_index_mode() == IndexMode::HL)))
-                            handle_CB_opcodes();
-                        else
-                            handle_CB_indexed_opcodes((get_index_mode() == IndexMode::IX) ? get_IX() : get_IY());
+                        {
+                            uint8_t cb_opcode = fetch_next_opcode();
+                            handle_CB_opcodes(cb_opcode);
+                        } else {
+                            uint16_t index_reg = (get_index_mode() == IndexMode::IX) ? get_IX() : get_IY();
+                            int8_t offset = static_cast<int8_t>(fetch_next_byte());
+                            uint8_t cb_opcode = fetch_next_byte();
+                            handle_CB_indexed_opcodes(index_reg, offset, cb_opcode);
+                        }
                         break;
                     case 0xCC: handle_opcode_0xCC_CALL_Z_nn(); break;
                     case 0xCD: handle_opcode_0xCD_CALL_nn(); break;
