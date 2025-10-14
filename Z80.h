@@ -2278,6 +2278,7 @@ private:
     void handle_opcode_0xED_0xA0_LDI() {
         uint8_t value = read_byte(get_HL());
         write_byte(get_DE(), value);
+        set_WZ(get_DE() + 1);
         set_HL(get_HL() + 1);
         set_DE(get_DE() + 1);
         set_BC(get_BC() - 1);
@@ -2347,6 +2348,7 @@ private:
     void handle_opcode_0xED_0xA8_LDD() {
         uint8_t value = read_byte(get_HL());
         write_byte(get_DE(), value);
+        set_WZ(get_DE() - 1);
         set_HL(get_HL() - 1);
         set_DE(get_DE() - 1);
         set_BC(get_BC() - 1);
@@ -2435,6 +2437,7 @@ private:
     void handle_opcode_0xED_0xB3_OTIR() {
         handle_opcode_0xED_0xA3_OUTI();
         if (get_B() != 0) {
+            set_WZ(get_PC() + 1);
             set_PC(get_PC() - 2);
             add_ticks(5);
         }
@@ -2442,6 +2445,7 @@ private:
     void handle_opcode_0xED_0xB8_LDDR() {
         handle_opcode_0xED_0xA8_LDD();
         if (get_BC() != 0) {
+            set_WZ(get_PC() + 1);
             set_PC(get_PC() - 2);
             add_ticks(5);
         }
