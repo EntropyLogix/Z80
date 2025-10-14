@@ -2093,9 +2093,9 @@ private:
     }
     void handle_opcode_0xED_0x42_SBC_HL_BC() {
         add_ticks(7);
-        uint16_t value = get_indexed_HL();
+        uint16_t value = get_HL();
         set_WZ(value + 1);
-        set_indexed_HL(sbc_16bit(value, get_BC()));
+        set_HL(sbc_16bit(value, get_BC()));
     }
     void handle_opcode_0xED_0x43_LD_nn_ptr_BC() {
         uint16_t address = fetch_next_word();
@@ -2139,9 +2139,9 @@ private:
     }
     void handle_opcode_0xED_0x4A_ADC_HL_BC() {
         add_ticks(7);
-        uint16_t value = get_indexed_HL();
+        uint16_t value = get_HL();
         set_WZ(value + 1);
-        set_indexed_HL(adc_16bit(value, get_BC()));
+        set_HL(adc_16bit(value, get_BC()));
     }
     void handle_opcode_0xED_0x4B_LD_BC_nn_ptr() {
         uint16_t address = fetch_next_word();
@@ -2169,9 +2169,9 @@ private:
     }
     void handle_opcode_0xED_0x52_SBC_HL_DE() {
         add_ticks(7);
-        uint16_t value = get_indexed_HL();
+        uint16_t value = get_HL();
         set_WZ(value + 1);
-        set_indexed_HL(sbc_16bit(value, get_DE()));
+        set_HL(sbc_16bit(value, get_DE()));
     }
     void handle_opcode_0xED_0x53_LD_nn_ptr_DE() {
         uint16_t address = fetch_next_word();
@@ -2204,9 +2204,9 @@ private:
     }
     void handle_opcode_0xED_0x5A_ADC_HL_DE() {
         add_ticks(7);
-        uint16_t value = get_indexed_HL();
+        uint16_t value = get_HL();
         set_WZ(value + 1);
-        set_indexed_HL(adc_16bit(value, get_DE()));
+        set_HL(adc_16bit(value, get_DE()));
     }
     void handle_opcode_0xED_0x5B_LD_DE_nn_ptr() {
         uint16_t address = fetch_next_word();
@@ -2239,9 +2239,9 @@ private:
     }
     void handle_opcode_0xED_0x62_SBC_HL_HL() {
         add_ticks(7);
-        uint16_t value = get_indexed_HL();
+        uint16_t value = get_HL();
         set_WZ(value + 1);
-        set_indexed_HL(sbc_16bit(value, value));
+        set_HL(sbc_16bit(value, value));
     }
     void handle_opcode_0xED_0x63_LD_nn_ptr_HL_ED() {
         uint16_t address = fetch_next_word();
@@ -2277,9 +2277,9 @@ private:
     }
     void handle_opcode_0xED_0x6A_ADC_HL_HL() {
         add_ticks(7);
-        uint16_t value = get_indexed_HL();
+        uint16_t value = get_HL();
         set_WZ(value + 1);
-        set_indexed_HL(adc_16bit(value, value));
+        set_HL(adc_16bit(value, value));
     }
     void handle_opcode_0xED_0x6B_LD_HL_nn_ptr_ED() {
         uint16_t address = fetch_next_word();
@@ -2315,9 +2315,9 @@ private:
     }
     void handle_opcode_0xED_0x72_SBC_HL_SP() {
         add_ticks(7);
-        uint16_t value = get_indexed_HL();
+        uint16_t value = get_HL();
         set_WZ(value + 1);
-        set_indexed_HL(sbc_16bit(value, get_SP()));
+        set_HL(sbc_16bit(value, get_SP()));
     }
     void handle_opcode_0xED_0x73_LD_nn_ptr_SP() {
         uint16_t address = fetch_next_word();
@@ -2334,9 +2334,9 @@ private:
     }
     void handle_opcode_0xED_0x7A_ADC_HL_SP() {
         add_ticks(7);
-        uint16_t value = get_indexed_HL();
+        uint16_t value = get_HL();
         set_WZ(value + 1);
-        set_indexed_HL(adc_16bit(value, get_SP()));
+        set_HL(adc_16bit(value, get_SP()));
     }
     void handle_opcode_0xED_0x7B_LD_SP_nn_ptr() {
         uint16_t address = fetch_next_word();
@@ -2843,6 +2843,7 @@ private:
                     case 0xEC: handle_opcode_0xEC_CALL_PE_nn(); break;
                     case 0xED: {
                         uint8_t opcodeED = fetch_next_opcode();
+                        set_index_mode(IndexMode::HL);
                         opcodes.push_back(opcodeED);
                         switch (opcodeED) {
                             case 0x40: handle_opcode_0xED_0x40_IN_B_C_ptr(); break;
