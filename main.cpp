@@ -8,28 +8,6 @@
 #define Z80_ENABLE_EXEC_API
 #include "Z80.h"
 
-class Bus;
-
-class Events {
-public:
-    static constexpr long long CYCLES_PER_EVENT = 100000000;
-
-    template<typename TBus, typename TDebugger>
-    void connect(Z80<TBus, Events, TDebugger>* cpu) { m_cpu = cpu; }
-    void reset() {
-        m_next_event_tick = CYCLES_PER_EVENT;
-        m_system_timer_value = 0;
-    }
-    long long get_event_limit() const { return m_next_event_tick; }
-    void handle_event(long long tick) {
-        m_system_timer_value++;
-        m_next_event_tick += CYCLES_PER_EVENT;
-    }
-private:
-    Z80<Bus, Events, Z80DefaultDebugger>* m_cpu = nullptr;
-    long long m_next_event_tick = CYCLES_PER_EVENT; 
-    int m_system_timer_value = 0; 
-};
 
 class Bus {
 public:
@@ -63,7 +41,7 @@ private:
             }
         }
     }
-    Z80<Bus, Events, Z80DefaultDebugger>* m_cpu = nullptr;
+    Z80<Bus>* m_cpu = nullptr;
     std::vector<uint8_t> m_ram;
     bool is_finished = false;
 };
@@ -112,7 +90,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     const char* rom_filename = argv[1];
-    Z80<Bus, Events> cpu;
+    Z80<Bus> cpu;
     if (!load_rom(rom_filename, cpu.get_bus(), 0x0100)) {
         std::cerr << "Error: Failed to load ROM file: " << rom_filename << std::endl;
         return 1;
