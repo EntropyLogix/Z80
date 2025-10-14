@@ -811,8 +811,10 @@ private:
 
     //Input and output helpers
     uint8_t in_r_c() {
-        uint8_t value = m_bus.in(get_BC());
+        uint16_t port = get_BC();
+        uint8_t value = m_bus.in(port);
         Flags flags = get_F();
+        set_WZ(port + 1);
         flags.update(Flags::S, (value & 0x80) != 0)
             .update(Flags::Z, value == 0)
             .clear(Flags::H | Flags::N)
@@ -822,7 +824,10 @@ private:
         set_F(flags);
         return value;
     }
-    void out_c_r(uint8_t value) { m_bus.out(get_BC(), value); }
+    void out_c_r(uint8_t value) {
+        m_bus.out(get_BC(), value);
+        set_WZ(get_BC() + 1);
+    }
 
     //Interrupt handling
     void handle_NMI() {
@@ -1831,8 +1836,10 @@ private:
     }
     void handle_opcode_0xD3_OUT_n_ptr_A() {
         uint8_t port_lo = fetch_next_byte();
-        m_bus.out((get_A() << 8) | port_lo, get_A());
+        uint16_t port = (get_A() << 8) | port_lo;
+        m_bus.out(port, get_A());
         add_ticks(4);
+        set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((port_lo + 1) & 0xFF));
     }
     void handle_opcode_0xD4_CALL_NC_nn() {
         uint16_t address = fetch_next_word();
@@ -1881,6 +1888,7 @@ private:
     void handle_opcode_0xDB_IN_A_n_ptr() {
         uint8_t port_lo = fetch_next_byte();
         uint16_t port = (get_A() << 8) | port_lo;
+        set_WZ(port + 1);
         set_A(m_bus.in(port));
         add_ticks(4);
     }
