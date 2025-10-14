@@ -498,8 +498,10 @@ private:
             return get_HL(); 
         else {
             int8_t offset = static_cast<int8_t>(fetch_next_byte()); 
+            uint16_t address = get_indexed_HL() + offset;
+            set_WZ(address);
             add_ticks(5);
-            return get_indexed_HL() + offset;
+            return address;
         }
     }
     uint8_t get_indexed_HL_ptr() {
@@ -952,6 +954,7 @@ private:
     }
     void handle_CB_indexed_opcodes(uint16_t index_register, int8_t offset, uint8_t opcode) {
         uint16_t address = index_register + offset;
+        set_WZ(address);
         add_ticks(2); // 2 T-states for address calculation
         uint8_t value = read_byte(address);
         uint8_t operation_group = opcode >> 6;
@@ -1165,7 +1168,9 @@ private:
         set_indexed_HL(fetch_next_word());
     }
     void handle_opcode_0x22_LD_nn_ptr_HL() {
-        write_word(fetch_next_word(), get_indexed_HL());
+        uint16_t address = fetch_next_word();
+        write_word(address, get_indexed_HL());
+        set_WZ(address + 1);
     }
     void handle_opcode_0x23_INC_HL() {
         set_indexed_HL(get_indexed_HL() + 1);
@@ -1265,6 +1270,7 @@ private:
     void handle_opcode_0x32_LD_nn_ptr_A() {
         uint16_t address = fetch_next_word();
         write_byte(address, get_A());
+        set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((address + 1) & 0xFF));
     }
     void handle_opcode_0x33_INC_SP() {
         set_SP(get_SP() + 1);
@@ -1318,6 +1324,7 @@ private:
     void handle_opcode_0x3A_LD_A_nn_ptr() {
         uint16_t address = fetch_next_word();
         set_A(read_byte(address));
+        set_WZ(address + 1);
     }
     void handle_opcode_0x3B_DEC_SP() {
         set_SP(get_SP() - 1);
@@ -2060,7 +2067,9 @@ private:
         set_indexed_HL(sbc_16bit(get_indexed_HL(), get_BC()));
     }
     void handle_opcode_0xED_0x43_LD_nn_ptr_BC() {
-        write_word(fetch_next_word(), get_BC());
+        uint16_t address = fetch_next_word();
+        write_word(address, get_BC());
+        set_WZ(address + 1);
     }
     void handle_opcode_0xED_0x44_NEG() {
         uint8_t value = get_A();
@@ -2102,7 +2111,9 @@ private:
         set_indexed_HL(adc_16bit(get_indexed_HL(), get_BC()));
     }
     void handle_opcode_0xED_0x4B_LD_BC_nn_ptr() {
-        set_BC(read_word(fetch_next_word()));
+        uint16_t address = fetch_next_word();
+        set_BC(read_word(address));
+        set_WZ(address + 1);
     }
     void handle_opcode_0xED_0x4D_RETI() {
         set_IFF1(get_IFF2());
@@ -2128,7 +2139,9 @@ private:
         set_indexed_HL(sbc_16bit(get_indexed_HL(), get_DE()));
     }
     void handle_opcode_0xED_0x53_LD_nn_ptr_DE() {
-        write_word(fetch_next_word(), get_DE());
+        uint16_t address = fetch_next_word();
+        write_word(address, get_DE());
+        set_WZ(address + 1);
     }
     void handle_opcode_0xED_0x56_IM_1() {
         set_IRQ_mode(1);
@@ -2159,7 +2172,9 @@ private:
         set_indexed_HL(adc_16bit(get_indexed_HL(), get_DE()));
     }
     void handle_opcode_0xED_0x5B_LD_DE_nn_ptr() {
-        set_DE(read_word(fetch_next_word()));
+        uint16_t address = fetch_next_word();
+        set_DE(read_word(address));
+        set_WZ(address + 1);
     }
     void handle_opcode_0xED_0x5E_IM_2() {
         set_IRQ_mode(2);
@@ -2191,7 +2206,9 @@ private:
         set_indexed_HL(sbc_16bit(value, value));
     }
     void handle_opcode_0xED_0x63_LD_nn_ptr_HL_ED() {
-        write_word(fetch_next_word(), get_HL());
+        uint16_t address = fetch_next_word();
+        write_word(address, get_HL());
+        set_WZ(address + 1);
     }
     void handle_opcode_0xED_0x67_RRD() {
         uint16_t address = get_HL();
@@ -2202,6 +2219,7 @@ private:
         set_A(new_a);
         add_ticks(4);
         write_byte(address, new_mem);
+        set_WZ(address + 1);
         Flags flags(get_F() & Flags::C);
         flags.clear(Flags::H | Flags::N)
             .update(Flags::S, (new_a & 0x80) != 0)
@@ -2225,7 +2243,9 @@ private:
         set_indexed_HL(adc_16bit(value, value));
     }
     void handle_opcode_0xED_0x6B_LD_HL_nn_ptr_ED() {
-        set_HL(read_word(fetch_next_word()));
+        uint16_t address = fetch_next_word();
+        set_HL(read_word(address));
+        set_WZ(address + 1);
     }
     void handle_opcode_0xED_0x6F_RLD() {
         uint16_t address = get_HL();
@@ -2235,6 +2255,7 @@ private:
         uint8_t new_mem = (mem_val << 4) | (a_val & 0x0F);
         set_A(new_a);
         add_ticks(4);
+        set_WZ(address + 1);
         write_byte(address, new_mem);
         Flags flags(get_F() & Flags::C);
         flags.clear(Flags::H | Flags::N)
@@ -2258,7 +2279,9 @@ private:
         set_indexed_HL(sbc_16bit(get_indexed_HL(), get_SP()));
     }
     void handle_opcode_0xED_0x73_LD_nn_ptr_SP() {
-        write_word(fetch_next_word(), get_SP());
+        uint16_t address = fetch_next_word();
+        write_word(address, get_SP());
+        set_WZ(address + 1);
     }
     void handle_opcode_0xED_0x78_IN_A_C_ptr() {
         set_A(in_r_c());
@@ -2273,7 +2296,9 @@ private:
         set_indexed_HL(adc_16bit(get_indexed_HL(), get_SP()));
     }
     void handle_opcode_0xED_0x7B_LD_SP_nn_ptr() {
-        set_SP(read_word(fetch_next_word()));
+        uint16_t address = fetch_next_word();
+        set_SP(read_word(address));
+        set_WZ(address + 1);
     }
     void handle_opcode_0xED_0xA0_LDI() {
         uint8_t value = read_byte(get_HL());
