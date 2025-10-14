@@ -930,9 +930,10 @@ private:
                 bit_8bit(bit, value);
                 Flags flags = get_F();
                 if (target_reg == 6) {
+                    set_WZ(flags_source);
                     add_tick();
-                    flags.update(Flags::X, (flags_source & 0x0800) != 0);
-                    flags.update(Flags::Y, (flags_source & 0x2000) != 0);
+                    flags.update(Flags::X, (get_W() & 0x08) != 0);
+                    flags.update(Flags::Y, (get_W() & 0x20) != 0);
                 } else {
                     flags.update(Flags::X, (value & 0x08) != 0);
                     flags.update(Flags::Y, (value & 0x20) != 0);
@@ -1050,7 +1051,9 @@ private:
         set_indexed_HL(add_16bit(get_indexed_HL(), get_BC()));
     }
     void handle_opcode_0x0A_LD_A_BC_ptr() {
-        set_A(read_byte(get_BC()));
+        uint16_t address = get_BC();
+        set_A(read_byte(address));
+        set_WZ(address + 1);
     }
     void handle_opcode_0x0B_DEC_BC() {
         set_BC(get_BC() - 1);
@@ -1093,7 +1096,9 @@ private:
         set_DE(fetch_next_word());
     }
     void handle_opcode_0x12_LD_DE_ptr_A() {
-        write_byte(get_DE(), get_A());
+        uint16_t address = get_DE();
+        write_byte(address, get_A());
+        set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((address + 1) & 0xFF));
     }
     void handle_opcode_0x13_INC_DE() {
         set_DE(get_DE() + 1);
@@ -1134,7 +1139,9 @@ private:
         set_indexed_HL(add_16bit(get_indexed_HL(), get_DE()));
     }
     void handle_opcode_0x1A_LD_A_DE_ptr() {
-        set_A(read_byte(get_DE()));
+        uint16_t address = get_DE();
+        set_A(read_byte(address));
+        set_WZ(address + 1);
     }
     void handle_opcode_0x1B_DEC_DE() {
         set_DE(get_DE() - 1);
@@ -1239,7 +1246,9 @@ private:
         set_indexed_HL(add_16bit(get_indexed_HL(), get_indexed_HL()));
     }
     void handle_opcode_0x2A_LD_HL_nn_ptr() {
-        set_indexed_HL(read_word(fetch_next_word()));
+        uint16_t address = fetch_next_word();
+        set_indexed_HL(read_word(address));
+        set_WZ(address + 1);
     }
     void handle_opcode_0x2B_DEC_HL() {
         set_indexed_HL(get_indexed_HL() - 1);
