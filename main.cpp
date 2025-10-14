@@ -26,7 +26,7 @@ public:
         m_next_event_tick += CYCLES_PER_EVENT;
     }
 private:
-    Z80<Bus, Events, Z80_DefaultDebugger>* m_cpu = nullptr;
+    Z80<Bus, Events, Z80DefaultDebugger>* m_cpu = nullptr;
     long long m_next_event_tick = CYCLES_PER_EVENT; 
     int m_system_timer_value = 0; 
 };
@@ -63,7 +63,7 @@ private:
             }
         }
     }
-    Z80<Bus, Events, Z80_DefaultDebugger>* m_cpu = nullptr;
+    Z80<Bus, Events, Z80DefaultDebugger>* m_cpu = nullptr;
     std::vector<uint8_t> m_ram;
     bool is_finished = false;
 };
@@ -112,17 +112,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     const char* rom_filename = argv[1];
-    Bus bus;
-    Events events;
-    Z80_DefaultDebugger debugger;
-    Z80 cpu(bus, events, debugger);
-    if (!load_rom(rom_filename, bus, 0x0100)) {
+    Z80<Bus, Events> cpu;
+    if (!load_rom(rom_filename, cpu.get_bus(), 0x0100)) {
         std::cerr << "Error: Failed to load ROM file: " << rom_filename << std::endl;
         return 1;
     }
     Timer timer;
     cpu.set_PC(0x0100);
-    while (!bus.has_finished()) {
+    while (!cpu.get_bus().has_finished()) {
         
         cpu.run(10000000000LL);
     }
