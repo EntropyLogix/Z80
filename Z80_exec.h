@@ -1,3 +1,4 @@
+private:
     template<auto HandleFunc>
     void exec_helper() {
         add_ticks(4);
@@ -27,7 +28,14 @@
         add_ticks(8);
         (this->*HandleFunc)();
     }
-    
+
+    template <uint8_t Opcode>
+    void exec_CB_helper() {
+        add_ticks(8);
+        handle_CB_opcodes(Opcode);
+    }
+
+public:
     void exec_NOP() {
         exec_helper<&Z80::handle_opcode_0x00_NOP>(); 
     }
@@ -1477,4 +1485,774 @@
     }
     void exec_OTDR() {
         exec_ED_helper<&Z80::handle_opcode_0xED_0xBB_OTDR>();
+    }
+
+    // --- CB Prefixed Opcodes ---
+    void exec_RLC_B()  {
+        exec_CB_helper<0x00>(); 
+    }
+    void exec_RLC_C()  {
+        exec_CB_helper<0x01>(); 
+    }
+    void exec_RLC_D()  {
+        exec_CB_helper<0x02>(); 
+    }
+    void exec_RLC_E()  {
+        exec_CB_helper<0x03>(); 
+    }
+    void exec_RLC_H()  {
+        exec_CB_helper<0x04>(); 
+    }
+    void exec_RLC_L()  {
+        exec_CB_helper<0x05>(); 
+    }
+    void exec_RLC_HL_ptr()  {
+        exec_CB_helper<0x06>(); 
+    }
+    void exec_RLC_A()  {
+        exec_CB_helper<0x07>(); 
+    }
+    void exec_RRC_B()  {
+        exec_CB_helper<0x08>(); 
+    }
+    void exec_RRC_C()  {
+        exec_CB_helper<0x09>(); 
+    }
+    void exec_RRC_D()  {
+        exec_CB_helper<0x0A>(); 
+    }
+    void exec_RRC_E()  {
+        exec_CB_helper<0x0B>(); 
+    }
+    void exec_RRC_H()  {
+        exec_CB_helper<0x0C>(); 
+    }
+    void exec_RRC_L()  {
+        exec_CB_helper<0x0D>(); 
+    }
+    void exec_RRC_HL_ptr()  {
+        exec_CB_helper<0x0E>(); 
+    }
+    void exec_RRC_A()  {
+        exec_CB_helper<0x0F>(); 
+    }
+    void exec_RL_B()  {
+        exec_CB_helper<0x10>(); 
+    }
+    void exec_RL_C()  {
+        exec_CB_helper<0x11>(); 
+    }
+    void exec_RL_D()  {
+        exec_CB_helper<0x12>(); 
+    }
+    void exec_RL_E()  {
+        exec_CB_helper<0x13>(); 
+    }
+    void exec_RL_H()  {
+        exec_CB_helper<0x14>(); 
+    }
+    void exec_RL_L()  {
+        exec_CB_helper<0x15>(); 
+    }
+    void exec_RL_HL_ptr()  {
+        exec_CB_helper<0x16>(); 
+    }
+    void exec_RL_A()  {
+        exec_CB_helper<0x17>(); 
+    }
+    void exec_RR_B()  {
+        exec_CB_helper<0x18>(); 
+    }
+    void exec_RR_C()  {
+        exec_CB_helper<0x19>(); 
+    }
+    void exec_RR_D()  {
+        exec_CB_helper<0x1A>(); 
+    }
+    void exec_RR_E()  {
+        exec_CB_helper<0x1B>(); 
+    }
+    void exec_RR_H()  {
+        exec_CB_helper<0x1C>(); 
+    }
+    void exec_RR_L()  {
+        exec_CB_helper<0x1D>(); 
+    }
+    void exec_RR_HL_ptr()  {
+        exec_CB_helper<0x1E>(); 
+    }
+    void exec_RR_A()  {
+        exec_CB_helper<0x1F>(); 
+    }
+    void exec_SLA_B()  {
+        exec_CB_helper<0x20>(); 
+    }
+    void exec_SLA_C()  {
+        exec_CB_helper<0x21>(); 
+    }
+    void exec_SLA_D()  {
+        exec_CB_helper<0x22>(); 
+    }
+    void exec_SLA_E()  {
+        exec_CB_helper<0x23>(); 
+    }
+    void exec_SLA_H()  {
+        exec_CB_helper<0x24>(); 
+    }
+    void exec_SLA_L()  {
+        exec_CB_helper<0x25>(); 
+    }
+    void exec_SLA_HL_ptr()  {
+        exec_CB_helper<0x26>(); 
+    }
+    void exec_SLA_A()  {
+        exec_CB_helper<0x27>(); 
+    }
+    void exec_SRA_B()  {
+        exec_CB_helper<0x28>(); 
+    }
+    void exec_SRA_C()  {
+        exec_CB_helper<0x29>(); 
+    }
+    void exec_SRA_D()  {
+        exec_CB_helper<0x2A>(); 
+    }
+    void exec_SRA_E()  {
+        exec_CB_helper<0x2B>(); 
+    }
+    void exec_SRA_H()  {
+        exec_CB_helper<0x2C>(); 
+    }
+    void exec_SRA_L()  {
+        exec_CB_helper<0x2D>(); 
+    }
+    void exec_SRA_HL_ptr()  {
+        exec_CB_helper<0x2E>(); 
+    }
+    void exec_SRA_A()  {
+        exec_CB_helper<0x2F>(); 
+    }
+    void exec_SLL_B()  {
+        exec_CB_helper<0x30>(); 
+    }
+    void exec_SLL_C()  {
+        exec_CB_helper<0x31>(); 
+    }
+    void exec_SLL_D()  {
+        exec_CB_helper<0x32>(); 
+    }
+    void exec_SLL_E()  {
+        exec_CB_helper<0x33>(); 
+    }
+    void exec_SLL_H()  {
+        exec_CB_helper<0x34>(); 
+    }
+    void exec_SLL_L()  {
+        exec_CB_helper<0x35>(); 
+    }
+    void exec_SLL_HL_ptr()  {
+        exec_CB_helper<0x36>(); 
+    }
+    void exec_SLL_A()  {
+        exec_CB_helper<0x37>(); 
+    }
+    void exec_SRL_B()  {
+        exec_CB_helper<0x38>(); 
+    }
+    void exec_SRL_C()  {
+        exec_CB_helper<0x39>(); 
+    }
+    void exec_SRL_D()  {
+        exec_CB_helper<0x3A>(); 
+    }
+    void exec_SRL_E()  {
+        exec_CB_helper<0x3B>(); 
+    }
+    void exec_SRL_H()  {
+        exec_CB_helper<0x3C>(); 
+    }
+    void exec_SRL_L()  {
+        exec_CB_helper<0x3D>(); 
+    }
+    void exec_SRL_HL_ptr()  {
+        exec_CB_helper<0x3E>(); 
+    }
+    void exec_SRL_A()  {
+        exec_CB_helper<0x3F>(); 
+    }
+    void exec_BIT_0_B()  {
+        exec_CB_helper<0x40>(); 
+    }
+    void exec_BIT_0_C()  {
+        exec_CB_helper<0x41>(); 
+    }
+    void exec_BIT_0_D()  {
+        exec_CB_helper<0x42>(); 
+    }
+    void exec_BIT_0_E()  {
+        exec_CB_helper<0x43>(); 
+    }
+    void exec_BIT_0_H()  {
+        exec_CB_helper<0x44>(); 
+    }
+    void exec_BIT_0_L()  {
+        exec_CB_helper<0x45>(); 
+    }
+    void exec_BIT_0_HL_ptr()  {
+        exec_CB_helper<0x46>(); 
+    }
+    void exec_BIT_0_A()  {
+        exec_CB_helper<0x47>(); 
+    }
+    void exec_BIT_1_B()  {
+        exec_CB_helper<0x48>(); 
+    }
+    void exec_BIT_1_C()  {
+        exec_CB_helper<0x49>(); 
+    }
+    void exec_BIT_1_D()  {
+        exec_CB_helper<0x4A>(); 
+    }
+    void exec_BIT_1_E()  {
+        exec_CB_helper<0x4B>(); 
+    }
+    void exec_BIT_1_H()  {
+        exec_CB_helper<0x4C>(); 
+    }
+    void exec_BIT_1_L()  {
+        exec_CB_helper<0x4D>(); 
+    }
+    void exec_BIT_1_HL_ptr()  {
+        exec_CB_helper<0x4E>(); 
+    }
+    void exec_BIT_1_A()  {
+        exec_CB_helper<0x4F>(); 
+    }
+    void exec_BIT_2_B()  {
+        exec_CB_helper<0x50>(); 
+    }
+    void exec_BIT_2_C()  {
+        exec_CB_helper<0x51>(); 
+    }
+    void exec_BIT_2_D()  {
+        exec_CB_helper<0x52>(); 
+    }
+    void exec_BIT_2_E()  {
+        exec_CB_helper<0x53>(); 
+    }
+    void exec_BIT_2_H()  {
+        exec_CB_helper<0x54>(); 
+    }
+    void exec_BIT_2_L()  {
+        exec_CB_helper<0x55>(); 
+    }
+    void exec_BIT_2_HL_ptr()  {
+        exec_CB_helper<0x56>(); 
+    }
+    void exec_BIT_2_A()  {
+        exec_CB_helper<0x57>(); 
+    }
+    void exec_BIT_3_B()  {
+        exec_CB_helper<0x58>(); 
+    }
+    void exec_BIT_3_C()  {
+        exec_CB_helper<0x59>(); 
+    }
+    void exec_BIT_3_D()  {
+        exec_CB_helper<0x5A>(); 
+    }
+    void exec_BIT_3_E()  {
+        exec_CB_helper<0x5B>(); 
+    }
+    void exec_BIT_3_H()  {
+        exec_CB_helper<0x5C>(); 
+    }
+    void exec_BIT_3_L()  {
+        exec_CB_helper<0x5D>(); 
+    }
+    void exec_BIT_3_HL_ptr()  {
+        exec_CB_helper<0x5E>(); 
+    }
+    void exec_BIT_3_A()  {
+        exec_CB_helper<0x5F>(); 
+    }
+    void exec_BIT_4_B()  {
+        exec_CB_helper<0x60>(); 
+    }
+    void exec_BIT_4_C()  {
+        exec_CB_helper<0x61>(); 
+    }
+    void exec_BIT_4_D()  {
+        exec_CB_helper<0x62>(); 
+    }
+    void exec_BIT_4_E()  {
+        exec_CB_helper<0x63>(); 
+    }
+    void exec_BIT_4_H()  {
+        exec_CB_helper<0x64>(); 
+    }
+    void exec_BIT_4_L()  {
+        exec_CB_helper<0x65>(); 
+    }
+    void exec_BIT_4_HL_ptr()  {
+        exec_CB_helper<0x66>(); 
+    }
+    void exec_BIT_4_A()  {
+        exec_CB_helper<0x67>(); 
+    }
+    void exec_BIT_5_B()  {
+        exec_CB_helper<0x68>(); 
+    }
+    void exec_BIT_5_C()  {
+        exec_CB_helper<0x69>(); 
+    }
+    void exec_BIT_5_D()  {
+        exec_CB_helper<0x6A>(); 
+    }
+    void exec_BIT_5_E()  {
+        exec_CB_helper<0x6B>(); 
+    }
+    void exec_BIT_5_H()  {
+        exec_CB_helper<0x6C>(); 
+    }
+    void exec_BIT_5_L()  {
+        exec_CB_helper<0x6D>(); 
+    }
+    void exec_BIT_5_HL_ptr()  {
+        exec_CB_helper<0x6E>(); 
+    }
+    void exec_BIT_5_A()  {
+        exec_CB_helper<0x6F>(); 
+    }
+    void exec_BIT_6_B()  {
+        exec_CB_helper<0x70>(); 
+    }
+    void exec_BIT_6_C()  {
+        exec_CB_helper<0x71>(); 
+    }
+    void exec_BIT_6_D()  {
+        exec_CB_helper<0x72>(); 
+    }
+    void exec_BIT_6_E()  {
+        exec_CB_helper<0x73>(); 
+    }
+    void exec_BIT_6_H()  {
+        exec_CB_helper<0x74>(); 
+    }
+    void exec_BIT_6_L()  {
+        exec_CB_helper<0x75>(); 
+    }
+    void exec_BIT_6_HL_ptr()  {
+        exec_CB_helper<0x76>(); 
+    }
+    void exec_BIT_6_A()  {
+        exec_CB_helper<0x77>(); 
+    }
+    void exec_BIT_7_B()  {
+        exec_CB_helper<0x78>(); 
+    }
+    void exec_BIT_7_C()  {
+        exec_CB_helper<0x79>(); 
+    }
+    void exec_BIT_7_D()  {
+        exec_CB_helper<0x7A>(); 
+    }
+    void exec_BIT_7_E()  {
+        exec_CB_helper<0x7B>(); 
+    }
+    void exec_BIT_7_H()  {
+        exec_CB_helper<0x7C>(); 
+    }
+    void exec_BIT_7_L()  {
+        exec_CB_helper<0x7D>(); 
+    }
+    void exec_BIT_7_HL_ptr()  {
+        exec_CB_helper<0x7E>(); 
+    }
+    void exec_BIT_7_A()  {
+        exec_CB_helper<0x7F>(); 
+    }
+    void exec_RES_0_B()  {
+        exec_CB_helper<0x80>(); 
+    }
+    void exec_RES_0_C()  {
+        exec_CB_helper<0x81>(); 
+    }
+    void exec_RES_0_D()  {
+        exec_CB_helper<0x82>(); 
+    }
+    void exec_RES_0_E()  {
+        exec_CB_helper<0x83>(); 
+    }
+    void exec_RES_0_H()  {
+        exec_CB_helper<0x84>(); 
+    }
+    void exec_RES_0_L()  {
+        exec_CB_helper<0x85>(); 
+    }
+    void exec_RES_0_HL_ptr()  {
+        exec_CB_helper<0x86>(); 
+    }
+    void exec_RES_0_A()  {
+        exec_CB_helper<0x87>(); 
+    }
+    void exec_RES_1_B()  {
+        exec_CB_helper<0x88>(); 
+    }
+    void exec_RES_1_C()  {
+        exec_CB_helper<0x89>(); 
+    }
+    void exec_RES_1_D()  {
+        exec_CB_helper<0x8A>(); 
+    }
+    void exec_RES_1_E()  {
+        exec_CB_helper<0x8B>(); 
+    }
+    void exec_RES_1_H()  {
+        exec_CB_helper<0x8C>(); 
+    }
+    void exec_RES_1_L()  {
+        exec_CB_helper<0x8D>(); 
+    }
+    void exec_RES_1_HL_ptr()  {
+        exec_CB_helper<0x8E>(); 
+    }
+    void exec_RES_1_A()  {
+        exec_CB_helper<0x8F>(); 
+    }
+    void exec_RES_2_B()  {
+        exec_CB_helper<0x90>(); 
+    }
+    void exec_RES_2_C()  {
+        exec_CB_helper<0x91>(); 
+    }
+    void exec_RES_2_D()  {
+        exec_CB_helper<0x92>(); 
+    }
+    void exec_RES_2_E()  {
+        exec_CB_helper<0x93>(); 
+    }
+    void exec_RES_2_H()  {
+        exec_CB_helper<0x94>(); 
+    }
+    void exec_RES_2_L()  {
+        exec_CB_helper<0x95>(); 
+    }
+    void exec_RES_2_HL_ptr()  {
+        exec_CB_helper<0x96>(); 
+    }
+    void exec_RES_2_A()  {
+        exec_CB_helper<0x97>(); 
+    }
+    void exec_RES_3_B()  {
+        exec_CB_helper<0x98>(); 
+    }
+    void exec_RES_3_C()  {
+        exec_CB_helper<0x99>(); 
+    }
+    void exec_RES_3_D()  {
+        exec_CB_helper<0x9A>(); 
+    }
+    void exec_RES_3_E()  {
+        exec_CB_helper<0x9B>(); 
+    }
+    void exec_RES_3_H()  {
+        exec_CB_helper<0x9C>(); 
+    }
+    void exec_RES_3_L()  {
+        exec_CB_helper<0x9D>(); 
+    }
+    void exec_RES_3_HL_ptr()  {
+        exec_CB_helper<0x9E>(); 
+    }
+    void exec_RES_3_A()  {
+        exec_CB_helper<0x9F>(); 
+    }
+    void exec_RES_4_B()  {
+        exec_CB_helper<0xA0>(); 
+    }
+    void exec_RES_4_C()  {
+        exec_CB_helper<0xA1>(); 
+    }
+    void exec_RES_4_D()  {
+        exec_CB_helper<0xA2>(); 
+    }
+    void exec_RES_4_E()  {
+        exec_CB_helper<0xA3>(); 
+    }
+    void exec_RES_4_H()  {
+        exec_CB_helper<0xA4>(); 
+    }
+    void exec_RES_4_L()  {
+        exec_CB_helper<0xA5>(); 
+    }
+    void exec_RES_4_HL_ptr()  {
+        exec_CB_helper<0xA6>(); 
+    }
+    void exec_RES_4_A()  {
+        exec_CB_helper<0xA7>(); 
+    }
+    void exec_RES_5_B()  {
+        exec_CB_helper<0xA8>(); 
+    }
+    void exec_RES_5_C()  {
+        exec_CB_helper<0xA9>(); 
+    }
+    void exec_RES_5_D()  {
+        exec_CB_helper<0xAA>(); 
+    }
+    void exec_RES_5_E()  {
+        exec_CB_helper<0xAB>(); 
+    }
+    void exec_RES_5_H()  {
+        exec_CB_helper<0xAC>(); 
+    }
+    void exec_RES_5_L()  {
+        exec_CB_helper<0xAD>(); 
+    }
+    void exec_RES_5_HL_ptr()  {
+        exec_CB_helper<0xAE>(); 
+    }
+    void exec_RES_5_A()  {
+        exec_CB_helper<0xAF>(); 
+    }
+    void exec_RES_6_B()  {
+        exec_CB_helper<0xB0>(); 
+    }
+    void exec_RES_6_C()  {
+        exec_CB_helper<0xB1>(); 
+    }
+    void exec_RES_6_D()  {
+        exec_CB_helper<0xB2>(); 
+    }
+    void exec_RES_6_E()  {
+        exec_CB_helper<0xB3>(); 
+    }
+    void exec_RES_6_H()  {
+        exec_CB_helper<0xB4>(); 
+    }
+    void exec_RES_6_L()  {
+        exec_CB_helper<0xB5>(); 
+    }
+    void exec_RES_6_HL_ptr()  {
+        exec_CB_helper<0xB6>(); 
+    }
+    void exec_RES_6_A()  {
+        exec_CB_helper<0xB7>(); 
+    }
+    void exec_RES_7_B()  {
+        exec_CB_helper<0xB8>(); 
+    }
+    void exec_RES_7_C()  {
+        exec_CB_helper<0xB9>(); 
+    }
+    void exec_RES_7_D()  {
+        exec_CB_helper<0xBA>(); 
+    }
+    void exec_RES_7_E()  {
+        exec_CB_helper<0xBB>(); 
+    }
+    void exec_RES_7_H()  {
+        exec_CB_helper<0xBC>(); 
+    }
+    void exec_RES_7_L()  {
+        exec_CB_helper<0xBD>(); 
+    }
+    void exec_RES_7_HL_ptr()  {
+        exec_CB_helper<0xBE>(); 
+    }
+    void exec_RES_7_A()  {
+        exec_CB_helper<0xBF>(); 
+    }
+    void exec_SET_0_B()  {
+        exec_CB_helper<0xC0>(); 
+    }
+    void exec_SET_0_C()  {
+        exec_CB_helper<0xC1>(); 
+    }
+    void exec_SET_0_D()  {
+        exec_CB_helper<0xC2>(); 
+    }
+    void exec_SET_0_E()  {
+        exec_CB_helper<0xC3>(); 
+    }
+    void exec_SET_0_H()  {
+        exec_CB_helper<0xC4>(); 
+    }
+    void exec_SET_0_L()  {
+        exec_CB_helper<0xC5>(); 
+    }
+    void exec_SET_0_HL_ptr()  {
+        exec_CB_helper<0xC6>(); 
+    }
+    void exec_SET_0_A()  {
+        exec_CB_helper<0xC7>(); 
+    }
+    void exec_SET_1_B()  {
+        exec_CB_helper<0xC8>(); 
+    }
+    void exec_SET_1_C()  {
+        exec_CB_helper<0xC9>(); 
+    }
+    void exec_SET_1_D()  {
+        exec_CB_helper<0xCA>(); 
+    }
+    void exec_SET_1_E()  {
+        exec_CB_helper<0xCB>(); 
+    }
+    void exec_SET_1_H()  {
+        exec_CB_helper<0xCC>(); 
+    }
+    void exec_SET_1_L()  {
+        exec_CB_helper<0xCD>(); 
+    }
+    void exec_SET_1_HL_ptr()  {
+        exec_CB_helper<0xCE>(); 
+    }
+    void exec_SET_1_A()  {
+        exec_CB_helper<0xCF>(); 
+    }
+    void exec_SET_2_B()  {
+        exec_CB_helper<0xD0>(); 
+    }
+    void exec_SET_2_C()  {
+        exec_CB_helper<0xD1>(); 
+    }
+    void exec_SET_2_D()  {
+        exec_CB_helper<0xD2>(); 
+    }
+    void exec_SET_2_E()  {
+        exec_CB_helper<0xD3>(); 
+    }
+    void exec_SET_2_H()  {
+        exec_CB_helper<0xD4>(); 
+    }
+    void exec_SET_2_L()  {
+        exec_CB_helper<0xD5>(); 
+    }
+    void exec_SET_2_HL_ptr()  {
+        exec_CB_helper<0xD6>(); 
+    }
+    void exec_SET_2_A()  {
+        exec_CB_helper<0xD7>(); 
+    }
+    void exec_SET_3_B()  {
+        exec_CB_helper<0xD8>(); 
+    }
+    void exec_SET_3_C()  {
+        exec_CB_helper<0xD9>(); 
+    }
+    void exec_SET_3_D()  {
+        exec_CB_helper<0xDA>(); 
+    }
+    void exec_SET_3_E()  {
+        exec_CB_helper<0xDB>(); 
+    }
+    void exec_SET_3_H()  {
+        exec_CB_helper<0xDC>(); 
+    }
+    void exec_SET_3_L()  {
+        exec_CB_helper<0xDD>(); 
+    }
+    void exec_SET_3_HL_ptr()  {
+        exec_CB_helper<0xDE>(); 
+    }
+    void exec_SET_3_A()  {
+        exec_CB_helper<0xDF>(); 
+    }
+    void exec_SET_4_B()  {
+        exec_CB_helper<0xE0>(); 
+    }
+    void exec_SET_4_C()  {
+        exec_CB_helper<0xE1>(); 
+    }
+    void exec_SET_4_D()  {
+        exec_CB_helper<0xE2>(); 
+    }
+    void exec_SET_4_E()  {
+        exec_CB_helper<0xE3>(); 
+    }
+    void exec_SET_4_H()  {
+        exec_CB_helper<0xE4>(); 
+    }
+    void exec_SET_4_L()  {
+        exec_CB_helper<0xE5>(); 
+    }
+    void exec_SET_4_HL_ptr()  {
+        exec_CB_helper<0xE6>(); 
+    }
+    void exec_SET_4_A()  {
+        exec_CB_helper<0xE7>(); 
+    }
+    void exec_SET_5_B()  {
+        exec_CB_helper<0xE8>(); 
+    }
+    void exec_SET_5_C()  {
+        exec_CB_helper<0xE9>(); 
+    }
+    void exec_SET_5_D()  {
+        exec_CB_helper<0xEA>(); 
+    }
+    void exec_SET_5_E()  {
+        exec_CB_helper<0xEB>(); 
+    }
+    void exec_SET_5_H()  {
+        exec_CB_helper<0xEC>(); 
+    }
+    void exec_SET_5_L()  {
+        exec_CB_helper<0xED>(); 
+    }
+    void exec_SET_5_HL_ptr()  {
+        exec_CB_helper<0xEE>(); 
+    }
+    void exec_SET_5_A()  {
+        exec_CB_helper<0xEF>(); 
+    }
+    void exec_SET_6_B()  {
+        exec_CB_helper<0xF0>(); 
+    }
+    void exec_SET_6_C()  {
+        exec_CB_helper<0xF1>(); 
+    }
+    void exec_SET_6_D()  {
+        exec_CB_helper<0xF2>(); 
+    }
+    void exec_SET_6_E()  {
+        exec_CB_helper<0xF3>(); 
+    }
+    void exec_SET_6_H()  {
+        exec_CB_helper<0xF4>(); 
+    }
+    void exec_SET_6_L()  {
+        exec_CB_helper<0xF5>(); 
+    }
+    void exec_SET_6_HL_ptr()  {
+        exec_CB_helper<0xF6>(); 
+    }
+    void exec_SET_6_A()  {
+        exec_CB_helper<0xF7>(); 
+    }
+    void exec_SET_7_B()  {
+        exec_CB_helper<0xF8>(); 
+    }
+    void exec_SET_7_C()  {
+        exec_CB_helper<0xF9>(); 
+    }
+    void exec_SET_7_D()  {
+        exec_CB_helper<0xFA>(); 
+    }
+    void exec_SET_7_E()  {
+        exec_CB_helper<0xFB>(); 
+    }
+    void exec_SET_7_H()  {
+        exec_CB_helper<0xFC>(); 
+    }
+    void exec_SET_7_L()  {
+        exec_CB_helper<0xFD>(); 
+    }
+    void exec_SET_7_HL_ptr()  {
+        exec_CB_helper<0xFE>(); 
+    }
+    void exec_SET_7_A()  {
+        exec_CB_helper<0xFF>(); 
     }
