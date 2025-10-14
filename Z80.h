@@ -2295,6 +2295,7 @@ private:
     void handle_opcode_0xED_0xA1_CPI() {
         uint8_t value = read_byte(get_HL());
         uint8_t result = get_A() - value;
+        set_WZ(get_WZ() + 1);
         bool half_carry = (get_A() & 0x0F) < (value & 0x0F);
         set_HL(get_HL() + 1);
         set_BC(get_BC() - 1);
@@ -2364,6 +2365,7 @@ private:
     void handle_opcode_0xED_0xA9_CPD() {
         uint8_t value = read_byte(get_HL());
         uint8_t result = get_A() - value;
+        set_WZ(get_WZ() - 1);
         bool half_carry = (get_A() & 0x0F) < (value & 0x0F);
         set_HL(get_HL() - 1);
         set_BC(get_BC() - 1);
@@ -2423,6 +2425,7 @@ private:
     void handle_opcode_0xED_0xB1_CPIR() {
         handle_opcode_0xED_0xA1_CPI();
         if (get_BC() != 0 && !get_F().is_set(Flags::Z)) {
+            set_WZ(get_PC() + 1);
             set_PC(get_PC() - 2);
             add_ticks(5);
         }
@@ -2453,6 +2456,7 @@ private:
     void handle_opcode_0xED_0xB9_CPDR() {
         handle_opcode_0xED_0xA9_CPD();
         if (get_BC() != 0 && !get_F().is_set(Flags::Z)) {
+            set_WZ(get_PC() + 1);
             set_PC(get_PC() - 2);
             add_ticks(5);
         }
