@@ -2,6 +2,8 @@
 #define __Z80_H__
 
 #include <cstdint>
+#include <climits>
+#include <type_traits>
 
 #if defined(__GNUC__) || defined(__clang__) // GCC i Clang
     #define Z80_LIKELY(expr)   __builtin_expect(!!(expr), 1)
@@ -11,7 +13,19 @@
     #define Z80_LIKELY(expr)   (expr)
 #endif
 
-template <typename TBus, typename TEvents>
+template <typename, typename> class Z80;
+
+class Z80_NoEvents {
+public:
+    static constexpr long long CYCLES_PER_EVENT = LLONG_MAX;
+    template <typename TBus>
+    void connect(Z80<TBus, Z80_NoEvents>* cpu) {}
+    void reset() {}
+    long long get_event_limit() const { return LLONG_MAX; }
+    void handle_event(long long tick) {}
+};
+
+template <typename TBus, typename TEvents = Z80_NoEvents>
 class Z80 {
 public:
     union Register {
@@ -76,8 +90,10 @@ public:
         precompute_parity();
         m_bus.connect(this);
         m_bus.reset();
-        m_events.connect(this);
-        m_events.reset();
+        if constexpr (!std::is_same_v<TEvents, Z80_NoEvents>) {
+            m_events.connect(this);
+            m_events.reset();
+        }
         reset();
     }
 
@@ -172,22 +188,30 @@ public:
     long long get_ticks() const { return m_ticks; }
     void set_ticks(long long value) { m_ticks = value; }
     void add_tick() {
-        if (Z80_LIKELY(++m_ticks != m_events.get_event_limit()))
-            return;
-        m_events.handle_event(m_ticks);
-    }
-    void add_ticks(long long delta) {
-        long long target_ticks = m_ticks + delta;
-        if (Z80_LIKELY(target_ticks < m_events.get_event_limit())) {
-            m_ticks = target_ticks;
-            return;
-        }
-        long long next_event;
-        while ((next_event = m_events.get_event_limit()) <= target_ticks) {
-            m_ticks = next_event;
+        if constexpr (std::is_same_v<TEvents, Z80_NoEvents>) {
+            ++m_ticks;
+        } else {
+            if (Z80_LIKELY(++m_ticks != m_events.get_event_limit()))
+                return;
             m_events.handle_event(m_ticks);
         }
-        m_ticks = target_ticks;
+    }
+    void add_ticks(long long delta) {
+        if constexpr (std::is_same_v<TEvents, Z80_NoEvents>) {
+            m_ticks += delta;
+        } else {
+            long long target_ticks = m_ticks + delta;
+            if (Z80_LIKELY(target_ticks < m_events.get_event_limit())) {
+                m_ticks = target_ticks;
+                return;
+            }
+            long long next_event;
+            while ((next_event = m_events.get_event_limit()) <= target_ticks) {
+                m_ticks = next_event;
+                m_events.handle_event(m_ticks);
+            }
+            m_ticks = target_ticks;
+        }
     }
 
     //Bus
@@ -283,7 +307,7 @@ public:
     IndexMode get_index_mode() const { return m_index_mode;}
     void set_index_mode(IndexMode mode) { m_index_mode = mode; }
     
-    // Public execution API for debugging and testing
+    // Public execution API
 #ifdef Z80_ENABLE_EXEC_API
     #include "Z80_exec.h"
 #endif
