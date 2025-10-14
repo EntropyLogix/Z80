@@ -2382,6 +2382,7 @@ private:
         uint8_t b_val = get_B();
         set_B(b_val - 1);
         m_bus.out(get_BC(), mem_val);
+        set_WZ(get_BC() + 1);
         add_ticks(4); // 4 for I/O write
         set_HL(get_HL() + 1);
         add_tick(); // 1 for internal ops
@@ -2453,6 +2454,7 @@ private:
         uint8_t b_val = get_B();
         set_B(b_val - 1);
         m_bus.out(get_BC(), mem_val);
+        set_WZ(get_BC() - 1);
         set_HL(get_HL() - 1);
         add_ticks(5); // 4 for I/O write, 1 for internal ops
         Flags flags = get_F();
@@ -2523,6 +2525,7 @@ private:
     void handle_opcode_0xED_0xBB_OTDR() {
         handle_opcode_0xED_0xAB_OUTD();
         if (get_B() != 0) {
+            set_WZ(get_PC() + 1);
             set_PC(get_PC() - 2);
             add_ticks(5);
         }
