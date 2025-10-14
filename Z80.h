@@ -2418,6 +2418,7 @@ private:
     void handle_opcode_0xED_0xB0_LDIR() {
         handle_opcode_0xED_0xA0_LDI();
         if (get_BC() != 0) {
+            set_WZ(get_PC() + 1);
             set_PC(get_PC() - 2);
             add_ticks(5);
         }
