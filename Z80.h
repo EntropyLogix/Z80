@@ -41,6 +41,7 @@ public:
         Register m_AF, m_BC, m_DE, m_HL;
         Register m_IX, m_IY, m_SP, m_PC;
         Register m_AFp, m_BCp, m_DEp, m_HLp;
+        Register m_WZ;
         uint8_t m_I, m_R;
         bool m_IFF1, m_IFF2;
         bool m_halted;
@@ -111,6 +112,7 @@ public:
         set_IFF2(false);
         set_halted(false);
         set_NMI_pending(false);
+        set_WZ(0);
         set_IRQ_request(false);
         set_EI_delay(false);
         set_RETI_signaled(false);
@@ -143,6 +145,7 @@ public:
         state.m_BCp = get_BCp();
         state.m_DEp = get_DEp();
         state.m_HLp = get_HLp();
+        state.m_WZ = get_WZ();
         state.m_I = get_I();
         state.m_R = get_R();
         state.m_IFF1 = get_IFF1();
@@ -171,6 +174,7 @@ public:
         set_BCp(state.m_BCp);
         set_DEp(state.m_DEp);
         set_HLp(state.m_HLp);
+        set_WZ(state.m_WZ);
         set_I(state.m_I);
         set_R(state.m_R);
         set_IFF1(state.m_IFF1);
@@ -246,6 +250,16 @@ public:
     uint16_t get_PC() const { return m_PC; }
     void set_PC(uint16_t value) { m_PC = value; }
 
+    // 16-bit internal temporary register
+    uint16_t get_WZ() const { return m_WZ.w; }
+    void set_WZ(uint16_t value) { m_WZ.w = value; }
+
+    // 8-bit parts of WZ
+    uint8_t get_W() const { return m_WZ.h; }
+    void set_W(uint8_t value) { m_WZ.h = value; }
+    uint8_t get_Z() const { return m_WZ.l; }
+    void set_Z(uint8_t value) { m_WZ.l = value; }
+
     // 16-bit alternate registers
     uint16_t get_AFp() const { return m_AFp.w; }
     void set_AFp(uint16_t value) { m_AFp.w = value; }
@@ -318,7 +332,7 @@ public:
 private:
     //CPU registers
     Register m_AF, m_BC, m_DE, m_HL;
-    Register m_AFp, m_BCp, m_DEp, m_HLp;
+    Register m_AFp, m_BCp, m_DEp, m_HLp, m_WZ;
     Register m_IX, m_IY;
     uint16_t m_SP, m_PC;
     uint8_t m_I, m_R;
