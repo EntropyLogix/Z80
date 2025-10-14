@@ -8,6 +8,8 @@
 #define Z80_ENABLE_EXEC_API
 #include "Z80.h"
 
+using namespace Z80;
+
 class Bus;
 
 class Events {
@@ -15,7 +17,7 @@ public:
     static constexpr long long CYCLES_PER_EVENT = 100000000;
 
     template<typename TBus, typename TDebugger>
-    void connect(Z80<TBus, Events, TDebugger>* cpu) { m_cpu = cpu; }
+    void connect(::Z80::Core<TBus, Events, TDebugger>* cpu) { m_cpu = cpu; }
     void reset() {
         m_next_event_tick = CYCLES_PER_EVENT;
         m_system_timer_value = 0;
@@ -26,7 +28,7 @@ public:
         m_next_event_tick += CYCLES_PER_EVENT;
     }
 private:
-    Z80<Bus, Events, Z80_NoDebugger>* m_cpu = nullptr;
+    ::Z80::Core<Bus, Events, NoDebugger>* m_cpu = nullptr;
     long long m_next_event_tick = CYCLES_PER_EVENT; 
     int m_system_timer_value = 0; 
 };
@@ -35,7 +37,7 @@ class Bus {
 public:
     Bus() { m_ram.resize(0x10000, 0); }
     template<typename TEvents, typename TDebugger>
-    void connect(Z80<Bus, TEvents, TDebugger>* cpu) { m_cpu = cpu; }
+    void connect(::Z80::Core<Bus, TEvents, TDebugger>* cpu) { m_cpu = cpu; }
     void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
     uint8_t read(uint16_t address) {
         if (address == 0x0005) {
@@ -63,7 +65,7 @@ private:
             }
         }
     }
-    Z80<Bus, Events, Z80_NoDebugger>* m_cpu = nullptr;
+    ::Z80::Core<Bus, Events, NoDebugger>* m_cpu = nullptr;
     std::vector<uint8_t> m_ram;
     bool is_finished = false;
 };
@@ -114,8 +116,8 @@ int main(int argc, char* argv[]) {
     const char* rom_filename = argv[1];
     Bus bus;
     Events events;
-    Z80_NoDebugger debugger;
-    Z80 cpu(bus, events, debugger);
+    NoDebugger debugger;
+    ::Z80::Core cpu(bus, events, debugger);
     if (!load_rom(rom_filename, bus, 0x0100)) {
         std::cerr << "Error: Failed to load ROM file: " << rom_filename << std::endl;
         return 1;
