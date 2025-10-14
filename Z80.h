@@ -1013,7 +1013,9 @@ private:
         set_BC(fetch_next_word());
     }
     void handle_opcode_0x02_LD_BC_ptr_A() {
-        write_byte(get_BC(), get_A());
+        uint16_t address = get_BC();
+        write_byte(address, get_A());
+        set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((address + 1) & 0xFF));
     }
     void handle_opcode_0x03_INC_BC() {
         set_BC(get_BC() + 1);
