@@ -1947,6 +1947,7 @@ private:
         set_PC(0x0028);
     }
     void handle_opcode_0xF0_RET_P() {
+        add_tick();
         if (!get_F().is_set(Flags::S)) {
             uint16_t address = pop_word();
             set_WZ(address);
@@ -1983,6 +1984,7 @@ private:
         set_PC(0x0030);
     }
     void handle_opcode_0xF8_RET_M() {
+        add_tick();
         if (get_F().is_set(Flags::S)) {
             uint16_t address = pop_word();
             set_WZ(address);
