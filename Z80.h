@@ -283,8 +283,8 @@ public:
     IndexMode get_index_mode() const { return m_index_mode;}
     void set_index_mode(IndexMode mode) { m_index_mode = mode; }
     
-    // Exec routines
-#ifdef Z80_ENABLE_EXEC
+    // Public execution API for debugging and testing
+#ifdef Z80_ENABLE_EXEC_API
     #include "Z80_exec.h"
 #endif
 
