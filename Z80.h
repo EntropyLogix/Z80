@@ -831,6 +831,7 @@ private:
         set_IFF2(get_IFF1());
         set_IFF1(false);
         push_word(get_PC());
+        set_WZ(0x0066);
         set_PC(0x0066);
         set_NMI_pending(false);
         add_ticks(4);
@@ -852,19 +853,20 @@ private:
                 add_ticks(4); // Internal operations for RST
                 uint8_t opcode = get_IRQ_data();
                 switch (opcode) {
-                    case 0xC7: set_PC(0x0000); break;
-                    case 0xCF: set_PC(0x0008); break;
-                    case 0xD7: set_PC(0x0010); break;
-                    case 0xDF: set_PC(0x0018); break;
-                    case 0xE7: set_PC(0x0020); break;
-                    case 0xEF: set_PC(0x0028); break;
-                    case 0xF7: set_PC(0x0030); break;
-                    case 0xFF: set_PC(0x0038); break;
+                    case 0xC7: set_WZ(0x0000); set_PC(0x0000); break;
+                    case 0xCF: set_WZ(0x0008); set_PC(0x0008); break;
+                    case 0xD7: set_WZ(0x0010); set_PC(0x0010); break;
+                    case 0xDF: set_WZ(0x0018); set_PC(0x0018); break;
+                    case 0xE7: set_WZ(0x0020); set_PC(0x0020); break;
+                    case 0xEF: set_WZ(0x0028); set_PC(0x0028); break;
+                    case 0xF7: set_WZ(0x0030); set_PC(0x0030); break;
+                    case 0xFF: set_WZ(0x0038); set_PC(0x0038); break;
                 }
                 break;
             }
             case 1: {
                 add_ticks(4); // Internal operations for RST 38H
+                set_WZ(0x0038);
                 set_PC(0x0038);
                 break;
             }
@@ -872,6 +874,7 @@ private:
                 uint16_t vector_address = (static_cast<uint16_t>(get_I()) << 8) | get_IRQ_data();
                 uint16_t handler_address = read_word(vector_address);
                 add_ticks(4); // Internal operations
+                set_WZ(handler_address);
                 set_PC(handler_address);
                 break;
             }
