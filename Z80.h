@@ -15,51 +15,13 @@
     #define Z80_LIKELY(expr)   (expr)
 #endif
 
-namespace Z80 {
+template <typename, typename, typename> class Z80;
 
-template <typename, typename, typename> class Core;
+class Z80_DefaultBus;
+class Z80_DefaultEvents;
+class Z80_DefaultDebugger;
 
-class NoEvents {
-public:
-    static constexpr long long CYCLES_PER_EVENT = LLONG_MAX;
-    template <typename TBus, typename TDebugger>
-    void connect(const Core<TBus, NoEvents, TDebugger>* cpu) {}
-    void reset() {}
-    long long get_event_limit() const { return LLONG_MAX; }
-    void handle_event(long long tick) {}
-};
-
-class NoDebugger {
-public:
-    template <typename TBus, typename TEvents> 
-    void connect(const Core<TBus, TEvents, NoDebugger>* cpu) {}
-    void before_step(const std::vector<uint8_t>& opcodes) {}
-    void after_step(const std::vector<uint8_t>& opcodes) {}
-    void before_IRQ() {}
-    void after_IRQ() {}
-    void before_NMI() {}
-    void after_NMI() {}
-};
-
-class SimpleBus {
-public:
-    SimpleBus() { m_ram.resize(0x10000, 0); }
-    template <typename TEvents, typename TDebugger> void connect(Core<SimpleBus, TEvents, TDebugger>* cpu) {}
-    void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
-    uint8_t read(uint16_t address) { return m_ram[address]; }
-    void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
-    uint8_t in(uint16_t port) { return 0xFF; }
-    void out(uint16_t port, uint8_t value) { /* no-op */ }
-
-private:
-    std::vector<uint8_t> m_ram;
-};
-
-template <
-    typename TBus = Z80_SimpleBus,
-    typename TEvents = Z80_NoEvents,
-    typename TDebugger = Z80_NoDebugger
->
+template <typename TBus = Z80_DefaultBus, typename TEvents = Z80_DefaultEvents, typename TDebugger = Z80_DefaultDebugger>
 class Z80 {
 public:
     union Register {
@@ -124,11 +86,11 @@ public:
         precompute_parity();
         m_bus.connect(this);
         // m_bus.reset(); // The user might want to load data before reset
-        if constexpr (!std::is_same_v<TEvents, Z80_NoEvents>) {
+        if constexpr (!std::is_same_v<TEvents, Z80_DefaultEvents>) {
             m_events.connect(this);
             m_events.reset();
         }
-        if constexpr (!std::is_same_v<TDebugger, Z80_NoDebugger>) {
+        if constexpr (!std::is_same_v<TDebugger, Z80_DefaultDebugger>) {
             m_debugger.connect(this);
         }
         reset();
@@ -225,7 +187,7 @@ public:
     long long get_ticks() const { return m_ticks; }
     void set_ticks(long long value) { m_ticks = value; }
     void add_tick() {
-        if constexpr (std::is_same_v<TEvents, NoEvents>) {
+        if constexpr (std::is_same_v<TEvents, Z80_DefaultEvents>) {
             ++m_ticks;
         } else {
             if (Z80_LIKELY(++m_ticks != m_events.get_event_limit()))
@@ -234,7 +196,7 @@ public:
         }
     }
     void add_ticks(long long delta) {
-        if constexpr (std::is_same_v<TEvents, NoEvents>) {
+        if constexpr (std::is_same_v<TEvents, Z80_DefaultEvents>) {
             m_ticks += delta;
         } else {
             long long target_ticks = m_ticks + delta;
@@ -836,7 +798,7 @@ private:
 
     //Interrupt handling
     void handle_NMI() {
-        if constexpr (!std::is_same_v<TDebugger, NoDebugger>) {
+        if constexpr (!std::is_same_v<TDebugger, Z80_DefaultDebugger>) {
             m_debugger.before_NMI();
         }
         set_halted(false);
@@ -846,16 +808,16 @@ private:
         set_PC(0x0066);
         set_NMI_pending(false);
         add_ticks(4);
-        if constexpr (!std::is_same_v<TDebugger, NoDebugger>) {
+        if constexpr (!std::is_same_v<TDebugger, Z80_DefaultDebugger>) {
             m_debugger.after_NMI();
         }
     }
     void handle_IRQ() {
-        if constexpr (!std::is_same_v<TDebugger, NoDebugger>) {
+        if constexpr (!std::is_same_v<TDebugger, Z80_DefaultDebugger>) {
             m_debugger.before_IRQ();
         }
         set_halted(false);
-        add_ticks(2);
+        add_ticks(2); // Two wait states during interrupt acknowledge cycle
         set_IFF2(get_IFF1());
         set_IFF1(false);
         push_word(get_PC());
@@ -889,7 +851,7 @@ private:
             }
         }
         set_IRQ_request(false);
-        if constexpr (!std::is_same_v<TDebugger, NoDebugger>) {
+        if constexpr (!std::is_same_v<TDebugger, Z80_DefaultDebugger>) {
             m_debugger.after_IRQ();
         }
     }
@@ -2438,7 +2400,7 @@ private:
                     opcodes.push_back(opcode);
                 }
 
-               if constexpr (!std::is_same_v<TDebugger, NoDebugger>)
+               if constexpr (!std::is_same_v<TDebugger, Z80_DefaultDebugger>)
                     m_debugger.before_step(opcodes);
 
                 switch (opcode) {
@@ -2782,7 +2744,7 @@ private:
                 handle_NMI();
             else if (is_IRQ_pending())
                 handle_IRQ();
-            if constexpr (!std::is_same_v<TDebugger, NoDebugger>)
+            if constexpr (!std::is_same_v<TDebugger, Z80_DefaultDebugger>)
                 m_debugger.after_step(opcodes);
             opcodes.clear();
             if constexpr (TMode == OperateMode::SingleStep) {
@@ -2796,6 +2758,40 @@ private:
     }
 };
 
-#endif //__Z80_H__
+class Z80_DefaultEvents {
+public:
+    static constexpr long long CYCLES_PER_EVENT = LLONG_MAX;
+    template <typename TBus, typename TDebugger>
+    void connect(const Z80<TBus, Z80_DefaultEvents, TDebugger>* cpu) {}
+    void reset() {}
+    long long get_event_limit() const { return LLONG_MAX; }
+    void handle_event(long long tick) {}
+};
 
-} // namespace Z80
+class Z80_DefaultDebugger {
+public:
+    template <typename TBus, typename TEvents> 
+    void connect(const Z80<TBus, TEvents, Z80_DefaultDebugger>* cpu) {}
+    void before_step(const std::vector<uint8_t>& opcodes) {}
+    void after_step(const std::vector<uint8_t>& opcodes) {}
+    void before_IRQ() {}
+    void after_IRQ() {}
+    void before_NMI() {}
+    void after_NMI() {}
+};
+
+class Z80_DefaultBus {
+public:
+    Z80_DefaultBus() { m_ram.resize(0x10000, 0); }
+    template <typename TEvents, typename TDebugger> void connect(Z80<Z80_DefaultBus, TEvents, TDebugger>* cpu) {}
+    void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
+    uint8_t read(uint16_t address) { return m_ram[address]; }
+    void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
+    uint8_t in(uint16_t port) { return 0xFF; }
+    void out(uint16_t port, uint8_t value) { /* no-op */ }
+
+private:
+    std::vector<uint8_t> m_ram;
+};
+
+#endif //__Z80_H__
