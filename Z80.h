@@ -15,13 +15,13 @@
     #define Z80_LIKELY(expr)   (expr)
 #endif
 
-template <typename, typename> class Z80;
+template <typename, typename, typename> class Z80;
 
 class Z80_NoEvents {
 public:
     static constexpr long long CYCLES_PER_EVENT = LLONG_MAX;
-    template <typename TBus>
-    void connect(Z80<TBus, Z80_NoEvents>* cpu) {}
+    template <typename TBus, typename TDebugger>
+    void connect(const Z80<TBus, Z80_NoEvents, TDebugger>* cpu) {}
     void reset() {}
     long long get_event_limit() const { return LLONG_MAX; }
     void handle_event(long long tick) {}
@@ -29,10 +29,10 @@ public:
 
 class Z80_NoDebugger {
 public:
-    template <typename TBus, typename TEvents>
-    void connect(Z80<TBus, TEvents, Z80_NoDebugger>* cpu) {}
-    void before_instruction(const std::vector<uint8_t>& opcodes) {}
-    void after_instruction() {}
+    template <typename TBus, typename TEvents> 
+    void connect(const Z80<TBus, TEvents, Z80_NoDebugger>* cpu) {}
+    void before_step(const std::vector<uint8_t>& opcodes) {}
+    void after_step(const std::vector<uint8_t>& opcodes) {}
     void before_IRQ() {}
     void after_IRQ() {}
     void before_NMI() {}
@@ -42,8 +42,7 @@ public:
 class Z80_SimpleBus {
 public:
     Z80_SimpleBus() { m_ram.resize(0x10000, 0); }
-    template <typename TEvents>
-    void connect(Z80<Z80_SimpleBus, TEvents, Z80_NoDebugger>* cpu) {}
+    template <typename TEvents, typename TDebugger> void connect(Z80<Z80_SimpleBus, TEvents, TDebugger>* cpu) {}
     void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
     uint8_t read(uint16_t address) { return m_ram[address]; }
     void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
@@ -122,7 +121,7 @@ public:
     Z80(TBus& bus, TEvents& events, TDebugger& debugger) : m_bus(bus), m_events(events), m_debugger(debugger) {
         precompute_parity();
         m_bus.connect(this);
-        m_bus.reset();
+        // m_bus.reset(); // The user might want to load data before reset
         if constexpr (!std::is_same_v<TEvents, Z80_NoEvents>) {
             m_events.connect(this);
             m_events.reset();
@@ -2411,6 +2410,7 @@ private:
         SingleStep
     };
     template<OperateMode TMode> long long operate(long long ticks_limit) {
+        std::vector<uint8_t> opcodes;
         long long initial_ticks = get_ticks();
         while (true) { 
             if (get_EI_delay()) {
@@ -2428,11 +2428,16 @@ private:
                 set_index_mode(IndexMode::HL);
 
                 uint8_t opcode = fetch_next_opcode();
+                opcodes.push_back(opcode);
 
                 while (opcode == 0xDD || opcode == 0xFD) {
                     set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
                     opcode = fetch_next_opcode();
+                    opcodes.push_back(opcode);
                 }
+
+               if constexpr (!std::is_same_v<TDebugger, Z80_NoDebugger>)
+                    m_debugger.before_step(opcodes);
 
                 switch (opcode) {
                     case 0x00: handle_opcode_0x00_NOP(); break;
@@ -2642,11 +2647,14 @@ private:
                         if (Z80_LIKELY((get_index_mode() == IndexMode::HL)))
                         {
                             uint8_t cb_opcode = fetch_next_opcode();
+                            opcodes.push_back(cb_opcode);
                             handle_CB_opcodes(cb_opcode);
                         } else { // DDCB d xx or FDCB d xx
                             uint16_t index_reg = (get_index_mode() == IndexMode::IX) ? get_IX() : get_IY();
                             int8_t offset = static_cast<int8_t>(fetch_next_byte());
+                            opcodes.push_back(offset);
                             uint8_t cb_opcode = fetch_next_byte();
+                            opcodes.push_back(cb_opcode);
                             handle_CB_indexed_opcodes(index_reg, offset, cb_opcode);
                         }
                         break;
@@ -2684,6 +2692,7 @@ private:
                     case 0xEC: handle_opcode_0xEC_CALL_PE_nn(); break;
                     case 0xED: {
                         uint8_t opcodeED = fetch_next_opcode();
+                        opcodes.push_back(opcodeED);
                         switch (opcodeED) {
                             case 0x40: handle_opcode_0xED_0x40_IN_B_C_ptr(); break;
                             case 0x41: handle_opcode_0xED_0x41_OUT_C_ptr_B(); break;
@@ -2771,6 +2780,9 @@ private:
                 handle_NMI();
             else if (is_IRQ_pending())
                 handle_IRQ();
+            if constexpr (!std::is_same_v<TDebugger, Z80_NoDebugger>)
+                m_debugger.after_step(opcodes);
+            opcodes.clear();
             if constexpr (TMode == OperateMode::SingleStep) {
                 break;
             } else {
