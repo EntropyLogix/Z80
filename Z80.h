@@ -27,22 +27,38 @@ public:
     void handle_event(long long tick) {}
 };
 
+class Z80_NoDebugger {
+public:
+    template <typename TBus, typename TEvents>
+    void connect(Z80<TBus, TEvents, Z80_NoDebugger>* cpu) {}
+    void before_instruction(const std::vector<uint8_t>& opcodes) {}
+    void after_instruction() {}
+    void before_IRQ() {}
+    void after_IRQ() {}
+    void before_NMI() {}
+    void after_NMI() {}
+};
+
 class Z80_SimpleBus {
 public:
     Z80_SimpleBus() { m_ram.resize(0x10000, 0); }
     template <typename TEvents>
-    void connect(Z80<Z80_SimpleBus, TEvents>* cpu) {}
+    void connect(Z80<Z80_SimpleBus, TEvents, Z80_NoDebugger>* cpu) {}
     void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
     uint8_t read(uint16_t address) { return m_ram[address]; }
     void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
     uint8_t in(uint16_t port) { return 0xFF; }
-    void out(uint16_t port, uint8_t value) {}
+    void out(uint16_t port, uint8_t value) { /* no-op */ }
 
 private:
     std::vector<uint8_t> m_ram;
 };
 
-template <typename TBus = Z80_SimpleBus, typename TEvents = Z80_NoEvents>
+template <
+    typename TBus = Z80_SimpleBus,
+    typename TEvents = Z80_NoEvents,
+    typename TDebugger = Z80_NoDebugger
+>
 class Z80 {
 public:
     union Register {
@@ -103,13 +119,16 @@ public:
     };
 
     // Constructor
-    Z80(TBus& bus, TEvents& events) : m_bus(bus), m_events(events){
+    Z80(TBus& bus, TEvents& events, TDebugger& debugger) : m_bus(bus), m_events(events), m_debugger(debugger) {
         precompute_parity();
         m_bus.connect(this);
         m_bus.reset();
         if constexpr (!std::is_same_v<TEvents, Z80_NoEvents>) {
             m_events.connect(this);
             m_events.reset();
+        }
+        if constexpr (!std::is_same_v<TDebugger, Z80_NoDebugger>) {
+            m_debugger.connect(this);
         }
         reset();
     }
@@ -353,6 +372,7 @@ private:
     //Memory and IO operations
     TBus& m_bus;
     TEvents& m_events;
+    TDebugger& m_debugger;
 
     //Internal memory access helpers
     uint8_t read_byte(uint16_t address) {
@@ -815,6 +835,9 @@ private:
 
     //Interrupt handling
     void handle_NMI() {
+        if constexpr (!std::is_same_v<TDebugger, Z80_NoDebugger>) {
+            m_debugger.before_NMI();
+        }
         set_halted(false);
         set_IFF2(get_IFF1());
         set_IFF1(false);
@@ -822,8 +845,14 @@ private:
         set_PC(0x0066);
         set_NMI_pending(false);
         add_ticks(4);
+        if constexpr (!std::is_same_v<TDebugger, Z80_NoDebugger>) {
+            m_debugger.after_NMI();
+        }
     }
-    void handle_interrupt() {
+    void handle_IRQ() {
+        if constexpr (!std::is_same_v<TDebugger, Z80_NoDebugger>) {
+            m_debugger.before_IRQ();
+        }
         set_halted(false);
         add_ticks(2); // Two wait states during interrupt acknowledge cycle
         set_IFF2(get_IFF1());
@@ -859,6 +888,9 @@ private:
             }
         }
         set_IRQ_request(false);
+        if constexpr (!std::is_same_v<TDebugger, Z80_NoDebugger>) {
+            m_debugger.after_IRQ();
+        }
     }
 
     //Opcodes handling
@@ -2394,11 +2426,14 @@ private:
             }
             else {
                 set_index_mode(IndexMode::HL);
+
                 uint8_t opcode = fetch_next_opcode();
+
                 while (opcode == 0xDD || opcode == 0xFD) {
                     set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
                     opcode = fetch_next_opcode();
                 }
+
                 switch (opcode) {
                     case 0x00: handle_opcode_0x00_NOP(); break;
                     case 0x01: handle_opcode_0x01_LD_BC_nn(); break;
@@ -2608,7 +2643,7 @@ private:
                         {
                             uint8_t cb_opcode = fetch_next_opcode();
                             handle_CB_opcodes(cb_opcode);
-                        } else {
+                        } else { // DDCB d xx or FDCB d xx
                             uint16_t index_reg = (get_index_mode() == IndexMode::IX) ? get_IX() : get_IY();
                             int8_t offset = static_cast<int8_t>(fetch_next_byte());
                             uint8_t cb_opcode = fetch_next_byte();
@@ -2735,7 +2770,7 @@ private:
             if (is_NMI_pending())
                 handle_NMI();
             else if (is_IRQ_pending())
-                handle_interrupt();
+                handle_IRQ();
             if constexpr (TMode == OperateMode::SingleStep) {
                 break;
             } else {
