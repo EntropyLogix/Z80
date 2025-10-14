@@ -1740,6 +1740,7 @@ private:
     }
     void handle_opcode_0xC4_CALL_NZ_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (!get_F().is_set(Flags::Z)) {
             push_word(get_PC());
             set_PC(address);
@@ -1777,6 +1778,7 @@ private:
     }
     void handle_opcode_0xCC_CALL_Z_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (get_F().is_set(Flags::Z)) {
             push_word(get_PC());
             set_PC(address);
@@ -1784,6 +1786,7 @@ private:
     }
     void handle_opcode_0xCD_CALL_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         push_word(get_PC());
         set_PC(address);
     }
@@ -1819,6 +1822,7 @@ private:
     }
     void handle_opcode_0xD4_CALL_NC_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (!get_F().is_set(Flags::C)) {
             push_word(get_PC());
             set_PC(address);
@@ -1868,6 +1872,7 @@ private:
     }
     void handle_opcode_0xDC_CALL_C_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (get_F().is_set(Flags::C)) {
             push_word(get_PC());
             set_PC(address);
@@ -1907,6 +1912,7 @@ private:
     }
     void handle_opcode_0xE4_CALL_PO_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (!get_F().is_set(Flags::PV)) {
             push_word(get_PC());
             set_PC(address);
@@ -1947,6 +1953,7 @@ private:
     }
     void handle_opcode_0xEC_CALL_PE_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (get_F().is_set(Flags::PV)) {
             push_word(get_PC());
             set_PC(address);
@@ -1983,6 +1990,7 @@ private:
     }
     void handle_opcode_0xF4_CALL_P_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (!get_F().is_set(Flags::S)) {
             push_word(get_PC());
             set_PC(address);
@@ -2022,6 +2030,7 @@ private:
     }
     void handle_opcode_0xFC_CALL_M_nn() {
         uint16_t address = fetch_next_word();
+        set_WZ(address);
         if (get_F().is_set(Flags::S)) {
             push_word(get_PC());
             set_PC(address);
