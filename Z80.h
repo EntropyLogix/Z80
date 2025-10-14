@@ -1041,6 +1041,7 @@ private:
     }
     void handle_opcode_0x09_ADD_HL_BC() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(add_16bit(get_indexed_HL(), get_BC()));
     }
     void handle_opcode_0x0A_LD_A_BC_ptr() {
@@ -1124,6 +1125,7 @@ private:
     }
     void handle_opcode_0x19_ADD_HL_DE() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(add_16bit(get_indexed_HL(), get_DE()));
     }
     void handle_opcode_0x1A_LD_A_DE_ptr() {
@@ -1228,6 +1230,7 @@ private:
     }
     void handle_opcode_0x29_ADD_HL_HL() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(add_16bit(get_indexed_HL(), get_indexed_HL()));
     }
     void handle_opcode_0x2A_LD_HL_nn_ptr() {
@@ -1319,6 +1322,7 @@ private:
     }
     void handle_opcode_0x39_ADD_HL_SP() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(add_16bit(get_indexed_HL(), get_SP()));
     }
     void handle_opcode_0x3A_LD_A_nn_ptr() {
@@ -1916,6 +1920,7 @@ private:
     void handle_opcode_0xE3_EX_SP_ptr_HL() {
         uint16_t from_stack = read_word(get_SP());
         add_tick(); // 1 T-state for internal operation
+        set_WZ(from_stack);
         write_word(get_SP(), get_indexed_HL());
         set_indexed_HL(from_stack);
         add_ticks(2); // 2 T-states for internal operation
@@ -2027,6 +2032,7 @@ private:
     }
     void handle_opcode_0xF9_LD_SP_HL() {
         set_SP(get_indexed_HL());
+        set_WZ(get_SP() + 1);
         add_ticks(2);
     }
     void handle_opcode_0xFA_JP_M_nn() {
@@ -2064,6 +2070,7 @@ private:
     }
     void handle_opcode_0xED_0x42_SBC_HL_BC() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(sbc_16bit(get_indexed_HL(), get_BC()));
     }
     void handle_opcode_0xED_0x43_LD_nn_ptr_BC() {
@@ -2108,6 +2115,7 @@ private:
     }
     void handle_opcode_0xED_0x4A_ADC_HL_BC() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(adc_16bit(get_indexed_HL(), get_BC()));
     }
     void handle_opcode_0xED_0x4B_LD_BC_nn_ptr() {
@@ -2136,6 +2144,7 @@ private:
     }
     void handle_opcode_0xED_0x52_SBC_HL_DE() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(sbc_16bit(get_indexed_HL(), get_DE()));
     }
     void handle_opcode_0xED_0x53_LD_nn_ptr_DE() {
@@ -2169,6 +2178,7 @@ private:
     }
     void handle_opcode_0xED_0x5A_ADC_HL_DE() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(adc_16bit(get_indexed_HL(), get_DE()));
     }
     void handle_opcode_0xED_0x5B_LD_DE_nn_ptr() {
@@ -2202,6 +2212,7 @@ private:
     }
     void handle_opcode_0xED_0x62_SBC_HL_HL() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         uint16_t value = get_indexed_HL();
         set_indexed_HL(sbc_16bit(value, value));
     }
@@ -2239,6 +2250,7 @@ private:
     }
     void handle_opcode_0xED_0x6A_ADC_HL_HL() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         uint16_t value = get_indexed_HL();
         set_indexed_HL(adc_16bit(value, value));
     }
@@ -2276,6 +2288,7 @@ private:
     }
     void handle_opcode_0xED_0x72_SBC_HL_SP() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(sbc_16bit(get_indexed_HL(), get_SP()));
     }
     void handle_opcode_0xED_0x73_LD_nn_ptr_SP() {
@@ -2293,6 +2306,7 @@ private:
     }
     void handle_opcode_0xED_0x7A_ADC_HL_SP() {
         add_ticks(7);
+        set_WZ(get_indexed_HL() + 1);
         set_indexed_HL(adc_16bit(get_indexed_HL(), get_SP()));
     }
     void handle_opcode_0xED_0x7B_LD_SP_nn_ptr() {
