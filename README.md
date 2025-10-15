@@ -18,7 +18,7 @@ The design emphasizes decoupling the CPU logic from external components (Bus, Ev
 
 ## 🧩 **Usage and Integration**
 
-The `Z80` class is a template that can be configured with up to three external interface classes to handle system interactions: `TBus`, `TEvents`, and `TDebugger`. Default implementations are provided for each, allowing for quick setup and testing.
+The `Z80` class is a template that can be configured with up to three external interface classes to handle system interactions: `TBus`, `TEvents`, and `TDebugger`. This design allows for maximum flexibility by separating the CPU core logic from the system-specific hardware it interacts with.
 
 ```cpp
 template <
@@ -47,59 +47,6 @@ Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullpt
 *   **Passing `nullptr` (Internal Ownership):** If you pass `nullptr` or omit the argument, the `Z80` core will internally create a new instance of the corresponding template type (e.g., `new TBus()`). The `Z80` core then **takes ownership** and will automatically `delete` the object in its destructor. This is convenient for self-contained setups.
 
 This model gives you the choice between dependency injection (you control the lifetime) and composition (the `Z80` object controls the lifetime).
-
-### Default Implementations
-
-If you don't provide custom classes when instantiating the `Z80` template, the emulator will use the following defaults, which are defined at the end of `Z80.h`:
-
-*   **`Z80DefaultBus`**: Implements a simple memory and I/O bus.
-    *   Provides a 64KB RAM space (`std::vector<uint8_t>`).
-    *   `read`/`write` operations access this internal RAM.
-    *   `in` operations always return `0xFF`.
-    *   `out` operations do nothing.
-*   **`Z80DefaultEvents`**: A minimal event handler that effectively disables the event system for maximum performance when timing is not critical.
-    *   The next event is scheduled for the maximum possible cycle count (`LLONG_MAX`), so `handle_event` is never called.
-*   **`Z80DefaultDebugger`**: A stub implementation with empty methods.
-    *   All debugger hooks (`before_step`, `after_step`, etc.) are no-ops and will be optimized out by the compiler, ensuring zero overhead when not in use.
-
-This allows you to instantiate the CPU with minimal boilerplate, for example `Z80<> cpu;`, which is useful for simple test cases or scenarios where you only need the core CPU logic.
-
-### **Required Interfaces**
-
-Your custom classes must implement the methods detailed below to interact with the CPU core.
-
-#### `TBus` Interface
-Responsible for communication with memory and I/O ports.
-
-| Method | Description |
-| :--- | :--- |
-| `void connect(Z80<...>* cpu)` | Called by the Z80 constructor to pass a pointer to the CPU instance. This allows the bus to have backward access to the processor, e.g., to trigger an interrupt. |
-| `uint8_t read(uint16_t address)` | Reads a single byte from the 16-bit memory address space. |
-| `void write(uint16_t address, uint8_t value)` | Writes a single byte to the 16-bit memory address space. |
-| `uint8_t in(uint16_t port)` | Reads a single byte from the 16-bit I/O port address space. |
-| `void out(uint16_t port, uint8_t value)` | Writes a single byte to the 16-bit I/O port address space. |
-| `void reset()` | Resets the bus state (e.g., clears RAM, resets connected devices). |
-
-#### `TEvents` Interface
-Manages cycle-dependent events, which are crucial for precise timing.
-
-| Method | Description |
-| :--- | :--- |
-| `void connect(const Z80<...>* cpu)` | Called by the Z80 constructor. It passes a constant pointer to the CPU, allowing the event system to read its state (like the cycle counter) without modifying it. |
-| `long long get_event_limit() const` | Returns the absolute cycle count (`m_ticks`) at which the next event should occur. The CPU core compares its internal cycle counter against this value. |
-| `void handle_event(long long tick)` | A callback function invoked by the CPU when its cycle counter reaches the value returned by `get_event_limit()`. Used to handle timing-based events (e.g., video frame interrupts). |
-| `void reset()` | Resets the state of the event system. |
-
-#### `TDebugger` Interface
-Allows an external debugger to be attached to trace code execution.
-
-| Method | Description |
-| :--- | :--- |
-| `void connect(const Z80<...>* cpu)` | Called by the Z80 constructor. It passes a constant pointer to the CPU to allow the debugger to inspect registers and processor state. |
-| `before_step(...)` / `after_step(...)` | Hooks called before and after each instruction is executed. The method signature depends on the `Z80_DEBUGGER_OPCODES` macro.<br>• **Without macro:** `void before_step()`<br>• **With macro:** `void before_step(const std::vector<uint8_t>& opcodes)`<br>The `opcodes` vector contains the full byte sequence of the instruction (opcode + operands). |
-| `void before_IRQ()` / `void after_IRQ()` | Hooks called just before and after handling a maskable interrupt (IRQ). |
-| `void before_NMI()` / `void after_NMI()` | Hooks called just before and after handling a non-maskable interrupt (NMI). |
-| `void reset()` | Resets the internal state of the debugger. |
 
 ### **Public API Reference**
 
@@ -176,6 +123,54 @@ When compiled with `Z80_ENABLE_EXEC_API`, the emulator exposes a set of public m
 *   `exec_SET_7_IY_d_ptr_L(int8_t offset)`
 *   `exec_SET_7_IY_d_ptr(int8_t offset)`
 *   `exec_SET_7_IY_d_ptr_A(int8_t offset)`
+
+### **Core Interfaces (TBus, TEvents, TDebugger)**
+
+The power of the emulator comes from its template-based design, which allows you to customize its interaction with the outside world by providing your own implementations for three core interfaces: `TBus`, `TEvents`, and `TDebugger`.
+
+For each interface, you can either use the provided default for simplicity or pass a pointer to your own custom class in the `Z80` constructor to achieve specialized behavior.
+
+#### `TBus` Interface
+Responsible for all communication with memory and I/O ports.
+
+| Method | Description |
+| :--- | :--- |
+| `void connect(Z80<...>* cpu)` | Called by the Z80 constructor to pass a pointer to the CPU instance. This allows the bus to have backward access to the processor, e.g., to trigger an interrupt. |
+| `uint8_t read(uint16_t address)` | Reads a single byte from the 16-bit memory address space. |
+| `void write(uint16_t address, uint8_t value)` | Writes a single byte to the 16-bit memory address space. |
+| `uint8_t in(uint16_t port)` | Reads a single byte from the 16-bit I/O port address space. |
+| `void out(uint16_t port, uint8_t value)` | Writes a single byte to the 16-bit I/O port address space. |
+| `void reset()` | Resets the bus state (e.g., clears RAM, resets connected devices). |
+
+**Default Implementation (`Z80DefaultBus`):**
+Provides a simple 64KB RAM space (`std::vector<uint8_t>`). `read`/`write` operations access this internal RAM, `in` operations always return `0xFF`, and `out` operations do nothing. This is useful for basic testing.
+
+#### `TEvents` Interface
+Manages cycle-dependent events, which are crucial for precise, hardware-accurate timing (e.g., synchronizing with a video controller).
+
+| Method | Description |
+| :--- | :--- |
+| `void connect(const Z80<...>* cpu)` | Called by the Z80 constructor. It passes a constant pointer to the CPU, allowing the event system to read its state (like the cycle counter) without modifying it. |
+| `long long get_event_limit() const` | Returns the absolute cycle count (`m_ticks`) at which the next event should occur. The CPU core compares its internal cycle counter against this value. |
+| `void handle_event(long long tick)` | A callback function invoked by the CPU when its cycle counter reaches the value returned by `get_event_limit()`. Used to handle timing-based events (e.g., video frame interrupts). |
+| `void reset()` | Resets the state of the event system. |
+
+**Default Implementation (`Z80DefaultEvents`):**
+A minimal event handler that effectively disables the event system for maximum performance. The next event is scheduled for the maximum possible cycle count (`LLONG_MAX`), so `handle_event` is never called.
+
+#### `TDebugger` Interface
+Provides hooks that allow an external tool to be attached to monitor and trace code execution.
+
+| Method | Description |
+| :--- | :--- |
+| `void connect(const Z80<...>* cpu)` | Called by the Z80 constructor. It passes a constant pointer to the CPU to allow the debugger to inspect registers and processor state. |
+| `before_step(...)` / `after_step(...)` | Hooks called before and after each instruction is executed. The method signature depends on the `Z80_DEBUGGER_OPCODES` macro.<br>• **Without macro:** `void before_step()`<br>• **With macro:** `void before_step(const std::vector<uint8_t>& opcodes)`<br>The `opcodes` vector contains the full byte sequence of the instruction (opcode + operands). |
+| `void before_IRQ()` / `void after_IRQ()` | Hooks called just before and after handling a maskable interrupt (IRQ). |
+| `void before_NMI()` / `void after_NMI()` | Hooks called just before and after handling a non-maskable interrupt (NMI). |
+| `void reset()` | Resets the internal state of the debugger. |
+
+**Default Implementation (`Z80DefaultDebugger`):**
+A stub implementation with empty methods. All debugger hooks are no-ops and will be optimized out by the compiler, ensuring zero performance overhead when debugging is not needed.
 
 ### **Example Implementation Snippets**
 
