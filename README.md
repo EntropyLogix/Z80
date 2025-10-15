@@ -71,23 +71,114 @@ Allows an external debugger to be attached to trace code execution.
 
 ### **Example Implementation Snippet**
 
-// (Assumes you have defined MyBus, MyEvents, and MyDebugger classes)
+The following snippets demonstrate how to initialize and use the Z80 core in various configurations.
 
-\#include "Z80.h"
+#### 1. Using Default Implementations
+The simplest way to get the CPU running, perfect for basic tests. It uses `Z80DefaultBus` (with 64KB RAM), `Z80DefaultEvents` (no events), and `Z80DefaultDebugger` (no debugging).
 
-// 1\. Instantiate the interfaces  
-MyBus bus;  
-MyEvents events;
+```cpp
+#include "Z80.h"
+#include <iostream>
 
-// 2\. Initialize the Z80 core  
-Z80<MyBus, MyEvents> cpu(&bus, &events);
+int main() {
+    // Initializes the CPU with default components.
+    Z80<> cpu;
 
-// 3\. Run the emulation  
-long long ticks\_to\_execute \= 10000;  
-long long executed\_ticks \= cpu.run(cpu.get\_ticks() \+ ticks\_to\_execute);
+    // Write a simple program to memory (LD A, 0x42; HALT)
+    cpu.get_bus()->write(0x0000, 0x3E);
+    cpu.get_bus()->write(0x0001, 0x42);
+    cpu.get_bus()->write(0x0002, 0x76);
 
-// Or step one instruction at a time  
-int instruction\_cycles \= cpu.step();
+    // Run the emulation
+    cpu.run(100);
+
+    // Check the state of register A
+    // std::cout << "Register A: " << (int)cpu.get_A() << std::endl; // Should print 66
+    return 0;
+}
+```
+
+#### 2. Using a Custom `TBus`
+This example shows how to integrate a custom bus, for instance, to handle a specific memory map or I/O devices.
+
+```cpp
+#include "Z80.h"
+
+class CustomBus {
+    // ... implement read, write, in, out, reset, connect ...
+public:
+    void connect(Z80<CustomBus>* cpu) { /* ... */ }
+    void reset() { /* ... */ }
+    uint8_t read(uint16_t address) { return m_ram[address]; }
+    void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
+    uint8_t in(uint16_t port) { return 0xFF; }
+    void out(uint16_t port, uint8_t value) { /* ... */ }
+private:
+    uint8_t m_ram[0x10000];
+};
+
+int main() {
+    CustomBus my_bus;
+    Z80<CustomBus> cpu(&my_bus); // Pass a pointer to the custom bus
+    cpu.run(100);
+    return 0;
+}
+```
+
+#### 3. Using a Custom `TEvents`
+Ideal when you need precise timing, such as for synchronizing with a video chip emulation.
+
+```cpp
+#include "Z80.h"
+#include <iostream>
+
+class CustomEvents {
+    // ... implement get_event_limit, handle_event, reset, connect ...
+public:
+    void connect(const Z80<Z80DefaultBus, CustomEvents>* cpu) { /* ... */ }
+    void reset() { /* ... */ }
+    long long get_event_limit() const { return 20000; } // Trigger event every 20000 ticks
+    void handle_event(long long tick) {
+        // std::cout << "Event at tick: " << tick << std::endl;
+        // A V-blank interrupt could be triggered here.
+    }
+};
+
+int main() {
+    CustomEvents my_events;
+    // Use the default bus (nullptr) and a custom event system
+    Z80<Z80DefaultBus, CustomEvents> cpu(nullptr, &my_events);
+    cpu.run(100000);
+    return 0;
+}
+```
+
+#### 4. Using All Custom Classes
+A full-featured setup for a complex project, like a complete computer emulator.
+
+```cpp
+#include "Z80.h"
+
+class MyBus { /* ... */ };
+class MyEvents { /* ... */ };
+class MyDebugger { /* ... */ };
+
+int main() {
+    // 1. Instantiate all custom components
+    MyBus bus;
+    MyEvents events;
+    MyDebugger debugger;
+
+    // 2. Initialize the Z80 core, passing pointers to all components
+    Z80<MyBus, MyEvents, MyDebugger> cpu(&bus, &events, &debugger);
+
+    // 3. Run the emulation
+    long long ticks_per_frame = 4000000;
+    cpu.run(cpu.get_ticks() + ticks_per_frame);
+
+    return 0;
+}
+```
 
 ## **⚙️ Configuration**
 
