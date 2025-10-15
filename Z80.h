@@ -6459,6 +6459,7 @@ public:
     template <typename TEvents, typename TDebugger> void connect(Z80<Z80DefaultBus, TEvents, TDebugger>* cpu) {}
     void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
     uint8_t read(uint16_t address) { return m_ram[address]; }
+    uint8_t peek(uint16_t address) const { return m_ram[address]; }
     void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
     uint8_t in(uint16_t port) { return 0xFF; }
     void out(uint16_t port, uint8_t value) { /* no-op */ }

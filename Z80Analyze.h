@@ -8,9 +8,9 @@
 #include <vector>
 
 template <class TBus>
-class Z80Disassembler {
+class Z80Analyzer {
 public:
-    Z80Disassembler(TBus& bus) : m_bus(bus) {}
+    Z80Analyzer(TBus& bus) : m_bus(bus) {}
 
     std::string get_indexed_reg_str() {
         if (get_index_mode() == IndexMode::IX) return "IX";
@@ -18,9 +18,93 @@ public:
         return "HL";
     }
 
+    /**
+     * @brief Disassembles a single Z80 instruction using the default format.
+     * @param address A reference to the memory address to disassemble. The address will be advanced by the length of the instruction.
+     * @return A formatted string representing the disassembled instruction.
+     */
     std::string disassemble(uint16_t& address) {
+        return disassemble(address, "%a: %-12b %m");
+    }
+
+    /**
+     * @brief Disassembles a single Z80 instruction at the given address and formats the output.
+     * @param address A reference to the memory address to disassemble. The address will be advanced by the length of the instruction.
+     * @param format A printf-style format string to control the output.
+     *               Specifiers:
+     *               - `%a`: Address (hex)
+     *               - `%A`: Address (dec)
+     *               - `%b`: Instruction bytes (hex)
+     *               - `%B`: Instruction bytes (dec)
+     *               - `%m`: Mnemonic
+     *               Supports width (`%10`), alignment (`%-10`),
+     *               and fill character (`%-10.b` uses `.` instead of space).
+     * @return A formatted string representing the disassembled instruction.
+     */
+    std::string disassemble(uint16_t& address, const std::string& format) {
+        uint16_t initial_address = address;
+        parse_instruction(address);
+
+        std::stringstream ss;
+        for (size_t i = 0; i < format.length(); ++i) {
+            if (format[i] == '%') {
+                int width = 0;
+                bool left_align = false;
+                char fill_char = ' ';
+                size_t j = i + 1;
+
+                if (format[j] == '-') {
+                    left_align = true;
+                    j++;
+                }
+
+                while (isdigit(format[j])) {
+                    width = width * 10 + (format[j] - '0');
+                    j++;
+                }
+
+                if (format[j] == '.') {
+                    fill_char = '.';
+                    j++;
+                }
+
+                if (j < format.length()) {
+                    char specifier = format[j];
+                    std::string replacement;
+                    switch (specifier) {
+                        case 'a': // hex address
+                            replacement = format_hex(initial_address, 4);
+                            break;
+                        case 'A': // dec address
+                            replacement = std::to_string(initial_address);
+                            break;
+                        case 'b': // hex bytes
+                            replacement = get_bytes_str(true);
+                            break;
+                        case 'B': // dec bytes
+                            replacement = get_bytes_str(false);
+                            break;
+                        case 'm': // mnemonic
+                            replacement = m_mnemonic;
+                            break;
+                    }
+                    
+                    ss << std::setfill(fill_char) << std::setw(width) << (left_align ? std::left : std::right) << replacement;
+                    ss << std::setfill(' '); // Reset fill character
+                    i = j;
+                }
+            } else {
+                ss << format[i];
+            }
+        }
+        return ss.str();
+    }
+
+private:
+    void parse_instruction(uint16_t& address) {
         m_address = address;
         m_mnemonic.clear();
+        m_bytes.clear();
         set_index_mode(IndexMode::HL);
         uint8_t opcode = peek_next_opcode();
         while (opcode == 0xDD || opcode == 0xFD) {
@@ -426,7 +510,7 @@ public:
                     case 0xBA: m_mnemonic = "INDR"; break;
                     case 0xBB: m_mnemonic = "OTDR"; break;
                     default:
-                        return "NOP (DB 0xED, " + format_hex(opcodeED) + ")";
+                        m_mnemonic = "NOP (DB 0xED, " + format_hex(opcodeED) + ")";
                 }
                 break;
             }
@@ -448,9 +532,8 @@ public:
             case 0xFE: m_mnemonic = "CP " + format_hex(peek_next_byte()); break;
             case 0xFF: m_mnemonic = "RST 38H"; break;
         }
+        address = m_address;
     }
-
-private:
     uint16_t m_address;
     std::string m_mnemonic;
     std::vector<uint8_t> m_bytes;
@@ -479,6 +562,22 @@ private:
         std::string index_reg_str = (get_index_mode() == IndexMode::IX) ? "IX" : "IY";
         std::stringstream ss;
         ss << "(" << index_reg_str << (offset >= 0 ? "+" : "") << static_cast<int>(offset) << ")";
+        return ss.str();
+    }
+
+    std::string get_bytes_str(bool hex_format = true) const {
+        std::stringstream ss;
+        for (size_t i = 0; i < m_bytes.size(); ++i) {
+            if (hex_format) {
+                ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
+                   << static_cast<int>(m_bytes[i]);
+            } else {
+                ss << std::dec << static_cast<int>(m_bytes[i]);
+            }
+            if (i < m_bytes.size() - 1) {
+                ss << " ";
+            }
+        }
         return ss.str();
     }
 
