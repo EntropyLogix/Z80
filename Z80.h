@@ -137,6 +137,65 @@ public:
         if (m_owns_debugger)
             delete m_debugger;
     }
+
+    // Copy constructor
+    Z80(const Z80& other)
+        : m_bus(nullptr), m_events(nullptr), m_debugger(nullptr),
+         m_owns_bus(false), m_owns_events(false), m_owns_debugger(false) {
+        // Copy state
+        restore_state(other.save_state());
+
+        // Handle bus
+        if (other.m_owns_bus) {
+            m_bus = new TBus(*other.m_bus);
+            m_owns_bus = true;
+        } else {
+            m_bus = other.m_bus;
+        }
+
+        // Handle events
+        if (other.m_owns_events) {
+            m_events = new TEvents(*other.m_events);
+            m_owns_events = true;
+        } else {
+            m_events = other.m_events;
+        }
+
+        // Handle debugger
+        if (other.m_owns_debugger) {
+            m_debugger = new TDebugger(*other.m_debugger);
+            m_owns_debugger = true;
+        } else {
+            m_debugger = other.m_debugger;
+        }
+
+        precompute_parity();
+        m_bus->connect(this);
+        m_events->connect(this);
+        m_debugger->connect(this);
+    }
+
+    // Copy assignment operator
+    Z80& operator=(const Z80& other) {
+        if (this == &other) {
+            return *this;
+        }
+
+        // Copy state
+        restore_state(other.save_state());
+
+        // Clean up owned resources
+        if (m_owns_bus) delete m_bus;
+        if (m_owns_events) delete m_events;
+        if (m_owns_debugger) delete m_debugger;
+
+        // Copy and re-initialize resources
+        *this = Z80(other); // Delegate to copy constructor
+
+        return *this;
+    }
+
+
     // Main execution and control interface
     /**
      * @brief Runs the CPU emulation for a specified number of T-states (ticks).
