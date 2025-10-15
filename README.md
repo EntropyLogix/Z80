@@ -16,6 +16,34 @@ The design emphasizes decoupling the CPU logic from external components (Bus, Ev
 
 The `Z80` class is a template that can be configured with up to three external interface classes to handle system interactions: `TBus`, `TEvents`, and `TDebugger`. Default implementations are provided for each, allowing for quick setup and testing.
 
+```cpp
+template <
+    typename TBus = Z80DefaultBus, 
+    typename TEvents = Z80DefaultEvents, 
+    typename TDebugger = Z80DefaultDebugger
+>
+class Z80 {
+public:
+    Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr);
+    
+    // ... public methods like run(), step(), reset() ...
+};
+```
+
+### Constructor and Ownership
+
+The `Z80` constructor manages the lifecycle of its `TBus`, `TEvents`, and `TDebugger` dependencies through a flexible ownership model.
+
+```cpp
+Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr);
+```
+
+*   **Passing a Pointer (External Ownership):** If you provide a valid pointer to an existing object, the `Z80` core will use that object. In this case, the `Z80` instance does **not** take ownership, and you are responsible for managing the object's memory (i.e., creating and deleting it). This is useful for sharing a single bus or event system across multiple components.
+
+*   **Passing `nullptr` (Internal Ownership):** If you pass `nullptr` or omit the argument, the `Z80` core will internally create a new instance of the corresponding template type (e.g., `new TBus()`). The `Z80` core then **takes ownership** and will automatically `delete` the object in its destructor. This is convenient for self-contained setups.
+
+This model gives you the choice between dependency injection (you control the lifetime) and composition (the `Z80` object controls the lifetime).
+
 ### Default Implementations
 
 If you don't provide custom classes when instantiating the `Z80` template, the emulator will use the following defaults, which are defined at the end of `Z80.h`:
