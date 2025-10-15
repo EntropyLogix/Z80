@@ -7,12 +7,12 @@
 
 #include "Z80.h"
 
-using MyZ80 = Z80<class Bus, class Z80DefaultEvents, class SimpleDebugger>;
+using Z80Processor = Z80<class Bus, class Z80DefaultEvents, class Z80DefaultDebugger>;
 
 class Bus {
 public:
     Bus() { m_ram.resize(0x10000, 0); }
-    void connect(MyZ80* cpu) { m_cpu = cpu; }
+    void connect(Z80Processor* cpu) { m_cpu = cpu; }
     void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
     uint8_t read(uint16_t address) {
         if (address == 0x0005) {
@@ -40,41 +40,9 @@ private:
             }
         }
     }
-    MyZ80* m_cpu = nullptr;
+    Z80Processor* m_cpu = nullptr;
     std::vector<uint8_t> m_ram;
     bool is_finished = false;
-};
-
-class SimpleDebugger {
-public:
-    SimpleDebugger() : m_instruction_count(0) {}
-
-    void connect(MyZ80* cpu) { m_cpu = cpu; }
-
-    void reset() { m_instruction_count = 0; }
-
-    void before_NMI() {}
-    void after_NMI() {}
-
-    void before_IRQ() {}
-    void after_IRQ() {}
-
-    void before_step(const std::vector<uint8_t>& opcodes) {}
-
-    void after_step(const std::vector<uint8_t>& opcodes) {
-        m_instruction_count++;
-        if (m_instruction_count % 1000000000 == 0) {
-            std::cout << "\n[DEBUGGER] Instr #" << m_instruction_count << " Opcodes: ";
-            for (uint8_t opcode : opcodes) {
-                std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(opcode) << " ";
-            }
-            std::cout << std::dec << std::endl;
-        }
-    }
-
-private:
-    uint64_t m_instruction_count;
-    MyZ80* m_cpu = nullptr;
 };
 
 class Timer {
@@ -114,7 +82,7 @@ bool load_rom(const std::string& filepath, Bus& bus, uint16_t start_address) {
     return false;
 }
 
-int main(int argc, char* argv[]) { // NOLINT(bugprone-exception-escape)
+int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cerr << "Error: No ROM file path provided." << std::endl;
         std::cerr << "Usage: " << argv[0] << " <rom_file_path>" << std::endl;
@@ -123,10 +91,8 @@ int main(int argc, char* argv[]) { // NOLINT(bugprone-exception-escape)
 
     const char* rom_filename = argv[1];
 
-    Bus bus;
-    SimpleDebugger debugger;
-    MyZ80 cpu(&bus, nullptr, &debugger);
-
+    Z80Processor cpu;
+    Bus& bus = *cpu.get_bus();
     if (!load_rom(rom_filename, bus, 0x0100)) {
         std::cerr << "Error: Failed to load ROM file: " << rom_filename << std::endl;
         return 1;

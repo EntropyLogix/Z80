@@ -18,6 +18,7 @@
 class Z80DefaultBus;
 class Z80DefaultEvents;
 class Z80DefaultDebugger;
+
 template <typename TBus = Z80DefaultBus, typename TEvents = Z80DefaultEvents, typename TDebugger = Z80DefaultDebugger>
 class Z80 {
 public:
@@ -108,10 +109,13 @@ public:
         m_debugger->connect(this);
         reset();
     }
-    ~Z80() {
-        if (m_owns_bus) delete m_bus;
-        if (m_owns_events) delete m_events;
-        if (m_owns_debugger) delete m_debugger;
+    virtual ~Z80() {
+        if (m_owns_bus)
+            delete m_bus;
+        if (m_owns_events)
+            delete m_events;
+        if (m_owns_debugger)
+            delete m_debugger;
     }
     // Main execution and control interface
     long long run(long long ticks_limit) {return operate<OperateMode::ToLimit>(ticks_limit);}
@@ -373,7 +377,9 @@ private:
     bool m_owns_bus = false;
     bool m_owns_events = false;
     bool m_owns_debugger = false;
+#ifdef Z80_DEBUGGER_OPCODES
     std::vector<uint8_t> m_opcodes;
+#endif//Z80_DEBUGGER_OPCODES
 
     //Internal memory access helpers
     uint8_t read_byte(uint16_t address) {
@@ -423,8 +429,10 @@ private:
         add_tick(); //T2
         uint8_t opcode = m_bus->read(current_pc);
         m_data_bus = opcode;
+#ifdef Z80_DEBUGGER_OPCODES
         if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
             m_opcodes.push_back(opcode);
+#endif//Z80_DEBUGGER_OPCODES
         uint8_t r_val = get_R();
         set_R(((r_val + 1) & 0x7F) | (r_val & 0x80));
         add_tick(); //T3
@@ -435,8 +443,10 @@ private:
     uint8_t fetch_next_byte() {
         uint16_t current_pc = get_PC();
         uint8_t byte_val = read_byte(current_pc);
+#ifdef Z80_DEBUGGER_OPCODES
         if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
             m_opcodes.push_back(byte_val);
+#endif//Z80_DEBUGGER_OPCODES
         set_PC(current_pc + 1);
         return byte_val;
     }
@@ -2588,8 +2598,10 @@ private:
                     add_ticks(ticks_limit - get_ticks());
             }
             else {
+#ifdef Z80_DEBUGGER_OPCODES
                 if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
                     m_opcodes.clear();
+#endif//Z80_DEBUGGER_OPCODES
                 set_index_mode(IndexMode::HL);
                 uint8_t opcode = fetch_next_opcode();
                 while (opcode == 0xDD || opcode == 0xFD) {
@@ -2597,7 +2609,11 @@ private:
                     opcode = fetch_next_opcode();
                 }
                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+#ifdef Z80_DEBUGGER_OPCODES
                     m_debugger->before_step(m_opcodes);
+#else
+                    m_debugger->before_step();
+#endif//Z80_DEBUGGER_OPCODES
                 switch (opcode) {
                     case 0x00: handle_opcode_0x00_NOP(); break;
                     case 0x01: handle_opcode_0x01_LD_BC_nn(); break;
@@ -2937,7 +2953,11 @@ private:
             else if (is_IRQ_pending())
                 handle_IRQ();
             if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
+#ifdef Z80_DEBUGGER_OPCODES
                 m_debugger->after_step(m_opcodes);
+#else
+                m_debugger->after_step();
+#endif
             }
             if constexpr (TMode == OperateMode::SingleStep) {
                 break;
