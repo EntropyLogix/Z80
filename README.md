@@ -4,7 +4,9 @@ This repository contains a high-performance, header-only C++ template implementa
 
 The design emphasizes decoupling the CPU logic from external components (Bus, Events, and Debugger) using C++ templates, making it highly flexible and easy to integrate into various retro-computing projects or emulators (e.g., ZX Spectrum, CP/M, MSX).
 
-## **Features**
+---
+
+## ✨ **Features**
 
 * **Header-Only Design:** Easy inclusion and integration into any C++ project.  
 * **Template-Based Architecture:** The core logic (`Z80<TBus, TEvents, TDebugger>`) is completely decoupled from system specifics, promoting clean separation of concerns.  
@@ -12,7 +14,9 @@ The design emphasizes decoupling the CPU logic from external components (Bus, Ev
 * **Comprehensive Instruction Set:** Implements the core Z80 instruction set, including standard opcodes and the extended instruction sets (prefixed opcodes like CB, ED, DD, and FD).  
 * **State Management:** Provides utility functions (save\_state, load\_state) for easy serialization and save-state functionality.
 
-## **Usage and Integration**
+---
+
+## 🧩 **Usage and Integration**
 
 The `Z80` class is a template that can be configured with up to three external interface classes to handle system interactions: `TBus`, `TEvents`, and `TDebugger`. Default implementations are provided for each, allowing for quick setup and testing.
 
