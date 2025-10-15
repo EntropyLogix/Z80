@@ -2,7 +2,7 @@
 
 This repository contains a high-performance, header-only C++ template implementation of the **Zilog Z80 microprocessor** emulator core. 
 
-The design emphasizes decoupling the CPU logic from external components (Bus, Events, and Debugger) using C++ templates, making it highly flexible and easy to integrate into various retro-computing projects or emulators (e.g., ZX Spectrum, CP/M, MSX).
+The design emphasizes decoupling the CPU logic from external components (Bus, Events, and Debugger) using C++ templates, making it highly flexible and easy to integrate into various retro-computing projects or emulators (e.g., ZX Spectrum, Amstrad CPC, TRS-80, MSX, Sega Master System, or CP/M-based machines).
 
 ---
 
