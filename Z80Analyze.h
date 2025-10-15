@@ -41,7 +41,12 @@ public:
         m_mnemonic = "EX AF, AF'";
     }
     void handle_opcode_0x09_ADD_HL_BC() {
-        m_mnemonic = "ADD HL, BC";
+        m_mnemonic = "ADD " + get_indexed_reg_str() + ", BC";
+    }
+    std::string get_indexed_reg_str() {
+        if (get_index_mode() == IndexMode::IX) return "IX";
+        if (get_index_mode() == IndexMode::IY) return "IY";
+        return "HL";
     }
     void handle_opcode_0x0A_LD_A_BC_ptr() {
         m_mnemonic = "LD A, (BC)";
@@ -93,7 +98,7 @@ public:
         m_mnemonic = "JR " + format_hex(address);
     }
     void handle_opcode_0x19_ADD_HL_DE() {
-        m_mnemonic = "ADD HL, DE";
+        m_mnemonic = "ADD " + get_indexed_reg_str() + ", DE";
     }
     void handle_opcode_0x1A_LD_A_DE_ptr() {
         m_mnemonic = "LD A, (DE)";
@@ -119,22 +124,22 @@ public:
         m_mnemonic = "JR NZ, " + format_hex(address);
     }
     void handle_opcode_0x21_LD_HL_nn() {
-        m_mnemonic = "LD HL, " + format_hex(peek_next_word());
+        m_mnemonic = "LD " + get_indexed_reg_str() + ", " + format_hex(peek_next_word());
     }
     void handle_opcode_0x22_LD_nn_ptr_HL() {
-        m_mnemonic = "LD " + format_hex(peek_next_word()) + ", HL";
+        m_mnemonic = "LD (" + format_hex(peek_next_word()) + "), " + get_indexed_reg_str();
     }
     void handle_opcode_0x23_INC_HL() {
-        m_mnemonic = "INC HL";
+        m_mnemonic = "INC " + get_indexed_reg_str();
     }
     void handle_opcode_0x24_INC_H() {
-        m_mnemonic = "INC H";
+        m_mnemonic = "INC " + get_indexed_h_str();
     }
     void handle_opcode_0x25_DEC_H() {
-        m_mnemonic = "DEC H";
+        m_mnemonic = "DEC " + get_indexed_h_str();
     }
     void handle_opcode_0x26_LD_H_n() {
-        m_mnemonic = "LD H, " + format_hex(peek_next_byte());
+        m_mnemonic = "LD " + get_indexed_h_str() + ", " + format_hex(peek_next_byte());
     }
     void handle_opcode_0x27_DAA() {
         m_mnemonic = "DAA";
@@ -145,22 +150,23 @@ public:
         m_mnemonic = "JR Z, " + format_hex(address);
     }
     void handle_opcode_0x29_ADD_HL_HL() {
-        m_mnemonic = "ADD HL, HL";
+        std::string reg = get_indexed_reg_str();
+        m_mnemonic = "ADD " + reg + ", " + reg;
     }
     void handle_opcode_0x2A_LD_HL_nn_ptr() {
-        m_mnemonic = "LD HL, " + format_hex(peek_next_word());
+        m_mnemonic = "LD " + get_indexed_reg_str() + ", (" + format_hex(peek_next_word()) + ")";
     }
     void handle_opcode_0x2B_DEC_HL() {
-        m_mnemonic = "DEC HL";
+        m_mnemonic = "DEC " + get_indexed_reg_str();
     }
     void handle_opcode_0x2C_INC_L() {
-        m_mnemonic = "INC L";
+        m_mnemonic = "INC " + get_indexed_l_str();
     }
     void handle_opcode_0x2D_DEC_L() {
-        m_mnemonic = "DEC L";
+        m_mnemonic = "DEC " + get_indexed_l_str();
     }
     void handle_opcode_0x2E_LD_L_n() {
-        m_mnemonic = "LD L, " + format_hex(peek_next_byte());
+        m_mnemonic = "LD " + get_indexed_l_str() + ", " + format_hex(peek_next_byte());
     }
     void handle_opcode_0x2F_CPL() {
         m_mnemonic = "CPL";
@@ -180,13 +186,13 @@ public:
         m_mnemonic = "INC SP";
     }
     void handle_opcode_0x34_INC_HL_ptr() {
-        m_mnemonic = "INC (HL)";
+        m_mnemonic = "INC " + get_indexed_addr_str();
     }
     void handle_opcode_0x35_DEC_HL_ptr() {
-        m_mnemonic = "DEC (HL)";
+        m_mnemonic = "DEC " + get_indexed_addr_str();
     }
     void handle_opcode_0x36_LD_HL_ptr_n() {
-        m_mnemonic = "LD (HL), " + format_hex(peek_next_byte());
+        m_mnemonic = "LD " + get_indexed_addr_str() + ", " + format_hex(peek_next_byte());
     }
     void handle_opcode_0x37_SCF() {
         m_mnemonic = "SCF";
@@ -197,7 +203,7 @@ public:
         m_mnemonic = "JR C, " + format_hex(address);
     }
     void handle_opcode_0x39_ADD_HL_SP() {
-        m_mnemonic = "ADD HL, SP";
+        m_mnemonic = "ADD " + get_indexed_reg_str() + ", SP";
     }
     void handle_opcode_0x3A_LD_A_nn_ptr() {
         m_mnemonic = "LD A, (" + format_hex(peek_next_word()) + ")";
@@ -230,13 +236,13 @@ public:
         m_mnemonic = "LD B, E";
     }
     void handle_opcode_0x44_LD_B_H() {
-        m_mnemonic = "LD B, H";
+        m_mnemonic = "LD B, " + get_indexed_h_str();
     }
     void handle_opcode_0x45_LD_B_L() {
-        m_mnemonic = "LD B, L";
+        m_mnemonic = "LD B, " + get_indexed_l_str();
     }
     void handle_opcode_0x46_LD_B_HL_ptr() {
-        m_mnemonic = "LD B, (HL)";
+        m_mnemonic = "LD B, " + get_indexed_addr_str();
     }
     void handle_opcode_0x47_LD_B_A() {
         m_mnemonic = "LD B, A";
@@ -254,13 +260,13 @@ public:
         m_mnemonic = "LD C, E";
     }
     void handle_opcode_0x4C_LD_C_H() {
-        m_mnemonic = "LD C, H";
+        m_mnemonic = "LD C, " + get_indexed_h_str();
     }
     void handle_opcode_0x4D_LD_C_L() {
-        m_mnemonic = "LD C, L";
+        m_mnemonic = "LD C, " + get_indexed_l_str();
     }
     void handle_opcode_0x4E_LD_C_HL_ptr() {
-        m_mnemonic = "LD C, (HL)";
+        m_mnemonic = "LD C, " + get_indexed_addr_str();
     }
     void handle_opcode_0x4F_LD_C_A() {
         m_mnemonic = "LD C, A";
@@ -278,13 +284,13 @@ public:
         m_mnemonic = "LD D, E";
     }
     void handle_opcode_0x54_LD_D_H() {
-        m_mnemonic = "LD D, H";
+        m_mnemonic = "LD D, " + get_indexed_h_str();
     }
     void handle_opcode_0x55_LD_D_L() {
-        m_mnemonic = "LD D, L";
+        m_mnemonic = "LD D, " + get_indexed_l_str();
     }
     void handle_opcode_0x56_LD_D_HL_ptr() {
-        m_mnemonic = "LD D, (HL)";
+        m_mnemonic = "LD D, " + get_indexed_addr_str();
     }
     void handle_opcode_0x57_LD_D_A() {
         m_mnemonic = "LD D, A";
@@ -302,13 +308,13 @@ public:
         m_mnemonic = "LD E, E";
     }
     void handle_opcode_0x5C_LD_E_H() {
-        m_mnemonic = "LD E, H";
+        m_mnemonic = "LD E, " + get_indexed_h_str();
     }
     void handle_opcode_0x5D_LD_E_L() {
-        m_mnemonic = "LD E, L";
+        m_mnemonic = "LD E, " + get_indexed_l_str();
     }
     void handle_opcode_0x5E_LD_E_HL_ptr() {
-        m_mnemonic = "LD E, (HL)";
+        m_mnemonic = "LD E, " + get_indexed_addr_str();
     }
     void handle_opcode_0x5F_LD_E_A() {
         m_mnemonic = "LD E, A";
@@ -326,64 +332,66 @@ public:
         m_mnemonic = "LD H, E";
     }
     void handle_opcode_0x64_LD_H_H() {
-        m_mnemonic = "LD H, H";
+        std::string reg = get_indexed_h_str();
+        m_mnemonic = "LD " + reg + ", " + reg;
     }
     void handle_opcode_0x65_LD_H_L() {
-        m_mnemonic = "LD H, L";
+        m_mnemonic = "LD " + get_indexed_h_str() + ", " + get_indexed_l_str();
     }
     void handle_opcode_0x66_LD_H_HL_ptr() {
-        m_mnemonic = "LD H, (HL)";
+        m_mnemonic = "LD H, " + get_indexed_addr_str();
     }
     void handle_opcode_0x67_LD_H_A() {
-        m_mnemonic = "LD H, A";
+        m_mnemonic = "LD " + get_indexed_h_str() + ", A";
     }
     void handle_opcode_0x68_LD_L_B() {
-        m_mnemonic = "LD L, B";
+        m_mnemonic = "LD " + get_indexed_l_str() + ", B";
     }
     void handle_opcode_0x69_LD_L_C() {
-        m_mnemonic = "LD L, C";
+        m_mnemonic = "LD " + get_indexed_l_str() + ", C";
     }
     void handle_opcode_0x6A_LD_L_D() {
-        m_mnemonic = "LD L, D";
+        m_mnemonic = "LD " + get_indexed_l_str() + ", D";
     }
     void handle_opcode_0x6B_LD_L_E() {
-        m_mnemonic = "LD L, E";
+        m_mnemonic = "LD " + get_indexed_l_str() + ", E";
     }
     void handle_opcode_0x6C_LD_L_H() {
-        m_mnemonic = "LD L, H";
+        m_mnemonic = "LD " + get_indexed_l_str() + ", " + get_indexed_h_str();
     }
     void handle_opcode_0x6D_LD_L_L() {
-        m_mnemonic = "LD L, L";
+        std::string reg = get_indexed_l_str();
+        m_mnemonic = "LD " + reg + ", " + reg;
     }
     void handle_opcode_0x6E_LD_L_HL_ptr() {
-        m_mnemonic = "LD L, (HL)";
+        m_mnemonic = "LD L, " + get_indexed_addr_str();
     }
     void handle_opcode_0x6F_LD_L_A() {
-        m_mnemonic = "LD L, A";
+        m_mnemonic = "LD " + get_indexed_l_str() + ", A";
     }
     void handle_opcode_0x70_LD_HL_ptr_B() {
-        m_mnemonic = "LD (HL), B";
+        m_mnemonic = "LD " + get_indexed_addr_str() + ", B";
     }
     void handle_opcode_0x71_LD_HL_ptr_C() {
-        m_mnemonic = "LD (HL), C";
+        m_mnemonic = "LD " + get_indexed_addr_str() + ", C";
     }
     void handle_opcode_0x72_LD_HL_ptr_D() {
-        m_mnemonic = "LD (HL), D";
+        m_mnemonic = "LD " + get_indexed_addr_str() + ", D";
     }
     void handle_opcode_0x73_LD_HL_ptr_E() {
-        m_mnemonic = "LD (HL), E";
+        m_mnemonic = "LD " + get_indexed_addr_str() + ", E";
     }
     void handle_opcode_0x74_LD_HL_ptr_H() {
-        m_mnemonic = "LD (HL), H";
+        m_mnemonic = "LD " + get_indexed_addr_str() + ", H";
     }
     void handle_opcode_0x75_LD_HL_ptr_L() {
-        m_mnemonic = "LD (HL), L";
+        m_mnemonic = "LD " + get_indexed_addr_str() + ", L";
     }
     void handle_opcode_0x76_HALT() {
         m_mnemonic = "HALT";
     }
     void handle_opcode_0x77_LD_HL_ptr_A() {
-        m_mnemonic = "LD (HL), A";
+        m_mnemonic = "LD " + get_indexed_addr_str() + ", A";
     }
     void handle_opcode_0x78_LD_A_B() {
         m_mnemonic = "LD A, B";
@@ -398,13 +406,13 @@ public:
         m_mnemonic = "LD A, E";
     }
     void handle_opcode_0x7C_LD_A_H() {
-        m_mnemonic = "LD A, H";
+        m_mnemonic = "LD A, " + get_indexed_h_str();
     }
     void handle_opcode_0x7D_LD_A_L() {
-        m_mnemonic = "LD A, L";
+        m_mnemonic = "LD A, " + get_indexed_l_str();
     }
     void handle_opcode_0x7E_LD_A_HL_ptr() {
-        m_mnemonic = "LD A, (HL)";
+        m_mnemonic = "LD A, " + get_indexed_addr_str();
     }
     void handle_opcode_0x7F_LD_A_A() {
         m_mnemonic = "LD A, A";
@@ -422,13 +430,13 @@ public:
         m_mnemonic = "ADD A, E";
     }
     void handle_opcode_0x84_ADD_A_H() {
-        m_mnemonic = "ADD A, H";
+        m_mnemonic = "ADD A, " + get_indexed_h_str();
     }
     void handle_opcode_0x85_ADD_A_L() {
-        m_mnemonic = "ADD A, L";
+        m_mnemonic = "ADD A, " + get_indexed_l_str();
     }
     void handle_opcode_0x86_ADD_A_HL_ptr() {
-        m_mnemonic = "ADD A, (HL)";
+        m_mnemonic = "ADD A, " + get_indexed_addr_str();
     }
     void handle_opcode_0x87_ADD_A_A() {
         m_mnemonic = "ADD A, A";
@@ -446,13 +454,13 @@ public:
         m_mnemonic = "ADC A, E";
     }
     void handle_opcode_0x8C_ADC_A_H() {
-        m_mnemonic = "ADC A, H";
+        m_mnemonic = "ADC A, " + get_indexed_h_str();
     }
     void handle_opcode_0x8D_ADC_A_L() {
-        m_mnemonic = "ADC A, L";
+        m_mnemonic = "ADC A, " + get_indexed_l_str();
     }
     void handle_opcode_0x8E_ADC_A_HL_ptr() {
-        m_mnemonic = "ADC A, (HL)";
+        m_mnemonic = "ADC A, " + get_indexed_addr_str();
     }
     void handle_opcode_0x8F_ADC_A_A() {
         m_mnemonic = "ADC A, A";
@@ -470,13 +478,13 @@ public:
         m_mnemonic = "SUB E";
     }
     void handle_opcode_0x94_SUB_H() {
-        m_mnemonic = "SUB H";
+        m_mnemonic = "SUB " + get_indexed_h_str();
     }
     void handle_opcode_0x95_SUB_L() {
-        m_mnemonic = "SUB L";
+        m_mnemonic = "SUB " + get_indexed_l_str();
     }
     void handle_opcode_0x96_SUB_HL_ptr() {
-        m_mnemonic = "SUB (HL)";
+        m_mnemonic = "SUB " + get_indexed_addr_str();
     }
     void handle_opcode_0x97_SUB_A() {
         m_mnemonic = "SUB A";
@@ -494,13 +502,13 @@ public:
         m_mnemonic = "SBC A, E";
     }
     void handle_opcode_0x9C_SBC_A_H() {
-        m_mnemonic = "SBC A, H";
+        m_mnemonic = "SBC A, " + get_indexed_h_str();
     }
     void handle_opcode_0x9D_SBC_A_L() {
-        m_mnemonic = "SBC A, L";
+        m_mnemonic = "SBC A, " + get_indexed_l_str();
     }
     void handle_opcode_0x9E_SBC_A_HL_ptr() {
-        m_mnemonic = "SBC A, (HL)";
+        m_mnemonic = "SBC A, " + get_indexed_addr_str();
     }
     void handle_opcode_0x9F_SBC_A_A() {
         m_mnemonic = "SBC A, A";
@@ -518,13 +526,13 @@ public:
         m_mnemonic = "AND E";
     }
     void handle_opcode_0xA4_AND_H() {
-        m_mnemonic = "AND H";
+        m_mnemonic = "AND " + get_indexed_h_str();
     }
     void handle_opcode_0xA5_AND_L() {
-        m_mnemonic = "AND L";
+        m_mnemonic = "AND " + get_indexed_l_str();
     }
     void handle_opcode_0xA6_AND_HL_ptr() {
-        m_mnemonic = "AND (HL)";
+        m_mnemonic = "AND " + get_indexed_addr_str();
     }
     void handle_opcode_0xA7_AND_A() {
         m_mnemonic = "AND A";
@@ -542,13 +550,13 @@ public:
         m_mnemonic = "XOR E";
     }
     void handle_opcode_0xAC_XOR_H() {
-        m_mnemonic = "XOR H";
+        m_mnemonic = "XOR " + get_indexed_h_str();
     }
     void handle_opcode_0xAD_XOR_L() {
-        m_mnemonic = "XOR L";
+        m_mnemonic = "XOR " + get_indexed_l_str();
     }
     void handle_opcode_0xAE_XOR_HL_ptr() {
-        m_mnemonic = "XOR (HL)";
+        m_mnemonic = "XOR " + get_indexed_addr_str();
     }
     void handle_opcode_0xAF_XOR_A() {
         m_mnemonic = "XOR A";
@@ -566,13 +574,13 @@ public:
         m_mnemonic = "OR E";
     }
     void handle_opcode_0xB4_OR_H() {
-        m_mnemonic = "OR H";
+        m_mnemonic = "OR " + get_indexed_h_str();
     }
     void handle_opcode_0xB5_OR_L() {
-        m_mnemonic = "OR L";
+        m_mnemonic = "OR " + get_indexed_l_str();
     }
     void handle_opcode_0xB6_OR_HL_ptr() {
-        m_mnemonic = "OR (HL)";
+        m_mnemonic = "OR " + get_indexed_addr_str();
     }
     void handle_opcode_0xB7_OR_A() {
         m_mnemonic = "OR A";
@@ -590,13 +598,13 @@ public:
         m_mnemonic = "CP E";
     }
     void handle_opcode_0xBC_CP_H() {
-        m_mnemonic = "CP H";
+        m_mnemonic = "CP " + get_indexed_h_str();
     }
     void handle_opcode_0xBD_CP_L() {
-        m_mnemonic = "CP L";
+        m_mnemonic = "CP " + get_indexed_l_str();
     }
     void handle_opcode_0xBE_CP_HL_ptr() {
-        m_mnemonic = "CP (HL)";
+        m_mnemonic = "CP " + get_indexed_addr_str();
     }
     void handle_opcode_0xBF_CP_A() {
         m_mnemonic = "CP A";
@@ -695,13 +703,13 @@ public:
         m_mnemonic = "RET PO";
     }
     void handle_opcode_0xE1_POP_HL() {
-        m_mnemonic = "POP HL";
+        m_mnemonic = "POP " + get_indexed_reg_str();
     }
     void handle_opcode_0xE2_JP_PO_nn() {
         m_mnemonic = "JP PO, " + format_hex(peek_next_word());
     }
     void handle_opcode_0xE3_EX_SP_ptr_HL() {
-        m_mnemonic = "EX (SP), HL";
+        m_mnemonic = "EX (SP), " + get_indexed_reg_str();
     }
     void handle_opcode_0xE4_CALL_PO_nn() {
         m_mnemonic = "CALL PO, " + format_hex(peek_next_word());
@@ -719,7 +727,7 @@ public:
         m_mnemonic = "RET PE";
     }
     void handle_opcode_0xE9_JP_HL_ptr() {
-        m_mnemonic = "JP (HL)";
+        m_mnemonic = "JP (" + get_indexed_reg_str() + ")";
     }
     void handle_opcode_0xEA_JP_PE_nn() {
         m_mnemonic = "JP PE, " + format_hex(peek_next_word());
@@ -764,7 +772,7 @@ public:
         m_mnemonic = "RET M";
     }
     void handle_opcode_0xF9_LD_SP_HL() {
-        m_mnemonic = "LD SP, HL";
+        m_mnemonic = "LD SP, " + get_indexed_reg_str();
     }
     void handle_opcode_0xFA_JP_M_nn() {
         m_mnemonic = "JP M, " + format_hex(peek_next_word());
@@ -1016,7 +1024,7 @@ void handle_CB_opcodes(uint8_t opcode) {
         uint8_t opcode = peek_next_opcode();
         while (opcode == 0xDD || opcode == 0xFD) {
             set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
-            opcode = peek_next_opcode(address);
+            opcode = peek_next_opcode();
         }
         switch (opcode) {
             case 0x00: handle_opcode_0x00_NOP(); break;
@@ -1365,6 +1373,28 @@ private:
     IndexMode get_index_mode() const { return m_index_mode;}
     void set_index_mode(IndexMode mode) { m_index_mode = mode; }
 
+    std::string get_indexed_h_str() {
+        if (get_index_mode() == IndexMode::IX) return "IXH";
+        if (get_index_mode() == IndexMode::IY) return "IYH";
+        return "H";
+    }
+
+    std::string get_indexed_l_str() {
+        if (get_index_mode() == IndexMode::IX) return "IXL";
+        if (get_index_mode() == IndexMode::IY) return "IYL";
+        return "L";
+    }
+
+    std::string get_indexed_addr_str() {
+        if (get_index_mode() == IndexMode::HL) return "(HL)";
+        
+        int8_t offset = static_cast<int8_t>(peek_next_byte());
+        std::string index_reg_str = (get_index_mode() == IndexMode::IX) ? "IX" : "IY";
+        std::stringstream ss;
+        ss << "(" << index_reg_str << (offset >= 0 ? "+" : "") << static_cast<int>(offset) << ")";
+        return ss.str();
+    }
+
     uint8_t peek_next_byte() {
         uint8_t value = m_bus->peek(m_address++);
         m_bytes.push_back(value);
@@ -1376,7 +1406,7 @@ private:
         return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
     uint8_t peek_next_opcode() {
-        return peek_next_byte()
+        return peek_next_byte();
     }
 
     template<typename T>
