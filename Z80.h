@@ -1,12 +1,17 @@
-/**
- * @file Z80.h
- * @brief This file defines the core Z80 processor emulation class,
- *        including register definitions, state management, and
- *        instruction execution logic.
- *
- * @copyright Copyright (c) 2025 Adam Szulc
- * @license   MIT License
- */
+//  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄   
+//  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██  
+//      ██▀   ██▄  ▄██  ██    ██ 
+//    ▄██▀     ██████   ██ ██ ██ 
+//   ▄██      ██▀  ▀██  ██    ██ 
+//  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
+//  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
+// This file defines the core Z80 processor emulation class,
+// including register definitions, state management, and
+// instruction execution logic.
+//
+// Copyright (c) 2025 Adam Szulc
+// MIT License
+
 #ifndef __Z80_H__
 #define __Z80_H__
 
@@ -89,7 +94,7 @@ public:
         uint8_t m_value;
     };
 
-    // Constructors
+    // Constructor
     Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr) {
         /**
          * @brief Constructs a Z80 processor instance.

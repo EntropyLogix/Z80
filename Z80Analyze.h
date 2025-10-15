@@ -1,11 +1,15 @@
-/**
- * @file Z80Analyze.h
- * @brief This file contains the Z80Analyzer class, which provides functionality
- *        for disassembling Z80 machine code.
- *
- * @copyright Copyright (c) 2025 Adam Szulc
- * @license   MIT License
- */
+//  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄   
+//  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██  
+//      ██▀   ██▄  ▄██  ██    ██ 
+//    ▄██▀     ██████   ██ ██ ██ 
+//   ▄██      ██▀  ▀██  ██    ██ 
+//  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
+//  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
+// This file contains the Z80Analyzer class, which provides functionality for disassembling Z80 machine code.
+ 
+// Copyright (c) 2025 Adam Szulc
+// MIT License
+
 #ifndef __Z80ANALYZE_H__
 #define __Z80ANALYZE_H__
 
