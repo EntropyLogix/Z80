@@ -99,6 +99,84 @@ Allows an external debugger to be attached to trace code execution.
 
 ### **Example Implementation Snippet**
 
+### **🏛️ Public API Reference**
+
+This section details the primary public methods for controlling and interacting with the Z80 CPU core.
+
+#### **Core Execution and Control**
+
+| Method | Description |
+| :--- | :--- |
+| `long long run(long long ticks_limit)` | Runs the emulation until the internal T-state counter (`m_ticks`) reaches `ticks_limit`. Returns the number of ticks executed. |
+| `int step()` | Executes a single Z80 instruction and returns the number of T-states it took. |
+| `void reset()` | Resets all CPU registers, flags, and internal state to their power-on defaults (e.g., PC to `0x0000`, SP to `0xFFFF`). |
+| `void request_interrupt(uint8_t data)` | Signals a maskable interrupt (IRQ) request. The `data` byte is used for interrupt mode 0. The interrupt will be handled on the next instruction cycle if IFF1 is enabled. |
+| `void request_NMI()` | Signals a non-maskable interrupt (NMI) request. This interrupt is always handled, regardless of the IFF1 flag state. |
+
+#### **State Management**
+
+These methods allow for saving and restoring the complete state of the CPU, which is essential for implementing features like save states.
+
+| Method | Description |
+| :--- | :--- |
+| `State save_state() const` | Captures the current state of all CPU registers and internal flags into a `State` struct and returns it. |
+| `void restore_state(const State& state)` | Restores the CPU's state from a given `State` struct, overwriting all current register and flag values. |
+
+#### **Register and Flag Access**
+
+The API provides a comprehensive set of getter and setter methods for all Z80 registers.
+
+##### **16-bit Registers**
+
+*   `get_AF()`, `set_AF(uint16_t value)`
+*   `get_BC()`, `set_BC(uint16_t value)`
+*   `get_DE()`, `set_DE(uint16_t value)`
+*   `get_HL()`, `set_HL(uint16_t value)`
+*   `get_IX()`, `set_IX(uint16_t value)`
+*   `get_IY()`, `set_IY(uint16_t value)`
+*   `get_SP()`, `set_SP(uint16_t value)`
+*   `get_PC()`, `set_PC(uint16_t value)`
+*   Alternate registers: `get_AFp()`, `get_BCp()`, `get_DEp()`, `get_HLp()`, etc.
+
+##### **8-bit Registers**
+
+*   `get_A()`, `set_A(uint8_t value)`
+*   `get_B()`, `set_B(uint8_t value)`
+*   `get_C()`, `set_C(uint8_t value)`
+*   ...and so on for `D`, `E`, `H`, `L`, `I`, `R`.
+*   Indexed register parts: `get_IXH()`, `get_IXL()`, `get_IYH()`, `get_IYL()`.
+
+##### **Flags Register (F)**
+
+The `F` register is accessed via a helper class `Z80::Flags` that provides a convenient interface for flag manipulation.
+
+*   `Flags get_F() const`: Returns the `Flags` object.
+*   `void set_F(Flags value)`: Sets the entire flags register.
+*   `flags.is_set(Flags::Z)`: Checks if the Zero flag is set.
+*   `flags.set(Flags::C)`: Sets the Carry flag.
+*   `flags.clear(Flags::N)`: Clears the Subtract flag.
+
+#### **Direct Instruction Execution (`exec_*` API)**
+
+When compiled with `Z80_ENABLE_EXEC_API`, the emulator exposes a set of public methods for executing individual instructions directly. This is useful for unit testing or building specialized tools. The methods follow the Z80 instruction naming convention.
+
+**Note:** These methods do not perform a fetch-decode cycle. They execute the corresponding instruction's logic directly but will still perform memory reads/writes via the bus if the instruction requires an operand (e.g., `LD A, n`).
+
+**Example Methods:**
+
+*   `exec_NOP()`
+*   `exec_LD_BC_nn()`
+*   `exec_LD_BC_ptr_A()`
+*   `exec_INC_BC()`
+*   `exec_INC_B()`
+*   `...`
+*   `exec_SET_7_IY_d_ptr_H(int8_t offset)`
+*   `exec_SET_7_IY_d_ptr_L(int8_t offset)`
+*   `exec_SET_7_IY_d_ptr(int8_t offset)`
+*   `exec_SET_7_IY_d_ptr_A(int8_t offset)`
+
+### **Example Implementation Snippets**
+
 The following snippets demonstrate how to initialize and use the Z80 core in various configurations.
 
 #### 1. Using Default Implementations
