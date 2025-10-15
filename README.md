@@ -353,3 +353,9 @@ These options can be configured when generating the project with CMake (e.g., `c
     cmake -B build -DENABLE_PGO=ON -DPGO_MODE=USE
     cmake --build build # The compiler will use the profile data to optimize
     ```
+
+---
+
+## 📜 **License**
+
+This project is licensed under the MIT License. See the LICENSE file for details.
