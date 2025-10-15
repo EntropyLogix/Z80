@@ -136,8 +136,9 @@ Responsible for all communication with memory and I/O ports.
 | Method | Description |
 | :--- | :--- |
 | `void connect(Z80<...>* cpu)` | Called by the Z80 constructor to pass a pointer to the CPU instance. This allows the bus to have backward access to the processor, e.g., to trigger an interrupt. |
-| `uint8_t read(uint16_t address)` | Reads a single byte from the 16-bit memory address space. |
+| `uint8_t read(uint16_t address)` | Reads a single byte from the 16-bit memory address space. This can have side effects (e.g., handling memory-mapped I/O). |
 | `void write(uint16_t address, uint8_t value)` | Writes a single byte to the 16-bit memory address space. |
+| `uint8_t peek(uint16_t address) const` | Reads a single byte from memory without any side effects. This is primarily used by tools like the disassembler. |
 | `uint8_t in(uint16_t port)` | Reads a single byte from the 16-bit I/O port address space. |
 | `void out(uint16_t port, uint8_t value)` | Writes a single byte to the 16-bit I/O port address space. |
 | `void reset()` | Resets the bus state (e.g., clears RAM, resets connected devices). |
@@ -353,6 +354,84 @@ These options can be configured when generating the project with CMake (e.g., `c
     cmake -B build -DENABLE_PGO=ON -DPGO_MODE=USE
     cmake --build build # The compiler will use the profile data to optimize
     ```
+
+---
+
+## 🛠️ **Tools**
+
+This repository also includes utility classes that can be used alongside the Z80 core for debugging and analysis.
+
+### **Disassembler (`Z80Analyzer`)**
+
+The `Z80Analyzer` class provides a powerful tool for disassembling Z80 machine code. It can convert raw instruction bytes from a bus into human-readable assembly mnemonics.
+
+#### **Usage**
+
+To use the analyzer, instantiate it by passing a reference to a bus object (which provides memory access). You can then call the `disassemble` method.
+
+```cpp
+#include "Z80.h"
+#include "Z80Analyze.h"
+#include <iostream>
+
+// Assuming a Bus class that implements read() and peek()
+Bus bus; 
+Z80Analyzer<Bus> analyzer(bus);
+
+// Write some example code to memory
+bus.write(0x0000, 0x21); // LD HL, 0x1234
+bus.write(0x0001, 0x34);
+bus.write(0x0002, 0x12);
+
+uint16_t pc = 0x0000;
+std::string disassembly = analyzer.disassemble(pc);
+
+std::cout << disassembly << std::endl;
+```
+
+#### **Output Formatting**
+
+The `disassemble` method accepts an optional format string that allows you to customize the output's appearance, enabling flexible and clean presentation of disassembled code.
+
+`std::string disassemble(uint16_t& address, const std::string& format)`
+
+**Format Specifiers:**
+
+| Specifier | Description |
+| :--- | :--- |
+| `%a` | Instruction address (hexadecimal). |
+| `%A` | Instruction address (decimal). |
+| `%b` | Instruction bytes (hexadecimal). |
+| `%B` | Instruction bytes (decimal). |
+| `%m` | Instruction mnemonic. |
+
+The format string also supports standard `printf`-style modifiers for width, alignment, and fill character:
+*   **Width**: `%10b` will set the field width to 10 characters.
+*   **Alignment**: `%-10b` will left-align the output. Right-alignment is the default.
+*   **Fill Character**: `%-15.B` will use a dot `.` as the fill character instead of a space.
+
+#### **Formatting Examples**
+
+The following code, taken from `main.cpp`, demonstrates the use of different format strings:
+
+```cpp
+uint16_t pc = 0x0000;
+bus.write(0x0000, 0x21); bus.write(0x0001, 0x34); bus.write(0x0002, 0x12); // LD HL, 0x1234
+bus.write(0x0003, 0x7E); // LD A, (HL)
+bus.write(0x0004, 0x18); bus.write(0x0005, 0xFB); // JR -5
+
+std::cout << analyzer.disassemble(pc, "%a: %-12b %m") << std::endl;
+std::cout << analyzer.disassemble(pc, "%A: %-15.B %m") << std::endl;
+std::cout << analyzer.disassemble(pc, "%m") << std::endl;
+```
+
+**Output:**
+
+```
+0x0000: 21 34 12     LD HL, 0x1234
+3: 126............. LD A, (HL)
+JR 0x0000
+```
 
 ---
 
