@@ -208,6 +208,40 @@ int main() {
 }
 ```
 
+#### 5. Using the `exec_*` API for Direct Instruction Execution
+This advanced example demonstrates how to execute single instructions directly without a full fetch-decode-execute cycle from memory. This is useful for unit testing instruction implementations or for building custom tools.
+
+**Note:** This requires the `Z80_ENABLE_EXEC_API` macro to be defined during compilation (e.g., `g++ -DZ80_ENABLE_EXEC_API ...`).
+
+```cpp
+#include "Z80.h"
+#include <iostream>
+#include <iomanip>
+
+int main() {
+    Z80<> cpu;
+
+    // The exec_* API still uses the bus to fetch operands if needed.
+    // Let's prepare memory for LD A, 0x12 and LD B, 0x34
+    cpu.get_bus()->write(0x0000, 0x12); // Operand for LD A, n
+    cpu.get_bus()->write(0x0001, 0x34); // Operand for LD B, n
+    cpu.set_PC(0x0000);
+
+    // Execute instructions directly
+    cpu.exec_LD_A_n();  // Executes LD A, n. Fetches 0x12 from PC=0. PC becomes 1.
+    cpu.exec_LD_B_n();  // Executes LD B, n. Fetches 0x34 from PC=1. PC becomes 2.
+    cpu.exec_ADD_A_B(); // Executes ADD A, B. A = A + B = 0x12 + 0x34 = 0x46.
+
+    // Verify the result
+    std::cout << "Register A: 0x" << std::hex << (int)cpu.get_A() << std::endl; // Should be 0x46
+    std::cout << "Register B: 0x" << std::hex << (int)cpu.get_B() << std::endl; // Should be 0x34
+    std::cout << "PC: 0x" << std::hex << std::setw(4) << std::setfill('0') << cpu.get_PC() << std::endl; // Should be 0x0002
+
+    return 0;
+}
+```
+
+
 ## **⚙️ Configuration**
 
 The emulator's behavior and performance can be customized using several preprocessor directives and CMake build options.
