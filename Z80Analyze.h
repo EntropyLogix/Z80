@@ -192,7 +192,10 @@ public:
         m_mnemonic = "DEC " + get_indexed_addr_str();
     }
     void handle_opcode_0x36_LD_HL_ptr_n() {
-        m_mnemonic = "LD " + get_indexed_addr_str() + ", " + format_hex(peek_next_byte());
+        // Ensure offset 'd' is read before immediate value 'n'
+        std::string addr_str = get_indexed_addr_str(); 
+        std::string val_str = format_hex(peek_next_byte());
+        m_mnemonic = "LD " + addr_str + ", " + val_str;
     }
     void handle_opcode_0x37_SCF() {
         m_mnemonic = "SCF";
@@ -1387,7 +1390,6 @@ private:
 
     std::string get_indexed_addr_str() {
         if (get_index_mode() == IndexMode::HL) return "(HL)";
-        
         int8_t offset = static_cast<int8_t>(peek_next_byte());
         std::string index_reg_str = (get_index_mode() == IndexMode::IX) ? "IX" : "IY";
         std::stringstream ss;
