@@ -46,7 +46,7 @@ public:
             case 0x0F: m_mnemonic = "RRCA"; break;
             case 0x10: {
                 int8_t offset = static_cast<int8_t>(peek_next_byte());
-                uint16_t address = m_address + 1 + offset;
+                uint16_t address = m_address + offset;
                 m_mnemonic = "DJNZ " + format_hex(address);
                 break;
             }
@@ -59,7 +59,7 @@ public:
             case 0x17: m_mnemonic = "RLA"; break;
             case 0x18: {
                 int8_t offset = static_cast<int8_t>(peek_next_byte());
-                uint16_t address = m_address + 1 + offset;
+                uint16_t address = m_address + offset;
                 m_mnemonic = "JR " + format_hex(address);
                 break;
             }
@@ -72,7 +72,7 @@ public:
             case 0x1F: m_mnemonic = "RRA"; break;
             case 0x20: {
                 int8_t offset = static_cast<int8_t>(peek_next_byte());
-                uint16_t address = m_address + 1 + offset;
+                uint16_t address = m_address + offset;
                 m_mnemonic = "JR NZ, " + format_hex(address);
                 break;
             }
@@ -85,7 +85,7 @@ public:
             case 0x27: m_mnemonic = "DAA"; break;
             case 0x28: {
                 int8_t offset = static_cast<int8_t>(peek_next_byte());
-                uint16_t address = m_address + 1 + offset;
+                uint16_t address = m_address + offset;
                 m_mnemonic = "JR Z, " + format_hex(address);
                 break;
             }
@@ -102,7 +102,7 @@ public:
             case 0x2F: m_mnemonic = "CPL"; break;
             case 0x30: {
                 int8_t offset = static_cast<int8_t>(peek_next_byte());
-                uint16_t address = m_address + 1 + offset;
+                uint16_t address = m_address + offset;
                 m_mnemonic = "JR NC, " + format_hex(address);
                 break;
             }
@@ -112,7 +112,6 @@ public:
             case 0x34: m_mnemonic = "INC " + get_indexed_addr_str(); break;
             case 0x35: m_mnemonic = "DEC " + get_indexed_addr_str(); break;
             case 0x36: {
-                // Ensure offset 'd' is read before immediate value 'n'
                 std::string addr_str = get_indexed_addr_str(); 
                 std::string val_str = format_hex(peek_next_byte());
                 m_mnemonic = "LD " + addr_str + ", " + val_str;
@@ -121,7 +120,7 @@ public:
             case 0x37: m_mnemonic = "SCF"; break;
             case 0x38: {
                 int8_t offset = static_cast<int8_t>(peek_next_byte());
-                uint16_t address = m_address + 1 + offset;
+                uint16_t address = m_address + offset;
                 m_mnemonic = "JR C, " + format_hex(address);
                 break;
             }
@@ -484,7 +483,7 @@ private:
     }
 
     uint8_t peek_next_byte() {
-        uint8_t value = m_bus->peek(m_address++);
+        uint8_t value = m_bus.peek(m_address++);
         m_bytes.push_back(value);
         return value;
     }
