@@ -5,9 +5,9 @@
 //   ▄██      ██▀  ▀██  ██    ██ 
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
+//
 // This file defines the core Z80 processor emulation class,
-// including register definitions, state management, and
-// instruction execution logic.
+// including register definitions, state management, and instruction execution logic.
 //
 // Copyright (c) 2025 Adam Szulc
 // MIT License

@@ -5,8 +5,10 @@
 //   ▄██      ██▀  ▀██  ██    ██ 
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// This file contains the Z80Analyzer class, which provides functionality for disassembling Z80 machine code.
- 
+//
+// This file contains the Z80Analyzer class,
+// which provides functionality for disassembling Z80 machine code.
+//
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 
