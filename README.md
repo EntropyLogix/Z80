@@ -60,8 +60,37 @@ int instruction\_cycles \= cpu.step();
 
 ## **⚙️ Configuration**
 
-The core uses a preprocessor macro to configure register endianness, which is crucial for the internal Register union structure:
+The emulator's behavior and performance can be customized using several preprocessor directives and CMake build options.
 
-Little Endian (Default): Little Endian order is used by default if no macro is defined.
+### Compile-Time Definitions (`#define`)
 
-Big Endian: To enable Big Endian, the macro Z80_BIG_ENDIAN must be defined during compilation.
+The following macros can be added to your C++ compiler flags in your build system (e.g., using `-D<MACRO_NAME>`).
+
+| Macro | Description |
+| :--- | :--- |
+| `Z80_BIG_ENDIAN` | By default, the emulator assumes the host system is little-endian for register pairs (AF, BC, etc.). Define this macro if you are compiling on a big-endian architecture to ensure correct mapping of 8-bit to 16-bit registers. |
+| `Z80_DEBUGGER_OPCODES` | Enables collecting instruction bytes (opcode and operands) and passing them to the `TDebugger` implementation in the `before_step` and `after_step` methods. Useful for creating detailed debugging and tracing tools. |
+| `Z80_ENABLE_EXEC_API` | Exposes the public `exec_*` API, which allows executing individual Z80 instructions by calling dedicated methods (e.g., `cpu.exec_NOP()`, `cpu.exec_LD_A_n()`). This can be useful for testing or specific scenarios but is disabled by default to keep the public interface clean. |
+
+### Build Options (CMake)
+
+These options can be configured when generating the project with CMake (e.g., `cmake -D<OPTION>=ON ..`).
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `ENABLE_PGO` | `OFF` | Enables Profile-Guided Optimization (PGO). This requires a two-stage build process and is primarily supported by GCC and Clang compilers. |
+| `PGO_MODE` | - | Used when `ENABLE_PGO` is on. Set to `GENERATE` to build an instrumented version for collecting a performance profile. Then, set to `USE` to compile the final, optimized binary using the collected data. |
+
+**Example of using PGO:**
+
+1.  **Generate Profile:**
+    ```bash
+    cmake -B build -DENABLE_PGO=ON -DPGO_MODE=GENERATE
+    cmake --build build
+    ./build/Z80 zexdoc.com # Run the program to generate profile data (*.gcda)
+    ```
+2.  **Build with Optimization:**
+    ```bash
+    cmake -B build -DENABLE_PGO=ON -DPGO_MODE=USE
+    cmake --build build # The compiler will use the profile data to optimize
+    ```
