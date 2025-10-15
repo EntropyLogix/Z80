@@ -1,3 +1,11 @@
+/**
+ * @file Z80Analyze.h
+ * @brief This file contains the Z80Analyzer class, which provides functionality
+ *        for disassembling Z80 machine code.
+ *
+ * @copyright Copyright (c) 2025 Adam Szulc
+ * @license   MIT License
+ */
 #ifndef __Z80ANALYZE_H__
 #define __Z80ANALYZE_H__
 
@@ -10,13 +18,11 @@
 template <class TBus>
 class Z80Analyzer {
 public:
+    /**
+     * @brief Constructs a Z80Analyzer.
+     * @param bus A reference to the bus object for memory access.
+     */
     Z80Analyzer(TBus& bus) : m_bus(bus) {}
-
-    std::string get_indexed_reg_str() {
-        if (get_index_mode() == IndexMode::IX) return "IX";
-        if (get_index_mode() == IndexMode::IY) return "IY";
-        return "HL";
-    }
 
     /**
      * @brief Disassembles a single Z80 instruction using the default format.
@@ -542,6 +548,12 @@ private:
     IndexMode m_index_mode;
     
     IndexMode get_index_mode() const { return m_index_mode;}
+    std::string get_indexed_reg_str() {
+        if (get_index_mode() == IndexMode::IX) return "IX";
+        if (get_index_mode() == IndexMode::IY) return "IY";
+        return "HL";
+    }
+
     void set_index_mode(IndexMode mode) { m_index_mode = mode; }
 
     std::string get_indexed_h_str() {

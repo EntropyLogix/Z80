@@ -1,3 +1,12 @@
+/**
+ * @file Z80.h
+ * @brief This file defines the core Z80 processor emulation class,
+ *        including register definitions, state management, and
+ *        instruction execution logic.
+ *
+ * @copyright Copyright (c) 2025 Adam Szulc
+ * @license   MIT License
+ */
 #ifndef __Z80_H__
 #define __Z80_H__
 
@@ -82,6 +91,12 @@ public:
 
     // Constructors
     Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr) {
+        /**
+         * @brief Constructs a Z80 processor instance.
+         * @param bus Optional pointer to a bus object. If null, a default is created.
+         * @param events Optional pointer to an events object. If null, a default is created.
+         * @param debugger Optional pointer to a debugger object. If null, a default is created.
+         */
         if (bus) {
             m_bus = bus;
             m_owns_bus = false;
@@ -118,8 +133,20 @@ public:
             delete m_debugger;
     }
     // Main execution and control interface
+    /**
+     * @brief Runs the CPU emulation for a specified number of T-states (ticks).
+     * @param ticks_limit The absolute T-state count to run until.
+     * @return The number of T-states executed during the run.
+     */
     long long run(long long ticks_limit) {return operate<OperateMode::ToLimit>(ticks_limit);}
+    /**
+     * @brief Executes a single instruction.
+     * @return The number of T-states the instruction took to execute.
+     */
     int step() {return operate<OperateMode::SingleStep>(0);}
+    /**
+     * @brief Resets the CPU to its initial power-on state.
+     */
     void reset() {
         set_AF(0); set_BC(0); set_DE(0); set_HL(0);
         set_AFp(0); set_BCp(0); set_DEp(0); set_HLp(0);
@@ -144,13 +171,24 @@ public:
         m_events->reset();
         m_debugger->reset();
     }
+    /**
+     * @brief Requests a maskable interrupt (IRQ).
+     * @param data The data byte to be placed on the bus during the interrupt acknowledge cycle (for IM 0).
+     */
     void request_interrupt(uint8_t data) {
         set_IRQ_request(true);
         set_IRQ_data(data);
     }
+    /**
+     * @brief Requests a non-maskable interrupt (NMI).
+     */
     void request_NMI() { set_NMI_pending(true); }
 
     // High-Level State Management Methods ---
+    /**
+     * @brief Saves the entire state of the CPU into a State struct.
+     * @return A State struct containing the current CPU state.
+     */
     State save_state() const {
         State state;
         state.m_AF = get_AF();
@@ -181,6 +219,10 @@ public:
         state.m_RETI_signaled = is_RETI_signaled();
         return state;
     }
+    /**
+     * @brief Restores the CPU state from a given State struct.
+     * @param state The State struct to restore from.
+     */
     void restore_state(const State& state) {
         set_AF(state.m_AF);
         set_BC(state.m_BC);
@@ -211,8 +253,19 @@ public:
     }
 
     // Cycle counter
+    /**
+     * @brief Gets the current total number of elapsed T-states (ticks).
+     * @return The current tick count.
+     */
     long long get_ticks() const { return m_ticks; }
+    /**
+     * @brief Sets the total number of elapsed T-states (ticks).
+     * @param value The new tick count.
+     */
     void set_ticks(long long value) { m_ticks = value; }
+    /**
+     * @brief Increments the T-state counter by one, checking for events.
+     */
     void add_tick() {
         if constexpr (std::is_same_v<TEvents, Z80DefaultEvents>) {
             ++m_ticks;
@@ -222,6 +275,10 @@ public:
             m_events->handle_event(m_ticks);
         }
     }
+    /**
+     * @brief Increments the T-state counter by a given amount, handling any events that occur in the interval.
+     * @param delta The number of T-states to add.
+     */
     void add_ticks(long long delta) {
         if constexpr (std::is_same_v<TEvents, Z80DefaultEvents>) {
             m_ticks += delta;
@@ -241,112 +298,223 @@ public:
     }
 
     //Bus
+    /**
+     * @brief Gets the last value placed on the address bus.
+     * @return The 16-bit address.
+     */
     uint16_t get_address_bus() const { return m_address_bus; }
+    /**
+     * @brief Sets the value of the address bus.
+     * @param value The 16-bit address.
+     */
     void set_address_bus(uint8_t value) { m_address_bus = value; }
+    /**
+     * @brief Gets the last value on the data bus.
+     * @return The 8-bit data value.
+     */
     uint8_t get_data_bus() const { return m_data_bus; }
+    /**
+     * @brief Sets the value of the data bus.
+     * @param value The 8-bit data value.
+     */
     void set_data_bus(uint8_t value) { m_data_bus = value; }
 
     // Access to internal components
+    /**
+     * @brief Gets a pointer to the bus object.
+     * @return A pointer to the TBus instance.
+     */
     TBus* get_bus() { return m_bus; }
+    /**
+     * @brief Gets a const pointer to the bus object.
+     * @return A const pointer to the TBus instance.
+     */
     const TBus* get_bus() const { return m_bus; }
+    /**
+     * @brief Gets a pointer to the events object.
+     * @return A pointer to the TEvents instance.
+     */
     TEvents* get_events() { return m_events; }
+    /**
+     * @brief Gets a const pointer to the events object.
+     * @return A const pointer to the TEvents instance.
+     */
     const TEvents* get_events() const { return m_events; }
 
     // 16-bit main registers
+    /** @brief Gets the 16-bit AF register value. @return The value of AF. */
     uint16_t get_AF() const { return m_AF.w; }
+    /** @brief Sets the 16-bit AF register value. @param value The new value for AF. */
     void set_AF(uint16_t value) { m_AF.w = value; }
+    /** @brief Gets the 16-bit BC register value. @return The value of BC. */
     uint16_t get_BC() const { return m_BC.w; }
+    /** @brief Sets the 16-bit BC register value. @param value The new value for BC. */
     void set_BC(uint16_t value) { m_BC.w = value; }
+    /** @brief Gets the 16-bit DE register value. @return The value of DE. */
     uint16_t get_DE() const { return m_DE.w; }
+    /** @brief Sets the 16-bit DE register value. @param value The new value for DE. */
     void set_DE(uint16_t value) { m_DE.w = value; }
+    /** @brief Gets the 16-bit HL register value. @return The value of HL. */
     uint16_t get_HL() const { return m_HL.w; }
+    /** @brief Sets the 16-bit HL register value. @param value The new value for HL. */
     void set_HL(uint16_t value) { m_HL.w = value; }
+    /** @brief Gets the 16-bit IX register value. @return The value of IX. */
     uint16_t get_IX() const { return m_IX.w; }
+    /** @brief Sets the 16-bit IX register value. @param value The new value for IX. */
     void set_IX(uint16_t value) { m_IX.w = value; }
+    /** @brief Gets the 16-bit IY register value. @return The value of IY. */
     uint16_t get_IY() const { return m_IY.w; }
+    /** @brief Sets the 16-bit IY register value. @param value The new value for IY. */
     void set_IY(uint16_t value) { m_IY.w = value; }
+    /** @brief Gets the 16-bit Stack Pointer (SP) register value. @return The value of SP. */
     uint16_t get_SP() const { return m_SP; }
+    /** @brief Sets the 16-bit Stack Pointer (SP) register value. @param value The new value for SP. */
     void set_SP(uint16_t value) { m_SP = value; }
+    /** @brief Gets the 16-bit Program Counter (PC) register value. @return The value of PC. */
     uint16_t get_PC() const { return m_PC; }
+    /** @brief Sets the 16-bit Program Counter (PC) register value. @param value The new value for PC. */
     void set_PC(uint16_t value) { m_PC = value; }
 
     // 16-bit internal temporary register
+    /** @brief Gets the 16-bit internal WZ register value. @return The value of WZ. */
     uint16_t get_WZ() const { return m_WZ.w; }
+    /** @brief Sets the 16-bit internal WZ register value. @param value The new value for WZ. */
     void set_WZ(uint16_t value) { m_WZ.w = value; }
 
     // 8-bit parts of WZ
+    /** @brief Gets the high byte (W) of the internal WZ register. @return The value of W. */
     uint8_t get_W() const { return m_WZ.h; }
+    /** @brief Sets the high byte (W) of the internal WZ register. @param value The new value for W. */
     void set_W(uint8_t value) { m_WZ.h = value; }
+    /** @brief Gets the low byte (Z) of the internal WZ register. @return The value of Z. */
     uint8_t get_Z() const { return m_WZ.l; }
+    /** @brief Sets the low byte (Z) of the internal WZ register. @param value The new value for Z. */
     void set_Z(uint8_t value) { m_WZ.l = value; }
 
     // 16-bit alternate registers
+    /** @brief Gets the 16-bit alternate AF' register value. @return The value of AF'. */
     uint16_t get_AFp() const { return m_AFp.w; }
+    /** @brief Sets the 16-bit alternate AF' register value. @param value The new value for AF'. */
     void set_AFp(uint16_t value) { m_AFp.w = value; }
+    /** @brief Gets the 16-bit alternate BC' register value. @return The value of BC'. */
     uint16_t get_BCp() const { return m_BCp.w; }
+    /** @brief Sets the 16-bit alternate BC' register value. @param value The new value for BC'. */
     void set_BCp(uint16_t value) { m_BCp.w = value; }
+    /** @brief Gets the 16-bit alternate DE' register value. @return The value of DE'. */
     uint16_t get_DEp() const { return m_DEp.w; }
+    /** @brief Sets the 16-bit alternate DE' register value. @param value The new value for DE'. */
     void set_DEp(uint16_t value) { m_DEp.w = value; }
+    /** @brief Gets the 16-bit alternate HL' register value. @return The value of HL'. */
     uint16_t get_HLp() const { return m_HLp.w; }
+    /** @brief Sets the 16-bit alternate HL' register value. @param value The new value for HL'. */
     void set_HLp(uint16_t value) { m_HLp.w = value; }
 
     // 8-bit registers
+    /** @brief Gets the 8-bit Accumulator (A) register value. @return The value of A. */
     uint8_t get_A() const { return m_AF.h; }
+    /** @brief Sets the 8-bit Accumulator (A) register value. @param value The new value for A. */
     void set_A(uint8_t value) { m_AF.h = value; }
+    /** @brief Gets the 8-bit Flags (F) register value. @return The Flags object. */
     Flags get_F() const { return m_AF.l; }
+    /** @brief Sets the 8-bit Flags (F) register value. @param value The new Flags object. */
     void set_F(Flags value) { m_AF.l = value; }
+    /** @brief Gets the 8-bit B register value. @return The value of B. */
     uint8_t get_B() const { return m_BC.h; }
+    /** @brief Sets the 8-bit B register value. @param value The new value for B. */
     void set_B(uint8_t value) { m_BC.h = value; }
+    /** @brief Gets the 8-bit C register value. @return The value of C. */
     uint8_t get_C() const { return m_BC.l; }
+    /** @brief Sets the 8-bit C register value. @param value The new value for C. */
     void set_C(uint8_t value) { m_BC.l = value; }
+    /** @brief Gets the 8-bit D register value. @return The value of D. */
     uint8_t get_D() const { return m_DE.h; }
+    /** @brief Sets the 8-bit D register value. @param value The new value for D. */
     void set_D(uint8_t value) { m_DE.h = value; }
+    /** @brief Gets the 8-bit E register value. @return The value of E. */
     uint8_t get_E() const { return m_DE.l; }
+    /** @brief Sets the 8-bit E register value. @param value The new value for E. */
     void set_E(uint8_t value) { m_DE.l = value; }
+    /** @brief Gets the 8-bit H register value. @return The value of H. */
     uint8_t get_H() const { return m_HL.h; }
+    /** @brief Sets the 8-bit H register value. @param value The new value for H. */
     void set_H(uint8_t value) { m_HL.h = value; }
+    /** @brief Gets the 8-bit L register value. @return The value of L. */
     uint8_t get_L() const { return m_HL.l; }
+    /** @brief Sets the 8-bit L register value. @param value The new value for L. */
     void set_L(uint8_t value) { m_HL.l = value; }
+    /** @brief Gets the high byte of the IX register. @return The value of IXH. */
     uint8_t get_IXH() const { return m_IX.h; }
+    /** @brief Sets the high byte of the IX register. @param value The new value for IXH. */
     void set_IXH(uint8_t value) { m_IX.h = value; }
+    /** @brief Gets the low byte of the IX register. @return The value of IXL. */
     uint8_t get_IXL() const { return m_IX.l; }
+    /** @brief Sets the low byte of the IX register. @param value The new value for IXL. */
     void set_IXL(uint8_t value) { m_IX.l = value; }
+    /** @brief Gets the high byte of the IY register. @return The value of IYH. */
     uint8_t get_IYH() const { return m_IY.h; }
+    /** @brief Sets the high byte of the IY register. @param value The new value for IYH. */
     void set_IYH(uint8_t value) { m_IY.h = value; }
+    /** @brief Gets the low byte of the IY register. @return The value of IYL. */
     uint8_t get_IYL() const { return m_IY.l; }
+    /** @brief Sets the low byte of the IY register. @param value The new value for IYL. */
     void set_IYL(uint8_t value) { m_IY.l = value; }
 
     // Special purpose registers
+    /** @brief Gets the 8-bit Interrupt Vector (I) register value. @return The value of I. */
     uint8_t get_I() const { return m_I; }
+    /** @brief Sets the 8-bit Interrupt Vector (I) register value. @param value The new value for I. */
     void set_I(uint8_t value) { m_I = value; }
+    /** @brief Gets the 8-bit Memory Refresh (R) register value. @return The value of R. */
     uint8_t get_R() const { return m_R; }
+    /** @brief Sets the 8-bit Memory Refresh (R) register value. @param value The new value for R. */
     void set_R(uint8_t value) { m_R = value; }
 
     // CPU state flags
+    /** @brief Gets the state of the main interrupt flip-flop (IFF1). @return True if interrupts are enabled. */
     bool get_IFF1() const { return m_IFF1; }
+    /** @brief Sets the state of the main interrupt flip-flop (IFF1). @param state The new state. */
     void set_IFF1(bool state) { m_IFF1 = state; }
+    /** @brief Gets the state of the temporary interrupt flip-flop (IFF2). @return The state of IFF2. */
     bool get_IFF2() const { return m_IFF2; }
+    /** @brief Sets the state of the temporary interrupt flip-flop (IFF2). @param state The new state. */
     void set_IFF2(bool state) { m_IFF2 = state; }
+    /** @brief Checks if the CPU is in a halted state. @return True if halted. */
     bool is_halted() const { return m_halted; }
+    /** @brief Sets the CPU's halted state. @param state The new halted state. */
     void set_halted(bool state) { m_halted = state; }
     
     // Interrupt state flags
+    /** @brief Checks if a non-maskable interrupt is pending. @return True if an NMI is pending. */
     bool is_NMI_pending() const { return m_NMI_pending; }
+    /** @brief Sets the NMI pending state. @param state The new pending state. */
     void set_NMI_pending(bool state) { m_NMI_pending = state; }
+    /** @brief Checks if a maskable interrupt has been requested. @return True if an IRQ has been requested. */
     bool is_IRQ_requested() const { return m_IRQ_request; }
+    /** @brief Sets the IRQ requested state. @param state The new requested state. */
     void set_IRQ_request(bool state) { m_IRQ_request = state; }
+    /** @brief Checks if a maskable interrupt is pending (requested and IFF1 is enabled). @return True if an IRQ is pending. */
     bool is_IRQ_pending() const {return is_IRQ_requested() && get_IFF1(); }
+    /** @brief Gets the state of the EI delay flag (interrupts are enabled after the next instruction). @return The EI delay state. */
     bool get_EI_delay() const { return m_EI_delay; }
+    /** @brief Sets the state of the EI delay flag. @param state The new EI delay state. */
     void set_EI_delay(bool state) { m_EI_delay = state; }
+    /** @brief Gets the data byte for the current IRQ request. @return The IRQ data byte. */
     uint8_t get_IRQ_data() const { return m_IRQ_data; }
+    /** @brief Sets the data byte for an IRQ request. @param data The IRQ data byte. */
     void set_IRQ_data(uint8_t data) { m_IRQ_data = data; }
+    /** @brief Gets the current interrupt mode (0, 1, or 2). @return The interrupt mode. */
     uint8_t get_IRQ_mode() const { return m_IRQ_mode; }
+    /** @brief Sets the interrupt mode (0, 1, or 2). @param mode The new interrupt mode. */
     void set_IRQ_mode(uint8_t mode) { m_IRQ_mode = mode; }
+    /** @brief Sets whether a RETI instruction has just been executed. @param state The new RETI signaled state. */
     void set_RETI_signaled(bool state) { m_RETI_signaled = state; }
+    /** @brief Checks if a RETI instruction has just been executed. @return True if RETI was signaled. */
     bool is_RETI_signaled() const { return m_RETI_signaled;}
     
     // Processing opcodes DD and FD index
+    /** @brief Gets the current index mode (HL, IX, or IY). @return The current IndexMode. */
     IndexMode get_index_mode() const { return m_index_mode;}
+    /** @brief Sets the current index mode (HL, IX, or IY). @param mode The new IndexMode. */
     void set_index_mode(IndexMode mode) { m_index_mode = mode; }
 
 private:
@@ -3024,6 +3192,9 @@ private:
     }
 
 public:
+    /**
+     * @brief Executes the NOP instruction.
+     */
     void exec_NOP() {
         exec_helper<&Z80::handle_opcode_0x00_NOP>();
     }
@@ -6455,13 +6626,50 @@ public:
 
 class Z80DefaultBus {
 public:
+    /**
+     * @brief Constructs a default bus with 64KB of RAM.
+     */
     Z80DefaultBus() { m_ram.resize(0x10000, 0); }
+    /**
+     * @brief Connects the CPU instance to the bus (no-op for default).
+     * @tparam TEvents The event system type.
+     * @tparam TDebugger The debugger type.
+     * @param cpu Pointer to the Z80 processor.
+     */
     template <typename TEvents, typename TDebugger> void connect(Z80<Z80DefaultBus, TEvents, TDebugger>* cpu) {}
+    /**
+     * @brief Resets the bus, clearing all RAM to zero.
+     */
     void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
+    /**
+     * @brief Reads a byte from the RAM.
+     * @param address The 16-bit memory address.
+     * @return The byte at the specified address.
+     */
     uint8_t read(uint16_t address) { return m_ram[address]; }
+    /**
+     * @brief Peeks at a byte in RAM without side effects.
+     * @param address The 16-bit memory address.
+     * @return The byte at the specified address.
+     */
     uint8_t peek(uint16_t address) const { return m_ram[address]; }
+    /**
+     * @brief Writes a byte to the RAM.
+     * @param address The 16-bit memory address.
+     * @param value The 8-bit value to write.
+     */
     void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
+    /**
+     * @brief Simulates reading from an I/O port.
+     * @param port The 16-bit I/O port address.
+     * @return Always returns 0xFF.
+     */
     uint8_t in(uint16_t port) { return 0xFF; }
+    /**
+     * @brief Simulates writing to an I/O port (no-op).
+     * @param port The 16-bit I/O port address.
+     * @param value The 8-bit value to write.
+     */
     void out(uint16_t port, uint8_t value) { /* no-op */ }
 
 private:
@@ -6470,24 +6678,63 @@ private:
 
 class Z80DefaultEvents {
 public:
+    /** @brief The cycle count for the next event, set to max to disable events. */
     static constexpr long long CYCLES_PER_EVENT = LLONG_MAX;
+    /**
+     * @brief Connects the CPU instance to the event system (no-op for default).
+     * @tparam TBus The bus system type.
+     * @tparam TDebugger The debugger type.
+     * @param cpu Const pointer to the Z80 processor.
+     */
     template <typename TBus, typename TDebugger>
     void connect(const Z80<TBus, Z80DefaultEvents, TDebugger>* cpu) {}
+    /**
+     * @brief Resets the event system state (no-op for default).
+     */
     void reset() {}
+    /**
+     * @brief Gets the tick count for the next scheduled event.
+     * @return The maximum long long value, effectively disabling events.
+     */
     long long get_event_limit() const { return LLONG_MAX; }
+    /**
+     * @brief Handles a scheduled event (no-op for default).
+     * @param tick The tick count at which the event occurred.
+     */
     void handle_event(long long tick) {}
 };
 
 class Z80DefaultDebugger {
 public: 
+    /**
+     * @brief Connects the CPU instance to the debugger (no-op for default).
+     * @tparam TBus The bus system type.
+     * @tparam TEvents The event system type.
+     * @param cpu Const pointer to the Z80 processor.
+     */
     template <typename TBus, typename TEvents> 
     void connect(const Z80<TBus, TEvents, Z80DefaultDebugger>* cpu) {}
+    /**
+     * @brief Resets the debugger state (no-op for default).
+     */
     void reset() {}
+    /**
+     * @brief Hook called before an instruction is executed (no-op for default).
+     * @param opcodes The byte sequence of the instruction (if Z80_DEBUGGER_OPCODES is defined).
+     */
     void before_step(const std::vector<uint8_t>& opcodes) {}
+    /**
+     * @brief Hook called after an instruction is executed (no-op for default).
+     * @param opcodes The byte sequence of the instruction (if Z80_DEBUGGER_OPCODES is defined).
+     */
     void after_step(const std::vector<uint8_t>& opcodes) {}
+    /** @brief Hook called before an IRQ is handled (no-op for default). */
     void before_IRQ() {}
+    /** @brief Hook called after an IRQ is handled (no-op for default). */
     void after_IRQ() {}
+    /** @brief Hook called before an NMI is handled (no-op for default). */
     void before_NMI() {}
+    /** @brief Hook called after an NMI is handled (no-op for default). */
     void after_NMI() {}
 };
 
