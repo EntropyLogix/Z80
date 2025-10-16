@@ -1480,9 +1480,9 @@ private:
     void handle_opcode_0x20_JR_NZ_d() {
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         uint16_t address = get_PC() + offset;
-        set_WZ(address);
         if (!get_F().is_set(Flags::Z)) {
             set_PC(address);
+            set_WZ(address);
             add_ticks(5);
         }
     }
@@ -1542,9 +1542,9 @@ private:
     void handle_opcode_0x28_JR_Z_d() {
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         uint16_t address = get_PC() + offset;
-        set_WZ(address);
         if (get_F().is_set(Flags::Z)) {
             set_PC(address);
+            set_WZ(address);
             add_ticks(5);
         }
     }
@@ -1585,9 +1585,9 @@ private:
     void handle_opcode_0x30_JR_NC_d() {
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         uint16_t address = get_PC() + offset;
-        set_WZ(address);
         if (!get_F().is_set(Flags::C)) {
             set_PC(address);
+            set_WZ(address);
             add_ticks(5);
         }
     }
@@ -1638,9 +1638,9 @@ private:
     void handle_opcode_0x38_JR_C_d() {
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         uint16_t address = get_PC() + offset;
-        set_WZ(address);
         if (get_F().is_set(Flags::C)) {
             set_PC(address);
+            set_WZ(address);
             add_ticks(5);
         }
     }
@@ -2060,7 +2060,7 @@ private:
         if (!get_F().is_set(Flags::Z)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_PC(address);
+            set_WZ(address);
         }
     }
     void handle_opcode_0xC1_POP_BC() {
@@ -2101,7 +2101,7 @@ private:
         if (get_F().is_set(Flags::Z)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_PC(address);
+            set_WZ(address);
         }
     }
     void handle_opcode_0xC9_RET() {
@@ -2142,7 +2142,7 @@ private:
         if (!get_F().is_set(Flags::C)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_PC(address);
+            set_WZ(address);
         }
     }
     void handle_opcode_0xD1_POP_DE() {
@@ -2185,7 +2185,7 @@ private:
         if (get_F().is_set(Flags::C)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_PC(address);
+            set_WZ(address);
         }
     }
     void handle_opcode_0xD9_EXX() {
@@ -2233,7 +2233,7 @@ private:
         if (!get_F().is_set(Flags::PV)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_PC(address);
+            set_WZ(address);
         }
     }
     void handle_opcode_0xE1_POP_HL() {
@@ -2277,7 +2277,7 @@ private:
         if (get_F().is_set(Flags::PV)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_PC(address);
+            set_WZ(address);
         }
     }
     void handle_opcode_0xE9_JP_HL_ptr() {
@@ -2315,7 +2315,7 @@ private:
         if (!get_F().is_set(Flags::S)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_PC(address);
+            set_WZ(address);
         }
     }
     void handle_opcode_0xF1_POP_AF() {
@@ -2355,7 +2355,7 @@ private:
         if (get_F().is_set(Flags::S)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_PC(address);
+            set_WZ(address);
         }
     }
     void handle_opcode_0xF9_LD_SP_HL() {
