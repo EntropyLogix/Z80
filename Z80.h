@@ -226,7 +226,7 @@ public:
         set_NMI_pending(false);
         set_WZ(0);
         set_IRQ_request(false);
-        set_EI_delay(false);
+        set_block_interrupt(false);
         set_RETI_signaled(false);
         set_EI_executed(false);
         set_IRQ_data(0);
