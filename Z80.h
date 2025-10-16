@@ -2852,19 +2852,24 @@ private:
     }
     void handle_opcode_0xED_0xAB_OUTD() {
         uint8_t mem_val = read_byte(get_HL());
-        uint8_t b_val = get_B();
-        set_B(b_val - 1);
+        uint8_t new_b = get_B() - 1;
+        set_B(new_b);
         m_bus->out(get_BC(), mem_val);
         set_WZ(get_BC() - 1);
         set_HL(get_HL() - 1);
         add_ticks(5); // 4 for I/O write, 1 for internal ops
-        Flags flags = get_F();
+
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
-        flags.set(Flags::N)
-            .update(Flags::Z, b_val - 1 == 0)
-            .update(Flags::C, temp > 0xFF)
-            .update(Flags::H, temp > 0xFF)
-            .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF));
+        bool carry = temp > 0xFF;
+        Flags flags(0);
+        flags.update(Flags::S, (new_b & 0x80) != 0)
+            .update(Flags::Z, new_b == 0)
+            .update(Flags::H, carry)
+            .update(Flags::PV, is_parity_even(((temp & 0x07) ^ new_b) & 0xFF))
+            .update(Flags::N, (mem_val & 0x80) != 0)
+            .update(Flags::C, carry)
+            .update(Flags::X, (new_b & Flags::X) != 0)
+            .update(Flags::Y, (new_b & Flags::Y) != 0);
         set_Q(flags);
         set_F(flags);
     }
