@@ -2707,7 +2707,6 @@ private:
     void handle_opcode_0xED_0xA0_LDI() {
         uint8_t value = read_byte(get_HL());
         write_byte(get_DE(), value);
-        set_WZ(get_DE() + 1);
         set_HL(get_HL() + 1);
         set_DE(get_DE() + 1);
         set_BC(get_BC() - 1);
