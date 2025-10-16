@@ -54,7 +54,7 @@ public:
         Register m_IX, m_IY, m_SP, m_PC;
         Register m_AFp, m_BCp, m_DEp, m_HLp;
         Register m_WZ;
-        uint8_t m_I, m_R;
+        uint8_t m_I, m_R, m_Q;
         bool m_IFF1, m_IFF2;
         bool m_halted;
         bool m_NMI_pending;
@@ -220,6 +220,7 @@ public:
         set_PC(0);
         set_R(0);
         set_I(0);
+        set_Q(0);
         set_IFF1(false);
         set_IFF2(false);
         set_halted(false);
@@ -272,6 +273,7 @@ public:
         state.m_WZ = get_WZ();
         state.m_I = get_I();
         state.m_R = get_R();
+        state.m_Q = get_Q();
         state.m_IFF1 = get_IFF1();
         state.m_IFF2 = get_IFF2();
         state.m_halted = is_halted();
@@ -312,6 +314,7 @@ public:
         set_NMI_pending(state.m_NMI_pending);
         set_IRQ_request(state.m_IRQ_request);
         set_block_interrupt(state.m_block_interrupt);
+        set_Q(state.m_Q);
         set_IRQ_data(state.m_IRQ_data);
         set_EI_executed(state.m_EI_executed);
         set_IRQ_mode(state.m_IRQ_mode);
@@ -589,13 +592,19 @@ public:
     /** @brief Sets the current index mode (HL, IX, or IY). @param mode The new IndexMode. */
     void set_index_mode(IndexMode mode) { m_index_mode = mode; }
 
+    /** @brief Gets the value of the internal Q register. @return The 8-bit value of Q. */
+    uint8_t get_Q() const { return m_Q; }
+    /** @brief Sets the value of the internal Q register. @param value The new 8-bit value for Q. */
+    void set_Q(uint8_t value) { m_Q = value; }
+
+
 private:
     //CPU registers
     Register m_AF, m_BC, m_DE, m_HL;
     Register m_AFp, m_BCp, m_DEp, m_HLp, m_WZ;
     Register m_IX, m_IY;
     uint16_t m_SP, m_PC;
-    uint8_t m_I, m_R, m_EI_executed;
+    uint8_t m_I, m_R, m_Q, m_EI_executed;
     bool m_IFF1, m_IFF2;
     
     //internal CPU states
@@ -791,6 +800,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint8_t dec_8bit(uint8_t value) {
@@ -804,6 +814,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     void and_8bit(uint8_t value) {
@@ -816,6 +827,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void or_8bit(uint8_t value) {
         uint8_t result = get_A() | value;
@@ -827,6 +839,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void xor_8bit(uint8_t value) {
         uint8_t result = get_A() ^ value;
@@ -838,6 +851,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void cp_8bit(uint8_t value) {
         uint8_t a = get_A();
@@ -852,6 +866,7 @@ private:
             .update(Flags::X, (value & Flags::X) != 0)
             .update(Flags::Y, (value & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void add_8bit(uint8_t value) {
         uint8_t a = get_A();
@@ -867,6 +882,7 @@ private:
             .update(Flags::X, (result & Flags::X) != 0)
             .update(Flags::Y, (result & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void adc_8bit(uint8_t value) {
         uint8_t a = get_A();
@@ -884,6 +900,7 @@ private:
             .update(Flags::X, (result & Flags::X) != 0)
             .update(Flags::Y, (result & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void sub_8bit(uint8_t value) {
         uint8_t a = get_A();
@@ -898,6 +915,7 @@ private:
             .update(Flags::X, (result & Flags::X) != 0)
             .update(Flags::Y, (result & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void sbc_8bit(uint8_t value) {
         Flags flags = get_F();
@@ -915,6 +933,7 @@ private:
             .update(Flags::X, (result & Flags::X) != 0)
             .update(Flags::Y, (result & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     uint16_t add_16bit(uint16_t reg, uint16_t value) {
         uint32_t result32 = (uint32_t)reg + (uint32_t)value;
@@ -926,6 +945,7 @@ private:
             .update(Flags::Y, (result & 0x2000) != 0)
             .update(Flags::X, (result & 0x0800) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint16_t adc_16bit(uint16_t reg, uint16_t value) {
@@ -942,6 +962,7 @@ private:
             .update(Flags::Y, (result & 0x2000) != 0)
             .update(Flags::X, (result & 0x0800) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint16_t sbc_16bit(uint16_t reg, uint16_t value) {
@@ -958,6 +979,7 @@ private:
             .update(Flags::Y, (result & 0x2000) != 0)
             .update(Flags::X, (result & 0x0800) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint8_t rlc_8bit(uint8_t value) {
@@ -970,6 +992,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint8_t rrc_8bit(uint8_t value) {
@@ -982,6 +1005,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint8_t rl_8bit(uint8_t value) {
@@ -995,6 +1019,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint8_t rr_8bit(uint8_t value) {
@@ -1008,6 +1033,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint8_t sla_8bit(uint8_t value) {
@@ -1020,6 +1046,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint8_t sra_8bit(uint8_t value) {
@@ -1032,6 +1059,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint8_t sll_8bit(uint8_t value) {
@@ -1044,6 +1072,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     uint8_t srl_8bit(uint8_t value) {
@@ -1056,6 +1085,7 @@ private:
             .update(Flags::Y, (result & 0x20) != 0)
             .update(Flags::X, (result & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
         return result;
     }
     void bit_8bit(uint8_t bit, uint8_t value) {
@@ -1067,6 +1097,7 @@ private:
             .update(Flags::PV, bit_is_zero)
             .update(Flags::S, bit == 7 && !bit_is_zero);
         set_F(flags);
+        set_Q(flags);
     }
     uint8_t res_8bit(uint8_t bit, uint8_t value) {
         return value & ~(1 << bit);
@@ -1088,6 +1119,7 @@ private:
             .update(Flags::X, (value & Flags::X) != 0)
             .update(Flags::Y, (value & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
         return value;
     }
     void out_c_r(uint8_t value) {
@@ -1308,6 +1340,7 @@ private:
             .clear(Flags::H | Flags::N)
             .update(Flags::Y, (result & Flags::Y) != 0)
             .update(Flags::X, (result & Flags::X) != 0);
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0x08_EX_AF_AFp() {
@@ -1349,6 +1382,7 @@ private:
             .clear(Flags::H | Flags::N)
             .update(Flags::Y, (result & Flags::Y) != 0)
             .update(Flags::X, (result & Flags::X) != 0);
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0x10_DJNZ_d() {
@@ -1395,6 +1429,7 @@ private:
             .clear(Flags::H | Flags::N)
             .update(Flags::Y, (result & Flags::Y) != 0)
             .update(Flags::X, (result & Flags::X) != 0);
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0x18_JR_d() {
@@ -1439,6 +1474,7 @@ private:
             .clear(Flags::H | Flags::N)
             .update(Flags::Y, (result & Flags::Y) != 0)
             .update(Flags::X, (result & Flags::X) != 0);
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0x20_JR_NZ_d() {
@@ -1543,6 +1579,7 @@ private:
         flags.set(Flags::H | Flags::N)
             .update(Flags::Y, (result & Flags::Y) != 0)
             .update(Flags::X, (result & Flags::X) != 0);
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0x30_JR_NC_d() {
@@ -2386,6 +2423,7 @@ private:
             .update(Flags::X, (result & Flags::X) != 0)
             .update(Flags::Y, (result & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void handle_opcode_0xED_0x44_NEG() {
         handle_NEG();
@@ -2523,6 +2561,7 @@ private:
             .update(Flags::X, (i_value & Flags::X) != 0)
             .update(Flags::Y, (i_value & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void handle_opcode_0xED_0x58_IN_E_C_ptr() {
         set_E(in_r_c());
@@ -2560,6 +2599,7 @@ private:
             .update(Flags::X, (r_value & Flags::X) != 0)
             .update(Flags::Y, (r_value & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void handle_opcode_0xED_0x60_IN_H_C_ptr() {
         set_H(in_r_c());
@@ -2598,6 +2638,7 @@ private:
             .update(Flags::X, (new_a & Flags::X) != 0)
             .update(Flags::Y, (new_a & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void handle_opcode_0xED_0x68_IN_L_C_ptr() {
         set_L(in_r_c());
@@ -2636,6 +2677,7 @@ private:
             .update(Flags::X, (new_a & Flags::X) != 0)
             .update(Flags::Y, (new_a & Flags::Y) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void handle_opcode_0xED_0x70_IN_C_ptr() {
         in_r_c();
@@ -2690,6 +2732,7 @@ private:
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
             
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0xED_0xA1_CPI() {
@@ -2710,6 +2753,7 @@ private:
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
         set_F(flags);
+        set_Q(flags);
     }
     void handle_opcode_0xED_0xA2_INI() {
         uint8_t port_val = m_bus->in(get_BC());
@@ -2729,6 +2773,7 @@ private:
             .update(Flags::H, k > 0xFF)
             .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ (b_val - 1)) & 0xFF));
         set_F(flags);
+        set_Q(flags);
     }
     void handle_opcode_0xED_0xA3_OUTI() {
         uint8_t mem_val = read_byte(get_HL());
@@ -2746,6 +2791,7 @@ private:
             .update(Flags::C, temp > 0xFF)
             .update(Flags::H, temp > 0xFF)
             .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF) );
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0xED_0xA8_LDD() {
@@ -2762,6 +2808,7 @@ private:
             .update(Flags::PV, get_BC() != 0)
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0xED_0xA9_CPD() {
@@ -2781,6 +2828,7 @@ private:
             .update(Flags::PV, get_BC() != 0)
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0xED_0xAA_IND() {
@@ -2800,6 +2848,7 @@ private:
             .update(Flags::C, k > 0xFF)
             .update(Flags::H, k > 0xFF)
             .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ (b_val - 1)) & 0xFF));
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0xED_0xAB_OUTD() {
@@ -2817,6 +2866,7 @@ private:
             .update(Flags::C, temp > 0xFF)
             .update(Flags::H, temp > 0xFF)
             .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF));
+        set_Q(flags);
         set_F(flags);
     }
     void handle_opcode_0xED_0xB0_LDIR() {
@@ -2905,6 +2955,7 @@ private:
 #endif//Z80_DEBUGGER_OPCODES
                 set_EI_executed(false);
                 set_index_mode(IndexMode::HL);
+                set_Q(get_W());
                 uint8_t opcode = fetch_next_opcode();
                 while (opcode == 0xDD || opcode == 0xFD) {
                     set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
