@@ -2955,7 +2955,7 @@ private:
 #endif//Z80_DEBUGGER_OPCODES
                 set_EI_executed(false);
                 set_index_mode(IndexMode::HL);
-                set_Q(get_W());
+                set_Q(0);
                 uint8_t opcode = fetch_next_opcode();
                 while (opcode == 0xDD || opcode == 0xFD) {
                     set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
