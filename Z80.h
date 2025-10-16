@@ -2360,7 +2360,7 @@ private:
         write_word(address, get_BC());
         set_WZ(address + 1);
     }
-    void handle_opcode_0xED_0x44_NEG() {
+    void handle_NEG() {
         uint8_t value = get_A();
         uint8_t result = -value;
         set_A(result);
@@ -2374,14 +2374,71 @@ private:
             .update(Flags::Y, (result & Flags::Y) != 0);
         set_F(flags);
     }
-    void handle_opcode_0xED_0x45_RETN() {
+    void handle_opcode_0xED_0x44_NEG() {
+        handle_NEG();
+    }
+    void handle_opcode_0xED_0x4C_NEG() {
+        handle_NEG();
+    }
+    void handle_opcode_0xED_0x54_NEG() {
+        handle_NEG();
+    }
+    void handle_opcode_0xED_0x5C_NEG() {
+        handle_NEG();
+    }
+    void handle_opcode_0xED_0x64_NEG() {
+        handle_NEG();
+    }
+    void handle_opcode_0xED_0x6C_NEG() {
+        handle_NEG();
+    }
+    void handle_opcode_0xED_0x74_NEG() {
+        handle_NEG();
+    }
+    void handle_opcode_0xED_0x7C_NEG() {
+        handle_NEG();
+    }
+    void handle_RETN() {
         set_IFF1(get_IFF2());
         uint16_t address = pop_word();
         set_WZ(address);
         set_PC(address);
     }
-    void handle_opcode_0xED_0x46_IM_0() {
+    void handle_opcode_0xED_0x45_RETN() {
+        handle_RETN();
+    }
+    void handle_opcode_0xED_0x55_RETN() {
+        handle_RETN();
+    }
+    void handle_opcode_0xED_0x5D_RETN() {
+        handle_RETN();
+    }
+    void handle_opcode_0xED_0x65_RETN() {
+        handle_RETN();
+    }
+    void handle_opcode_0xED_0x6D_RETN() {
+        handle_RETN();
+    }
+    void handle_opcode_0xED_0x75_RETN() {
+        handle_RETN();
+    }
+    void handle_opcode_0xED_0x7D_RETN() {
+        handle_RETN();
+    }
+    void handle_IM_0() {
         set_IRQ_mode(0);
+    }
+    void handle_opcode_0xED_0x46_IM_0() {
+        handle_IM_0();
+    }
+    void handle_opcode_0xED_0x4E_IM_0() {
+        handle_IM_0();
+    }
+    void handle_opcode_0xED_0x66_IM_0() {
+        handle_IM_0();
+    }
+    void handle_opcode_0xED_0x6E_IM_0() {
+        handle_IM_0();
     }
     void handle_opcode_0xED_0x47_LD_I_A() {
         add_tick();
@@ -2436,9 +2493,11 @@ private:
         write_word(address, get_DE());
         set_WZ(address + 1);
     }
-    void handle_opcode_0xED_0x56_IM_1() {
+    void handle_IM_1() {
         set_IRQ_mode(1);
     }
+    void handle_opcode_0xED_0x56_IM_1() { handle_IM_1(); }
+    void handle_opcode_0xED_0x76_IM_1() { handle_IM_1(); }
     void handle_opcode_0xED_0x57_LD_A_I() {
         add_tick();
         uint8_t i_value = get_I();
@@ -2471,9 +2530,11 @@ private:
         set_DE(read_word(address));
         set_WZ(address + 1);
     }
-    void handle_opcode_0xED_0x5E_IM_2() {
+    void handle_IM_2() {
         set_IRQ_mode(2);
     }
+    void handle_opcode_0xED_0x5E_IM_2() { handle_IM_2(); }
+    void handle_opcode_0xED_0x7E_IM_2() { handle_IM_2(); }
     void handle_opcode_0xED_0x5F_LD_A_R() {
         add_tick();
         uint8_t r_value = get_R();
@@ -3110,38 +3171,56 @@ private:
                             case 0x49: handle_opcode_0xED_0x49_OUT_C_ptr_C(); break;
                             case 0x4A: handle_opcode_0xED_0x4A_ADC_HL_BC(); break;
                             case 0x4B: handle_opcode_0xED_0x4B_LD_BC_nn_ptr(); break;
+                            case 0x4C: handle_opcode_0xED_0x4C_NEG(); break;
                             case 0x4D: handle_opcode_0xED_0x4D_RETI(); break;
+                            case 0x4E: handle_opcode_0xED_0x4E_IM_0(); break;
                             case 0x4F: handle_opcode_0xED_0x4F_LD_R_A(); break;
                             case 0x50: handle_opcode_0xED_0x50_IN_D_C_ptr(); break;
                             case 0x51: handle_opcode_0xED_0x51_OUT_C_ptr_D(); break;
                             case 0x52: handle_opcode_0xED_0x52_SBC_HL_DE(); break;
                             case 0x53: handle_opcode_0xED_0x53_LD_nn_ptr_DE(); break;
+                            case 0x54: handle_opcode_0xED_0x54_NEG(); break;
+                            case 0x55: handle_opcode_0xED_0x55_RETN(); break;
                             case 0x56: handle_opcode_0xED_0x56_IM_1(); break;
                             case 0x57: handle_opcode_0xED_0x57_LD_A_I(); break;
                             case 0x58: handle_opcode_0xED_0x58_IN_E_C_ptr(); break;
                             case 0x59: handle_opcode_0xED_0x59_OUT_C_ptr_E(); break;
                             case 0x5A: handle_opcode_0xED_0x5A_ADC_HL_DE(); break;
                             case 0x5B: handle_opcode_0xED_0x5B_LD_DE_nn_ptr(); break;
+                            case 0x5C: handle_opcode_0xED_0x5C_NEG(); break;
+                            case 0x5D: handle_opcode_0xED_0x5D_RETN(); break;
                             case 0x5E: handle_opcode_0xED_0x5E_IM_2(); break;
                             case 0x5F: handle_opcode_0xED_0x5F_LD_A_R(); break;
                             case 0x60: handle_opcode_0xED_0x60_IN_H_C_ptr(); break;
                             case 0x61: handle_opcode_0xED_0x61_OUT_C_ptr_H(); break;
                             case 0x62: handle_opcode_0xED_0x62_SBC_HL_HL(); break;
                             case 0x63: handle_opcode_0xED_0x63_LD_nn_ptr_HL_ED(); break;
+                            case 0x64: handle_opcode_0xED_0x64_NEG(); break;
+                            case 0x65: handle_opcode_0xED_0x65_RETN(); break;
+                            case 0x66: handle_opcode_0xED_0x66_IM_0(); break;
                             case 0x67: handle_opcode_0xED_0x67_RRD(); break;
                             case 0x68: handle_opcode_0xED_0x68_IN_L_C_ptr(); break;
                             case 0x69: handle_opcode_0xED_0x69_OUT_C_ptr_L(); break;
                             case 0x6A: handle_opcode_0xED_0x6A_ADC_HL_HL(); break;
                             case 0x6B: handle_opcode_0xED_0x6B_LD_HL_nn_ptr_ED(); break;
+                            case 0x6C: handle_opcode_0xED_0x6C_NEG(); break;
+                            case 0x6D: handle_opcode_0xED_0x6D_RETN(); break;
+                            case 0x6E: handle_opcode_0xED_0x6E_IM_0(); break;
                             case 0x6F: handle_opcode_0xED_0x6F_RLD(); break;
                             case 0x70: handle_opcode_0xED_0x70_IN_C_ptr(); break;
                             case 0x71: handle_opcode_0xED_0x71_OUT_C_ptr_0(); break;
                             case 0x72: handle_opcode_0xED_0x72_SBC_HL_SP(); break;
                             case 0x73: handle_opcode_0xED_0x73_LD_nn_ptr_SP(); break;
+                            case 0x74: handle_opcode_0xED_0x74_NEG(); break;
+                            case 0x75: handle_opcode_0xED_0x75_RETN(); break;
+                            case 0x76: handle_opcode_0xED_0x76_IM_1(); break;
                             case 0x78: handle_opcode_0xED_0x78_IN_A_C_ptr(); break;
                             case 0x79: handle_opcode_0xED_0x79_OUT_C_ptr_A(); break;
                             case 0x7A: handle_opcode_0xED_0x7A_ADC_HL_SP(); break;
                             case 0x7B: handle_opcode_0xED_0x7B_LD_SP_nn_ptr(); break;
+                            case 0x7C: handle_opcode_0xED_0x7C_NEG(); break;
+                            case 0x7D: handle_opcode_0xED_0x7D_RETN(); break;
+                            case 0x7E: handle_opcode_0xED_0x7E_IM_2(); break;
                             case 0xA0: handle_opcode_0xED_0xA0_LDI(); break;
                             case 0xA1: handle_opcode_0xED_0xA1_CPI(); break;
                             case 0xA2: handle_opcode_0xED_0xA2_INI(); break;
