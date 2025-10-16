@@ -1608,6 +1608,7 @@ private:
         } else {
             int8_t offset = static_cast<int8_t>(fetch_next_byte());
             uint16_t address = (get_index_mode() == IndexMode::IX ? get_IX() : get_IY()) + offset;
+            set_WZ(address);
             add_ticks(2);
             uint8_t value = fetch_next_byte();
             write_byte(address, value);
