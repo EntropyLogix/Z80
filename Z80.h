@@ -1089,15 +1089,14 @@ private:
         return result;
     }
     void bit_8bit(uint8_t bit, uint8_t value) {
-        bool bit_is_zero = (value & (1 << bit)) == 0;
-        Flags flags = get_F();
+        bool bit_is_zero = (value & (1U << bit)) == 0;
+        Flags flags(get_F() & Flags::C);
         flags.set(Flags::H)
             .clear(Flags::N)
             .update(Flags::Z, bit_is_zero)
             .update(Flags::PV, bit_is_zero)
             .update(Flags::S, bit == 7 && !bit_is_zero);
         set_F(flags);
-        set_Q(flags);
     }
     uint8_t res_8bit(uint8_t bit, uint8_t value) {
         return value & ~(1 << bit);
@@ -1228,15 +1227,16 @@ private:
                 break;
             case 1: {
                 bit_8bit(bit, value);
+                set_Q(get_F());
                 Flags flags = get_F();
                 if (target_reg == 6) {
                     set_WZ(flags_source);
                     add_tick();
-                    flags.update(Flags::X, (get_W() & 0x08) != 0);
-                    flags.update(Flags::Y, (get_W() & 0x20) != 0);
+                    flags.update(Flags::X, (get_W() & Flags::X) != 0);
+                    flags.update(Flags::Y, (get_W() & Flags::Y) != 0);
                 } else {
-                    flags.update(Flags::X, (value & 0x08) != 0);
-                    flags.update(Flags::Y, (value & 0x20) != 0);
+                    flags.update(Flags::X, (value & Flags::X) != 0);
+                    flags.update(Flags::Y, (value & Flags::Y) != 0);
                 }
                 set_F(flags);
                 return;
