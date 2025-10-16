@@ -59,8 +59,9 @@ public:
         bool m_halted;
         bool m_NMI_pending;
         bool m_IRQ_request;
-        bool m_EI_delay;
+        bool m_block_interrupt;
         bool m_RETI_signaled;
+        bool m_EI_executed;
         uint8_t m_IRQ_data;
         uint8_t m_IRQ_mode;
         IndexMode m_index_mode;
@@ -227,6 +228,7 @@ public:
         set_IRQ_request(false);
         set_EI_delay(false);
         set_RETI_signaled(false);
+        set_EI_executed(false);
         set_IRQ_data(0);
         set_IRQ_mode(0);
         set_ticks(0);
@@ -275,8 +277,9 @@ public:
         state.m_halted = is_halted();
         state.m_NMI_pending = is_NMI_pending();
         state.m_IRQ_request = is_IRQ_requested();
-        state.m_EI_delay = get_EI_delay();
+        state.m_block_interrupt = get_block_interrupt();
         state.m_IRQ_data = get_IRQ_data();
+        state.m_EI_executed = is_EI_executed();
         state.m_IRQ_mode = get_IRQ_mode();
         state.m_index_mode = get_index_mode();
         state.m_ticks = get_ticks();
@@ -308,8 +311,9 @@ public:
         set_halted(state.m_halted);
         set_NMI_pending(state.m_NMI_pending);
         set_IRQ_request(state.m_IRQ_request);
-        set_EI_delay(state.m_EI_delay);
+        set_block_interrupt(state.m_block_interrupt);
         set_IRQ_data(state.m_IRQ_data);
+        set_EI_executed(state.m_EI_executed);
         set_IRQ_mode(state.m_IRQ_mode);
         set_index_mode(state.m_index_mode);
         set_ticks(state.m_ticks);
@@ -558,12 +562,16 @@ public:
     void set_IRQ_request(bool state) { m_IRQ_request = state; }
     /** @brief Checks if a maskable interrupt is pending (requested and IFF1 is enabled). @return True if an IRQ is pending. */
     bool is_IRQ_pending() const {return is_IRQ_requested() && get_IFF1(); }
-    /** @brief Gets the state of the EI delay flag (interrupts are enabled after the next instruction). @return The EI delay state. */
-    bool get_EI_delay() const { return m_EI_delay; }
-    /** @brief Sets the state of the EI delay flag. @param state The new EI delay state. */
-    void set_EI_delay(bool state) { m_EI_delay = state; }
+    /** @brief Gets the state of the interrupt block flag (interrupts are blocked for one instruction). @return The interrupt block state. */
+    bool get_block_interrupt() const { return m_block_interrupt; }
+    /** @brief Sets the state of the interrupt block flag. @param state The new interrupt block state. */
+    void set_block_interrupt(bool state) { m_block_interrupt = state; }
     /** @brief Gets the data byte for the current IRQ request. @return The IRQ data byte. */
     uint8_t get_IRQ_data() const { return m_IRQ_data; }
+    /** @brief Sets the EI executed flag. @param state The new state. */
+    void set_EI_executed(bool state) { m_EI_executed = state; }
+    /** @brief Checks if EI was just executed. @return True if EI was just executed. */
+    bool is_EI_executed() const { return m_EI_executed; }
     /** @brief Sets the data byte for an IRQ request. @param data The IRQ data byte. */
     void set_IRQ_data(uint8_t data) { m_IRQ_data = data; }
     /** @brief Gets the current interrupt mode (0, 1, or 2). @return The interrupt mode. */
@@ -587,11 +595,11 @@ private:
     Register m_AFp, m_BCp, m_DEp, m_HLp, m_WZ;
     Register m_IX, m_IY;
     uint16_t m_SP, m_PC;
-    uint8_t m_I, m_R;
+    uint8_t m_I, m_R, m_EI_executed;
     bool m_IFF1, m_IFF2;
     
     //internal CPU states
-    bool m_halted, m_NMI_pending, m_IRQ_request, m_EI_delay, m_RETI_signaled;
+    bool m_halted, m_NMI_pending, m_IRQ_request, m_block_interrupt, m_RETI_signaled;
     uint8_t m_IRQ_data, m_IRQ_mode;
     IndexMode m_index_mode;
     
@@ -1095,6 +1103,7 @@ private:
         set_halted(false);
         set_IFF2(get_IFF1());
         set_IFF1(false);
+        set_block_interrupt(false);
         push_word(get_PC());
         set_WZ(0x0066);
         set_PC(0x0066);
@@ -1112,6 +1121,7 @@ private:
         add_ticks(2); // Two wait states during interrupt acknowledge cycle
         set_IFF2(get_IFF1());
         set_IFF1(false);
+        set_block_interrupt(false);
         push_word(get_PC());
         switch (get_IRQ_mode()) {
             case 0: {
@@ -2323,7 +2333,10 @@ private:
             set_PC(address);
     }
     void handle_opcode_0xFB_EI() {
-        set_EI_delay(true);
+        set_IFF1(true);
+        set_IFF2(true);
+        set_block_interrupt(true);
+        set_EI_executed(true);
     }
     void handle_opcode_0xFC_CALL_M_nn() {
         uint16_t address = fetch_next_word();
@@ -2879,11 +2892,6 @@ private:
     template<OperateMode TMode> long long operate(long long ticks_limit) {
         long long initial_ticks = get_ticks();
         while (true) {
-            if (get_EI_delay()) {
-                set_IFF1(true);
-                set_IFF2(true);
-                set_EI_delay(false);
-            }                
             if (is_halted()) {
                 if constexpr (TMode == OperateMode::SingleStep)
                     add_ticks(4);
@@ -2895,6 +2903,7 @@ private:
                 if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
                     m_opcodes.clear();
 #endif//Z80_DEBUGGER_OPCODES
+                set_EI_executed(false);
                 set_index_mode(IndexMode::HL);
                 uint8_t opcode = fetch_next_opcode();
                 while (opcode == 0xDD || opcode == 0xFD) {
@@ -3258,11 +3267,13 @@ private:
                     case 0xFE: handle_opcode_0xFE_CP_n(); break;
                     case 0xFF: handle_opcode_0xFF_RST_38H(); break;
                 }
+                if (is_NMI_pending()) {
+                    handle_NMI();
+                } else if (is_IRQ_pending() && !get_block_interrupt()) {
+                    handle_IRQ();
+                }
+                set_block_interrupt(is_EI_executed());
             }
-            if (is_NMI_pending())
-                handle_NMI();
-            else if (is_IRQ_pending())
-                handle_IRQ();
             if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
 #ifdef Z80_DEBUGGER_OPCODES
                 m_debugger->after_step(m_opcodes);
