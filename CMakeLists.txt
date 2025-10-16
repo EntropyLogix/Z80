@@ -1,12 +1,30 @@
-cmake_minimum_required(VERSION 3.10.0)
+cmake_minimum_required(VERSION 3.14)
 project(Z80 VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native")
 
+# ===================================================================
+# Zarządzanie zależnościami za pomocą FetchContent
+# ===================================================================
+include(FetchContent)
+
+# Deklaracja biblioteki nlohmann/json
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG        v3.11.2
+)
+
+# Pobranie i udostępnienie biblioteki jako celu CMake
+FetchContent_MakeAvailable(nlohmann_json)
+
 add_executable(Z80
     main.cpp
 )
+
+set_target_properties(Z80 PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_link_libraries(Z80 PRIVATE nlohmann_json::nlohmann_json)
 
 option(ENABLE_PGO "Enable Profile-Guided Optimization (PGO)" OFF)
 if(ENABLE_PGO)
