@@ -465,9 +465,31 @@ private:
                     case 0x41: m_mnemonic = "OUT (C), B"; break;
                     case 0x42: m_mnemonic = "SBC HL, BC"; break;
                     case 0x43: m_mnemonic = "LD (" + format_hex(peek_next_word()) + "), BC"; break;
-                    case 0x44: m_mnemonic = "NEG"; break;
-                    case 0x45: m_mnemonic = "RETN"; break;
-                    case 0x46: m_mnemonic = "IM 0"; break;
+                    case 0x44:
+                    case 0x4C:
+                    case 0x54:
+                    case 0x5C:
+                    case 0x64:
+                    case 0x6C:
+                    case 0x74:
+                    case 0x7C:
+                        m_mnemonic = "NEG";
+                        break;
+                    case 0x45:
+                    case 0x55:
+                    case 0x5D:
+                    case 0x65:
+                    case 0x6D:
+                    case 0x75:
+                    case 0x7D:
+                        m_mnemonic = "RETN";
+                        break;
+                    case 0x46:
+                    case 0x4E:
+                    case 0x66:
+                    case 0x6E:
+                        m_mnemonic = "IM 0";
+                        break;
                     case 0x47: m_mnemonic = "LD I, A"; break;
                     case 0x48: m_mnemonic = "IN C, (C)"; break;
                     case 0x49: m_mnemonic = "OUT (C), C"; break;
@@ -479,13 +501,19 @@ private:
                     case 0x51: m_mnemonic = "OUT (C), D"; break;
                     case 0x52: m_mnemonic = "SBC HL, DE"; break;
                     case 0x53: m_mnemonic = "LD (" + format_hex(peek_next_word()) + "), DE"; break;
-                    case 0x56: m_mnemonic = "IM 1"; break;
+                    case 0x56: // IM 1
+                    case 0x76: // IM 1
+                        m_mnemonic = "IM 1";
+                        break;
                     case 0x57: m_mnemonic = "LD A, I"; break;
                     case 0x58: m_mnemonic = "IN E, (C)"; break;
                     case 0x59: m_mnemonic = "OUT (C), E"; break;
                     case 0x5A: m_mnemonic = "ADC HL, DE"; break;
                     case 0x5B: m_mnemonic = "LD DE, (" + format_hex(peek_next_word()) + ")"; break;
-                    case 0x5E: m_mnemonic = "IM 2"; break;
+                    case 0x5E:
+                    case 0x7E:
+                        m_mnemonic = "IM 2";
+                        break;
                     case 0x5F: m_mnemonic = "LD A, R"; break;
                     case 0x60: m_mnemonic = "IN H, (C)"; break;
                     case 0x61: m_mnemonic = "OUT (C), H"; break;
