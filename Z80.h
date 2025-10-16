@@ -2060,7 +2060,7 @@ private:
         if (!get_F().is_set(Flags::Z)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_WZ(address);
+            set_PC(address);
         }
     }
     void handle_opcode_0xC1_POP_BC() {
@@ -2101,7 +2101,7 @@ private:
         if (get_F().is_set(Flags::Z)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_WZ(address);
+            set_PC(address);
         }
     }
     void handle_opcode_0xC9_RET() {
@@ -2142,7 +2142,7 @@ private:
         if (!get_F().is_set(Flags::C)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_WZ(address);
+            set_PC(address);
         }
     }
     void handle_opcode_0xD1_POP_DE() {
@@ -2185,7 +2185,7 @@ private:
         if (get_F().is_set(Flags::C)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_WZ(address);
+            set_PC(address);
         }
     }
     void handle_opcode_0xD9_EXX() {
@@ -2233,7 +2233,7 @@ private:
         if (!get_F().is_set(Flags::PV)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_WZ(address);
+            set_PC(address);
         }
     }
     void handle_opcode_0xE1_POP_HL() {
@@ -2277,7 +2277,7 @@ private:
         if (get_F().is_set(Flags::PV)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_WZ(address);
+            set_PC(address);
         }
     }
     void handle_opcode_0xE9_JP_HL_ptr() {
@@ -2315,7 +2315,7 @@ private:
         if (!get_F().is_set(Flags::S)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_WZ(address);
+            set_PC(address);
         }
     }
     void handle_opcode_0xF1_POP_AF() {
@@ -2355,7 +2355,7 @@ private:
         if (get_F().is_set(Flags::S)) {
             uint16_t address = pop_word();
             set_WZ(address);
-            set_WZ(address);
+            set_PC(address);
         }
     }
     void handle_opcode_0xF9_LD_SP_HL() {
