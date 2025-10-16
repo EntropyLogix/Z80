@@ -63,6 +63,7 @@ public:
         bool m_RETI_signaled;
         bool m_EI_executed;
         uint8_t m_IRQ_data;
+        bool m_flags_modified;
         uint8_t m_IRQ_mode;
         IndexMode m_index_mode;
         long long m_ticks;
@@ -231,6 +232,7 @@ public:
         set_RETI_signaled(false);
         set_EI_executed(false);
         set_IRQ_data(0);
+        set_flags_modified(false);
         set_IRQ_mode(0);
         set_ticks(0);
         set_index_mode(IndexMode::HL);
@@ -282,6 +284,7 @@ public:
         state.m_block_interrupt = get_block_interrupt();
         state.m_IRQ_data = get_IRQ_data();
         state.m_EI_executed = is_EI_executed();
+        state.m_flags_modified = get_flags_modified();
         state.m_IRQ_mode = get_IRQ_mode();
         state.m_index_mode = get_index_mode();
         state.m_ticks = get_ticks();
@@ -316,6 +319,7 @@ public:
         set_block_interrupt(state.m_block_interrupt);
         set_Q(state.m_Q);
         set_IRQ_data(state.m_IRQ_data);
+        set_flags_modified(state.m_flags_modified);
         set_EI_executed(state.m_EI_executed);
         set_IRQ_mode(state.m_IRQ_mode);
         set_index_mode(state.m_index_mode);
@@ -488,9 +492,9 @@ public:
     /** @brief Gets the 8-bit Flags (F) register value. @return The Flags object. */
     Flags get_F() const { return m_AF.l; }
     /** @brief Sets the 8-bit Flags (F) register value. @param value The new Flags object. */
-    void set_F(Flags value) {
+    void set_F(Flags value) { 
         m_AF.l = value;
-        set_Q(value);
+        set_flags_modified(true);
     }
     /** @brief Gets the 8-bit B register value. @return The value of B. */
     uint8_t get_B() const { return m_BC.h; }
@@ -588,6 +592,11 @@ public:
     void set_RETI_signaled(bool state) { m_RETI_signaled = state; }
     /** @brief Checks if a RETI instruction has just been executed. @return True if RETI was signaled. */
     bool is_RETI_signaled() const { return m_RETI_signaled;}
+    /** @brief Gets the state of the flags modified flag. @return The flags modified state. */
+    bool get_flags_modified() const { return m_flags_modified; }
+    /** @brief Sets the state of the flags modified flag. @param state The new state. */
+    void set_flags_modified(bool state) { m_flags_modified = state; }
+
     
     // Processing opcodes DD and FD index
     /** @brief Gets the current index mode (HL, IX, or IY). @return The current IndexMode. */
@@ -607,14 +616,15 @@ private:
     Register m_AFp, m_BCp, m_DEp, m_HLp, m_WZ;
     Register m_IX, m_IY;
     uint16_t m_SP, m_PC;
-    uint8_t m_I, m_R, m_Q, m_EI_executed;
+    uint8_t m_I, m_R, m_Q;
     bool m_IFF1, m_IFF2;
     
     //internal CPU states
-    bool m_halted, m_NMI_pending, m_IRQ_request, m_block_interrupt, m_RETI_signaled;
+    bool m_halted, m_NMI_pending, m_IRQ_request, m_block_interrupt, m_RETI_signaled, m_EI_executed;
     uint8_t m_IRQ_data, m_IRQ_mode;
     IndexMode m_index_mode;
     
+    bool m_flags_modified;
     //CPU T-states
     long long m_ticks;
     
@@ -1604,11 +1614,15 @@ private:
         }
     }
     void handle_opcode_0x37_SCF() {
-        Flags flags = get_F();
+        Flags flags(get_F());
+        if (get_Q() != 0) {
+            flags.clear(Flags::X | Flags::Y);
+        }
         flags.set(Flags::C)
-            .clear(Flags::H | Flags::N)
-            .update(Flags::X, (get_Q() & Flags::X) != 0)
-            .update(Flags::Y, (get_Q() & Flags::Y) != 0);
+             .clear(Flags::H | Flags::N);
+        uint8_t temp_flags_val = flags;
+        flags.update(Flags::X, ((temp_flags_val | get_A()) & Flags::X) != 0)
+             .update(Flags::Y, ((temp_flags_val | get_A()) & Flags::Y) != 0);
         set_F(flags);
     }
     void handle_opcode_0x38_JR_C_d() {
@@ -1645,13 +1659,15 @@ private:
         set_A(fetch_next_byte());
     }
     void handle_opcode_0x3F_CCF() {
-        Flags flags = get_F();
+        Flags flags(get_F());
+        if (get_Q() != 0)
+            flags.clear(Flags::X | Flags::Y);
         bool old_carry = flags.is_set(Flags::C);
         flags.update(Flags::C, !old_carry)
             .update(Flags::H, old_carry)
             .clear(Flags::N)
-            .update(Flags::X, (get_Q() & Flags::X) != 0)
-            .update(Flags::Y, (get_Q() & Flags::Y) != 0);
+            .update(Flags::X, ((flags | get_A()) & Flags::X) != 0)
+            .update(Flags::Y, ((flags | get_A()) & Flags::Y) != 0);
         set_F(flags);
     }
     void handle_opcode_0x40_LD_B_B() {
@@ -2793,7 +2809,7 @@ private:
             .update(Flags::PV, get_BC() != 0)
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
-        set_Q(flags);
+        set_F(flags);
     }
     void handle_opcode_0xED_0xAA_IND() {
         uint8_t port_val = m_bus->in(get_BC());
@@ -2922,8 +2938,8 @@ private:
 #endif//Z80_DEBUGGER_OPCODES
                 set_EI_executed(false);
                 set_index_mode(IndexMode::HL);
-                set_Q(0);
                 uint8_t opcode = fetch_next_opcode();
+                set_flags_modified(false);
                 while (opcode == 0xDD || opcode == 0xFD) {
                     set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
                     opcode = fetch_next_opcode();
@@ -3285,12 +3301,15 @@ private:
                     case 0xFE: handle_opcode_0xFE_CP_n(); break;
                     case 0xFF: handle_opcode_0xFF_RST_38H(); break;
                 }
-                if (is_NMI_pending()) {
+                if (is_NMI_pending())
                     handle_NMI();
-                } else if (is_IRQ_pending() && !get_block_interrupt()) {
+                else if (is_IRQ_pending() && !get_block_interrupt())
                     handle_IRQ();
-                }
                 set_block_interrupt(is_EI_executed());
+                if (get_flags_modified())
+                    set_Q(get_F());
+                else
+                    set_Q(0);
             }
             if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
 #ifdef Z80_DEBUGGER_OPCODES
