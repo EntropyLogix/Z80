@@ -1388,11 +1388,11 @@ private:
     void handle_opcode_0x10_DJNZ_d() {
         int8_t offset = static_cast<int8_t>(fetch_next_byte());
         uint16_t address = get_PC() + offset;
-        set_WZ(address);
         uint8_t new_b_value = get_B() - 1;
         set_B(new_b_value);
         add_tick();
         if (new_b_value != 0) {
+            set_WZ(address);
             set_PC(address);
             add_ticks(5);
         }
@@ -2360,7 +2360,6 @@ private:
     }
     void handle_opcode_0xF9_LD_SP_HL() {
         set_SP(get_indexed_HL());
-        set_WZ(get_SP() + 1);
         add_ticks(2);
     }
     void handle_opcode_0xFA_JP_M_nn() {
