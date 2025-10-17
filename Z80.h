@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██ 
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
-// Verson: 1.0.1
+// Verson: 1.0.2
 //
 // This file defines the core Z80 processor emulation class,
 // including register definitions, state management, and instruction execution logic.
@@ -99,32 +99,30 @@ public:
 
     // Constructor
     Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr) {
-        if constexpr (std::is_default_constructible_v<TBus>) {
-            if (bus) {
-                m_bus = bus;
-                m_owns_bus = false;
-            } else {
-                m_bus = new TBus();
-                m_owns_bus = true;
-            }
-        } else {
-            static_assert(std::is_default_constructible_v<TBus>, "TBus is not default constructible. You must provide a pointer to a TBus instance.");
+        if (bus) {
             m_bus = bus;
             m_owns_bus = false;
-        }
-
-        if constexpr (std::is_default_constructible_v<TEvents>) {
-            if (events) {
-                m_events = events;
-                m_owns_events = false;
-            } else {
-                m_events = new TEvents();
-                m_owns_events = true;
-            }
         } else {
-            static_assert(std::is_default_constructible_v<TEvents>, "TEvents is not default constructible. You must provide a pointer to a TEvents instance.");
+            static_assert(std::is_default_constructible_v<TBus>, "TBus is not default constructible.");
+            m_bus = new TBus();
+            m_owns_bus = true;
+        }
+        if (events) {
             m_events = events;
             m_owns_events = false;
+        } else {
+            static_assert(std::is_default_constructible_v<TEvents>, "TEvents is not default constructible.");
+            m_events = new TEvents();
+            m_owns_events = true;
+        }
+        if (debugger) {
+            m_debugger = debugger;
+            m_owns_debugger = false;
+        }
+        else {
+            static_assert(std::is_default_constructible_v<TDebugger>, "TDebugger is not default constructible.");
+            m_debugger = new TDebugger();
+            m_owns_debugger = true;
         }
         precompute_parity();
         m_bus->connect(this);
@@ -144,57 +142,40 @@ public:
     // Copy constructor
     Z80(const Z80& other)
         : m_bus(nullptr), m_events(nullptr), m_debugger(nullptr),
-         m_owns_bus(false), m_owns_events(false), m_owns_debugger(false) {
+        m_owns_bus(false), m_owns_events(false), m_owns_debugger(false) {
         // Copy state
         restore_state(other.save_state());
-
         // Handle bus
         if (other.m_owns_bus) {
+            static_assert(!std::is_copy_constructible_v<TBus>, "TBus is not copy-constructible.");
             m_bus = new TBus(*other.m_bus);
             m_owns_bus = true;
-        } else {
+        } else
             m_bus = other.m_bus;
-        }
-
         // Handle events
         if (other.m_owns_events) {
+            static_assert(!std::is_copy_constructible_v<TEvents>, "TEvents is not copy-constructible.");
             m_events = new TEvents(*other.m_events);
             m_owns_events = true;
-        } else {
+        } else
             m_events = other.m_events;
-        }
-
         // Handle debugger
         if (other.m_owns_debugger) {
+            static_assert(!std::is_copy_constructible_v<TDebugger>, "TDebugger is not copy-constructible.");
             m_debugger = new TDebugger(*other.m_debugger);
             m_owns_debugger = true;
-        } else {
+        } else 
             m_debugger = other.m_debugger;
-        }
-
         precompute_parity();
-        m_bus->connect(this);
-        m_events->connect(this);
-        m_debugger->connect(this);
+        if (m_bus) m_bus->connect(this);
+        if (m_events) m_events->connect(this);
+        if (m_debugger) m_debugger->connect(this);
     }
 
     // Copy assignment operator
     Z80& operator=(const Z80& other) {
-        if (this == &other) {
-            return *this;
-        }
-
-        // Copy state
-        restore_state(other.save_state());
-
-        // Clean up owned resources
-        if (m_owns_bus) delete m_bus;
-        if (m_owns_events) delete m_events;
-        if (m_owns_debugger) delete m_debugger;
-
-        // Copy and re-initialize resources
-        *this = Z80(other); // Delegate to copy constructor
-
+        Z80 temp(other);
+        std::swap(*this, temp);
         return *this;
     }
 
