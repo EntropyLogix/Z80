@@ -1083,7 +1083,6 @@ private:
                 break;
             case 1: {
                 bit_8bit(bit, value);
-                set_Q(get_F());
                 Flags flags = get_F();
                 if (target_reg == 6) {
                     set_WZ(flags_source);
