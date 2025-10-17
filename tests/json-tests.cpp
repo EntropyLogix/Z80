@@ -57,7 +57,7 @@ void set_initial_state(Z80TestProcessor& cpu, const nlohmann::json& test_case) {
     cpu.set_IFF2(state["iff2"].get<int>() != 0);
     if (state.contains("im")) cpu.set_IRQ_mode(state["im"]);
     if (state.contains("wz")) cpu.set_WZ(state["wz"]);
-    if (state.contains("ei")) cpu.set_EI_executed(state["ei"].get<int>() != 0);
+    if (state.contains("ei")) cpu.set_block_interrupt(state["ei"].get<int>() != 0);
     if (state.contains("q")) cpu.set_Q(state["q"]);
     if (state.contains("af_")) cpu.set_AFp(state["af_"]);
     if (state.contains("bc_")) cpu.set_BCp(state["bc_"]);
@@ -111,7 +111,7 @@ bool check_final_state(Z80TestProcessor& cpu, const nlohmann::json& test_case, c
     check("IFF1", cpu.get_IFF1(), expected_state["iff1"].get<int>() != 0, full_test_name);
     check("IFF2", cpu.get_IFF2(), expected_state["iff2"].get<int>() != 0, full_test_name);
     if (expected_state.contains("wz")) check("WZ", cpu.get_WZ(), (uint16_t)expected_state["wz"], full_test_name);
-    if (expected_state.contains("ei")) check("EI", cpu.is_EI_executed(), expected_state["ei"].get<int>() != 0, full_test_name);
+    if (expected_state.contains("ei")) check("block_interrupt", cpu.get_block_interrupt(), expected_state["ei"].get<int>() != 0, full_test_name);
 
     if (expected_state.contains("ram")) {
         for (const auto& ram_entry : expected_state["ram"]) {
