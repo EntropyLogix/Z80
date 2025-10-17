@@ -30,10 +30,16 @@ public:
         return disassemble(address, "%a: %-12b %m");
     }
 
+    //Format specifiers:
+    // - `%a`: Address (hex)
+    // - `%A`: Address (dec)
+    // - `%b`: Instruction bytes (hex)
+    // - `%B`: Instruction bytes (dec)
+    // - `%m`: Mnemonic
+    // supports width (`%10`), alignment (`%-10`), and fill character (`%-10.b` uses `.` instead of space).
     std::string disassemble(uint16_t& address, const std::string& format) {
         uint16_t initial_address = address;
         parse_instruction(address);
-
         std::stringstream ss;
         for (size_t i = 0; i < format.length(); ++i) {
             if (format[i] == '%') {
