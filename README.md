@@ -409,7 +409,7 @@ include(FetchContent)
 FetchContent_Declare(
   Z80
   GIT_REPOSITORY https://github.com/EntropyLogix/Z80
-  GIT_TAG        v1.0.1 # You can use a tag, branch, or a specific commit
+  GIT_TAG        v1.0.2 # You can use a tag, branch, or a specific commit
 )
 
 # Download and make the library available
