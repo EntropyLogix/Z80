@@ -2875,9 +2875,14 @@ private:
     void handle_opcode_0xED_0xB1_CPIR() {
         handle_opcode_0xED_0xA1_CPI();
         if (get_BC() != 0 && !get_F().is_set(Flags::Z)) {
-            set_WZ(get_PC() + 1);
-            set_PC(get_PC() - 2);
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
             add_ticks(5);
+            Flags flags = get_F();
+            flags.update(Flags::X, (new_pc & 0x0800) != 0);
+            flags.update(Flags::Y, (new_pc & 0x2000) != 0);
+            set_F(flags);
         }
     }
     void handle_opcode_0xED_0xB2_INIR() {
@@ -2912,9 +2917,14 @@ private:
     void handle_opcode_0xED_0xB9_CPDR() {
         handle_opcode_0xED_0xA9_CPD();
         if (get_BC() != 0 && !get_F().is_set(Flags::Z)) {
-            set_WZ(get_PC() + 1);
-            set_PC(get_PC() - 2);
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
             add_ticks(5);
+            Flags flags = get_F();
+            flags.update(Flags::X, (new_pc & 0x0800) != 0);
+            flags.update(Flags::Y, (new_pc & 0x2000) != 0);
+            set_F(flags);
         }
     }
     void handle_opcode_0xED_0xBA_INDR() {
