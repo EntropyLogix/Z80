@@ -992,9 +992,8 @@ private:
     }
     //Interrupt handling
     void handle_NMI() {
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
+        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) 
             m_debugger->before_NMI();
-        }
         set_halted(false);
         set_IFF2(get_IFF1());
         set_IFF1(false);
@@ -1004,14 +1003,12 @@ private:
         set_PC(0x0066);
         set_NMI_pending(false);
         add_ticks(4);
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
+        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
             m_debugger->after_NMI();
-        }
     }
     void handle_IRQ() {
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
+        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
             m_debugger->before_IRQ();
-        }
         set_halted(false);
         add_ticks(2); // Two wait states during interrupt acknowledge cycle
         set_IFF2(get_IFF1());
@@ -1050,9 +1047,8 @@ private:
             }
         }
         set_IRQ_request(false);
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
+        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) 
             m_debugger->after_IRQ();
-        }
     }
 
     //Opcodes handling
@@ -3186,16 +3182,15 @@ private:
                 else
                     set_Q(0);
             }
-            if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
+            if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
 #ifdef Z80_DEBUGGER_OPCODES
                 m_debugger->after_step(m_opcodes);
 #else
                 m_debugger->after_step();
 #endif
-            }
-            if constexpr (TMode == OperateMode::SingleStep) {
+            if constexpr (TMode == OperateMode::SingleStep)
                 break;
-            } else {
+            else {
                 if (get_ticks() >= ticks_limit)
                     break;
             }
