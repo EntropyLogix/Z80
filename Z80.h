@@ -96,7 +96,7 @@ public:
         uint8_t m_value;
     };
 
-    // Constructor
+    //Constructors, destructors and assignment operators
     Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr) :
         m_owns_bus(false), m_owns_events(false), m_owns_debugger(false),
         m_bus(bus), m_events(events), m_debugger(debugger) {
@@ -133,32 +133,31 @@ public:
         if (m_owns_debugger)
             delete m_debugger;
     }
-
-    // Copy constructor
     Z80(const Z80& other)
-        : m_bus(nullptr), m_events(nullptr), m_debugger(nullptr),
-        m_owns_bus(false), m_owns_events(false), m_owns_debugger(false) {
-        // Copy state
+        : m_bus(nullptr), m_events(nullptr), m_debugger(nullptr), m_owns_bus(false), m_owns_events(false), m_owns_debugger(false) {
         restore_state(other.save_state());
-        // Handle bus
         if (other.m_owns_bus) {
-            static_assert(!std::is_copy_constructible_v<TBus>, "TBus is not copy-constructible.");
-            m_bus = new TBus(*other.m_bus);
-            m_owns_bus = true;
+            if constexpr(std::is_copy_constructible_v<TBus>) {
+                m_bus = new TBus(*other.m_bus);
+                m_owns_bus = true;
+            } else
+                m_bus = nullptr;
         } else
             m_bus = other.m_bus;
-        // Handle events
         if (other.m_owns_events) {
-            static_assert(!std::is_copy_constructible_v<TEvents>, "TEvents is not copy-constructible.");
-            m_events = new TEvents(*other.m_events);
-            m_owns_events = true;
+            if constexpr(std::is_copy_constructible_v<TEvents>) {
+                m_events = new TEvents(*other.m_events);
+                m_owns_events = true;
+            } else
+                m_events = nullptr;
         } else
             m_events = other.m_events;
-        // Handle debugger
         if (other.m_owns_debugger) {
-            static_assert(!std::is_copy_constructible_v<TDebugger>, "TDebugger is not copy-constructible.");
-            m_debugger = new TDebugger(*other.m_debugger);
-            m_owns_debugger = true;
+            if constexpr(std::is_copy_constructible_v<TDebugger>) {
+                m_debugger = new TDebugger(*other.m_debugger);
+                m_owns_debugger = true;
+            } else
+                m_debugger = nullptr;
         } else 
             m_debugger = other.m_debugger;
         precompute_parity();
@@ -166,14 +165,11 @@ public:
         if (m_events) m_events->connect(this);
         if (m_debugger) m_debugger->connect(this);
     }
-
-    // Copy assignment operator
     Z80& operator=(const Z80& other) {
         Z80 temp(other);
         std::swap(*this, temp);
         return *this;
     }
-
 
     // Main execution and control interface
     long long run(long long ticks_limit) {return operate<OperateMode::ToLimit>(ticks_limit);}
