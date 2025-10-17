@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██ 
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
-// Verson: 1.0.2
+// Verson: 1.0.3
 //
 // This file defines the core Z80 processor emulation class,
 // including register definitions, state management, and instruction execution logic.
@@ -103,26 +103,38 @@ public:
             m_bus = bus;
             m_owns_bus = false;
         } else {
-            static_assert(std::is_default_constructible_v<TBus>, "TBus is not default constructible.");
-            m_bus = new TBus();
-            m_owns_bus = true;
+            if constexpr (std::is_default_constructible_v<TBus>) {
+                m_bus = new TBus();
+                m_owns_bus = true;
+            } else {
+                #pragma message("Warning: TBus is not default-constructible. Z80 will be created with a null bus pointer.")
+                m_bus = nullptr;
+            }
         }
         if (events) {
             m_events = events;
             m_owns_events = false;
         } else {
-            static_assert(std::is_default_constructible_v<TEvents>, "TEvents is not default constructible.");
-            m_events = new TEvents();
-            m_owns_events = true;
+            if constexpr (std::is_default_constructible_v<TEvents>) {
+                m_events = new TEvents();
+                m_owns_events = true;
+            } else {
+                #pragma message("Warning: TEvents is not default-constructible. Z80 will be created with a null events pointer.")
+                m_events = nullptr;
+            }
         }
         if (debugger) {
             m_debugger = debugger;
             m_owns_debugger = false;
-        }
-        else {
-            static_assert(std::is_default_constructible_v<TDebugger>, "TDebugger is not default constructible.");
-            m_debugger = new TDebugger();
-            m_owns_debugger = true;
+        } else {
+            if constexpr (std::is_default_constructible_v<TDebugger>) {
+                m_debugger = new TDebugger();
+                m_owns_debugger = true;
+            } else {
+                #pragma message("Warning: TDebugger is not default-constructible. Z80 will be created with a null debugger pointer.")
+                m_debugger = nullptr;
+                m_owns_debugger = false;
+            }
         }
         precompute_parity();
         m_bus->connect(this);
