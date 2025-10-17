@@ -60,7 +60,7 @@ public:
         bool m_halted;
         bool m_NMI_pending;
         bool m_IRQ_request;
-        bool m_block_interrupt;
+        bool m_EI_executed;
         bool m_RETI_signaled;
         uint8_t m_IRQ_data;
         bool m_flags_modified;
@@ -189,7 +189,7 @@ public:
         set_NMI_pending(false);
         set_WZ(0);
         set_IRQ_request(false);
-        set_block_interrupt(false);
+        set_EI_executed(false);
         set_RETI_signaled(false);
         set_IRQ_data(0);
         set_flags_modified(false);
@@ -230,7 +230,7 @@ public:
         state.m_halted = is_halted();
         state.m_NMI_pending = is_NMI_pending();
         state.m_IRQ_request = is_IRQ_requested();
-        state.m_block_interrupt = get_block_interrupt();
+        state.m_EI_executed = is_EI_executed();
         state.m_IRQ_data = get_IRQ_data();
         state.m_flags_modified = get_flags_modified();
         state.m_IRQ_mode = get_IRQ_mode();
@@ -260,7 +260,7 @@ public:
         set_halted(state.m_halted);
         set_NMI_pending(state.m_NMI_pending);
         set_IRQ_request(state.m_IRQ_request);
-        set_block_interrupt(state.m_block_interrupt);
+        set_EI_executed(state.m_EI_executed);
         set_Q(state.m_Q);
         set_IRQ_data(state.m_IRQ_data);
         set_flags_modified(state.m_flags_modified);
@@ -414,6 +414,8 @@ public:
     // CPU state flags
     bool get_IFF1() const { return m_IFF1; }
     void set_IFF1(bool state) { m_IFF1 = state; }
+    bool is_EI_executed() const { return m_EI_executed; }
+    void set_EI_executed(bool state) { m_EI_executed = state; }
     bool get_IFF2() const { return m_IFF2; }
     void set_IFF2(bool state) { m_IFF2 = state; }
     bool is_halted() const { return m_halted; }
@@ -425,8 +427,6 @@ public:
     bool is_IRQ_requested() const { return m_IRQ_request; }
     void set_IRQ_request(bool state) { m_IRQ_request = state; }
     bool is_IRQ_pending() const {return is_IRQ_requested() && get_IFF1(); }
-    bool get_block_interrupt() const { return m_block_interrupt; }
-    void set_block_interrupt(bool state) { m_block_interrupt = state; }
     uint8_t get_IRQ_data() const { return m_IRQ_data; }
     void set_IRQ_data(uint8_t data) { m_IRQ_data = data; }
     uint8_t get_IRQ_mode() const { return m_IRQ_mode; }
@@ -455,7 +455,7 @@ private:
     bool m_IFF1, m_IFF2;
     
     //internal CPU states
-    bool m_halted, m_NMI_pending, m_IRQ_request, m_block_interrupt, m_RETI_signaled;
+    bool m_halted, m_NMI_pending, m_IRQ_request, m_RETI_signaled, m_EI_executed;
     uint8_t m_IRQ_data, m_IRQ_mode;
     IndexMode m_index_mode;
     
@@ -997,7 +997,6 @@ private:
         set_halted(false);
         set_IFF2(get_IFF1());
         set_IFF1(false);
-        set_block_interrupt(false);
         push_word(get_PC());
         set_WZ(0x0066);
         set_PC(0x0066);
@@ -1013,7 +1012,6 @@ private:
         add_ticks(2); // Two wait states during interrupt acknowledge cycle
         set_IFF2(get_IFF1());
         set_IFF1(false);
-        set_block_interrupt(false);
         push_word(get_PC());
         switch (get_IRQ_mode()) {
             case 0: {
@@ -2218,8 +2216,8 @@ private:
     }
     void handle_opcode_0xFB_EI() {
         set_IFF1(true);
-        set_IFF2(true);
-        set_block_interrupt(true);
+        set_IFF2(true); 
+        set_EI_executed(true);
     }
     void handle_opcode_0xFC_CALL_M_nn() {
         uint16_t address = fetch_next_word();
@@ -2806,7 +2804,7 @@ private:
                 if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
                     m_opcodes.clear();
 #endif//Z80_DEBUGGER_OPCODES
-                set_block_interrupt(false);
+                set_EI_executed(false); // Reset the EI delay flag at the start of each instruction cycle
                 set_index_mode(IndexMode::HL);
                 uint8_t opcode = fetch_next_opcode();
                 set_flags_modified(false);
@@ -3173,8 +3171,9 @@ private:
                 }
                 if (is_NMI_pending())
                     handle_NMI();
-                else if (is_IRQ_pending() && !get_block_interrupt())
+                else if (is_IRQ_pending() && !is_EI_executed())
                     handle_IRQ();
+                
                 if (get_flags_modified())
                     set_Q(get_F());
                 else
