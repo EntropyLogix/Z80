@@ -44,7 +44,9 @@ Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullpt
 
 *   **Passing a Pointer (External Ownership):** If you provide a valid pointer to an existing object, the `Z80` core will use that object. In this case, the `Z80` instance does **not** take ownership, and you are responsible for managing the object's memory (i.e., creating and deleting it). This is useful for sharing a single bus or event system across multiple components.
 
-*   **Passing `nullptr` (Internal Ownership):** If you pass `nullptr` or omit the argument, the `Z80` core will internally create a new instance of the corresponding template type (e.g., `new TBus()`). The `Z80` core then **takes ownership** and will automatically `delete` the object in its destructor. This is convenient for self-contained setups.
+*   **Passing `nullptr` (Internal Ownership):** If you pass `nullptr` or omit the argument, the `Z80` core will attempt to internally create a new instance of the corresponding template type (e.g., `new TBus()`). The `Z80` core then **takes ownership** and will automatically `delete` the object in its destructor. This is convenient for self-contained setups.
+
+    > **⚠️ Warning:** This automatic creation only works if the template type (e.g., `TBus`) is **default-constructible**. If it is not, the internal pointer will be initialized to `nullptr`, which will likely cause a runtime error if the CPU attempts to access it.
 
 This model gives you the choice between dependency injection (you control the lifetime) and composition (the `Z80` object controls the lifetime).
 

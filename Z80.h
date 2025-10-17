@@ -115,7 +115,7 @@ public:
         }
         if (!m_debugger) {
             if constexpr (std::is_default_constructible_v<TDebugger>) {
-                m_debugger = new TEvents();
+                m_debugger = new TDebugger();
                 m_owns_debugger = true;
             }
         }
@@ -313,8 +313,34 @@ public:
     // Access to internal components
     TBus* get_bus() { return m_bus; }
     const TBus* get_bus() const { return m_bus; }
+    void set_bus(TBus* bus) {
+        if (m_owns_bus)
+            delete m_bus;
+        m_bus = bus;
+        m_owns_bus = false;
+        if (m_bus)
+            m_bus->connect(this);
+    }
     TEvents* get_events() { return m_events; }
     const TEvents* get_events() const { return m_events; }
+    void set_events(TEvents* events) {
+        if (m_owns_events)
+            delete m_events;
+        m_events = events;
+        m_owns_events = false;
+        if (m_events)
+            m_events->connect(this);
+    }    
+    TDebugger* get_debugger() { return m_debugger; }
+    const TDebugger* get_debugger() const { return m_debugger; }
+    void set_debugger(TDebugger* debugger) {
+        if (m_owns_debugger)
+            delete m_debugger;
+        m_debugger = debugger;
+        m_owns_debugger = false;
+        if (m_debugger)
+            m_debugger->connect(this);
+    }
 
     // 16-bit main registers
     uint16_t get_AF() const { return m_AF.w; }
