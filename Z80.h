@@ -936,7 +936,7 @@ private:
             .update(Flags::Z, bit_is_zero)
             .update(Flags::PV, bit_is_zero)
             .update(Flags::S, bit == 7 && !bit_is_zero);
-        if (!mem_ptr) {
+        if (mem_ptr) {
             flags.update(Flags::X, (get_W() & Flags::X) != 0)
                 .update(Flags::Y, (get_W() & Flags::Y) != 0);
         }
