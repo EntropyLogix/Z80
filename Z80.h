@@ -98,42 +98,26 @@ public:
     };
 
     // Constructor
-    Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr) {
-        if (bus) {
-            m_bus = bus;
-            m_owns_bus = false;
-        } else {
+    Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr) :
+        m_owns_bus(false), m_owns_events(false), m_owns_debugger(false),
+        m_bus(bus), m_events(events), m_debugger(debugger) {
+
+        if (!m_bus) {
             if constexpr (std::is_default_constructible_v<TBus>) {
                 m_bus = new TBus();
                 m_owns_bus = true;
-            } else {
-                #pragma message("Warning: TBus is not default-constructible. Z80 will be created with a null bus pointer.")
-                m_bus = nullptr;
             }
         }
-        if (events) {
-            m_events = events;
-            m_owns_events = false;
-        } else {
+        if (!m_events) {
             if constexpr (std::is_default_constructible_v<TEvents>) {
                 m_events = new TEvents();
                 m_owns_events = true;
-            } else {
-                #pragma message("Warning: TEvents is not default-constructible. Z80 will be created with a null events pointer.")
-                m_events = nullptr;
             }
         }
-        if (debugger) {
-            m_debugger = debugger;
-            m_owns_debugger = false;
-        } else {
+        if (!m_debugger) {
             if constexpr (std::is_default_constructible_v<TDebugger>) {
-                m_debugger = new TDebugger();
+                m_debugger = new TEvents();
                 m_owns_debugger = true;
-            } else {
-                #pragma message("Warning: TDebugger is not default-constructible. Z80 will be created with a null debugger pointer.")
-                m_debugger = nullptr;
-                m_owns_debugger = false;
             }
         }
         precompute_parity();
