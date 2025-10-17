@@ -2742,38 +2742,45 @@ private:
     void handle_opcode_0xED_0xA2_INI() {
         uint8_t port_val = m_bus->in(get_BC());
         set_WZ(get_BC() + 1);
-        add_ticks(4); // 4 T-states for I/O read cycle
-        uint8_t b_val = get_B();
-        set_B(b_val - 1);
+        add_ticks(4); // 4 T-states for I/O read
+        uint8_t new_b = get_B() - 1;
+        set_B(new_b);
         add_tick(); // 1 T-state for wait cycle
         write_byte(get_HL(), port_val);
         set_HL(get_HL() + 1);
-        Flags flags = get_F();
-        uint16_t temp = static_cast<uint16_t>(get_C()) + 1;
-        uint8_t k = port_val + (temp & 0xFF);
-        flags.set(Flags::N)
-            .update(Flags::Z, b_val - 1 == 0)
-            .update(Flags::C, k > 0xFF)
-            .update(Flags::H, k > 0xFF)
-            .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ (b_val - 1)) & 0xFF));
+
+        uint16_t temp = port_val + static_cast<uint8_t>(get_C() + 1);
+        Flags flags(0);
+        flags.zero()
+            .update(Flags::S, (new_b & 0x80) != 0)
+            .update(Flags::Z, new_b == 0)
+            .update(Flags::C, temp > 0xFF)
+            .update(Flags::H, temp > 0xFF)
+            .update(Flags::PV, is_parity_even(((temp & 0x07) ^ new_b)))
+            .update(Flags::N, (port_val & 0x80) != 0)
+            .update(Flags::X, (new_b & Flags::X) != 0)
+            .update(Flags::Y, (new_b & Flags::Y) != 0);
         set_F(flags);
     }
     void handle_opcode_0xED_0xA3_OUTI() {
+        add_tick(); // 1 T-state for wait cycle
         uint8_t mem_val = read_byte(get_HL());
-        uint8_t b_val = get_B();
-        set_B(b_val - 1);
-        m_bus->out(get_BC(), mem_val);
-        set_WZ(get_BC() + 1);
-        add_ticks(4); // 4 for I/O write
         set_HL(get_HL() + 1);
-        add_tick(); // 1 for internal ops
-        Flags flags = get_F();
+        uint8_t new_b = get_B() - 1;
+        set_B(new_b);
+        m_bus->out(get_BC(), mem_val);
+        add_ticks(4); // 4 T-states for I/O write
+        set_WZ(get_BC() + 1);
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
-        flags.set(Flags::N)
-            .update(Flags::Z, b_val - 1 == 0)
+        Flags flags(0);
+        flags.update(Flags::S, (new_b & 0x80) != 0)
+            .update(Flags::Z, new_b == 0)
             .update(Flags::C, temp > 0xFF)
             .update(Flags::H, temp > 0xFF)
-            .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ b_val) & 0xFF) );
+            .update(Flags::PV, is_parity_even((static_cast<uint8_t>(temp) & 0x07) ^ new_b))
+            .update(Flags::N, (mem_val & 0x80) != 0)
+            .update(Flags::X, (new_b & Flags::X) != 0)
+            .update(Flags::Y, (new_b & Flags::Y) != 0);
         set_F(flags);
     }
     void handle_opcode_0xED_0xA8_LDD() {
@@ -2813,20 +2820,24 @@ private:
     void handle_opcode_0xED_0xAA_IND() {
         uint8_t port_val = m_bus->in(get_BC());
         set_WZ(get_BC() - 1);
-        add_ticks(4); // 4 T-states for I/O read cycle
-        uint8_t b_val = get_B();
-        set_B(b_val - 1);
+        add_ticks(4); // 4 T-states for I/O read
+        uint8_t new_b = get_B() - 1;
+        set_B(new_b);
         add_tick(); // 1 T-state for wait cycle
         write_byte(get_HL(), port_val);
         set_HL(get_HL() - 1);
-        Flags flags = get_F();
+
         uint16_t temp = static_cast<uint16_t>(get_C()) - 1;
-        uint8_t k = port_val + (temp & 0xFF);
-        flags.set(Flags::N)
-            .update(Flags::Z, b_val - 1 == 0)
+        uint16_t k = port_val + (temp & 0xFF);
+        Flags flags(0);
+        flags.update(Flags::S, (new_b & 0x80) != 0)
+            .update(Flags::Z, new_b == 0)
             .update(Flags::C, k > 0xFF)
             .update(Flags::H, k > 0xFF)
-            .update(Flags::PV, is_parity_even( ((temp & 0x07) ^ (b_val - 1)) & 0xFF));
+            .update(Flags::PV, is_parity_even(((temp & 0x07) ^ new_b) & 0xFF))
+            .update(Flags::N, (port_val & 0x80) != 0)
+            .update(Flags::X, (new_b & Flags::X) != 0)
+            .update(Flags::Y, (new_b & Flags::Y) != 0);
         set_F(flags);
     }
     void handle_opcode_0xED_0xAB_OUTD() {
