@@ -382,7 +382,7 @@ public:
      * @brief Sets the value of the address bus.
      * @param value The 16-bit address.
      */
-    void set_address_bus(uint8_t value) { m_address_bus = value; }
+    void set_address_bus(uint16_t value) { m_address_bus = value; }
     /**
      * @brief Gets the last value on the data bus.
      * @return The 8-bit data value.
@@ -717,7 +717,20 @@ private:
         uint8_t high_byte = fetch_next_byte();
         return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
-
+    //I/O operations
+    uint8_t io_read(uint16_t port) {
+        m_address_bus = port;
+        uint8_t value = m_bus->in(port);
+        m_data_bus = value;
+        add_ticks(4);
+        return value;
+    }
+    void io_write(uint16_t port, uint8_t value) {
+        m_address_bus = port;
+        m_data_bus = value;
+        m_bus->out(port, value);
+        add_ticks(4);
+    }
     //Parity bits
     bool parity_table[256];
     bool is_parity_even(uint8_t value) { return parity_table[value]; }
@@ -1100,7 +1113,7 @@ private:
     //Input and output helpers
     uint8_t in_r_c() {
         uint16_t port = get_BC();
-        uint8_t value = m_bus->in(port);
+        uint8_t value = io_read(port);
         Flags flags = get_F();
         set_WZ(port + 1);
         flags.update(Flags::S, (value & 0x80) != 0)
@@ -1113,7 +1126,7 @@ private:
         return value;
     }
     void out_c_r(uint8_t value) {
-        m_bus->out(get_BC(), value);
+        io_write(get_BC(), value);
         set_WZ(get_BC() + 1);
     }
 
@@ -2150,8 +2163,7 @@ private:
     void handle_opcode_0xD3_OUT_n_ptr_A() {
         uint8_t port_lo = fetch_next_byte();
         uint16_t port = (get_A() << 8) | port_lo;
-        m_bus->out(port, get_A());
-        add_ticks(4);
+        io_write(port, get_A());
         set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((port_lo + 1) & 0xFF));
     }
     void handle_opcode_0xD4_CALL_NC_nn() {
@@ -2202,8 +2214,7 @@ private:
         uint8_t port_lo = fetch_next_byte();
         uint16_t port = (get_A() << 8) | port_lo;
         set_WZ(port + 1);
-        set_A(m_bus->in(port));
-        add_ticks(4);
+        set_A(io_read(port));
     }
     void handle_opcode_0xDC_CALL_C_nn() {
         uint16_t address = fetch_next_word();
@@ -2385,11 +2396,9 @@ private:
     }
     void handle_opcode_0xED_0x40_IN_B_C_ptr() {
         set_B(in_r_c());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x41_OUT_C_ptr_B() {
         out_c_r(get_B());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x42_SBC_HL_BC() {
         add_ticks(7);
@@ -2488,11 +2497,9 @@ private:
     }
     void handle_opcode_0xED_0x48_IN_C_C_ptr() {
         set_C(in_r_c());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x49_OUT_C_ptr_C() {
         out_c_r(get_C());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x4A_ADC_HL_BC() {
         add_ticks(7);
@@ -2518,11 +2525,9 @@ private:
     }
     void handle_opcode_0xED_0x50_IN_D_C_ptr() {
         set_D(in_r_c());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x51_OUT_C_ptr_D() {
         out_c_r(get_D());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x52_SBC_HL_DE() {
         add_ticks(7);
@@ -2555,11 +2560,9 @@ private:
     }
     void handle_opcode_0xED_0x58_IN_E_C_ptr() {
         set_E(in_r_c());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x59_OUT_C_ptr_E() {
         out_c_r(get_E());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x5A_ADC_HL_DE() {
         add_ticks(7);
@@ -2592,11 +2595,9 @@ private:
     }
     void handle_opcode_0xED_0x60_IN_H_C_ptr() {
         set_H(in_r_c());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x61_OUT_C_ptr_H() {
         out_c_r(get_H());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x62_SBC_HL_HL() {
         add_ticks(7);
@@ -2630,11 +2631,9 @@ private:
     }
     void handle_opcode_0xED_0x68_IN_L_C_ptr() {
         set_L(in_r_c());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x69_OUT_C_ptr_L() {
         out_c_r(get_L());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x6A_ADC_HL_HL() {
         add_ticks(7);
@@ -2668,11 +2667,9 @@ private:
     }
     void handle_opcode_0xED_0x70_IN_C_ptr() {
         in_r_c();
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x71_OUT_C_ptr_0() {
         out_c_r(0x00);
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x72_SBC_HL_SP() {
         add_ticks(7);
@@ -2687,11 +2684,9 @@ private:
     }
     void handle_opcode_0xED_0x78_IN_A_C_ptr() {
         set_A(in_r_c());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x79_OUT_C_ptr_A() {
         out_c_r(get_A());
-        add_ticks(4);
     }
     void handle_opcode_0xED_0x7A_ADC_HL_SP() {
         add_ticks(7);
@@ -2740,9 +2735,8 @@ private:
         set_F(flags);
     }
     void handle_opcode_0xED_0xA2_INI() {
-        uint8_t port_val = m_bus->in(get_BC());
+        uint8_t port_val = io_read(get_BC());
         set_WZ(get_BC() + 1);
-        add_ticks(4); // 4 T-states for I/O read
         uint8_t new_b = get_B() - 1;
         set_B(new_b);
         add_tick(); // 1 T-state for wait cycle
@@ -2768,8 +2762,7 @@ private:
         set_HL(get_HL() + 1);
         uint8_t new_b = get_B() - 1;
         set_B(new_b);
-        m_bus->out(get_BC(), mem_val);
-        add_ticks(4); // 4 T-states for I/O write
+        io_write(get_BC(), mem_val);
         set_WZ(get_BC() + 1);
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
         Flags flags(0);
@@ -2819,8 +2812,7 @@ private:
     }
     void handle_opcode_0xED_0xAA_IND() {
         add_tick(); // 1 T-state for wait cycle
-        uint8_t port_val = m_bus->in(get_BC());
-        add_ticks(4); // 4 T-states for I/O read cycle
+        uint8_t port_val = io_read(get_BC());
         set_WZ(get_BC() - 1);
         uint8_t new_b = get_B() - 1;
         set_B(new_b);
@@ -2842,10 +2834,10 @@ private:
         uint8_t mem_val = read_byte(get_HL());
         uint8_t new_b = get_B() - 1;
         set_B(new_b);
-        m_bus->out(get_BC(), mem_val);
+        io_write(get_BC(), mem_val);
         set_WZ(get_BC() - 1);
         set_HL(get_HL() - 1);
-        add_ticks(5); // 4 for I/O write, 1 for internal ops
+        add_tick(1);
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
         bool carry = temp > 0xFF;
         Flags flags(0);
