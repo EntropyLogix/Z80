@@ -964,7 +964,24 @@ private:
         io_write(get_BC(), value);
         set_WZ(get_BC() + 1);
     }
-
+    void adjust_flags_after_IO_block() {
+        uint16_t pc = get_PC();
+        Flags flags = get_F();
+        flags.update(Flags::X, (pc & 0x0800) != 0)
+             .update(Flags::Y, (pc & 0x2000) != 0);
+        uint8_t b = get_B();
+        if (flags.is_set(Flags::C)) {
+            if ((get_data_bus() & 0x80) != 0) {
+                flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even(static_cast<uint8_t>(b - 1) & 7) ^ 1))
+                    .update(Flags::H, (b & 0x0F) == 0);
+            } else {
+                flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even(static_cast<uint8_t>(b + 1) & 7) ^ 1))
+                    .update(Flags::H, (b & 0x0F) == 0x0F);
+            }
+        } else
+            flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even(static_cast<uint8_t>(b & 7)) ^ 1));
+        set_F(flags);
+    }
     //Interrupt handling
     void handle_NMI() {
         if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
@@ -2694,8 +2711,8 @@ private:
             set_WZ(new_pc + 1);
             add_ticks(5);
             Flags flags = get_F();
-            flags.update(Flags::X, (new_pc & 0x0800) != 0);
-            flags.update(Flags::Y, (new_pc & 0x2000) != 0);
+            flags.update(Flags::X, (new_pc & 0x0800) != 0)
+                .update(Flags::Y, (new_pc & 0x2000) != 0);
             set_F(flags);
         }
     }
@@ -2707,25 +2724,29 @@ private:
             set_WZ(new_pc + 1);
             add_ticks(5);
             Flags flags = get_F();
-            flags.update(Flags::X, (new_pc & 0x0800) != 0);
-            flags.update(Flags::Y, (new_pc & 0x2000) != 0);
+            flags.update(Flags::X, (new_pc & 0x0800) != 0)
+                .update(Flags::Y, (new_pc & 0x2000) != 0);
             set_F(flags);
         }
     }
     void handle_opcode_0xED_0xB2_INIR() {
         handle_opcode_0xED_0xA2_INI();
         if (get_B() != 0) {
-            set_WZ(get_PC() + 1);
-            set_PC(get_PC() - 2);
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
+            adjust_flags_after_IO_block();
             add_ticks(5);
         }
     }
     void handle_opcode_0xED_0xB3_OTIR() {
         handle_opcode_0xED_0xA3_OUTI();
         if (get_B() != 0) {
-            set_WZ(get_PC() + 1);
-            set_PC(get_PC() - 2);
             add_ticks(5);
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
+            adjust_flags_after_IO_block();
         }
     }
     void handle_opcode_0xED_0xB8_LDDR() {
@@ -2736,8 +2757,8 @@ private:
             set_WZ(new_pc + 1);
             add_ticks(5);
             Flags flags = get_F();
-            flags.update(Flags::X, (new_pc & 0x0800) != 0);
-            flags.update(Flags::Y, (new_pc & 0x2000) != 0);
+            flags.update(Flags::X, (new_pc & 0x0800) != 0)
+                 .update(Flags::Y, (new_pc & 0x2000) != 0);
             set_F(flags);
         }
     }
@@ -2749,25 +2770,29 @@ private:
             set_WZ(new_pc + 1);
             add_ticks(5);
             Flags flags = get_F();
-            flags.update(Flags::X, (new_pc & 0x0800) != 0);
-            flags.update(Flags::Y, (new_pc & 0x2000) != 0);
+            flags.update(Flags::X, (new_pc & 0x0800) != 0)
+                 .update(Flags::Y, (new_pc & 0x2000) != 0);
             set_F(flags);
         }
     }
     void handle_opcode_0xED_0xBA_INDR() {
         handle_opcode_0xED_0xAA_IND();
         if (get_B() != 0) {
-            set_WZ(get_PC() + 1);
-            set_PC(get_PC() - 2);
             add_ticks(5);
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
+            adjust_flags_after_IO_block();
         }
     }
     void handle_opcode_0xED_0xBB_OTDR() {
         handle_opcode_0xED_0xAB_OUTD();
         if (get_B() != 0) {
-            set_WZ(get_PC() + 1);
-            set_PC(get_PC() - 2);
             add_ticks(5);
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
+            adjust_flags_after_IO_block();
         }
     }
 
