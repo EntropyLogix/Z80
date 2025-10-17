@@ -62,7 +62,6 @@ public:
         bool m_IRQ_request;
         bool m_block_interrupt;
         bool m_RETI_signaled;
-        bool m_EI_executed;
         uint8_t m_IRQ_data;
         bool m_flags_modified;
         uint8_t m_IRQ_mode;
@@ -196,7 +195,6 @@ public:
         set_IRQ_request(false);
         set_block_interrupt(false);
         set_RETI_signaled(false);
-        set_EI_executed(false);
         set_IRQ_data(0);
         set_flags_modified(false);
         set_IRQ_mode(0);
@@ -238,7 +236,6 @@ public:
         state.m_IRQ_request = is_IRQ_requested();
         state.m_block_interrupt = get_block_interrupt();
         state.m_IRQ_data = get_IRQ_data();
-        state.m_EI_executed = is_EI_executed();
         state.m_flags_modified = get_flags_modified();
         state.m_IRQ_mode = get_IRQ_mode();
         state.m_index_mode = get_index_mode();
@@ -271,7 +268,6 @@ public:
         set_Q(state.m_Q);
         set_IRQ_data(state.m_IRQ_data);
         set_flags_modified(state.m_flags_modified);
-        set_EI_executed(state.m_EI_executed);
         set_IRQ_mode(state.m_IRQ_mode);
         set_index_mode(state.m_index_mode);
         set_ticks(state.m_ticks);
@@ -410,8 +406,6 @@ public:
     bool get_block_interrupt() const { return m_block_interrupt; }
     void set_block_interrupt(bool state) { m_block_interrupt = state; }
     uint8_t get_IRQ_data() const { return m_IRQ_data; }
-    void set_EI_executed(bool state) { m_EI_executed = state; }
-    bool is_EI_executed() const { return m_EI_executed; }
     void set_IRQ_data(uint8_t data) { m_IRQ_data = data; }
     uint8_t get_IRQ_mode() const { return m_IRQ_mode; }
     void set_IRQ_mode(uint8_t mode) { m_IRQ_mode = mode; }
@@ -439,7 +433,7 @@ private:
     bool m_IFF1, m_IFF2;
     
     //internal CPU states
-    bool m_halted, m_NMI_pending, m_IRQ_request, m_block_interrupt, m_RETI_signaled, m_EI_executed;
+    bool m_halted, m_NMI_pending, m_IRQ_request, m_block_interrupt, m_RETI_signaled;
     uint8_t m_IRQ_data, m_IRQ_mode;
     IndexMode m_index_mode;
     
@@ -2204,7 +2198,6 @@ private:
         set_IFF1(true);
         set_IFF2(true);
         set_block_interrupt(true);
-        set_EI_executed(true);
     }
     void handle_opcode_0xFC_CALL_M_nn() {
         uint16_t address = fetch_next_word();
@@ -2791,7 +2784,7 @@ private:
                 if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
                     m_opcodes.clear();
 #endif//Z80_DEBUGGER_OPCODES
-                set_EI_executed(false);
+                set_block_interrupt(false);
                 set_index_mode(IndexMode::HL);
                 uint8_t opcode = fetch_next_opcode();
                 set_flags_modified(false);
@@ -3160,7 +3153,6 @@ private:
                     handle_NMI();
                 else if (is_IRQ_pending() && !get_block_interrupt())
                     handle_IRQ();
-                set_block_interrupt(is_EI_executed());
                 if (get_flags_modified())
                     set_Q(get_F());
                 else
