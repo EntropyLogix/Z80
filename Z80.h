@@ -2837,7 +2837,7 @@ private:
         io_write(get_BC(), mem_val);
         set_WZ(get_BC() - 1);
         set_HL(get_HL() - 1);
-        add_tick(1);
+        add_tick();
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
         bool carry = temp > 0xFF;
         Flags flags(0);
