@@ -334,26 +334,100 @@ The following macros can be added to your C++ compiler flags in your build syste
 
 ### Build Options (CMake)
 
-These options can be configured when generating the project with CMake (e.g., `cmake -D<OPTION>=ON ..`).
+The library is fully **header-only**, which means it does not require compilation or linking. You just need to add its directory to the include paths in your project.
 
-| Option | Default | Description |
-| :--- | :--- | :--- |
-| `ENABLE_PGO` | `OFF` | Enables Profile-Guided Optimization (PGO). This requires a two-stage build process and is primarily supported by GCC and Clang compilers. |
-| `PGO_MODE` | - | Used when `ENABLE_PGO` is on. Set to `GENERATE` to build an instrumented version for collecting a performance profile. Then, set to `USE` to compile the final, optimized binary using the collected data. |
+Below are examples of `CMakeLists.txt` configurations for your project.
 
-**Example of using PGO:**
+---
 
-1.  **Generate Profile:**
-    ```bash
-    cmake -B build -DENABLE_PGO=ON -DPGO_MODE=GENERATE
-    cmake --build build
-    ./build/Z80 zexdoc.com # Run the program to generate profile data (*.gcda)
-    ```
-2.  **Build with Optimization:**
-    ```bash
-    cmake -B build -DENABLE_PGO=ON -DPGO_MODE=USE
-    cmake --build build # The compiler will use the profile data to optimize
-    ```
+#### Example 1: Library Downloaded Manually
+
+In this scenario, we assume you have downloaded the library and placed it in a `lib/Z80` subdirectory within your project.
+
+Project structure:
+```
+my_project/
+├── lib/
+│   └── Z80/
+│       ├── Z80.h
+│       └── Z80Analyze.h
+├── CMakeLists.txt
+└── main.cpp
+```
+
+Your `CMakeLists.txt` file could look like this:
+
+```cmake
+# Required minimum version of CMake
+cmake_minimum_required(VERSION 3.10)
+
+# Project name
+project(MyZ80Project)
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Add the Z80 library directory to the include paths
+# This tells the compiler where to find the header files.
+target_include_directories(my_project PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+
+# Add the executable
+add_executable(my_project main.cpp)
+
+# No linking is needed because the library is header-only.
+```
+
+In your `main.cpp` file, you can now include the library like this:
+```cpp
+#include "Z80/Z80.h"
+```
+
+---
+
+#### Example 2: Using `FetchContent` to Automatically Download the Library
+
+If you prefer CMake to automatically download the library from its GitHub repository, you can use the `FetchContent` module.
+
+Your `CMakeLists.txt` file could look like this:
+
+```cmake
+# Required minimum version of CMake
+cmake_minimum_required(VERSION 3.15)
+
+# Project name
+project(MyZ80Project)
+
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Include the FetchContent module
+include(FetchContent)
+
+# Declare the Z80 library dependency
+FetchContent_Declare(
+  Z80
+  GIT_REPOSITORY https://github.com/EntropyLogix/Z80
+  GIT_TAG        v1.0.0 # You can use a tag, branch, or a specific commit
+)
+
+# Download and make the library available
+# The library will be available as the "Z80" target
+FetchContent_MakeAvailable(Z80)
+
+# Add the executable
+add_executable(my_project main.cpp)
+
+# Add the include directories from the fetched library to your target
+# The "Z80" target is created by FetchContent_MakeAvailable
+target_include_directories(my_project PRIVATE ${Z80_SOURCE_DIR})
+```
+
+In your `main.cpp` file, you include the headers in the same way:
+```cpp
+#include "Z80/Z80.h"
+```
 
 ---
 
