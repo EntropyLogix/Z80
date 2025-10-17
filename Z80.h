@@ -2818,23 +2818,21 @@ private:
         set_F(flags);
     }
     void handle_opcode_0xED_0xAA_IND() {
+        add_tick(); // 1 T-state for wait cycle
         uint8_t port_val = m_bus->in(get_BC());
+        add_ticks(4); // 4 T-states for I/O read cycle
         set_WZ(get_BC() - 1);
-        add_ticks(4); // 4 T-states for I/O read
         uint8_t new_b = get_B() - 1;
         set_B(new_b);
-        add_tick(); // 1 T-state for wait cycle
         write_byte(get_HL(), port_val);
         set_HL(get_HL() - 1);
-
-        uint16_t temp = static_cast<uint16_t>(get_C()) - 1;
-        uint16_t k = port_val + (temp & 0xFF);
+        uint16_t temp = port_val + static_cast<uint8_t>(get_C() - 1);
         Flags flags(0);
         flags.update(Flags::S, (new_b & 0x80) != 0)
             .update(Flags::Z, new_b == 0)
-            .update(Flags::C, k > 0xFF)
-            .update(Flags::H, k > 0xFF)
-            .update(Flags::PV, is_parity_even(((temp & 0x07) ^ new_b) & 0xFF))
+            .update(Flags::C, temp > 0xFF)
+            .update(Flags::H, temp > 0xFF)
+            .update(Flags::PV, is_parity_even((static_cast<uint8_t>(temp) & 0x07) ^ new_b))
             .update(Flags::N, (port_val & 0x80) != 0)
             .update(Flags::X, (new_b & Flags::X) != 0)
             .update(Flags::Y, (new_b & Flags::Y) != 0);
@@ -2848,7 +2846,6 @@ private:
         set_WZ(get_BC() - 1);
         set_HL(get_HL() - 1);
         add_ticks(5); // 4 for I/O write, 1 for internal ops
-
         uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
         bool carry = temp > 0xFF;
         Flags flags(0);
