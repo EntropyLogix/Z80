@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██ 
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
-// Verson: 1.0.0
+// Verson: 1.0.1
 //
 // This file defines the core Z80 processor emulation class,
 // including register definitions, state management, and instruction execution logic.
@@ -99,26 +99,32 @@ public:
 
     // Constructor
     Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr) {
-        if (bus) {
+        if constexpr (std::is_default_constructible_v<TBus>) {
+            if (bus) {
+                m_bus = bus;
+                m_owns_bus = false;
+            } else {
+                m_bus = new TBus();
+                m_owns_bus = true;
+            }
+        } else {
+            static_assert(std::is_default_constructible_v<TBus>, "TBus is not default constructible. You must provide a pointer to a TBus instance.");
             m_bus = bus;
             m_owns_bus = false;
-        } else {
-            m_bus = new TBus();
-            m_owns_bus = true;
         }
-        if (events) {
+
+        if constexpr (std::is_default_constructible_v<TEvents>) {
+            if (events) {
+                m_events = events;
+                m_owns_events = false;
+            } else {
+                m_events = new TEvents();
+                m_owns_events = true;
+            }
+        } else {
+            static_assert(std::is_default_constructible_v<TEvents>, "TEvents is not default constructible. You must provide a pointer to a TEvents instance.");
             m_events = events;
             m_owns_events = false;
-        } else {
-            m_events = new TEvents();
-            m_owns_events = true;
-        }
-        if (debugger) {
-            m_debugger = debugger;
-            m_owns_debugger = false;
-        } else {
-            m_debugger = new TDebugger();
-            m_owns_debugger = true;
         }
         precompute_parity();
         m_bus->connect(this);
