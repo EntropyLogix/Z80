@@ -24,35 +24,12 @@
 template <class TBus>
 class Z80Analyzer {
 public:
-    /**
-     * @brief Constructs a Z80Analyzer.
-     * @param bus A reference to the bus object for memory access.
-     */
     Z80Analyzer(TBus& bus) : m_bus(bus) {}
 
-    /**
-     * @brief Disassembles a single Z80 instruction using the default format.
-     * @param address A reference to the memory address to disassemble. The address will be advanced by the length of the instruction.
-     * @return A formatted string representing the disassembled instruction.
-     */
     std::string disassemble(uint16_t& address) {
         return disassemble(address, "%a: %-12b %m");
     }
 
-    /**
-     * @brief Disassembles a single Z80 instruction at the given address and formats the output.
-     * @param address A reference to the memory address to disassemble. The address will be advanced by the length of the instruction.
-     * @param format A printf-style format string to control the output.
-     *               Specifiers:
-     *               - `%a`: Address (hex)
-     *               - `%A`: Address (dec)
-     *               - `%b`: Instruction bytes (hex)
-     *               - `%B`: Instruction bytes (dec)
-     *               - `%m`: Mnemonic
-     *               Supports width (`%10`), alignment (`%-10`),
-     *               and fill character (`%-10.b` uses `.` instead of space).
-     * @return A formatted string representing the disassembled instruction.
-     */
     std::string disassemble(uint16_t& address, const std::string& format) {
         uint16_t initial_address = address;
         parse_instruction(address);
