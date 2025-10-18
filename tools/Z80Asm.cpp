@@ -39,7 +39,7 @@ START:
 LOOP:
         DEC A
         JP NZ, LOOP
-        HALT
+        JR $            ; Jump to current address (infinite loop)
 
         ; Data section
 MESSAGE:

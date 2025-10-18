@@ -215,6 +215,13 @@ private:
         op.str_val = op_str;
         uint16_t num_val;
 
+        // Handle '$' for current address
+        if (op_str == "$") {
+            op.num_val = m_current_address;
+            op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
+            return op;
+        }
+
         if (reg8_map.count(op_str)) {
             op.type = OperandType::REG8;
             return op;
@@ -436,6 +443,15 @@ private:
                 if (ops[0].str_val == "IX") return {0xDD, 0xE9};
                 if (ops[0].str_val == "IY") return {0xFD, 0xE9};
             }
+            // JR d
+            if (mnemonic == "JR" && (ops[0].type == OperandType::IMM8 || ops[0].type == OperandType::IMM16)) {
+                int32_t target_addr = ops[0].num_val;
+                int32_t offset = target_addr - (m_current_address + 2);
+                if (m_pass == 2 && (offset < -128 || offset > 127)) {
+                    throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
+                }
+                return { 0x18, static_cast<uint8_t>(offset) };
+            }
             // SUB n
             if (mnemonic == "SUB" && ops[0].type == OperandType::IMM8) {
                 return { 0xD6, (uint8_t)ops[0].num_val };
@@ -444,6 +460,16 @@ private:
             if (mnemonic == "ADD" && ops[0].type == OperandType::REG8) {
                  return { (uint8_t)(0x80 | reg8_map.at(ops[0].str_val)) };
             }
+            // DJNZ d
+            if (mnemonic == "DJNZ" && (ops[0].type == OperandType::IMM8 || ops[0].type == OperandType::IMM16)) {
+                int32_t target_addr = ops[0].num_val;
+                int32_t offset = target_addr - (m_current_address + 2);
+                if (m_pass == 2 && (offset < -128 || offset > 127)) {
+                    throw std::runtime_error("DJNZ jump target out of range. Offset: " + std::to_string(offset));
+                }
+                return { 0x10, static_cast<uint8_t>(offset) };
+            }
+
         }
 
         // --- Two-operand instructions ---
@@ -572,15 +598,18 @@ private:
             }
 
             // JR cc, d
-            if (mnemonic == "JR" && ops[0].type == OperandType::CONDITION && ops[1].type == OperandType::IMM8) {
+            if (mnemonic == "JR" && ops[0].type == OperandType::CONDITION && (ops[1].type == OperandType::IMM8 || ops[1].type == OperandType::IMM16)) {
                 // JR uses a different condition map
                 const std::map<std::string, uint8_t> jr_condition_map = {
                     {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}
                 };
                 if (jr_condition_map.count(ops[0].str_val)) {
-                    // Note: offset is relative to the address *after* the instruction.
-                    // This simple assembler doesn't know the current address, so it just encodes the value.
-                    return { jr_condition_map.at(ops[0].str_val), (uint8_t)ops[1].num_val };
+                    int32_t target_addr = ops[1].num_val;
+                    int32_t offset = target_addr - (m_current_address + 2);
+                    if (m_pass == 2 && (offset < -128 || offset > 127)) {
+                        throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
+                    }
+                    return { jr_condition_map.at(ops[0].str_val), static_cast<uint8_t>(offset) };
                 }
             }
 
