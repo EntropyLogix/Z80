@@ -1,4 +1,7 @@
-cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DENABLE_PGO=ON -DPGO_MODE=GENERATE
+#!/bin/sh
+set -e
+
+cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ./build/zex-tests zexdoc.com
 ./build/zex-tests zexall.com
