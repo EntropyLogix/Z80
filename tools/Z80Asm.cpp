@@ -28,23 +28,31 @@ int main() {
     Z80Assembler assembler;
 
     std::string source_code = R"(
-        ; Example code with labels
-        ORG 0x8000      ; Set the origin address
+        ; Example code with labels and data directives
+        ORG 0x8000
 
 START:
-        LD A, 10        ; Load A with a value
+        LD HL, MESSAGE  ; Load address of the message
+        LD A, 10
 LOOP:
-        DEC A           ; Decrement A
-        JP NZ, LOOP     ; Jump back to LOOP if A is not zero
-        JP START        ; Jump back to the start
-        HALT            ; This will never be reached
+        DEC A
+        JP NZ, LOOP
+        HALT
+
+        ; Data section
+MESSAGE:
+        DB "Hello!", 0   ; Define a null-terminated string
+POINTER:
+        DW START        ; Define a 16-bit word with the address of START
+BUFFER:
+        DS 16, 0xFF     ; Define a 16-byte buffer filled with 0xFF
     )";
     try {
         std::cout << "Assembling source code:" << std::endl;
         std::cout << source_code << std::endl;
-        auto machine_code = assembler.assemble(source_code, 0x8000);
+        auto machine_code = assembler.assemble(source_code);
         std::cout << "Machine code -> ";
-        print_bytes(machine_code); // Expected: 3e 0a 3d c2 03 80 c3 00 80 76
+        print_bytes(machine_code);
 
     } catch (const std::exception& e) {
         std::cerr << "Assembly error: " << e.what() << std::endl;

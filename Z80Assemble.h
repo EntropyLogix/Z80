@@ -290,6 +290,36 @@ private:
             return bytes;
         }
 
+        if (mnemonic == "DW" || mnemonic == "DEFW") {
+            std::vector<uint8_t> bytes;
+            for (const auto& op : ops) {
+                if (op.type == OperandType::IMM8 || op.type == OperandType::IMM16) {
+                    bytes.push_back(static_cast<uint8_t>(op.num_val & 0xFF));
+                    bytes.push_back(static_cast<uint8_t>(op.num_val >> 8));
+                } else {
+                    throw std::runtime_error("Unsupported operand for DW: " + op.str_val);
+                }
+            }
+            return bytes;
+        }
+
+        if (mnemonic == "DS" || mnemonic == "DEFS") {
+            if (ops.empty() || ops.size() > 2) {
+                throw std::runtime_error("DS/DEFS requires 1 or 2 operands.");
+            }
+            if (ops[0].type != OperandType::IMM8 && ops[0].type != OperandType::IMM16) {
+                throw std::runtime_error("DS/DEFS size must be a number.");
+            }
+            size_t count = ops[0].num_val;
+            uint8_t fill_value = 0;
+            if (ops.size() == 2) {
+                if (ops[1].type != OperandType::IMM8) {
+                    throw std::runtime_error("DS/DEFS fill value must be an 8-bit number.");
+                }
+                fill_value = static_cast<uint8_t>(ops[1].num_val);
+            }
+            return std::vector<uint8_t>(count, fill_value);
+        }
 
         // --- Simple no-operand instructions ---
         if (ops.empty()) {
