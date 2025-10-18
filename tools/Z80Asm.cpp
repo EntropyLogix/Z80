@@ -28,12 +28,14 @@ int main() {
     Z80Assembler assembler;
 
     std::string source_code = R"(
-        ; Example code with labels and data directives
+        ; Example with labels, data directives, and EQU
         ORG 0x8000
+
+MAX_COUNT EQU 10
 
 START:
         LD HL, MESSAGE  ; Load address of the message
-        LD A, 10
+        LD A, MAX_COUNT ; Use the constant
 LOOP:
         DEC A
         JP NZ, LOOP
@@ -41,7 +43,7 @@ LOOP:
 
         ; Data section
 MESSAGE:
-        DB "Hello!", 0   ; Define a null-terminated string
+        DB "Loop finished!", 0
 POINTER:
         DW START        ; Define a 16-bit word with the address of START
 BUFFER:
@@ -50,7 +52,7 @@ BUFFER:
     try {
         std::cout << "Assembling source code:" << std::endl;
         std::cout << source_code << std::endl;
-        auto machine_code = assembler.assemble(source_code);
+        auto machine_code = assembler.assemble(source_code); // ORG in code is used
         std::cout << "Machine code -> ";
         print_bytes(machine_code);
 

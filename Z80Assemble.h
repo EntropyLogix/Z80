@@ -75,6 +75,36 @@ private:
             processed_instr.erase(comment_pos);
         }
 
+        // Handle EQU directive (only in pass 1)
+        if (m_pass == 1) {
+            std::string temp_upper = processed_instr;
+            std::transform(temp_upper.begin(), temp_upper.end(), temp_upper.begin(), ::toupper);
+            size_t equ_pos = temp_upper.find(" EQU ");
+            if (equ_pos != std::string::npos) {
+                std::string symbol = processed_instr.substr(0, equ_pos);
+                symbol.erase(0, symbol.find_first_not_of(" \t"));
+                symbol.erase(symbol.find_last_not_of(" \t") + 1);
+                std::transform(symbol.begin(), symbol.end(), symbol.begin(), ::toupper);
+
+                std::string value_str = processed_instr.substr(equ_pos + 5);
+                value_str.erase(0, value_str.find_first_not_of(" \t"));
+                value_str.erase(value_str.find_last_not_of(" \t") + 1);
+
+                uint16_t value;
+                if (is_number(value_str, value)) {
+                    if (m_symbol_table.count(symbol)) {
+                        throw std::runtime_error("Duplicate symbol definition: " + symbol);
+                    }
+                    m_symbol_table[symbol] = value;
+                } else {
+                    // For now, we only support numeric values for EQU.
+                    // Could be extended to support expressions.
+                    throw std::runtime_error("Invalid value for EQU: " + value_str);
+                }
+                return {}; // EQU does not generate code
+            }
+        }
+
         // Handle labels
         size_t colon_pos = processed_instr.find(':');
         if (colon_pos != std::string::npos) {
