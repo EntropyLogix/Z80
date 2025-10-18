@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██ 
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.0.3
+// Verson: 1.0.4
 // 
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -31,6 +31,53 @@ public:
         return disassemble(address, "%a: %-12b %m");
     }
 
+    std::vector<std::string> disassemble(uint16_t& address, size_t lines, const std::string& format = "%a: %-12b %m") {
+        std::vector<std::string> result;
+        result.reserve(lines);
+        for (size_t i = 0; i < lines; ++i)
+            result.push_back(disassemble(address, format));
+        return result;
+    }
+
+    // Dumps a region of memory into a vector of formatted strings.
+    // - address: Starting memory address (will be updated).
+    // - rows: Number of rows to dump.
+    // - cols: Number of bytes per row.
+    // - format: A string specifying the output format for each row.
+    //
+    // Format specifiers for dump_memory:
+    // - %a: Row start address (hex).
+    // - %A: Row start address (dec).
+    // - %h: Byte values in hexadecimal, separated by spaces.
+    // - %d: Byte values in decimal, separated by spaces.
+    // - %c: ASCII representation of bytes (non-printable chars are replaced with '.').
+    std::vector<std::string> dump_memory(uint16_t& address, size_t rows, size_t cols, const std::string& format = "%a: %h  %c") {
+        std::vector<std::string> result;
+        result.reserve(rows);
+        for (size_t i = 0; i < rows; ++i) {
+            uint16_t row_address = address;
+            std::vector<uint8_t> row_bytes;
+            row_bytes.reserve(cols);
+            for (size_t j = 0; j < cols; ++j) {
+                if (address > 0xFFFF) break;
+                row_bytes.push_back(m_bus.peek(address++));
+            }
+            if (row_bytes.empty())
+                break;
+            std::stringstream ss;
+            for (size_t k = 0; k < format.length(); ++k) {
+                if (format[k] == '%' && k + 1 < format.length()) {
+                    char specifier = format[++k];
+                    ss << format_dump_segment(specifier, row_address, row_bytes);
+                } else {
+                    ss << format[k];
+                }
+            }
+            result.push_back(ss.str());
+        }
+        return result;
+    }
+
     //Format specifiers:
     // - `%a`: Address (hex)
     // - `%A`: Address (dec)
@@ -48,22 +95,18 @@ public:
                 bool left_align = false;
                 char fill_char = ' ';
                 size_t j = i + 1;
-
                 if (format[j] == '-') {
                     left_align = true;
                     j++;
                 }
-
                 while (isdigit(format[j])) {
                     width = width * 10 + (format[j] - '0');
                     j++;
                 }
-
                 if (format[j] == '.') {
                     fill_char = '.';
                     j++;
                 }
-
                 if (j < format.length()) {
                     char specifier = format[j];
                     std::string replacement;
@@ -84,19 +127,47 @@ public:
                             replacement = m_mnemonic;
                             break;
                     }
-                    
                     ss << std::setfill(fill_char) << std::setw(width) << (left_align ? std::left : std::right) << replacement;
                     ss << std::setfill(' '); // Reset fill character
                     i = j;
                 }
-            } else {
+            } else
                 ss << format[i];
-            }
         }
         return ss.str();
     }
 
 private:
+    std::string format_dump_segment(char specifier, uint16_t row_address, const std::vector<uint8_t>& bytes) {
+        std::stringstream ss;
+        switch (specifier) {
+            case 'a': // hex address
+                ss << format_hex(row_address, 4);
+                break;
+            case 'A': // dec address
+                ss << std::dec << std::setw(5) << std::setfill('0') << row_address;
+                break;
+            case 'h': // hex bytes
+                for (size_t i = 0; i < bytes.size(); ++i) {
+                    ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i]) << " ";
+                }
+                break;
+            case 'd': // dec bytes
+                for (size_t i = 0; i < bytes.size(); ++i) {
+                    ss << std::dec << std::setw(3) << std::setfill('0') << static_cast<int>(bytes[i]) << " ";
+                }
+                break;
+            case 'c': // ASCII characters
+                for (uint8_t byte : bytes) {
+                    ss << (isprint(byte) ? static_cast<char>(byte) : '.');
+                }
+                break;
+            default:
+                ss << '%' << specifier;
+                break;
+        }
+        return ss.str();
+    }
     void parse_instruction(uint16_t& address) {
         m_address = address;
         m_mnemonic.clear();

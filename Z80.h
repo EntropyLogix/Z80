@@ -240,19 +240,19 @@ public:
         return state;
     }
     void restore_state(const State& state) {
-        set_AF(state.m_AF);
-        set_BC(state.m_BC);
-        set_DE(state.m_DE);
-        set_HL(state.m_HL);
-        set_IX(state.m_IX);
-        set_IY(state.m_IY);
-        set_SP(state.m_SP);
-        set_PC(state.m_PC);
-        set_AFp(state.m_AFp);
-        set_BCp(state.m_BCp);
-        set_DEp(state.m_DEp);
-        set_HLp(state.m_HLp);
-        set_WZ(state.m_WZ);
+        set_AF(state.m_AF.w);
+        set_BC(state.m_BC.w);
+        set_DE(state.m_DE.w);
+        set_HL(state.m_HL.w);
+        set_IX(state.m_IX.w);
+        set_IY(state.m_IY.w);
+        set_SP(state.m_SP.w);
+        set_PC(state.m_PC.w);
+        set_AFp(state.m_AFp.w);
+        set_BCp(state.m_BCp.w);
+        set_DEp(state.m_DEp.w);
+        set_HLp(state.m_HLp.w);
+        set_WZ(state.m_WZ.w);
         set_I(state.m_I);
         set_R(state.m_R);
         set_IFF1(state.m_IFF1);
