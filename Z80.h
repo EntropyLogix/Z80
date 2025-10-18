@@ -2793,6 +2793,12 @@ private:
     template<OperateMode TMode> long long operate(long long ticks_limit) {
         long long initial_ticks = get_ticks();
         while (true) {
+            if (is_NMI_pending())
+                handle_NMI();
+            else if (is_EI_executed())
+                set_EI_executed(false);
+            else if (is_IRQ_pending())
+                handle_IRQ();
             if (is_halted()) {
                 if constexpr (TMode == OperateMode::SingleStep)
                     add_ticks(4);
@@ -2804,7 +2810,6 @@ private:
                 if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
                     m_opcodes.clear();
 #endif//Z80_DEBUGGER_OPCODES
-                set_EI_executed(false); // Reset the EI delay flag at the start of each instruction cycle
                 set_index_mode(IndexMode::HL);
                 uint8_t opcode = fetch_next_opcode();
                 set_flags_modified(false);
@@ -3168,12 +3173,7 @@ private:
                     case 0xFC: handle_opcode_0xFC_CALL_M_nn(); break;
                     case 0xFE: handle_opcode_0xFE_CP_n(); break;
                     case 0xFF: handle_opcode_0xFF_RST_38H(); break;
-                }
-                if (is_NMI_pending())
-                    handle_NMI();
-                else if (is_IRQ_pending() && !is_EI_executed())
-                    handle_IRQ();
-                
+                }                
                 if (get_flags_modified())
                     set_Q(get_F());
                 else
