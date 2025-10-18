@@ -27,26 +27,24 @@ void print_bytes(const std::vector<uint8_t>& bytes) {
 int main() {
     Z80Assembler assembler;
 
-    std::string single_line_code = "LD A, 0x42";
-    std::string multi_line_code = R"(
-        ; This is an example code snippet
-        LD HL, 0x8000   ; Set pointer
-        LD A, 10
-        ADD A, H        ; Add H to A
-        LD B,A          ; No space between operands
-        HALT
+    std::string source_code = R"(
+        ; Example code with labels
+        ORG 0x8000      ; Set the origin address
+
+START:
+        LD A, 10        ; Load A with a value
+LOOP:
+        DEC A           ; Decrement A
+        JP NZ, LOOP     ; Jump back to LOOP if A is not zero
+        JP START        ; Jump back to the start
+        HALT            ; This will never be reached
     )";
-
     try {
-        std::cout << "Single line assembly:" << std::endl;
-        auto bytes1 = assembler.assemble(single_line_code);
-        std::cout << "'" << single_line_code << "' -> ";
-        print_bytes(bytes1); // Expected: 3e 42
-
-        std::cout << "\nMulti-line assembly:" << std::endl;
-        auto bytes2 = assembler.assemble(multi_line_code);
+        std::cout << "Assembling source code:" << std::endl;
+        std::cout << source_code << std::endl;
+        auto machine_code = assembler.assemble(source_code, 0x8000);
         std::cout << "Machine code -> ";
-        print_bytes(bytes2); // Expected: 21 00 80 3e 0a 84 47 76
+        print_bytes(machine_code); // Expected: 3e 0a 3d c2 03 80 c3 00 80 76
 
     } catch (const std::exception& e) {
         std::cerr << "Assembly error: " << e.what() << std::endl;

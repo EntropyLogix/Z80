@@ -28,20 +28,44 @@
 
 class Z80Assembler {
 public:
-    std::vector<uint8_t> assemble(const std::string& source_code) {
-        std::vector<uint8_t> machine_code;
-        std::stringstream source_stream(source_code);
+    std::vector<uint8_t> assemble(const std::string& source_code, uint16_t default_org = 0x0000) {
+        m_symbol_table.clear();
+        std::vector<std::string> lines;
+        std::stringstream ss(source_code);
         std::string line;
+        while (std::getline(ss, line)) {
+            lines.push_back(line);
+        }
 
-        while (std::getline(source_stream, line)) {
-            auto bytes = assemble_line(line);
+        // --- First Pass: Build symbol table ---
+        m_current_address = default_org;
+        m_pass = 1;
+        for (const auto& l : lines) {
+            // In the first pass, we only care about calculating instruction sizes to find label addresses.
+            // The actual byte generation is irrelevant, but calling assemble_line is the easiest way
+            // to parse and get the size.
+            auto bytes = assemble_line(l);
+            m_current_address += bytes.size();
+        }
+
+        // --- Second Pass: Generate machine code ---
+        m_current_address = default_org;
+        m_pass = 2;
+        std::vector<uint8_t> machine_code;
+        for (const auto& l : lines) {
+            auto bytes = assemble_line(l);
             machine_code.insert(machine_code.end(), bytes.begin(), bytes.end());
+            m_current_address += bytes.size();
         }
 
         return machine_code;
     }
 
 private:
+    int m_pass = 1;
+    uint16_t m_current_address = 0;
+    std::map<std::string, uint16_t> m_symbol_table;
+
     std::vector<uint8_t> assemble_line(const std::string& instruction) {
         std::string processed_instr = instruction;
 
@@ -49,6 +73,23 @@ private:
         size_t comment_pos = processed_instr.find(';');
         if (comment_pos != std::string::npos) {
             processed_instr.erase(comment_pos);
+        }
+
+        // Handle labels
+        size_t colon_pos = processed_instr.find(':');
+        if (colon_pos != std::string::npos) {
+            std::string label = processed_instr.substr(0, colon_pos);
+            label.erase(0, label.find_first_not_of(" \t"));
+            label.erase(label.find_last_not_of(" \t") + 1);
+            std::transform(label.begin(), label.end(), label.begin(), ::toupper);
+
+            if (m_pass == 1) {
+                if (m_symbol_table.count(label)) {
+                    throw std::runtime_error("Duplicate label definition: " + label);
+                }
+                m_symbol_table[label] = m_current_address;
+            }
+            processed_instr.erase(0, colon_pos + 1);
         }
 
         // Trim leading/trailing whitespace
@@ -161,6 +202,11 @@ private:
             op.type = (num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
             return op;
         }
+        // Check if it's a known label
+        if (m_symbol_table.count(op_str)) {
+            op.num_val = m_symbol_table.at(op_str);
+            op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
+        }
         if (op_str.front() == '(' && op_str.back() == ')') {
             std::string inner = op_str.substr(1, op_str.length() - 2);
             if (reg16_map.count(inner) || inner == "IX" || inner == "IY") {
@@ -171,6 +217,11 @@ private:
             if (is_number(inner, num_val)) {
                 op.type = OperandType::MEM_IMM16;
                 op.num_val = num_val;
+                return op;
+            }
+            if (m_symbol_table.count(inner)) {
+                op.type = OperandType::MEM_IMM16;
+                op.num_val = m_symbol_table.at(inner);
                 return op;
             }
             // Indexed addressing (IX+d), (IY+d)
@@ -198,9 +249,25 @@ private:
     std::vector<uint8_t> assemble_instruction(const std::string& mnemonic, const std::vector<std::string>& operands_str) {
         std::vector<Operand> ops;
         for (const auto& s : operands_str) {
+            // During pass 1, we might not know the label value, so we create a placeholder.
+            if (m_pass == 1 && !reg8_map.count(s) && !reg16_map.count(s) && !reg16_af_map.count(s) && !condition_map.count(s) && s.find('(') == std::string::npos) {
+                uint16_t temp_val;
+                if (!is_number(s, temp_val)) { ops.push_back({OperandType::IMM16, s, 0}); continue; }
+            }
             ops.push_back(parse_operand(s));
         }
 
+        // Handle ORG directive
+        if (mnemonic == "ORG") {
+            if (ops.size() == 1 && (ops[0].type == OperandType::IMM8 || ops[0].type == OperandType::IMM16)) {
+                m_current_address = ops[0].num_val;
+                return {}; // ORG doesn't generate bytes
+            } else {
+                // In pass 1, a label might not be resolved yet, but we can still calculate size.
+                if (m_pass == 1 && ops.size() == 1) return {};
+                throw std::runtime_error("Invalid operand for ORG directive");
+            }
+        }
         // --- Pseudo-instructions ---
         if (mnemonic == "DB" || mnemonic == "DEFB") {
             std::vector<uint8_t> bytes;
