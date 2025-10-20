@@ -278,6 +278,15 @@ private:
                 }
             }
         }
+
+        // If after all checks the type is still unknown, it might be a forward-referenced label.
+        if (op.type == OperandType::UNKNOWN) {
+            if (m_pass == 1) {
+                // In pass 1, assume it's a 16-bit value (address) and create a placeholder.
+                op.type = OperandType::IMM16;
+            }
+            // In pass 2, an UNKNOWN type will cause an error later, which is correct.
+        }
         return op;
     }
 
@@ -286,11 +295,6 @@ private:
     std::vector<uint8_t> assemble_instruction(const std::string& mnemonic, const std::vector<std::string>& operands_str) {
         std::vector<Operand> ops;
         for (const auto& s : operands_str) {
-            // During pass 1, we might not know the label value, so we create a placeholder.
-            if (m_pass == 1 && !reg8_map.count(s) && !reg16_map.count(s) && !reg16_af_map.count(s) && !condition_map.count(s) && s.find('(') == std::string::npos) {
-                uint16_t temp_val;
-                if (!is_number(s, temp_val)) { ops.push_back({OperandType::IMM16, s, 0}); continue; }
-            }
             ops.push_back(parse_operand(s));
         }
 
