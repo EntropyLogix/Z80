@@ -68,7 +68,7 @@ std::string get_file_extension(const std::string& filename) {
 
 std::vector<uint8_t> read_file(const std::string& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
-    if (!file) 
+    if (!file)
         return {};
     std::streamsize size = file.tellg();
     file.seekg(0, std::ios::beg);
@@ -137,7 +137,8 @@ bool load_z80_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
     state.m_R = data[11];
 
     uint8_t byte12 = data[12];
-    if (byte12 == 0xFF) byte12 = 1;
+    if (byte12 == 0xFF)
+        byte12 = 1;
     state.m_R = (state.m_R & 0x7F) | ((byte12 & 0x01) ? 0x80 : 0);
     bool compressed = (byte12 & 0x20) != 0;
 
@@ -162,17 +163,15 @@ bool load_z80_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
         uint16_t mem_addr = 0x4000;
         while (data_ptr < data.size() && mem_addr < 0xFFFF) {
             if (data_ptr + 1 < data.size() && data[data_ptr] == 0xED && data[data_ptr + 1] == 0xED) {
-                if (data_ptr + 2 >= data.size())
+                if (data_ptr + 3 >= data.size())
                     break; // Corrupted sequence
-                uint8_t count = 4;
+                uint8_t count = data[data_ptr + 2];
                 uint8_t value = data[data_ptr + 2];
                 data_ptr += 3;
-                for (int i = 0; i < count && mem_addr < 0xFFFF; ++i) {
+                for (int i = 0; i < count && mem_addr < 0xFFFF; ++i)
                     cpu.get_bus()->write(mem_addr++, value);
-                }
-            } else {
+            } else
                 cpu.get_bus()->write(mem_addr++, data[data_ptr++]);
-            }
         }
     } else {
         if (data.size() - 30 != 49152) {
@@ -283,9 +282,8 @@ int main(int argc, char* argv[]) {
             load_addr_str = argv[++i];
         } else if (arg == "--reg-dump") {
             reg_dump_action = true;
-            if (i + 1 < argc && argv[i+1][0] != '-') {
+            if (i + 1 < argc && argv[i+1][0] != '-')
                 reg_dump_format = argv[++i];
-            }
         } else if (arg == "--run-ticks") {
             run_ticks = std::stoll(argv[++i], nullptr, 10);
         } else if (arg == "--run-steps") {
@@ -355,12 +353,12 @@ int main(int argc, char* argv[]) {
 
         while (bytes_remaining > 0) {
             size_t rows_to_dump = (bytes_remaining + cols - 1) / cols;
-            if (rows_to_dump == 0) break;
+            if (rows_to_dump == 0)
+                break;
 
             auto dump = analyzer.dump_memory(current_addr, 1, cols);
-            for (const auto& line : dump) {
+            for (const auto& line : dump)
                 std::cout << line << std::endl;
-            }
             
             size_t bytes_dumped = std::min(bytes_remaining, cols);
             bytes_remaining -= bytes_dumped;
@@ -373,9 +371,8 @@ int main(int argc, char* argv[]) {
         
         uint16_t pc = disasm_addr;
         auto listing = analyzer.disassemble(pc, disasm_lines);
-        for (const auto& line : listing) {
+        for (const auto& line : listing)
             std::cout << line << std::endl;
-        }
     }
     if (mem_dump_size == 0 && disasm_lines == 0 && !reg_dump_action) {
         std::cout << "\nNo action specified. Use --reg-dump, --mem-dump, or --disassemble to see output." << std::endl;
