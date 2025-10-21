@@ -25,7 +25,7 @@ void print_bytes(const std::vector<uint8_t>& bytes) {
 }
 
 int main() {
-    Z80Assembler assembler;
+    Z80Assembler<> assembler;
 
     std::string source_code = R"(
         ; Example with labels, data directives, and EQU

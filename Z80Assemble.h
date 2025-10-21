@@ -1,12 +1,12 @@
-//  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄   
-//  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██  
-//      ██▀   ██▄  ▄██  ██    ██ 
-//    ▄██▀     ██████   ██ ██ ██ 
-//   ▄██      ██▀  ▀██  ██    ██ 
-//  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
+//  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄
+//  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██
+//      ██▀   ██▄  ▄██  ██    ██
+//    ▄██▀     ██████   ██ ██ ██
+//   ▄██      ██▀  ▀██  ██    ██
+//  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
 // Verson: 1.0.4
-// 
+//
 // This file contains the Z80Assembler class,
 // which provides functionality for assembling Z80 assembly instructions
 // from strings into machine code.
@@ -17,17 +17,27 @@
 #ifndef __Z80ASSEMBLE_H__
 #define __Z80ASSEMBLE_H__
 
-#include <cstdint>
-#include <string>
-#include <vector>
-#include <sstream>
+#include "Z80.h"
 #include <algorithm>
 #include <cctype>
-#include <stdexcept>
+#include <cstdint>
 #include <map>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
-class Z80Assembler {
+template <typename TMemory = Z80DefaultBus> class Z80Assembler {
 public:
+    Z80Assembler(TMemory* memory = nullptr) : m_memory(memory), m_owns_memory(false) {
+        if (!m_memory) {
+            if constexpr (std::is_default_constructible_v<TMemory>) {
+                m_memory = new TMemory();
+                m_owns_memory = true;
+            }
+        }
+    }
+
     std::vector<uint8_t> assemble(const std::string& source_code, uint16_t default_org = 0x0000) {
         m_symbol_table.clear();
         std::vector<std::string> lines;
@@ -64,6 +74,8 @@ public:
 private:
     int m_pass = 1;
     uint16_t m_current_address = 0;
+    TMemory* m_memory = nullptr;
+    bool m_owns_memory = false;
     std::map<std::string, uint16_t> m_symbol_table;
 
     std::vector<uint8_t> assemble_line(const std::string& instruction) {
@@ -170,19 +182,13 @@ private:
     };
 
     // --- Register Maps ---
-    const std::map<std::string, uint8_t> reg8_map = {
-        {"B", 0}, {"C", 1}, {"D", 2}, {"E", 3}, {"H", 4}, {"L", 5}, {"(HL)", 6}, {"A", 7},
-        {"IXH", 4}, {"IXL", 5}, {"IYH", 4}, {"IYL", 5}
-    };
-    const std::map<std::string, uint8_t> reg16_map = {
-        {"BC", 0}, {"DE", 1}, {"HL", 2}, {"SP", 3}
-    };
-    const std::map<std::string, uint8_t> reg16_af_map = {
-        {"BC", 0}, {"DE", 1}, {"HL", 2}, {"AF", 3}
-    };
-    const std::map<std::string, uint8_t> condition_map = {
-        {"NZ", 0}, {"Z", 1}, {"NC", 2}, {"C", 3}, {"PO", 4}, {"PE", 5}, {"P", 6}, {"M", 7}
-    };
+    const std::map<std::string, uint8_t> reg8_map = {{"B", 0},   {"C", 1},   {"D", 2},    {"E", 3},
+                                                     {"H", 4},   {"L", 5},   {"(HL)", 6}, {"A", 7},
+                                                     {"IXH", 4}, {"IXL", 5}, {"IYH", 4},  {"IYL", 5}};
+    const std::map<std::string, uint8_t> reg16_map = {{"BC", 0}, {"DE", 1}, {"HL", 2}, {"SP", 3}};
+    const std::map<std::string, uint8_t> reg16_af_map = {{"BC", 0}, {"DE", 1}, {"HL", 2}, {"AF", 3}};
+    const std::map<std::string, uint8_t> condition_map = {{"NZ", 0}, {"Z", 1},  {"NC", 2}, {"C", 3},
+                                                          {"PO", 4}, {"PE", 5}, {"P", 6},  {"M", 7}};
 
     // --- Parsing Helpers ---
 
@@ -191,7 +197,8 @@ private:
         // Trim whitespace before attempting conversion
         str.erase(0, str.find_first_not_of(" \t\n\r"));
         str.erase(str.find_last_not_of(" \t\n\r") + 1);
-        if (str.empty()) return false;
+        if (str.empty())
+            return false;
 
         try {
             size_t pos;
@@ -274,7 +281,8 @@ private:
                         op.offset = std::stoi(offset_str, nullptr, 0);
                         op.type = OperandType::MEM_INDEXED;
                         return op;
-                    } catch (...) { /* fall through */ }
+                    } catch (...) { /* fall through */
+                    }
                 }
             }
         }
@@ -292,7 +300,8 @@ private:
 
     // --- Assembly Logic ---
 
-    std::vector<uint8_t> assemble_instruction(const std::string& mnemonic, const std::vector<std::string>& operands_str) {
+    std::vector<uint8_t> assemble_instruction(const std::string& mnemonic,
+                                              const std::vector<std::string>& operands_str) {
         std::vector<Operand> ops;
         for (const auto& s : operands_str) {
             ops.push_back(parse_operand(s));
@@ -305,7 +314,8 @@ private:
                 return {}; // ORG doesn't generate bytes
             } else {
                 // In pass 1, a label might not be resolved yet, but we can still calculate size.
-                if (m_pass == 1 && ops.size() == 1) return {};
+                if (m_pass == 1 && ops.size() == 1)
+                    return {};
                 throw std::runtime_error("Invalid operand for ORG directive");
             }
         }
@@ -364,38 +374,70 @@ private:
 
         // --- Simple no-operand instructions ---
         if (ops.empty()) {
-            if (mnemonic == "NOP") return {0x00};
-            if (mnemonic == "HALT") return {0x76};
-            if (mnemonic == "DI") return {0xF3};
-            if (mnemonic == "EI") return {0xFB};
-            if (mnemonic == "EXX") return {0xD9};
-            if (mnemonic == "RET") return {0xC9};
-            if (mnemonic == "RETI") return {0xED, 0x4D};
-            if (mnemonic == "RETN") return {0xED, 0x45};
-            if (mnemonic == "RLCA") return {0x07};
-            if (mnemonic == "RRCA") return {0x0F};
-            if (mnemonic == "RLA") return {0x17};
-            if (mnemonic == "RRA") return {0x1F};
-            if (mnemonic == "DAA") return {0x27};
-            if (mnemonic == "CPL") return {0x2F};
-            if (mnemonic == "SCF") return {0x37};
-            if (mnemonic == "CCF") return {0x3F};
-            if (mnemonic == "LDI") return {0xED, 0xA0};
-            if (mnemonic == "CPI") return {0xED, 0xA1};
-            if (mnemonic == "INI") return {0xED, 0xA2};
-            if (mnemonic == "OUTI") return {0xED, 0xA3};
-            if (mnemonic == "LDD") return {0xED, 0xA8};
-            if (mnemonic == "CPD") return {0xED, 0xA9};
-            if (mnemonic == "IND") return {0xED, 0xAA};
-            if (mnemonic == "OUTD") return {0xED, 0xAB};
-            if (mnemonic == "LDIR") return {0xED, 0xB0};
-            if (mnemonic == "CPIR") return {0xED, 0xB1};
-            if (mnemonic == "INIR") return {0xED, 0xB2};
-            if (mnemonic == "OTIR") return {0xED, 0xB3};
-            if (mnemonic == "LDDR") return {0xED, 0xB8};
-            if (mnemonic == "CPDR") return {0xED, 0xB9};
-            if (mnemonic == "INDR") return {0xED, 0xBA};
-            if (mnemonic == "OTDR") return {0xED, 0xBB};
+            if (mnemonic == "NOP")
+                return {0x00};
+            if (mnemonic == "HALT")
+                return {0x76};
+            if (mnemonic == "DI")
+                return {0xF3};
+            if (mnemonic == "EI")
+                return {0xFB};
+            if (mnemonic == "EXX")
+                return {0xD9};
+            if (mnemonic == "RET")
+                return {0xC9};
+            if (mnemonic == "RETI")
+                return {0xED, 0x4D};
+            if (mnemonic == "RETN")
+                return {0xED, 0x45};
+            if (mnemonic == "RLCA")
+                return {0x07};
+            if (mnemonic == "RRCA")
+                return {0x0F};
+            if (mnemonic == "RLA")
+                return {0x17};
+            if (mnemonic == "RRA")
+                return {0x1F};
+            if (mnemonic == "DAA")
+                return {0x27};
+            if (mnemonic == "CPL")
+                return {0x2F};
+            if (mnemonic == "SCF")
+                return {0x37};
+            if (mnemonic == "CCF")
+                return {0x3F};
+            if (mnemonic == "LDI")
+                return {0xED, 0xA0};
+            if (mnemonic == "CPI")
+                return {0xED, 0xA1};
+            if (mnemonic == "INI")
+                return {0xED, 0xA2};
+            if (mnemonic == "OUTI")
+                return {0xED, 0xA3};
+            if (mnemonic == "LDD")
+                return {0xED, 0xA8};
+            if (mnemonic == "CPD")
+                return {0xED, 0xA9};
+            if (mnemonic == "IND")
+                return {0xED, 0xAA};
+            if (mnemonic == "OUTD")
+                return {0xED, 0xAB};
+            if (mnemonic == "LDIR")
+                return {0xED, 0xB0};
+            if (mnemonic == "CPIR")
+                return {0xED, 0xB1};
+            if (mnemonic == "INIR")
+                return {0xED, 0xB2};
+            if (mnemonic == "OTIR")
+                return {0xED, 0xB3};
+            if (mnemonic == "LDDR")
+                return {0xED, 0xB8};
+            if (mnemonic == "CPDR")
+                return {0xED, 0xB9};
+            if (mnemonic == "INDR")
+                return {0xED, 0xBA};
+            if (mnemonic == "OTDR")
+                return {0xED, 0xBB};
         }
 
         // --- One-operand instructions ---
@@ -403,49 +445,60 @@ private:
             // PUSH/POP
             if (mnemonic == "PUSH" && ops[0].type == OperandType::REG16) {
                 if (reg16_af_map.count(ops[0].str_val)) {
-                    return { (uint8_t)(0xC5 | (reg16_af_map.at(ops[0].str_val) << 4)) };
+                    return {(uint8_t)(0xC5 | (reg16_af_map.at(ops[0].str_val) << 4))};
                 }
-                if (ops[0].str_val == "IX") return {0xDD, 0xE5};
-                if (ops[0].str_val == "IY") return {0xFD, 0xE5};
+                if (ops[0].str_val == "IX")
+                    return {0xDD, 0xE5};
+                if (ops[0].str_val == "IY")
+                    return {0xFD, 0xE5};
             }
             if (mnemonic == "POP" && ops[0].type == OperandType::REG16) {
                 if (reg16_af_map.count(ops[0].str_val)) {
-                    return { (uint8_t)(0xC1 | (reg16_af_map.at(ops[0].str_val) << 4)) };
+                    return {(uint8_t)(0xC1 | (reg16_af_map.at(ops[0].str_val) << 4))};
                 }
-                if (ops[0].str_val == "IX") return {0xDD, 0xE1};
-                if (ops[0].str_val == "IY") return {0xFD, 0xE1};
+                if (ops[0].str_val == "IX")
+                    return {0xDD, 0xE1};
+                if (ops[0].str_val == "IY")
+                    return {0xFD, 0xE1};
             }
             // INC/DEC r16
             if (mnemonic == "INC" && ops[0].type == OperandType::REG16) {
                 if (reg16_map.count(ops[0].str_val)) {
-                    return { (uint8_t)(0x03 | (reg16_map.at(ops[0].str_val) << 4)) };
+                    return {(uint8_t)(0x03 | (reg16_map.at(ops[0].str_val) << 4))};
                 }
-                if (ops[0].str_val == "IX") return {0xDD, 0x23};
-                if (ops[0].str_val == "IY") return {0xFD, 0x23};
+                if (ops[0].str_val == "IX")
+                    return {0xDD, 0x23};
+                if (ops[0].str_val == "IY")
+                    return {0xFD, 0x23};
             }
             if (mnemonic == "DEC" && ops[0].type == OperandType::REG16) {
                 if (reg16_map.count(ops[0].str_val)) {
-                    return { (uint8_t)(0x0B | (reg16_map.at(ops[0].str_val) << 4)) };
+                    return {(uint8_t)(0x0B | (reg16_map.at(ops[0].str_val) << 4))};
                 }
-                if (ops[0].str_val == "IX") return {0xDD, 0x2B};
-                if (ops[0].str_val == "IY") return {0xFD, 0x2B};
+                if (ops[0].str_val == "IX")
+                    return {0xDD, 0x2B};
+                if (ops[0].str_val == "IY")
+                    return {0xFD, 0x2B};
             }
             // INC/DEC r8
             if (mnemonic == "INC" && ops[0].type == OperandType::REG8) {
-                return { (uint8_t)(0x04 | (reg8_map.at(ops[0].str_val) << 3)) };
+                return {(uint8_t)(0x04 | (reg8_map.at(ops[0].str_val) << 3))};
             }
             if (mnemonic == "DEC" && ops[0].type == OperandType::REG8) {
-                return { (uint8_t)(0x05 | (reg8_map.at(ops[0].str_val) << 3)) };
+                return {(uint8_t)(0x05 | (reg8_map.at(ops[0].str_val) << 3))};
             }
             // JP nn
             if (mnemonic == "JP" && (ops[0].type == OperandType::IMM8 || ops[0].type == OperandType::IMM16)) {
-                return { 0xC3, (uint8_t)(ops[0].num_val & 0xFF), (uint8_t)(ops[0].num_val >> 8) };
+                return {0xC3, (uint8_t)(ops[0].num_val & 0xFF), (uint8_t)(ops[0].num_val >> 8)};
             }
             // JP (rr)
             if (mnemonic == "JP" && ops[0].type == OperandType::MEM_REG16) {
-                if (ops[0].str_val == "HL") return {0xE9};
-                if (ops[0].str_val == "IX") return {0xDD, 0xE9};
-                if (ops[0].str_val == "IY") return {0xFD, 0xE9};
+                if (ops[0].str_val == "HL")
+                    return {0xE9};
+                if (ops[0].str_val == "IX")
+                    return {0xDD, 0xE9};
+                if (ops[0].str_val == "IY")
+                    return {0xFD, 0xE9};
             }
             // JR d
             if (mnemonic == "JR" && (ops[0].type == OperandType::IMM8 || ops[0].type == OperandType::IMM16)) {
@@ -454,15 +507,15 @@ private:
                 if (m_pass == 2 && (offset < -128 || offset > 127)) {
                     throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
                 }
-                return { 0x18, static_cast<uint8_t>(offset) };
+                return {0x18, static_cast<uint8_t>(offset)};
             }
             // SUB n
             if (mnemonic == "SUB" && ops[0].type == OperandType::IMM8) {
-                return { 0xD6, (uint8_t)ops[0].num_val };
+                return {0xD6, (uint8_t)ops[0].num_val};
             }
             // ADD A, r (this is an alias for ADD r)
             if (mnemonic == "ADD" && ops[0].type == OperandType::REG8) {
-                 return { (uint8_t)(0x80 | reg8_map.at(ops[0].str_val)) };
+                return {(uint8_t)(0x80 | reg8_map.at(ops[0].str_val))};
             }
             // DJNZ d
             if (mnemonic == "DJNZ" && (ops[0].type == OperandType::IMM8 || ops[0].type == OperandType::IMM16)) {
@@ -471,9 +524,8 @@ private:
                 if (m_pass == 2 && (offset < -128 || offset > 127)) {
                     throw std::runtime_error("DJNZ jump target out of range. Offset: " + std::to_string(offset));
                 }
-                return { 0x10, static_cast<uint8_t>(offset) };
+                return {0x10, static_cast<uint8_t>(offset)};
             }
-
         }
 
         // --- Two-operand instructions ---
@@ -492,7 +544,8 @@ private:
             uint8_t prefix = 0;
             if (ops[0].str_val.find("IX") != std::string::npos || ops[1].str_val.find("IX") != std::string::npos) {
                 prefix = 0xDD;
-            } else if (ops[0].str_val.find("IY") != std::string::npos || ops[1].str_val.find("IY") != std::string::npos) {
+            } else if (ops[0].str_val.find("IY") != std::string::npos ||
+                       ops[1].str_val.find("IY") != std::string::npos) {
                 prefix = 0xFD;
             }
 
@@ -502,125 +555,152 @@ private:
                 uint8_t src_code = reg8_map.at(ops[1].str_val);
                 if (prefix) {
                     // Disallow LD IXH, IYL etc.
-                    if ((ops[0].str_val.find("IX") != std::string::npos && ops[1].str_val.find("IY") != std::string::npos) ||
-                        (ops[0].str_val.find("IY") != std::string::npos && ops[1].str_val.find("IX") != std::string::npos))
+                    if ((ops[0].str_val.find("IX") != std::string::npos &&
+                         ops[1].str_val.find("IY") != std::string::npos) ||
+                        (ops[0].str_val.find("IY") != std::string::npos &&
+                         ops[1].str_val.find("IX") != std::string::npos))
                         throw std::runtime_error("Cannot mix IX and IY register parts");
-                    return { prefix, (uint8_t)(0x40 | (dest_code << 3) | src_code) };
+                    return {prefix, (uint8_t)(0x40 | (dest_code << 3) | src_code)};
                 }
-                return { (uint8_t)(0x40 | (dest_code << 3) | src_code) };
+                return {(uint8_t)(0x40 | (dest_code << 3) | src_code)};
             }
 
             // LD r, n
             if (mnemonic == "LD" && ops[0].type == OperandType::REG8 && ops[1].type == OperandType::IMM8) {
                 uint8_t dest_code = reg8_map.at(ops[0].str_val);
-                return { (uint8_t)(0x06 | (dest_code << 3)), (uint8_t)ops[1].num_val };
+                return {(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)ops[1].num_val};
             }
-            if (mnemonic == "LD" && (ops[0].str_val == "IXH" || ops[0].str_val == "IXL" || ops[0].str_val == "IYH" || ops[0].str_val == "IYL") && ops[1].type == OperandType::IMM8) {
-                return { prefix, (uint8_t)(0x06 | (reg8_map.at(ops[0].str_val) << 3)), (uint8_t)ops[1].num_val };
+            if (mnemonic == "LD" &&
+                (ops[0].str_val == "IXH" || ops[0].str_val == "IXL" || ops[0].str_val == "IYH" ||
+                 ops[0].str_val == "IYL") &&
+                ops[1].type == OperandType::IMM8) {
+                return {prefix, (uint8_t)(0x06 | (reg8_map.at(ops[0].str_val) << 3)), (uint8_t)ops[1].num_val};
             }
 
             // LD rr, nn
-            if (mnemonic == "LD" && ops[0].type == OperandType::REG16 && (ops[1].type == OperandType::IMM8 || ops[1].type == OperandType::IMM16)) {
+            if (mnemonic == "LD" && ops[0].type == OperandType::REG16 &&
+                (ops[1].type == OperandType::IMM8 || ops[1].type == OperandType::IMM16)) {
                 if (reg16_map.count(ops[0].str_val)) {
-                    return { (uint8_t)(0x01 | (reg16_map.at(ops[0].str_val) << 4)), (uint8_t)(ops[1].num_val & 0xFF), (uint8_t)(ops[1].num_val >> 8) };
+                    return {(uint8_t)(0x01 | (reg16_map.at(ops[0].str_val) << 4)), (uint8_t)(ops[1].num_val & 0xFF),
+                            (uint8_t)(ops[1].num_val >> 8)};
                 }
                 if (ops[0].str_val == "IX") {
-                    return { 0xDD, 0x21, (uint8_t)(ops[1].num_val & 0xFF), (uint8_t)(ops[1].num_val >> 8) };
+                    return {0xDD, 0x21, (uint8_t)(ops[1].num_val & 0xFF), (uint8_t)(ops[1].num_val >> 8)};
                 }
                 if (ops[0].str_val == "IY") {
-                    return { 0xFD, 0x21, (uint8_t)(ops[1].num_val & 0xFF), (uint8_t)(ops[1].num_val >> 8) };
+                    return {0xFD, 0x21, (uint8_t)(ops[1].num_val & 0xFF), (uint8_t)(ops[1].num_val >> 8)};
                 }
             }
 
             // LD (rr), A
             if (mnemonic == "LD" && ops[0].type == OperandType::MEM_REG16 && ops[1].str_val == "A") {
-                if (ops[0].str_val == "BC") return {0x02};
-                if (ops[0].str_val == "DE") return {0x12};
+                if (ops[0].str_val == "BC")
+                    return {0x02};
+                if (ops[0].str_val == "DE")
+                    return {0x12};
             }
 
             // LD A, (rr)
             if (mnemonic == "LD" && ops[0].str_val == "A" && ops[1].type == OperandType::MEM_REG16) {
-                if (ops[1].str_val == "BC") return {0x0A};
-                if (ops[1].str_val == "DE") return {0x1A};
+                if (ops[1].str_val == "BC")
+                    return {0x0A};
+                if (ops[1].str_val == "DE")
+                    return {0x1A};
             }
 
             // LD (nn), A
             if (mnemonic == "LD" && ops[0].type == OperandType::MEM_IMM16 && ops[1].str_val == "A") {
-                return { 0x32, (uint8_t)(ops[0].num_val & 0xFF), (uint8_t)(ops[0].num_val >> 8) };
+                return {0x32, (uint8_t)(ops[0].num_val & 0xFF), (uint8_t)(ops[0].num_val >> 8)};
             }
 
             // LD A, (nn)
             if (mnemonic == "LD" && ops[0].str_val == "A" && ops[1].type == OperandType::MEM_IMM16) {
-                return { 0x3A, (uint8_t)(ops[1].num_val & 0xFF), (uint8_t)(ops[1].num_val >> 8) };
+                return {0x3A, (uint8_t)(ops[1].num_val & 0xFF), (uint8_t)(ops[1].num_val >> 8)};
             }
 
             // LD (IX+d), n
             if (mnemonic == "LD" && ops[0].type == OperandType::MEM_INDEXED && ops[1].type == OperandType::IMM8) {
                 uint8_t prefix = (ops[0].base_reg == "IX") ? 0xDD : 0xFD;
-                return { prefix, 0x36, (uint8_t)ops[0].offset, (uint8_t)ops[1].num_val };
+                return {prefix, 0x36, (uint8_t)ops[0].offset, (uint8_t)ops[1].num_val};
             }
 
             // LD r, (IX+d)
             if (mnemonic == "LD" && ops[0].type == OperandType::REG8 && ops[1].type == OperandType::MEM_INDEXED) {
                 uint8_t prefix = (ops[1].base_reg == "IX") ? 0xDD : 0xFD;
                 uint8_t reg_code = reg8_map.at(ops[0].str_val);
-                return { prefix, (uint8_t)(0x46 | (reg_code << 3)), (uint8_t)ops[1].offset };
+                return {prefix, (uint8_t)(0x46 | (reg_code << 3)), (uint8_t)ops[1].offset};
             }
 
             // LD (IX+d), r
             if (mnemonic == "LD" && ops[0].type == OperandType::MEM_INDEXED && ops[1].type == OperandType::REG8) {
                 uint8_t prefix = (ops[0].base_reg == "IX") ? 0xDD : 0xFD;
                 uint8_t reg_code = reg8_map.at(ops[1].str_val);
-                return { prefix, (uint8_t)(0x70 | reg_code), (uint8_t)ops[0].offset };
+                return {prefix, (uint8_t)(0x70 | reg_code), (uint8_t)ops[0].offset};
             }
 
             // ADD A, n
             if (mnemonic == "ADD" && ops[0].str_val == "A" && ops[1].type == OperandType::IMM8) {
-                return { 0xC6, (uint8_t)ops[1].num_val };
+                return {0xC6, (uint8_t)ops[1].num_val};
             }
 
             // ADD/ADC/SUB/SBC/AND/XOR/OR/CP A, r
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
                  mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") &&
                 ops[0].str_val == "A" && ops[1].type == OperandType::REG8) {
-                
+
                 uint8_t base_opcode = 0;
-                if (mnemonic == "ADD") base_opcode = 0x80; else if (mnemonic == "ADC") base_opcode = 0x88;
-                else if (mnemonic == "SUB") base_opcode = 0x90; else if (mnemonic == "SBC") base_opcode = 0x98;
-                else if (mnemonic == "AND") base_opcode = 0xA0; else if (mnemonic == "XOR") base_opcode = 0xA8;
-                else if (mnemonic == "OR")  base_opcode = 0xB0; else if (mnemonic == "CP")  base_opcode = 0xB8;
-                
+                if (mnemonic == "ADD")
+                    base_opcode = 0x80;
+                else if (mnemonic == "ADC")
+                    base_opcode = 0x88;
+                else if (mnemonic == "SUB")
+                    base_opcode = 0x90;
+                else if (mnemonic == "SBC")
+                    base_opcode = 0x98;
+                else if (mnemonic == "AND")
+                    base_opcode = 0xA0;
+                else if (mnemonic == "XOR")
+                    base_opcode = 0xA8;
+                else if (mnemonic == "OR")
+                    base_opcode = 0xB0;
+                else if (mnemonic == "CP")
+                    base_opcode = 0xB8;
+
                 uint8_t reg_code = reg8_map.at(ops[1].str_val);
-                if (prefix) return { prefix, (uint8_t)(base_opcode | reg_code) };
-                return { (uint8_t)(base_opcode | reg_code) };
+                if (prefix)
+                    return {prefix, (uint8_t)(base_opcode | reg_code)};
+                return {(uint8_t)(base_opcode | reg_code)};
             }
 
             // JP cc, nn
-            if (mnemonic == "JP" && ops[0].type == OperandType::CONDITION && (ops[1].type == OperandType::IMM8 || ops[1].type == OperandType::IMM16)) {
+            if (mnemonic == "JP" && ops[0].type == OperandType::CONDITION &&
+                (ops[1].type == OperandType::IMM8 || ops[1].type == OperandType::IMM16)) {
                 uint8_t cond_code = condition_map.at(ops[0].str_val);
-                return { (uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(ops[1].num_val & 0xFF), (uint8_t)(ops[1].num_val >> 8) };
+                return {(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(ops[1].num_val & 0xFF),
+                        (uint8_t)(ops[1].num_val >> 8)};
             }
 
             // JR cc, d
-            if (mnemonic == "JR" && ops[0].type == OperandType::CONDITION && (ops[1].type == OperandType::IMM8 || ops[1].type == OperandType::IMM16)) {
+            if (mnemonic == "JR" && ops[0].type == OperandType::CONDITION &&
+                (ops[1].type == OperandType::IMM8 || ops[1].type == OperandType::IMM16)) {
                 // JR uses a different condition map
                 const std::map<std::string, uint8_t> jr_condition_map = {
-                    {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}
-                };
+                    {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}};
                 if (jr_condition_map.count(ops[0].str_val)) {
                     int32_t target_addr = ops[1].num_val;
                     int32_t offset = target_addr - (m_current_address + 2);
                     if (m_pass == 2 && (offset < -128 || offset > 127)) {
                         throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
                     }
-                    return { jr_condition_map.at(ops[0].str_val), static_cast<uint8_t>(offset) };
+                    return {jr_condition_map.at(ops[0].str_val), static_cast<uint8_t>(offset)};
                 }
             }
 
             // IN r, (C)
             if (mnemonic == "IN" && ops[0].type == OperandType::REG8 && ops[1].str_val == "(C)") {
                 uint8_t reg_code = reg8_map.at(ops[0].str_val);
-                if (reg_code == 6) return {0xED, 0x70}; // IN (C) or IN F, (C)
+                if (reg_code == 6)
+                    return {0xED, 0x70}; // IN (C) or IN F, (C)
                 return {0xED, (uint8_t)(0x40 | (reg_code << 3))};
             }
 
@@ -640,7 +720,7 @@ private:
                 }
                 uint8_t bit = ops[0].num_val;
                 uint8_t reg_code = reg8_map.at(ops[1].str_val);
-                return { 0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code) };
+                return {0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code)};
             }
 
             // SET b, r
@@ -650,7 +730,7 @@ private:
                 }
                 uint8_t bit = ops[0].num_val;
                 uint8_t reg_code = reg8_map.at(ops[1].str_val);
-                return { 0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code) };
+                return {0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code)};
             }
 
             // RES b, r
@@ -660,7 +740,7 @@ private:
                 }
                 uint8_t bit = ops[0].num_val;
                 uint8_t reg_code = reg8_map.at(ops[1].str_val);
-                return { 0xCB, (uint8_t)(0x80 | (bit << 3) | reg_code) };
+                return {0xCB, (uint8_t)(0x80 | (bit << 3) | reg_code)};
             }
 
             // SLL b, r
@@ -669,12 +749,12 @@ private:
                     throw std::runtime_error("SLL bit index must be 0-7");
                 }
                 uint8_t reg_code = reg8_map.at(ops[0].str_val);
-                return { 0xCB, (uint8_t)(0x30 | reg_code) };
+                return {0xCB, (uint8_t)(0x30 | reg_code)};
             }
-
         }
 
-        throw std::runtime_error("Unsupported or invalid instruction: " + mnemonic + " " + (operands_str.empty() ? "" : operands_str[0]));
+        throw std::runtime_error("Unsupported or invalid instruction: " + mnemonic + " " +
+                                 (operands_str.empty() ? "" : operands_str[0]));
     }
 };
 
