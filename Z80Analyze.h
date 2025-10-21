@@ -72,9 +72,8 @@ public:
                 if (format[k] == '%' && k + 1 < format.length()) {
                     char specifier = format[++k];
                     ss << format_dump_segment(specifier, row_address, row_bytes);
-                } else {
+                } else
                     ss << format[k];
-                }
             }
             result.push_back(ss.str());
         }
@@ -104,7 +103,7 @@ public:
                 if (!specifier.empty()) {
                     ss << format_register_segment(specifier);
                     i = j - 1;
-                } else 
+                } else
                     ss << format[i];
             } else if (format[i] == '\\' && i + 1 < format.length()) {
                 switch (format[i+1]) {
@@ -113,8 +112,7 @@ public:
                     default: ss << format[i+1]; break;
                 }
                 i++;
-            }
-            else 
+            } else
                 ss << format[i];
         }
         return ss.str();
@@ -172,9 +170,8 @@ public:
                         case 't': // ticks
                             if (m_ticks_alt > 0) {
                                 replacement = std::to_string(m_ticks) + "/" + std::to_string(m_ticks_alt);
-                            } else {
+                            } else
                                 replacement = std::to_string(m_ticks);
-                            }
                             break;
                     }
                     ss << std::setfill(fill_char) << std::setw(width) << (left_align ? std::left : std::right) << replacement;
@@ -594,9 +591,8 @@ private:
                         m_ticks = (operation_group == 1) ? 20 : 23;
                     }
 
-                    if (reg_code != 6) { // For undocumented instructions
+                    if (reg_code != 6) // For undocumented instructions
                         ss << ", " << registers[reg_code];
-                    }
                     m_mnemonic = ss.str();
                 }
                 break;
@@ -797,15 +793,12 @@ private:
     std::string get_bytes_str(bool hex_format = true) const {
         std::stringstream ss;
         for (size_t i = 0; i < m_bytes.size(); ++i) {
-            if (hex_format) {
-                ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0')
-                   << static_cast<int>(m_bytes[i]);
-            } else {
+            if (hex_format)
+                ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(m_bytes[i]);
+            else
                 ss << std::dec << static_cast<int>(m_bytes[i]);
-            }
-            if (i < m_bytes.size() - 1) {
+            if (i < m_bytes.size() - 1)
                 ss << " ";
-            }
         }
         return ss.str();
     }
