@@ -1,11 +1,11 @@
-//  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄   
-//  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██  
-//      ██▀   ██▄  ▄██  ██    ██ 
-//    ▄██▀     ██████   ██ ██ ██ 
-//   ▄██      ██▀  ▀██  ██    ██ 
-//  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
+//  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄
+//  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██
+//      ██▀   ██▄  ▄██  ██    ██
+//    ▄██▀     ██████   ██ ██ ██
+//   ▄██      ██▀  ▀██  ██    ██
+//  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
-// Verson: 1.0.3
+// Verson: 1.0.4
 //
 // This file defines the core Z80 processor emulation class,
 // including register definitions, state management, and instruction execution logic.
@@ -16,18 +16,18 @@
 #ifndef __Z80_H__
 #define __Z80_H__
 
-#include <cstdint>
+#include <algorithm>
 #include <climits>
+#include <cstdint>
 #include <type_traits>
 #include <vector>
-#include <algorithm>
 
 #if defined(__GNUC__) || defined(__clang__) // GCC i Clang
-    #define Z80_LIKELY(expr)   __builtin_expect(!!(expr), 1)
+    #define Z80_LIKELY(expr) __builtin_expect(!!(expr), 1)
 #elif __cplusplus >= 202002L // C++20
-    #define Z80_LIKELY(expr)   (expr) [[likely]]
+    #define Z80_LIKELY(expr) (expr) [[likely]]
 #else
-    #define Z80_LIKELY(expr)   (expr)
+    #define Z80_LIKELY(expr) (expr)
 #endif
 
 class Z80DefaultBus;
@@ -40,13 +40,13 @@ public:
     union Register {
         uint16_t w;
         struct {
-            #if defined(Z80_BIG_ENDIAN)
-            uint8_t h; 
+#if defined(Z80_BIG_ENDIAN)
+            uint8_t h;
             uint8_t l;
-            #else
-            uint8_t l; 
-            uint8_t h; 
-            #endif
+#else
+            uint8_t l;
+            uint8_t h;
+#endif
         };
     };
     enum class IndexMode { HL, IX, IY };
@@ -72,34 +72,54 @@ public:
     // Flags
     class Flags {
     public:
-        static constexpr uint8_t C  = 1 << 0;
-        static constexpr uint8_t N  = 1 << 1;
+        static constexpr uint8_t C = 1 << 0;
+        static constexpr uint8_t N = 1 << 1;
         static constexpr uint8_t PV = 1 << 2;
-        static constexpr uint8_t X  = 1 << 3;
-        static constexpr uint8_t H  = 1 << 4;
-        static constexpr uint8_t Y  = 1 << 5;
-        static constexpr uint8_t Z  = 1 << 6;
-        static constexpr uint8_t S  = 1 << 7;
-        Flags(uint8_t value) : m_value(value) {}
-        operator uint8_t() const { return m_value; }
-        Flags& operator=(uint8_t new_value) { return assign(new_value); }
-        Flags& zero() { m_value = 0; return *this; }
-        Flags& assign(uint8_t value) { m_value = value; return *this; }
-        Flags& set(uint8_t mask) { m_value |= mask; return *this; }
-        Flags& clear(uint8_t mask) { m_value &= ~mask; return *this; }
+        static constexpr uint8_t X = 1 << 3;
+        static constexpr uint8_t H = 1 << 4;
+        static constexpr uint8_t Y = 1 << 5;
+        static constexpr uint8_t Z = 1 << 6;
+        static constexpr uint8_t S = 1 << 7;
+        Flags(uint8_t value) : m_value(value) {
+        }
+        operator uint8_t() const {
+            return m_value;
+        }
+        Flags& operator=(uint8_t new_value) {
+            return assign(new_value);
+        }
+        Flags& zero() {
+            m_value = 0;
+            return *this;
+        }
+        Flags& assign(uint8_t value) {
+            m_value = value;
+            return *this;
+        }
+        Flags& set(uint8_t mask) {
+            m_value |= mask;
+            return *this;
+        }
+        Flags& clear(uint8_t mask) {
+            m_value &= ~mask;
+            return *this;
+        }
         Flags& update(uint8_t mask, bool state) {
             m_value = (m_value & ~mask) | (-static_cast<int8_t>(state) & mask);
             return *this;
         }
-        bool is_set(uint8_t mask) const { return (m_value & mask) != 0; }
+        bool is_set(uint8_t mask) const {
+            return (m_value & mask) != 0;
+        }
+
     private:
         uint8_t m_value;
     };
 
-    //Constructors, destructors and assignment operators
-    Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr) :
-        m_owns_bus(false), m_owns_events(false), m_owns_debugger(false),
-        m_bus(bus), m_events(events), m_debugger(debugger) {
+    // Constructors, destructors and assignment operators
+    Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr)
+        : m_owns_bus(false), m_owns_events(false), m_owns_debugger(false), m_bus(bus), m_events(events),
+          m_debugger(debugger) {
 
         if (!m_bus) {
             if constexpr (std::is_default_constructible_v<TBus>) {
@@ -134,10 +154,11 @@ public:
             delete m_debugger;
     }
     Z80(const Z80& other)
-        : m_bus(nullptr), m_events(nullptr), m_debugger(nullptr), m_owns_bus(false), m_owns_events(false), m_owns_debugger(false) {
+        : m_bus(nullptr), m_events(nullptr), m_debugger(nullptr), m_owns_bus(false), m_owns_events(false),
+          m_owns_debugger(false) {
         restore_state(other.save_state());
         if (other.m_owns_bus) {
-            if constexpr(std::is_copy_constructible_v<TBus>) {
+            if constexpr (std::is_copy_constructible_v<TBus>) {
                 m_bus = new TBus(*other.m_bus);
                 m_owns_bus = true;
             } else
@@ -145,7 +166,7 @@ public:
         } else
             m_bus = other.m_bus;
         if (other.m_owns_events) {
-            if constexpr(std::is_copy_constructible_v<TEvents>) {
+            if constexpr (std::is_copy_constructible_v<TEvents>) {
                 m_events = new TEvents(*other.m_events);
                 m_owns_events = true;
             } else
@@ -153,17 +174,20 @@ public:
         } else
             m_events = other.m_events;
         if (other.m_owns_debugger) {
-            if constexpr(std::is_copy_constructible_v<TDebugger>) {
+            if constexpr (std::is_copy_constructible_v<TDebugger>) {
                 m_debugger = new TDebugger(*other.m_debugger);
                 m_owns_debugger = true;
             } else
                 m_debugger = nullptr;
-        } else 
+        } else
             m_debugger = other.m_debugger;
         precompute_parity();
-        if (m_bus) m_bus->connect(this);
-        if (m_events) m_events->connect(this);
-        if (m_debugger) m_debugger->connect(this);
+        if (m_bus)
+            m_bus->connect(this);
+        if (m_events)
+            m_events->connect(this);
+        if (m_debugger)
+            m_debugger->connect(this);
     }
     Z80& operator=(const Z80& other) {
         Z80 temp(other);
@@ -172,12 +196,23 @@ public:
     }
 
     // Main execution and control interface
-    long long run(long long ticks_limit) {return operate<OperateMode::ToLimit>(ticks_limit);}
-    int step() {return operate<OperateMode::SingleStep>(0);}
+    long long run(long long ticks_limit) {
+        return operate<OperateMode::ToLimit>(ticks_limit);
+    }
+    int step() {
+        return operate<OperateMode::SingleStep>(0);
+    }
     void reset() {
-        set_AF(0); set_BC(0); set_DE(0); set_HL(0);
-        set_AFp(0); set_BCp(0); set_DEp(0); set_HLp(0);
-        set_IX(0); set_IY(0);
+        set_AF(0);
+        set_BC(0);
+        set_DE(0);
+        set_HL(0);
+        set_AFp(0);
+        set_BCp(0);
+        set_DEp(0);
+        set_HLp(0);
+        set_IX(0);
+        set_IY(0);
         set_SP(0xFFFF);
         set_PC(0);
         set_R(0);
@@ -204,7 +239,9 @@ public:
         set_IRQ_request(true);
         set_IRQ_data(data);
     }
-    void request_NMI() { set_NMI_pending(true); }
+    void request_NMI() {
+        set_NMI_pending(true);
+    }
 
     // High-Level State Management Methods ---
     State save_state() const {
@@ -271,8 +308,12 @@ public:
     }
 
     // Cycle counter
-    long long get_ticks() const { return m_ticks; }
-    void set_ticks(long long value) { m_ticks = value; }
+    long long get_ticks() const {
+        return m_ticks;
+    }
+    void set_ticks(long long value) {
+        m_ticks = value;
+    }
     void add_tick() {
         if constexpr (std::is_same_v<TEvents, Z80DefaultEvents>) {
             ++m_ticks;
@@ -300,15 +341,27 @@ public:
         }
     }
 
-    //Bus
-    uint16_t get_address_bus() const { return m_address_bus; }
-    void set_address_bus(uint16_t value) { m_address_bus = value; }
-    uint8_t get_data_bus() const { return m_data_bus; }
-    void set_data_bus(uint8_t value) { m_data_bus = value; }
+    // Bus
+    uint16_t get_address_bus() const {
+        return m_address_bus;
+    }
+    void set_address_bus(uint16_t value) {
+        m_address_bus = value;
+    }
+    uint8_t get_data_bus() const {
+        return m_data_bus;
+    }
+    void set_data_bus(uint8_t value) {
+        m_data_bus = value;
+    }
 
     // Access to internal components
-    TBus* get_bus() { return m_bus; }
-    const TBus* get_bus() const { return m_bus; }
+    TBus* get_bus() {
+        return m_bus;
+    }
+    const TBus* get_bus() const {
+        return m_bus;
+    }
     void set_bus(TBus* bus) {
         if (m_owns_bus)
             delete m_bus;
@@ -317,8 +370,12 @@ public:
         if (m_bus)
             m_bus->connect(this);
     }
-    TEvents* get_events() { return m_events; }
-    const TEvents* get_events() const { return m_events; }
+    TEvents* get_events() {
+        return m_events;
+    }
+    const TEvents* get_events() const {
+        return m_events;
+    }
     void set_events(TEvents* events) {
         if (m_owns_events)
             delete m_events;
@@ -326,9 +383,13 @@ public:
         m_owns_events = false;
         if (m_events)
             m_events->connect(this);
-    }    
-    TDebugger* get_debugger() { return m_debugger; }
-    const TDebugger* get_debugger() const { return m_debugger; }
+    }
+    TDebugger* get_debugger() {
+        return m_debugger;
+    }
+    const TDebugger* get_debugger() const {
+        return m_debugger;
+    }
     void set_debugger(TDebugger* debugger) {
         if (m_owns_debugger)
             delete m_debugger;
@@ -339,135 +400,297 @@ public:
     }
 
     // 16-bit main registers
-    uint16_t get_AF() const { return m_AF.w; }
-    void set_AF(uint16_t value) { m_AF.w = value; }
-    uint16_t get_BC() const { return m_BC.w; }
-    void set_BC(uint16_t value) { m_BC.w = value; }
-    uint16_t get_DE() const { return m_DE.w; }
-    void set_DE(uint16_t value) { m_DE.w = value; }
-    uint16_t get_HL() const { return m_HL.w; }
-    void set_HL(uint16_t value) { m_HL.w = value; }
-    uint16_t get_IX() const { return m_IX.w; }
-    void set_IX(uint16_t value) { m_IX.w = value; }
-    uint16_t get_IY() const { return m_IY.w; }
-    void set_IY(uint16_t value) { m_IY.w = value; }
-    uint16_t get_SP() const { return m_SP; }
-    void set_SP(uint16_t value) { m_SP = value; }
-    uint16_t get_PC() const { return m_PC; }
-    void set_PC(uint16_t value) { m_PC = value; }
+    uint16_t get_AF() const {
+        return m_AF.w;
+    }
+    void set_AF(uint16_t value) {
+        m_AF.w = value;
+    }
+    uint16_t get_BC() const {
+        return m_BC.w;
+    }
+    void set_BC(uint16_t value) {
+        m_BC.w = value;
+    }
+    uint16_t get_DE() const {
+        return m_DE.w;
+    }
+    void set_DE(uint16_t value) {
+        m_DE.w = value;
+    }
+    uint16_t get_HL() const {
+        return m_HL.w;
+    }
+    void set_HL(uint16_t value) {
+        m_HL.w = value;
+    }
+    uint16_t get_IX() const {
+        return m_IX.w;
+    }
+    void set_IX(uint16_t value) {
+        m_IX.w = value;
+    }
+    uint16_t get_IY() const {
+        return m_IY.w;
+    }
+    void set_IY(uint16_t value) {
+        m_IY.w = value;
+    }
+    uint16_t get_SP() const {
+        return m_SP;
+    }
+    void set_SP(uint16_t value) {
+        m_SP = value;
+    }
+    uint16_t get_PC() const {
+        return m_PC;
+    }
+    void set_PC(uint16_t value) {
+        m_PC = value;
+    }
 
     // 16-bit internal temporary register
-    uint16_t get_WZ() const { return m_WZ.w; }
-    void set_WZ(uint16_t value) { m_WZ.w = value; }
+    uint16_t get_WZ() const {
+        return m_WZ.w;
+    }
+    void set_WZ(uint16_t value) {
+        m_WZ.w = value;
+    }
 
     // 8-bit parts of WZ
-    uint8_t get_W() const { return m_WZ.h; }
-    void set_W(uint8_t value) { m_WZ.h = value; }
-    uint8_t get_Z() const { return m_WZ.l; }
-    void set_Z(uint8_t value) { m_WZ.l = value; }
+    uint8_t get_W() const {
+        return m_WZ.h;
+    }
+    void set_W(uint8_t value) {
+        m_WZ.h = value;
+    }
+    uint8_t get_Z() const {
+        return m_WZ.l;
+    }
+    void set_Z(uint8_t value) {
+        m_WZ.l = value;
+    }
 
     // 16-bit alternate registers
-    uint16_t get_AFp() const { return m_AFp.w; }
-    void set_AFp(uint16_t value) { m_AFp.w = value; }
-    uint16_t get_BCp() const { return m_BCp.w; }
-    void set_BCp(uint16_t value) { m_BCp.w = value; }
-    uint16_t get_DEp() const { return m_DEp.w; }
-    void set_DEp(uint16_t value) { m_DEp.w = value; }
-    uint16_t get_HLp() const { return m_HLp.w; }
-    void set_HLp(uint16_t value) { m_HLp.w = value; }
+    uint16_t get_AFp() const {
+        return m_AFp.w;
+    }
+    void set_AFp(uint16_t value) {
+        m_AFp.w = value;
+    }
+    uint16_t get_BCp() const {
+        return m_BCp.w;
+    }
+    void set_BCp(uint16_t value) {
+        m_BCp.w = value;
+    }
+    uint16_t get_DEp() const {
+        return m_DEp.w;
+    }
+    void set_DEp(uint16_t value) {
+        m_DEp.w = value;
+    }
+    uint16_t get_HLp() const {
+        return m_HLp.w;
+    }
+    void set_HLp(uint16_t value) {
+        m_HLp.w = value;
+    }
 
     // 8-bit registers
-    uint8_t get_A() const { return m_AF.h; }
-    void set_A(uint8_t value) { m_AF.h = value; }
-    Flags get_F() const { return m_AF.l; }
-    void set_F(Flags value) { 
+    uint8_t get_A() const {
+        return m_AF.h;
+    }
+    void set_A(uint8_t value) {
+        m_AF.h = value;
+    }
+    Flags get_F() const {
+        return m_AF.l;
+    }
+    void set_F(Flags value) {
         m_AF.l = value;
         set_flags_modified(true);
     }
-    uint8_t get_B() const { return m_BC.h; }
-    void set_B(uint8_t value) { m_BC.h = value; }
-    uint8_t get_C() const { return m_BC.l; }
-    void set_C(uint8_t value) { m_BC.l = value; }
-    uint8_t get_D() const { return m_DE.h; }
-    void set_D(uint8_t value) { m_DE.h = value; }
-    uint8_t get_E() const { return m_DE.l; }
-    void set_E(uint8_t value) { m_DE.l = value; }
-    uint8_t get_H() const { return m_HL.h; }
-    void set_H(uint8_t value) { m_HL.h = value; }
-    uint8_t get_L() const { return m_HL.l; }
-    void set_L(uint8_t value) { m_HL.l = value; }
-    uint8_t get_IXH() const { return m_IX.h; }
-    void set_IXH(uint8_t value) { m_IX.h = value; }
-    uint8_t get_IXL() const { return m_IX.l; }
-    void set_IXL(uint8_t value) { m_IX.l = value; }
-    uint8_t get_IYH() const { return m_IY.h; }
-    void set_IYH(uint8_t value) { m_IY.h = value; }
-    uint8_t get_IYL() const { return m_IY.l; }
-    void set_IYL(uint8_t value) { m_IY.l = value; }
+    uint8_t get_B() const {
+        return m_BC.h;
+    }
+    void set_B(uint8_t value) {
+        m_BC.h = value;
+    }
+    uint8_t get_C() const {
+        return m_BC.l;
+    }
+    void set_C(uint8_t value) {
+        m_BC.l = value;
+    }
+    uint8_t get_D() const {
+        return m_DE.h;
+    }
+    void set_D(uint8_t value) {
+        m_DE.h = value;
+    }
+    uint8_t get_E() const {
+        return m_DE.l;
+    }
+    void set_E(uint8_t value) {
+        m_DE.l = value;
+    }
+    uint8_t get_H() const {
+        return m_HL.h;
+    }
+    void set_H(uint8_t value) {
+        m_HL.h = value;
+    }
+    uint8_t get_L() const {
+        return m_HL.l;
+    }
+    void set_L(uint8_t value) {
+        m_HL.l = value;
+    }
+    uint8_t get_IXH() const {
+        return m_IX.h;
+    }
+    void set_IXH(uint8_t value) {
+        m_IX.h = value;
+    }
+    uint8_t get_IXL() const {
+        return m_IX.l;
+    }
+    void set_IXL(uint8_t value) {
+        m_IX.l = value;
+    }
+    uint8_t get_IYH() const {
+        return m_IY.h;
+    }
+    void set_IYH(uint8_t value) {
+        m_IY.h = value;
+    }
+    uint8_t get_IYL() const {
+        return m_IY.l;
+    }
+    void set_IYL(uint8_t value) {
+        m_IY.l = value;
+    }
 
     // Special purpose registers
-    uint8_t get_I() const { return m_I; }
-    void set_I(uint8_t value) { m_I = value; }
-    uint8_t get_R() const { return m_R; }
-    void set_R(uint8_t value) { m_R = value; }
+    uint8_t get_I() const {
+        return m_I;
+    }
+    void set_I(uint8_t value) {
+        m_I = value;
+    }
+    uint8_t get_R() const {
+        return m_R;
+    }
+    void set_R(uint8_t value) {
+        m_R = value;
+    }
 
     // CPU state flags
-    bool get_IFF1() const { return m_IFF1; }
-    void set_IFF1(bool state) { m_IFF1 = state; }
-    bool is_EI_executed() const { return m_EI_executed; }
-    void set_EI_executed(bool state) { m_EI_executed = state; }
-    bool get_IFF2() const { return m_IFF2; }
-    void set_IFF2(bool state) { m_IFF2 = state; }
-    bool is_halted() const { return m_halted; }
-    void set_halted(bool state) { m_halted = state; }
-    
+    bool get_IFF1() const {
+        return m_IFF1;
+    }
+    void set_IFF1(bool state) {
+        m_IFF1 = state;
+    }
+    bool is_EI_executed() const {
+        return m_EI_executed;
+    }
+    void set_EI_executed(bool state) {
+        m_EI_executed = state;
+    }
+    bool get_IFF2() const {
+        return m_IFF2;
+    }
+    void set_IFF2(bool state) {
+        m_IFF2 = state;
+    }
+    bool is_halted() const {
+        return m_halted;
+    }
+    void set_halted(bool state) {
+        m_halted = state;
+    }
+
     // Interrupt state flags
-    bool is_NMI_pending() const { return m_NMI_pending; }
-    void set_NMI_pending(bool state) { m_NMI_pending = state; }
-    bool is_IRQ_requested() const { return m_IRQ_request; }
-    void set_IRQ_request(bool state) { m_IRQ_request = state; }
-    bool is_IRQ_pending() const {return is_IRQ_requested() && get_IFF1(); }
-    uint8_t get_IRQ_data() const { return m_IRQ_data; }
-    void set_IRQ_data(uint8_t data) { m_IRQ_data = data; }
-    uint8_t get_IRQ_mode() const { return m_IRQ_mode; }
-    void set_IRQ_mode(uint8_t mode) { m_IRQ_mode = mode; }
-    void set_RETI_signaled(bool state) { m_RETI_signaled = state; }
-    bool is_RETI_signaled() const { return m_RETI_signaled;}
-    bool get_flags_modified() const { return m_flags_modified; }
-    void set_flags_modified(bool state) { m_flags_modified = state; }
+    bool is_NMI_pending() const {
+        return m_NMI_pending;
+    }
+    void set_NMI_pending(bool state) {
+        m_NMI_pending = state;
+    }
+    bool is_IRQ_requested() const {
+        return m_IRQ_request;
+    }
+    void set_IRQ_request(bool state) {
+        m_IRQ_request = state;
+    }
+    bool is_IRQ_pending() const {
+        return is_IRQ_requested() && get_IFF1();
+    }
+    uint8_t get_IRQ_data() const {
+        return m_IRQ_data;
+    }
+    void set_IRQ_data(uint8_t data) {
+        m_IRQ_data = data;
+    }
+    uint8_t get_IRQ_mode() const {
+        return m_IRQ_mode;
+    }
+    void set_IRQ_mode(uint8_t mode) {
+        m_IRQ_mode = mode;
+    }
+    void set_RETI_signaled(bool state) {
+        m_RETI_signaled = state;
+    }
+    bool is_RETI_signaled() const {
+        return m_RETI_signaled;
+    }
+    bool get_flags_modified() const {
+        return m_flags_modified;
+    }
+    void set_flags_modified(bool state) {
+        m_flags_modified = state;
+    }
 
-    
     // Processing opcodes DD and FD index
-    IndexMode get_index_mode() const { return m_index_mode;}
-    void set_index_mode(IndexMode mode) { m_index_mode = mode; }
+    IndexMode get_index_mode() const {
+        return m_index_mode;
+    }
+    void set_index_mode(IndexMode mode) {
+        m_index_mode = mode;
+    }
 
-    uint8_t get_Q() const { return m_Q; }
-    void set_Q(uint8_t value) { m_Q = value; }
-
+    uint8_t get_Q() const {
+        return m_Q;
+    }
+    void set_Q(uint8_t value) {
+        m_Q = value;
+    }
 
 private:
-    //CPU registers
+    // CPU registers
     Register m_AF, m_BC, m_DE, m_HL;
     Register m_AFp, m_BCp, m_DEp, m_HLp, m_WZ;
     Register m_IX, m_IY;
     uint16_t m_SP, m_PC;
     uint8_t m_I, m_R, m_Q;
     bool m_IFF1, m_IFF2;
-    
-    //internal CPU states
+
+    // internal CPU states
     bool m_halted, m_NMI_pending, m_IRQ_request, m_RETI_signaled, m_EI_executed;
     uint8_t m_IRQ_data, m_IRQ_mode;
     IndexMode m_index_mode;
-    
-    bool m_flags_modified;
-    //CPU T-states
-    long long m_ticks;
-    
-    //Bus
-    uint16_t m_address_bus; //A0-A15
-    uint8_t m_data_bus; //D0-D7
 
-    //Memory and IO operations
+    bool m_flags_modified;
+    // CPU T-states
+    long long m_ticks;
+
+    // Bus
+    uint16_t m_address_bus; // A0-A15
+    uint8_t m_data_bus;     // D0-D7
+
+    // Memory and IO operations
     TBus* m_bus;
     TEvents* m_events;
     TDebugger* m_debugger;
@@ -476,16 +699,16 @@ private:
     bool m_owns_debugger = false;
 #ifdef Z80_DEBUGGER_OPCODES
     std::vector<uint8_t> m_opcodes;
-#endif//Z80_DEBUGGER_OPCODES
+#endif // Z80_DEBUGGER_OPCODES
 
-    //Internal memory access helpers
+    // Internal memory access helpers
     uint8_t read_byte(uint16_t address) {
         m_address_bus = address;
-        add_tick(); //T1
-        add_tick(); //T2
+        add_tick(); // T1
+        add_tick(); // T2
         uint8_t data = m_bus->read(address);
         m_data_bus = data;
-        add_tick(); //T3
+        add_tick(); // T3
         return data;
     }
     uint16_t read_word(uint16_t address) {
@@ -495,11 +718,11 @@ private:
     }
     void write_byte(uint16_t address, uint8_t value) {
         m_address_bus = address;
-        add_tick(); //T1
+        add_tick(); // T1
         m_data_bus = value;
-        add_tick(); //T2
+        add_tick(); // T2
         m_bus->write(address, value);
-        add_tick(); //T3
+        add_tick(); // T3
     }
     void write_word(uint16_t address, uint16_t value) {
         write_byte(address, value & 0xFF);
@@ -517,23 +740,23 @@ private:
         set_SP(get_SP() + 1);
         uint8_t high_byte = read_byte(get_SP());
         set_SP(get_SP() + 1);
-        return  (static_cast<uint16_t>(high_byte) << 8) | low_byte;
+        return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
     uint8_t fetch_next_opcode() {
         uint16_t current_pc = get_PC();
         m_address_bus = current_pc;
-        add_tick(); //T1
-        add_tick(); //T2
+        add_tick(); // T1
+        add_tick(); // T2
         uint8_t opcode = m_bus->read(current_pc);
         m_data_bus = opcode;
 #ifdef Z80_DEBUGGER_OPCODES
         if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
             m_opcodes.push_back(opcode);
-#endif//Z80_DEBUGGER_OPCODES
+#endif // Z80_DEBUGGER_OPCODES
         uint8_t r_val = get_R();
         set_R(((r_val + 1) & 0x7F) | (r_val & 0x80));
-        add_tick(); //T3
-        add_tick(); //T4
+        add_tick(); // T3
+        add_tick(); // T4
         set_PC(current_pc + 1);
         return opcode;
     }
@@ -543,7 +766,7 @@ private:
 #ifdef Z80_DEBUGGER_OPCODES
         if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
             m_opcodes.push_back(byte_val);
-#endif//Z80_DEBUGGER_OPCODES
+#endif // Z80_DEBUGGER_OPCODES
         set_PC(current_pc + 1);
         return byte_val;
     }
@@ -552,7 +775,7 @@ private:
         uint8_t high_byte = fetch_next_byte();
         return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
     }
-    //I/O operations
+    // I/O operations
     uint8_t io_read(uint16_t port) {
         m_address_bus = port;
         uint8_t value = m_bus->in(port);
@@ -566,9 +789,11 @@ private:
         m_bus->out(port, value);
         add_ticks(4);
     }
-    //Parity bits
+    // Parity bits
     bool parity_table[256];
-    bool is_parity_even(uint8_t value) { return parity_table[value]; }
+    bool is_parity_even(uint8_t value) {
+        return parity_table[value];
+    }
     void precompute_parity() {
         for (int i = 0; i < 256; ++i) {
             int count = 0;
@@ -581,7 +806,7 @@ private:
         }
     }
 
-    //Indexed opcodes helpers
+    // Indexed opcodes helpers
     uint16_t get_indexed_HL() const {
         if (Z80_LIKELY(m_index_mode == IndexMode::HL))
             return m_HL.w;
@@ -607,15 +832,16 @@ private:
             return get_IYH();
     }
     void set_indexed_H(uint8_t value) {
-        if (Z80_LIKELY(m_index_mode == IndexMode::HL)) 
+        if (Z80_LIKELY(m_index_mode == IndexMode::HL))
             set_H(value);
-        else if (m_index_mode == IndexMode::IX) 
+        else if (m_index_mode == IndexMode::IX)
             set_IXH(value);
         else
             set_IYH(value);
     }
     uint8_t get_indexed_L() const {
-        if (Z80_LIKELY(m_index_mode == IndexMode::HL)) return get_L();
+        if (Z80_LIKELY(m_index_mode == IndexMode::HL))
+            return get_L();
         else if (m_index_mode == IndexMode::IX)
             return get_IXL();
         else
@@ -631,9 +857,9 @@ private:
     }
     uint16_t get_indexed_address() {
         if (Z80_LIKELY(m_index_mode == IndexMode::HL))
-            return get_HL(); 
+            return get_HL();
         else {
-            int8_t offset = static_cast<int8_t>(fetch_next_byte()); 
+            int8_t offset = static_cast<int8_t>(fetch_next_byte());
             uint16_t address = get_indexed_HL() + offset;
             set_WZ(address);
             add_ticks(5);
@@ -649,7 +875,7 @@ private:
         write_byte(address, value);
     }
 
-    //Arithmetics and logics operations helpers
+    // Arithmetics and logics operations helpers
     uint8_t inc_8bit(uint8_t value) {
         uint8_t result = value + 1;
         Flags flags(get_F() & Flags::C);
@@ -937,12 +1163,9 @@ private:
             .update(Flags::PV, bit_is_zero)
             .update(Flags::S, bit == 7 && !bit_is_zero);
         if (mem_ptr) {
-            flags.update(Flags::X, (get_W() & Flags::X) != 0)
-                .update(Flags::Y, (get_W() & Flags::Y) != 0);
-        }
-        else {
-            flags.update(Flags::X, (value & Flags::X) != 0)
-                .update(Flags::Y, (value & Flags::Y) != 0);
+            flags.update(Flags::X, (get_W() & Flags::X) != 0).update(Flags::Y, (get_W() & Flags::Y) != 0);
+        } else {
+            flags.update(Flags::X, (value & Flags::X) != 0).update(Flags::Y, (value & Flags::Y) != 0);
         }
         set_F(flags);
     }
@@ -953,7 +1176,7 @@ private:
         return value | (1 << bit);
     }
 
-    //Input and output helpers
+    // Input and output helpers
     uint8_t in_r_c() {
         uint16_t port = get_BC();
         uint8_t value = io_read(port);
@@ -975,8 +1198,7 @@ private:
     void adjust_flags_after_IO_block() {
         uint16_t pc = get_PC();
         Flags flags = get_F();
-        flags.update(Flags::X, (pc & 0x0800) != 0)
-             .update(Flags::Y, (pc & 0x2000) != 0);
+        flags.update(Flags::X, (pc & 0x0800) != 0).update(Flags::Y, (pc & 0x2000) != 0);
         uint8_t b = get_B();
         if (flags.is_set(Flags::C)) {
             if ((get_data_bus() & 0x80) != 0) {
@@ -990,9 +1212,9 @@ private:
             flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even(static_cast<uint8_t>(b & 7)) ^ 1));
         set_F(flags);
     }
-    //Interrupt handling
+    // Interrupt handling
     void handle_NMI() {
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) 
+        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
             m_debugger->before_NMI();
         set_halted(false);
         set_IFF2(get_IFF1());
@@ -1014,42 +1236,66 @@ private:
         set_IFF1(false);
         push_word(get_PC());
         switch (get_IRQ_mode()) {
-            case 0: {
-                add_ticks(4); // Internal operations for RST
-                uint8_t opcode = get_IRQ_data();
-                switch (opcode) {
-                    case 0xC7: set_WZ(0x0000); set_PC(0x0000); break;
-                    case 0xCF: set_WZ(0x0008); set_PC(0x0008); break;
-                    case 0xD7: set_WZ(0x0010); set_PC(0x0010); break;
-                    case 0xDF: set_WZ(0x0018); set_PC(0x0018); break;
-                    case 0xE7: set_WZ(0x0020); set_PC(0x0020); break;
-                    case 0xEF: set_WZ(0x0028); set_PC(0x0028); break;
-                    case 0xF7: set_WZ(0x0030); set_PC(0x0030); break;
-                    case 0xFF: set_WZ(0x0038); set_PC(0x0038); break;
-                }
+        case 0: {
+            add_ticks(4); // Internal operations for RST
+            uint8_t opcode = get_IRQ_data();
+            switch (opcode) {
+            case 0xC7:
+                set_WZ(0x0000);
+                set_PC(0x0000);
                 break;
-            }
-            case 1: {
-                add_ticks(4); // Internal operations for RST 38H
+            case 0xCF:
+                set_WZ(0x0008);
+                set_PC(0x0008);
+                break;
+            case 0xD7:
+                set_WZ(0x0010);
+                set_PC(0x0010);
+                break;
+            case 0xDF:
+                set_WZ(0x0018);
+                set_PC(0x0018);
+                break;
+            case 0xE7:
+                set_WZ(0x0020);
+                set_PC(0x0020);
+                break;
+            case 0xEF:
+                set_WZ(0x0028);
+                set_PC(0x0028);
+                break;
+            case 0xF7:
+                set_WZ(0x0030);
+                set_PC(0x0030);
+                break;
+            case 0xFF:
                 set_WZ(0x0038);
                 set_PC(0x0038);
                 break;
             }
-            case 2: {
-                uint16_t vector_address = (static_cast<uint16_t>(get_I()) << 8) | get_IRQ_data();
-                uint16_t handler_address = read_word(vector_address);
-                add_ticks(4); // Internal operations
-                set_WZ(handler_address);
-                set_PC(handler_address);
-                break;
-            }
+            break;
+        }
+        case 1: {
+            add_ticks(4); // Internal operations for RST 38H
+            set_WZ(0x0038);
+            set_PC(0x0038);
+            break;
+        }
+        case 2: {
+            uint16_t vector_address = (static_cast<uint16_t>(get_I()) << 8) | get_IRQ_data();
+            uint16_t handler_address = read_word(vector_address);
+            add_ticks(4); // Internal operations
+            set_WZ(handler_address);
+            set_PC(handler_address);
+            break;
+        }
         }
         set_IRQ_request(false);
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) 
+        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
             m_debugger->after_IRQ();
     }
 
-    //Opcodes handling
+    // Opcodes handling
     void handle_CB_opcodes(uint8_t opcode) {
         uint8_t operation_group = opcode >> 6;
         uint8_t bit = (opcode >> 3) & 0x07;
@@ -1058,54 +1304,102 @@ private:
         uint8_t result = 0;
         uint16_t flags_source = 0;
         switch (target_reg) {
-            case 0: value = get_B(); break;
-            case 1: value = get_C(); break;
-            case 2: value = get_D(); break;
-            case 3: value = get_E(); break;
-            case 4: value = get_H(); break;
-            case 5: value = get_L(); break;
-            case 6:
-                flags_source = get_HL();
-                value = read_byte(flags_source);
-                break;
-            case 7: value = get_A(); break;
+        case 0:
+            value = get_B();
+            break;
+        case 1:
+            value = get_C();
+            break;
+        case 2:
+            value = get_D();
+            break;
+        case 3:
+            value = get_E();
+            break;
+        case 4:
+            value = get_H();
+            break;
+        case 5:
+            value = get_L();
+            break;
+        case 6:
+            flags_source = get_HL();
+            value = read_byte(flags_source);
+            break;
+        case 7:
+            value = get_A();
+            break;
         }
         switch (operation_group) {
+        case 0:
+            switch (bit) {
             case 0:
-                switch(bit) {
-                    case 0: result = rlc_8bit(value); break;
-                    case 1: result = rrc_8bit(value); break;
-                    case 2: result = rl_8bit(value); break;
-                    case 3: result = rr_8bit(value); break;
-                    case 4: result = sla_8bit(value); break;
-                    case 5: result = sra_8bit(value); break;
-                    case 6: result = sll_8bit(value); break;
-                    case 7: result = srl_8bit(value); break;
-                }
+                result = rlc_8bit(value);
                 break;
-            case 1: {
-                if (target_reg == 6) {
-                    bit_8bit(bit, value, true);
-                    add_tick();
-                } else
-                    bit_8bit(bit, value,false);
-                return;
+            case 1:
+                result = rrc_8bit(value);
+                break;
+            case 2:
+                result = rl_8bit(value);
+                break;
+            case 3:
+                result = rr_8bit(value);
+                break;
+            case 4:
+                result = sla_8bit(value);
+                break;
+            case 5:
+                result = sra_8bit(value);
+                break;
+            case 6:
+                result = sll_8bit(value);
+                break;
+            case 7:
+                result = srl_8bit(value);
+                break;
             }
-            case 2: result = res_8bit(bit, value); break;
-            case 3: result = set_8bit(bit, value); break;
+            break;
+        case 1: {
+            if (target_reg == 6) {
+                bit_8bit(bit, value, true);
+                add_tick();
+            } else
+                bit_8bit(bit, value, false);
+            return;
+        }
+        case 2:
+            result = res_8bit(bit, value);
+            break;
+        case 3:
+            result = set_8bit(bit, value);
+            break;
         }
         switch (target_reg) {
-            case 0: set_B(result); break;
-            case 1: set_C(result); break;
-            case 2: set_D(result); break;
-            case 3: set_E(result); break;
-            case 4: set_H(result); break;
-            case 5: set_L(result); break;
-            case 6:
-                add_tick();
-                write_byte(get_HL(), result);
-                break;
-            case 7: set_A(result); break;
+        case 0:
+            set_B(result);
+            break;
+        case 1:
+            set_C(result);
+            break;
+        case 2:
+            set_D(result);
+            break;
+        case 3:
+            set_E(result);
+            break;
+        case 4:
+            set_H(result);
+            break;
+        case 5:
+            set_L(result);
+            break;
+        case 6:
+            add_tick();
+            write_byte(get_HL(), result);
+            break;
+        case 7:
+            set_A(result);
+            break;
         }
     }
     void handle_CB_indexed_opcodes(uint16_t index_register, int8_t offset, uint8_t opcode) {
@@ -1116,40 +1410,74 @@ private:
         uint8_t operation_group = opcode >> 6;
         uint8_t bit = (opcode >> 3) & 0x07;
         uint8_t result = value;
-        switch(operation_group) {
+        switch (operation_group) {
+        case 0:
+            switch (bit) {
             case 0:
-                switch(bit) {
-                    case 0: result = rlc_8bit(value); break;
-                    case 1: result = rrc_8bit(value); break;
-                    case 2: result = rl_8bit(value); break;
-                    case 3: result = rr_8bit(value); break;
-                    case 4: result = sla_8bit(value); break;
-                    case 5: result = sra_8bit(value); break;
-                    case 6: result = sll_8bit(value); break;
-                    case 7: result = srl_8bit(value); break;
-                }
+                result = rlc_8bit(value);
                 break;
-            
-            case 1: {
-                bit_8bit(bit, value, true);
-                add_tick();
-                return;
+            case 1:
+                result = rrc_8bit(value);
+                break;
+            case 2:
+                result = rl_8bit(value);
+                break;
+            case 3:
+                result = rr_8bit(value);
+                break;
+            case 4:
+                result = sla_8bit(value);
+                break;
+            case 5:
+                result = sra_8bit(value);
+                break;
+            case 6:
+                result = sll_8bit(value);
+                break;
+            case 7:
+                result = srl_8bit(value);
+                break;
             }
-            case 2: result = res_8bit(bit, value); break;
-            case 3: result = set_8bit(bit, value); break;
+            break;
+
+        case 1: {
+            bit_8bit(bit, value, true);
+            add_tick();
+            return;
+        }
+        case 2:
+            result = res_8bit(bit, value);
+            break;
+        case 3:
+            result = set_8bit(bit, value);
+            break;
         }
         add_tick(); // 1 T-state for internal operation
         write_byte(address, result);
         uint8_t target_reg_code = opcode & 0x07;
         if (target_reg_code != 0x06) {
-            switch(target_reg_code) {
-                case 0: set_B(result); break;
-                case 1: set_C(result); break;
-                case 2: set_D(result); break;
-                case 3: set_E(result); break;
-                case 4: set_H(result); break;
-                case 5: set_L(result); break;
-                case 7: set_A(result); break;
+            switch (target_reg_code) {
+            case 0:
+                set_B(result);
+                break;
+            case 1:
+                set_C(result);
+                break;
+            case 2:
+                set_D(result);
+                break;
+            case 3:
+                set_E(result);
+                break;
+            case 4:
+                set_H(result);
+                break;
+            case 5:
+                set_L(result);
+                break;
+            case 7:
+                set_A(result);
+                break;
             }
         }
     }
@@ -1357,7 +1685,7 @@ private:
         if (flags.is_set(Flags::N)) {
             if (carry || (a > 0x99))
                 correction = 0x60;
-            if (flags.is_set(Flags::H) || ((a & 0x0F) > 0x09)) 
+            if (flags.is_set(Flags::H) || ((a & 0x0F) > 0x09))
                 correction |= 0x06;
             set_A(a - correction);
             flags.update(Flags::H, flags.is_set(Flags::H) && ((a & 0x0F) < 0x06));
@@ -1474,11 +1802,10 @@ private:
         if (get_Q() != 0) {
             flags.clear(Flags::X | Flags::Y);
         }
-        flags.set(Flags::C)
-             .clear(Flags::H | Flags::N);
+        flags.set(Flags::C).clear(Flags::H | Flags::N);
         uint8_t temp_flags_val = flags;
         flags.update(Flags::X, ((temp_flags_val | get_A()) & Flags::X) != 0)
-             .update(Flags::Y, ((temp_flags_val | get_A()) & Flags::Y) != 0);
+            .update(Flags::Y, ((temp_flags_val | get_A()) & Flags::Y) != 0);
         set_F(flags);
     }
     void handle_opcode_0x38_JR_C_d() {
@@ -2216,7 +2543,7 @@ private:
     }
     void handle_opcode_0xFB_EI() {
         set_IFF1(true);
-        set_IFF2(true); 
+        set_IFF2(true);
         set_EI_executed(true);
     }
     void handle_opcode_0xFC_CALL_M_nn() {
@@ -2384,8 +2711,12 @@ private:
     void handle_IM_1() {
         set_IRQ_mode(1);
     }
-    void handle_opcode_0xED_0x56_IM_1() { handle_IM_1(); }
-    void handle_opcode_0xED_0x76_IM_1() { handle_IM_1(); }
+    void handle_opcode_0xED_0x56_IM_1() {
+        handle_IM_1();
+    }
+    void handle_opcode_0xED_0x76_IM_1() {
+        handle_IM_1();
+    }
     void handle_opcode_0xED_0x57_LD_A_I() {
         add_tick();
         uint8_t i_value = get_I();
@@ -2419,8 +2750,12 @@ private:
     void handle_IM_2() {
         set_IRQ_mode(2);
     }
-    void handle_opcode_0xED_0x5E_IM_2() { handle_IM_2(); }
-    void handle_opcode_0xED_0x7E_IM_2() { handle_IM_2(); }
+    void handle_opcode_0xED_0x5E_IM_2() {
+        handle_IM_2();
+    }
+    void handle_opcode_0xED_0x7E_IM_2() {
+        handle_IM_2();
+    }
     void handle_opcode_0xED_0x5F_LD_A_R() {
         add_tick();
         uint8_t r_value = get_R();
@@ -2553,7 +2888,7 @@ private:
             .update(Flags::PV, get_BC() != 0)
             .update(Flags::Y, (temp & 0x02) != 0)
             .update(Flags::X, (temp & 0x08) != 0);
-            
+
         set_F(flags);
     }
     void handle_opcode_0xED_0xA1_CPI() {
@@ -2700,8 +3035,7 @@ private:
             set_WZ(new_pc + 1);
             add_ticks(5);
             Flags flags = get_F();
-            flags.update(Flags::X, (new_pc & 0x0800) != 0)
-                .update(Flags::Y, (new_pc & 0x2000) != 0);
+            flags.update(Flags::X, (new_pc & 0x0800) != 0).update(Flags::Y, (new_pc & 0x2000) != 0);
             set_F(flags);
         }
     }
@@ -2713,8 +3047,7 @@ private:
             set_WZ(new_pc + 1);
             add_ticks(5);
             Flags flags = get_F();
-            flags.update(Flags::X, (new_pc & 0x0800) != 0)
-                .update(Flags::Y, (new_pc & 0x2000) != 0);
+            flags.update(Flags::X, (new_pc & 0x0800) != 0).update(Flags::Y, (new_pc & 0x2000) != 0);
             set_F(flags);
         }
     }
@@ -2746,8 +3079,7 @@ private:
             set_WZ(new_pc + 1);
             add_ticks(5);
             Flags flags = get_F();
-            flags.update(Flags::X, (new_pc & 0x0800) != 0)
-                 .update(Flags::Y, (new_pc & 0x2000) != 0);
+            flags.update(Flags::X, (new_pc & 0x0800) != 0).update(Flags::Y, (new_pc & 0x2000) != 0);
             set_F(flags);
         }
     }
@@ -2759,8 +3091,7 @@ private:
             set_WZ(new_pc + 1);
             add_ticks(5);
             Flags flags = get_F();
-            flags.update(Flags::X, (new_pc & 0x0800) != 0)
-                 .update(Flags::Y, (new_pc & 0x2000) != 0);
+            flags.update(Flags::X, (new_pc & 0x0800) != 0).update(Flags::Y, (new_pc & 0x2000) != 0);
             set_F(flags);
         }
     }
@@ -2785,12 +3116,9 @@ private:
         }
     }
 
-    //Opcodes processing
-    enum class OperateMode {
-        ToLimit,
-        SingleStep
-    };
-    template<OperateMode TMode> long long operate(long long ticks_limit) {
+    // Opcodes processing
+    enum class OperateMode { ToLimit, SingleStep };
+    template <OperateMode TMode> long long operate(long long ticks_limit) {
         long long initial_ticks = get_ticks();
         while (true) {
             if (is_NMI_pending())
@@ -2802,14 +3130,13 @@ private:
             if (is_halted()) {
                 if constexpr (TMode == OperateMode::SingleStep)
                     add_ticks(4);
-                else 
+                else
                     add_ticks(ticks_limit - get_ticks());
-            }
-            else {
+            } else {
 #ifdef Z80_DEBUGGER_OPCODES
                 if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
                     m_opcodes.clear();
-#endif//Z80_DEBUGGER_OPCODES
+#endif // Z80_DEBUGGER_OPCODES
                 set_index_mode(IndexMode::HL);
                 uint8_t opcode = fetch_next_opcode();
                 set_flags_modified(false);
@@ -2817,363 +3144,1022 @@ private:
                     set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
                     opcode = fetch_next_opcode();
                 }
-               if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
 #ifdef Z80_DEBUGGER_OPCODES
                     m_debugger->before_step(m_opcodes);
 #else
                     m_debugger->before_step();
-#endif//Z80_DEBUGGER_OPCODES
+#endif // Z80_DEBUGGER_OPCODES
                 switch (opcode) {
-                    case 0x00: handle_opcode_0x00_NOP(); break;
-                    case 0x01: handle_opcode_0x01_LD_BC_nn(); break;
-                    case 0x02: handle_opcode_0x02_LD_BC_ptr_A(); break;
-                    case 0x03: handle_opcode_0x03_INC_BC(); break;
-                    case 0x04: handle_opcode_0x04_INC_B(); break;
-                    case 0x05: handle_opcode_0x05_DEC_B(); break;
-                    case 0x06: handle_opcode_0x06_LD_B_n(); break;
-                    case 0x07: handle_opcode_0x07_RLCA(); break;
-                    case 0x08: handle_opcode_0x08_EX_AF_AFp(); break;
-                    case 0x09: handle_opcode_0x09_ADD_HL_BC(); break;
-                    case 0x0A: handle_opcode_0x0A_LD_A_BC_ptr(); break;
-                    case 0x0B: handle_opcode_0x0B_DEC_BC(); break;
-                    case 0x0C: handle_opcode_0x0C_INC_C(); break;
-                    case 0x0D: handle_opcode_0x0D_DEC_C(); break;
-                    case 0x0E: handle_opcode_0x0E_LD_C_n(); break;
-                    case 0x0F: handle_opcode_0x0F_RRCA(); break;
-                    case 0x10: handle_opcode_0x10_DJNZ_d(); break;
-                    case 0x11: handle_opcode_0x11_LD_DE_nn(); break;
-                    case 0x12: handle_opcode_0x12_LD_DE_ptr_A(); break;
-                    case 0x13: handle_opcode_0x13_INC_DE(); break;
-                    case 0x14: handle_opcode_0x14_INC_D(); break;
-                    case 0x15: handle_opcode_0x15_DEC_D(); break;
-                    case 0x16: handle_opcode_0x16_LD_D_n(); break;
-                    case 0x17: handle_opcode_0x17_RLA(); break;
-                    case 0x18: handle_opcode_0x18_JR_d(); break;
-                    case 0x19: handle_opcode_0x19_ADD_HL_DE(); break;
-                    case 0x1A: handle_opcode_0x1A_LD_A_DE_ptr(); break;
-                    case 0x1B: handle_opcode_0x1B_DEC_DE(); break;
-                    case 0x1C: handle_opcode_0x1C_INC_E(); break;
-                    case 0x1D: handle_opcode_0x1D_DEC_E(); break;
-                    case 0x1E: handle_opcode_0x1E_LD_E_n(); break;
-                    case 0x1F: handle_opcode_0x1F_RRA(); break;
-                    case 0x20: handle_opcode_0x20_JR_NZ_d(); break;
-                    case 0x21: handle_opcode_0x21_LD_HL_nn(); break;
-                    case 0x22: handle_opcode_0x22_LD_nn_ptr_HL(); break;
-                    case 0x23: handle_opcode_0x23_INC_HL(); break;
-                    case 0x24: handle_opcode_0x24_INC_H(); break;
-                    case 0x25: handle_opcode_0x25_DEC_H(); break;
-                    case 0x26: handle_opcode_0x26_LD_H_n(); break;
-                    case 0x27: handle_opcode_0x27_DAA(); break;
-                    case 0x28: handle_opcode_0x28_JR_Z_d(); break;
-                    case 0x29: handle_opcode_0x29_ADD_HL_HL(); break;
-                    case 0x2A: handle_opcode_0x2A_LD_HL_nn_ptr(); break;
-                    case 0x2B: handle_opcode_0x2B_DEC_HL(); break;
-                    case 0x2C: handle_opcode_0x2C_INC_L(); break;
-                    case 0x2D: handle_opcode_0x2D_DEC_L(); break;
-                    case 0x2E: handle_opcode_0x2E_LD_L_n(); break;
-                    case 0x2F: handle_opcode_0x2F_CPL(); break;
-                    case 0x30: handle_opcode_0x30_JR_NC_d(); break;
-                    case 0x31: handle_opcode_0x31_LD_SP_nn(); break;
-                    case 0x32: handle_opcode_0x32_LD_nn_ptr_A(); break;
-                    case 0x33: handle_opcode_0x33_INC_SP(); break;
-                    case 0x34: handle_opcode_0x34_INC_HL_ptr(); break;
-                    case 0x35: handle_opcode_0x35_DEC_HL_ptr(); break;
-                    case 0x36: handle_opcode_0x36_LD_HL_ptr_n(); break;
-                    case 0x37: handle_opcode_0x37_SCF(); break;
-                    case 0x38: handle_opcode_0x38_JR_C_d(); break;
-                    case 0x39: handle_opcode_0x39_ADD_HL_SP(); break;
-                    case 0x3A: handle_opcode_0x3A_LD_A_nn_ptr(); break;
-                    case 0x3B: handle_opcode_0x3B_DEC_SP(); break;
-                    case 0x3C: handle_opcode_0x3C_INC_A(); break;
-                    case 0x3D: handle_opcode_0x3D_DEC_A(); break;
-                    case 0x3E: handle_opcode_0x3E_LD_A_n(); break;
-                    case 0x3F: handle_opcode_0x3F_CCF(); break;
-                    case 0x40: handle_opcode_0x40_LD_B_B(); break;
-                    case 0x41: handle_opcode_0x41_LD_B_C(); break;
-                    case 0x42: handle_opcode_0x42_LD_B_D(); break;
-                    case 0x43: handle_opcode_0x43_LD_B_E(); break;
-                    case 0x44: handle_opcode_0x44_LD_B_H(); break;
-                    case 0x45: handle_opcode_0x45_LD_B_L(); break;
-                    case 0x46: handle_opcode_0x46_LD_B_HL_ptr(); break;
-                    case 0x47: handle_opcode_0x47_LD_B_A(); break;
-                    case 0x48: handle_opcode_0x48_LD_C_B(); break;
-                    case 0x49: handle_opcode_0x49_LD_C_C(); break;
-                    case 0x4A: handle_opcode_0x4A_LD_C_D(); break;
-                    case 0x4B: handle_opcode_0x4B_LD_C_E(); break;
-                    case 0x4C: handle_opcode_0x4C_LD_C_H(); break;
-                    case 0x4D: handle_opcode_0x4D_LD_C_L(); break;
-                    case 0x4E: handle_opcode_0x4E_LD_C_HL_ptr(); break;
-                    case 0x4F: handle_opcode_0x4F_LD_C_A(); break;
-                    case 0x50: handle_opcode_0x50_LD_D_B(); break;
-                    case 0x51: handle_opcode_0x51_LD_D_C(); break;
-                    case 0x52: handle_opcode_0x52_LD_D_D(); break;
-                    case 0x53: handle_opcode_0x53_LD_D_E(); break;
-                    case 0x54: handle_opcode_0x54_LD_D_H(); break;
-                    case 0x55: handle_opcode_0x55_LD_D_L(); break;
-                    case 0x56: handle_opcode_0x56_LD_D_HL_ptr(); break;
-                    case 0x57: handle_opcode_0x57_LD_D_A(); break;
-                    case 0x58: handle_opcode_0x58_LD_E_B(); break;
-                    case 0x59: handle_opcode_0x59_LD_E_C(); break;
-                    case 0x5A: handle_opcode_0x5A_LD_E_D(); break;
-                    case 0x5B: handle_opcode_0x5B_LD_E_E(); break;
-                    case 0x5C: handle_opcode_0x5C_LD_E_H(); break;
-                    case 0x5D: handle_opcode_0x5D_LD_E_L(); break;
-                    case 0x5E: handle_opcode_0x5E_LD_E_HL_ptr(); break;
-                    case 0x5F: handle_opcode_0x5F_LD_E_A(); break;
-                    case 0x60: handle_opcode_0x60_LD_H_B(); break;
-                    case 0x61: handle_opcode_0x61_LD_H_C(); break;
-                    case 0x62: handle_opcode_0x62_LD_H_D(); break;
-                    case 0x63: handle_opcode_0x63_LD_H_E(); break;
-                    case 0x64: handle_opcode_0x64_LD_H_H(); break;
-                    case 0x65: handle_opcode_0x65_LD_H_L(); break;
-                    case 0x66: handle_opcode_0x66_LD_H_HL_ptr(); break;
-                    case 0x67: handle_opcode_0x67_LD_H_A(); break;
-                    case 0x68: handle_opcode_0x68_LD_L_B(); break;
-                    case 0x69: handle_opcode_0x69_LD_L_C(); break;
-                    case 0x6A: handle_opcode_0x6A_LD_L_D(); break;
-                    case 0x6B: handle_opcode_0x6B_LD_L_E(); break;
-                    case 0x6C: handle_opcode_0x6C_LD_L_H(); break;
-                    case 0x6D: handle_opcode_0x6D_LD_L_L(); break;
-                    case 0x6E: handle_opcode_0x6E_LD_L_HL_ptr(); break;
-                    case 0x6F: handle_opcode_0x6F_LD_L_A(); break;
-                    case 0x70: handle_opcode_0x70_LD_HL_ptr_B(); break;
-                    case 0x71: handle_opcode_0x71_LD_HL_ptr_C(); break;
-                    case 0x72: handle_opcode_0x72_LD_HL_ptr_D(); break;
-                    case 0x73: handle_opcode_0x73_LD_HL_ptr_E(); break;
-                    case 0x74: handle_opcode_0x74_LD_HL_ptr_H(); break;
-                    case 0x75: handle_opcode_0x75_LD_HL_ptr_L(); break;
-                    case 0x76: handle_opcode_0x76_HALT(); break;
-                    case 0x77: handle_opcode_0x77_LD_HL_ptr_A(); break;
-                    case 0x78: handle_opcode_0x78_LD_A_B(); break;
-                    case 0x79: handle_opcode_0x79_LD_A_C(); break;
-                    case 0x7A: handle_opcode_0x7A_LD_A_D(); break;
-                    case 0x7B: handle_opcode_0x7B_LD_A_E(); break;
-                    case 0x7C: handle_opcode_0x7C_LD_A_H(); break;
-                    case 0x7D: handle_opcode_0x7D_LD_A_L(); break;
-                    case 0x7E: handle_opcode_0x7E_LD_A_HL_ptr(); break;
-                    case 0x7F: handle_opcode_0x7F_LD_A_A(); break;
-                    case 0x80: handle_opcode_0x80_ADD_A_B(); break;
-                    case 0x81: handle_opcode_0x81_ADD_A_C(); break;
-                    case 0x82: handle_opcode_0x82_ADD_A_D(); break;
-                    case 0x83: handle_opcode_0x83_ADD_A_E(); break;
-                    case 0x84: handle_opcode_0x84_ADD_A_H(); break;
-                    case 0x85: handle_opcode_0x85_ADD_A_L(); break;
-                    case 0x86: handle_opcode_0x86_ADD_A_HL_ptr(); break;
-                    case 0x87: handle_opcode_0x87_ADD_A_A(); break;
-                    case 0x88: handle_opcode_0x88_ADC_A_B(); break;
-                    case 0x89: handle_opcode_0x89_ADC_A_C(); break;
-                    case 0x8A: handle_opcode_0x8A_ADC_A_D(); break;
-                    case 0x8B: handle_opcode_0x8B_ADC_A_E(); break;
-                    case 0x8C: handle_opcode_0x8C_ADC_A_H(); break;
-                    case 0x8D: handle_opcode_0x8D_ADC_A_L(); break;
-                    case 0x8E: handle_opcode_0x8E_ADC_A_HL_ptr(); break;
-                    case 0x8F: handle_opcode_0x8F_ADC_A_A(); break;
-                    case 0x90: handle_opcode_0x90_SUB_B(); break;
-                    case 0x91: handle_opcode_0x91_SUB_C(); break;
-                    case 0x92: handle_opcode_0x92_SUB_D(); break;
-                    case 0x93: handle_opcode_0x93_SUB_E(); break;
-                    case 0x94: handle_opcode_0x94_SUB_H(); break;
-                    case 0x95: handle_opcode_0x95_SUB_L(); break;
-                    case 0x96: handle_opcode_0x96_SUB_HL_ptr(); break;
-                    case 0x97: handle_opcode_0x97_SUB_A(); break;
-                    case 0x98: handle_opcode_0x98_SBC_A_B(); break;
-                    case 0x99: handle_opcode_0x99_SBC_A_C(); break;
-                    case 0x9A: handle_opcode_0x9A_SBC_A_D(); break;
-                    case 0x9B: handle_opcode_0x9B_SBC_A_E(); break;
-                    case 0x9C: handle_opcode_0x9C_SBC_A_H(); break;
-                    case 0x9D: handle_opcode_0x9D_SBC_A_L(); break;
-                    case 0x9E: handle_opcode_0x9E_SBC_A_HL_ptr(); break;
-                    case 0x9F: handle_opcode_0x9F_SBC_A_A(); break;
-                    case 0xA0: handle_opcode_0xA0_AND_B(); break;
-                    case 0xA1: handle_opcode_0xA1_AND_C(); break;
-                    case 0xA2: handle_opcode_0xA2_AND_D(); break;
-                    case 0xA3: handle_opcode_0xA3_AND_E(); break;
-                    case 0xA4: handle_opcode_0xA4_AND_H(); break;
-                    case 0xA5: handle_opcode_0xA5_AND_L(); break;
-                    case 0xA6: handle_opcode_0xA6_AND_HL_ptr(); break;
-                    case 0xA7: handle_opcode_0xA7_AND_A(); break;
-                    case 0xA8: handle_opcode_0xA8_XOR_B(); break;
-                    case 0xA9: handle_opcode_0xA9_XOR_C(); break;
-                    case 0xAA: handle_opcode_0xAA_XOR_D(); break;
-                    case 0xAB: handle_opcode_0xAB_XOR_E(); break;
-                    case 0xAC: handle_opcode_0xAC_XOR_H(); break;
-                    case 0xAD: handle_opcode_0xAD_XOR_L(); break;
-                    case 0xAE: handle_opcode_0xAE_XOR_HL_ptr(); break;
-                    case 0xAF: handle_opcode_0xAF_XOR_A(); break;
-                    case 0xB0: handle_opcode_0xB0_OR_B(); break;
-                    case 0xB1: handle_opcode_0xB1_OR_C(); break;
-                    case 0xB2: handle_opcode_0xB2_OR_D(); break;
-                    case 0xB3: handle_opcode_0xB3_OR_E(); break;
-                    case 0xB4: handle_opcode_0xB4_OR_H(); break;
-                    case 0xB5: handle_opcode_0xB5_OR_L(); break;
-                    case 0xB6: handle_opcode_0xB6_OR_HL_ptr(); break;
-                    case 0xB7: handle_opcode_0xB7_OR_A(); break;
-                    case 0xB8: handle_opcode_0xB8_CP_B(); break;
-                    case 0xB9: handle_opcode_0xB9_CP_C(); break;
-                    case 0xBA: handle_opcode_0xBA_CP_D(); break;
-                    case 0xBB: handle_opcode_0xBB_CP_E(); break;
-                    case 0xBC: handle_opcode_0xBC_CP_H(); break;
-                    case 0xBD: handle_opcode_0xBD_CP_L(); break;
-                    case 0xBE: handle_opcode_0xBE_CP_HL_ptr(); break;
-                    case 0xBF: handle_opcode_0xBF_CP_A(); break;
-                    case 0xC0: handle_opcode_0xC0_RET_NZ(); break;
-                    case 0xC1: handle_opcode_0xC1_POP_BC(); break;
-                    case 0xC2: handle_opcode_0xC2_JP_NZ_nn(); break;
-                    case 0xC3: handle_opcode_0xC3_JP_nn(); break;
-                    case 0xC4: handle_opcode_0xC4_CALL_NZ_nn(); break;
-                    case 0xC5: handle_opcode_0xC5_PUSH_BC(); break;
-                    case 0xC6: handle_opcode_0xC6_ADD_A_n(); break;
-                    case 0xC7: handle_opcode_0xC7_RST_00H(); break;
-                    case 0xC8: handle_opcode_0xC8_RET_Z(); break;
-                    case 0xC9: handle_opcode_0xC9_RET(); break;
-                    case 0xCA: handle_opcode_0xCA_JP_Z_nn(); break;
-                    case 0xCB:
-                        if (Z80_LIKELY((get_index_mode() == IndexMode::HL)))
-                        {
-                            uint8_t cb_opcode = fetch_next_opcode();
-                            handle_CB_opcodes(cb_opcode);
-                        } else { // DDCB d xx or FDCB d xx
-                            uint16_t index_reg = (get_index_mode() == IndexMode::IX) ? get_IX() : get_IY();
-                            int8_t offset = static_cast<int8_t>(fetch_next_byte());
-                            uint8_t cb_opcode = fetch_next_byte();
-                            handle_CB_indexed_opcodes(index_reg, offset, cb_opcode);
-                        }
+                case 0x00:
+                    handle_opcode_0x00_NOP();
+                    break;
+                case 0x01:
+                    handle_opcode_0x01_LD_BC_nn();
+                    break;
+                case 0x02:
+                    handle_opcode_0x02_LD_BC_ptr_A();
+                    break;
+                case 0x03:
+                    handle_opcode_0x03_INC_BC();
+                    break;
+                case 0x04:
+                    handle_opcode_0x04_INC_B();
+                    break;
+                case 0x05:
+                    handle_opcode_0x05_DEC_B();
+                    break;
+                case 0x06:
+                    handle_opcode_0x06_LD_B_n();
+                    break;
+                case 0x07:
+                    handle_opcode_0x07_RLCA();
+                    break;
+                case 0x08:
+                    handle_opcode_0x08_EX_AF_AFp();
+                    break;
+                case 0x09:
+                    handle_opcode_0x09_ADD_HL_BC();
+                    break;
+                case 0x0A:
+                    handle_opcode_0x0A_LD_A_BC_ptr();
+                    break;
+                case 0x0B:
+                    handle_opcode_0x0B_DEC_BC();
+                    break;
+                case 0x0C:
+                    handle_opcode_0x0C_INC_C();
+                    break;
+                case 0x0D:
+                    handle_opcode_0x0D_DEC_C();
+                    break;
+                case 0x0E:
+                    handle_opcode_0x0E_LD_C_n();
+                    break;
+                case 0x0F:
+                    handle_opcode_0x0F_RRCA();
+                    break;
+                case 0x10:
+                    handle_opcode_0x10_DJNZ_d();
+                    break;
+                case 0x11:
+                    handle_opcode_0x11_LD_DE_nn();
+                    break;
+                case 0x12:
+                    handle_opcode_0x12_LD_DE_ptr_A();
+                    break;
+                case 0x13:
+                    handle_opcode_0x13_INC_DE();
+                    break;
+                case 0x14:
+                    handle_opcode_0x14_INC_D();
+                    break;
+                case 0x15:
+                    handle_opcode_0x15_DEC_D();
+                    break;
+                case 0x16:
+                    handle_opcode_0x16_LD_D_n();
+                    break;
+                case 0x17:
+                    handle_opcode_0x17_RLA();
+                    break;
+                case 0x18:
+                    handle_opcode_0x18_JR_d();
+                    break;
+                case 0x19:
+                    handle_opcode_0x19_ADD_HL_DE();
+                    break;
+                case 0x1A:
+                    handle_opcode_0x1A_LD_A_DE_ptr();
+                    break;
+                case 0x1B:
+                    handle_opcode_0x1B_DEC_DE();
+                    break;
+                case 0x1C:
+                    handle_opcode_0x1C_INC_E();
+                    break;
+                case 0x1D:
+                    handle_opcode_0x1D_DEC_E();
+                    break;
+                case 0x1E:
+                    handle_opcode_0x1E_LD_E_n();
+                    break;
+                case 0x1F:
+                    handle_opcode_0x1F_RRA();
+                    break;
+                case 0x20:
+                    handle_opcode_0x20_JR_NZ_d();
+                    break;
+                case 0x21:
+                    handle_opcode_0x21_LD_HL_nn();
+                    break;
+                case 0x22:
+                    handle_opcode_0x22_LD_nn_ptr_HL();
+                    break;
+                case 0x23:
+                    handle_opcode_0x23_INC_HL();
+                    break;
+                case 0x24:
+                    handle_opcode_0x24_INC_H();
+                    break;
+                case 0x25:
+                    handle_opcode_0x25_DEC_H();
+                    break;
+                case 0x26:
+                    handle_opcode_0x26_LD_H_n();
+                    break;
+                case 0x27:
+                    handle_opcode_0x27_DAA();
+                    break;
+                case 0x28:
+                    handle_opcode_0x28_JR_Z_d();
+                    break;
+                case 0x29:
+                    handle_opcode_0x29_ADD_HL_HL();
+                    break;
+                case 0x2A:
+                    handle_opcode_0x2A_LD_HL_nn_ptr();
+                    break;
+                case 0x2B:
+                    handle_opcode_0x2B_DEC_HL();
+                    break;
+                case 0x2C:
+                    handle_opcode_0x2C_INC_L();
+                    break;
+                case 0x2D:
+                    handle_opcode_0x2D_DEC_L();
+                    break;
+                case 0x2E:
+                    handle_opcode_0x2E_LD_L_n();
+                    break;
+                case 0x2F:
+                    handle_opcode_0x2F_CPL();
+                    break;
+                case 0x30:
+                    handle_opcode_0x30_JR_NC_d();
+                    break;
+                case 0x31:
+                    handle_opcode_0x31_LD_SP_nn();
+                    break;
+                case 0x32:
+                    handle_opcode_0x32_LD_nn_ptr_A();
+                    break;
+                case 0x33:
+                    handle_opcode_0x33_INC_SP();
+                    break;
+                case 0x34:
+                    handle_opcode_0x34_INC_HL_ptr();
+                    break;
+                case 0x35:
+                    handle_opcode_0x35_DEC_HL_ptr();
+                    break;
+                case 0x36:
+                    handle_opcode_0x36_LD_HL_ptr_n();
+                    break;
+                case 0x37:
+                    handle_opcode_0x37_SCF();
+                    break;
+                case 0x38:
+                    handle_opcode_0x38_JR_C_d();
+                    break;
+                case 0x39:
+                    handle_opcode_0x39_ADD_HL_SP();
+                    break;
+                case 0x3A:
+                    handle_opcode_0x3A_LD_A_nn_ptr();
+                    break;
+                case 0x3B:
+                    handle_opcode_0x3B_DEC_SP();
+                    break;
+                case 0x3C:
+                    handle_opcode_0x3C_INC_A();
+                    break;
+                case 0x3D:
+                    handle_opcode_0x3D_DEC_A();
+                    break;
+                case 0x3E:
+                    handle_opcode_0x3E_LD_A_n();
+                    break;
+                case 0x3F:
+                    handle_opcode_0x3F_CCF();
+                    break;
+                case 0x40:
+                    handle_opcode_0x40_LD_B_B();
+                    break;
+                case 0x41:
+                    handle_opcode_0x41_LD_B_C();
+                    break;
+                case 0x42:
+                    handle_opcode_0x42_LD_B_D();
+                    break;
+                case 0x43:
+                    handle_opcode_0x43_LD_B_E();
+                    break;
+                case 0x44:
+                    handle_opcode_0x44_LD_B_H();
+                    break;
+                case 0x45:
+                    handle_opcode_0x45_LD_B_L();
+                    break;
+                case 0x46:
+                    handle_opcode_0x46_LD_B_HL_ptr();
+                    break;
+                case 0x47:
+                    handle_opcode_0x47_LD_B_A();
+                    break;
+                case 0x48:
+                    handle_opcode_0x48_LD_C_B();
+                    break;
+                case 0x49:
+                    handle_opcode_0x49_LD_C_C();
+                    break;
+                case 0x4A:
+                    handle_opcode_0x4A_LD_C_D();
+                    break;
+                case 0x4B:
+                    handle_opcode_0x4B_LD_C_E();
+                    break;
+                case 0x4C:
+                    handle_opcode_0x4C_LD_C_H();
+                    break;
+                case 0x4D:
+                    handle_opcode_0x4D_LD_C_L();
+                    break;
+                case 0x4E:
+                    handle_opcode_0x4E_LD_C_HL_ptr();
+                    break;
+                case 0x4F:
+                    handle_opcode_0x4F_LD_C_A();
+                    break;
+                case 0x50:
+                    handle_opcode_0x50_LD_D_B();
+                    break;
+                case 0x51:
+                    handle_opcode_0x51_LD_D_C();
+                    break;
+                case 0x52:
+                    handle_opcode_0x52_LD_D_D();
+                    break;
+                case 0x53:
+                    handle_opcode_0x53_LD_D_E();
+                    break;
+                case 0x54:
+                    handle_opcode_0x54_LD_D_H();
+                    break;
+                case 0x55:
+                    handle_opcode_0x55_LD_D_L();
+                    break;
+                case 0x56:
+                    handle_opcode_0x56_LD_D_HL_ptr();
+                    break;
+                case 0x57:
+                    handle_opcode_0x57_LD_D_A();
+                    break;
+                case 0x58:
+                    handle_opcode_0x58_LD_E_B();
+                    break;
+                case 0x59:
+                    handle_opcode_0x59_LD_E_C();
+                    break;
+                case 0x5A:
+                    handle_opcode_0x5A_LD_E_D();
+                    break;
+                case 0x5B:
+                    handle_opcode_0x5B_LD_E_E();
+                    break;
+                case 0x5C:
+                    handle_opcode_0x5C_LD_E_H();
+                    break;
+                case 0x5D:
+                    handle_opcode_0x5D_LD_E_L();
+                    break;
+                case 0x5E:
+                    handle_opcode_0x5E_LD_E_HL_ptr();
+                    break;
+                case 0x5F:
+                    handle_opcode_0x5F_LD_E_A();
+                    break;
+                case 0x60:
+                    handle_opcode_0x60_LD_H_B();
+                    break;
+                case 0x61:
+                    handle_opcode_0x61_LD_H_C();
+                    break;
+                case 0x62:
+                    handle_opcode_0x62_LD_H_D();
+                    break;
+                case 0x63:
+                    handle_opcode_0x63_LD_H_E();
+                    break;
+                case 0x64:
+                    handle_opcode_0x64_LD_H_H();
+                    break;
+                case 0x65:
+                    handle_opcode_0x65_LD_H_L();
+                    break;
+                case 0x66:
+                    handle_opcode_0x66_LD_H_HL_ptr();
+                    break;
+                case 0x67:
+                    handle_opcode_0x67_LD_H_A();
+                    break;
+                case 0x68:
+                    handle_opcode_0x68_LD_L_B();
+                    break;
+                case 0x69:
+                    handle_opcode_0x69_LD_L_C();
+                    break;
+                case 0x6A:
+                    handle_opcode_0x6A_LD_L_D();
+                    break;
+                case 0x6B:
+                    handle_opcode_0x6B_LD_L_E();
+                    break;
+                case 0x6C:
+                    handle_opcode_0x6C_LD_L_H();
+                    break;
+                case 0x6D:
+                    handle_opcode_0x6D_LD_L_L();
+                    break;
+                case 0x6E:
+                    handle_opcode_0x6E_LD_L_HL_ptr();
+                    break;
+                case 0x6F:
+                    handle_opcode_0x6F_LD_L_A();
+                    break;
+                case 0x70:
+                    handle_opcode_0x70_LD_HL_ptr_B();
+                    break;
+                case 0x71:
+                    handle_opcode_0x71_LD_HL_ptr_C();
+                    break;
+                case 0x72:
+                    handle_opcode_0x72_LD_HL_ptr_D();
+                    break;
+                case 0x73:
+                    handle_opcode_0x73_LD_HL_ptr_E();
+                    break;
+                case 0x74:
+                    handle_opcode_0x74_LD_HL_ptr_H();
+                    break;
+                case 0x75:
+                    handle_opcode_0x75_LD_HL_ptr_L();
+                    break;
+                case 0x76:
+                    handle_opcode_0x76_HALT();
+                    break;
+                case 0x77:
+                    handle_opcode_0x77_LD_HL_ptr_A();
+                    break;
+                case 0x78:
+                    handle_opcode_0x78_LD_A_B();
+                    break;
+                case 0x79:
+                    handle_opcode_0x79_LD_A_C();
+                    break;
+                case 0x7A:
+                    handle_opcode_0x7A_LD_A_D();
+                    break;
+                case 0x7B:
+                    handle_opcode_0x7B_LD_A_E();
+                    break;
+                case 0x7C:
+                    handle_opcode_0x7C_LD_A_H();
+                    break;
+                case 0x7D:
+                    handle_opcode_0x7D_LD_A_L();
+                    break;
+                case 0x7E:
+                    handle_opcode_0x7E_LD_A_HL_ptr();
+                    break;
+                case 0x7F:
+                    handle_opcode_0x7F_LD_A_A();
+                    break;
+                case 0x80:
+                    handle_opcode_0x80_ADD_A_B();
+                    break;
+                case 0x81:
+                    handle_opcode_0x81_ADD_A_C();
+                    break;
+                case 0x82:
+                    handle_opcode_0x82_ADD_A_D();
+                    break;
+                case 0x83:
+                    handle_opcode_0x83_ADD_A_E();
+                    break;
+                case 0x84:
+                    handle_opcode_0x84_ADD_A_H();
+                    break;
+                case 0x85:
+                    handle_opcode_0x85_ADD_A_L();
+                    break;
+                case 0x86:
+                    handle_opcode_0x86_ADD_A_HL_ptr();
+                    break;
+                case 0x87:
+                    handle_opcode_0x87_ADD_A_A();
+                    break;
+                case 0x88:
+                    handle_opcode_0x88_ADC_A_B();
+                    break;
+                case 0x89:
+                    handle_opcode_0x89_ADC_A_C();
+                    break;
+                case 0x8A:
+                    handle_opcode_0x8A_ADC_A_D();
+                    break;
+                case 0x8B:
+                    handle_opcode_0x8B_ADC_A_E();
+                    break;
+                case 0x8C:
+                    handle_opcode_0x8C_ADC_A_H();
+                    break;
+                case 0x8D:
+                    handle_opcode_0x8D_ADC_A_L();
+                    break;
+                case 0x8E:
+                    handle_opcode_0x8E_ADC_A_HL_ptr();
+                    break;
+                case 0x8F:
+                    handle_opcode_0x8F_ADC_A_A();
+                    break;
+                case 0x90:
+                    handle_opcode_0x90_SUB_B();
+                    break;
+                case 0x91:
+                    handle_opcode_0x91_SUB_C();
+                    break;
+                case 0x92:
+                    handle_opcode_0x92_SUB_D();
+                    break;
+                case 0x93:
+                    handle_opcode_0x93_SUB_E();
+                    break;
+                case 0x94:
+                    handle_opcode_0x94_SUB_H();
+                    break;
+                case 0x95:
+                    handle_opcode_0x95_SUB_L();
+                    break;
+                case 0x96:
+                    handle_opcode_0x96_SUB_HL_ptr();
+                    break;
+                case 0x97:
+                    handle_opcode_0x97_SUB_A();
+                    break;
+                case 0x98:
+                    handle_opcode_0x98_SBC_A_B();
+                    break;
+                case 0x99:
+                    handle_opcode_0x99_SBC_A_C();
+                    break;
+                case 0x9A:
+                    handle_opcode_0x9A_SBC_A_D();
+                    break;
+                case 0x9B:
+                    handle_opcode_0x9B_SBC_A_E();
+                    break;
+                case 0x9C:
+                    handle_opcode_0x9C_SBC_A_H();
+                    break;
+                case 0x9D:
+                    handle_opcode_0x9D_SBC_A_L();
+                    break;
+                case 0x9E:
+                    handle_opcode_0x9E_SBC_A_HL_ptr();
+                    break;
+                case 0x9F:
+                    handle_opcode_0x9F_SBC_A_A();
+                    break;
+                case 0xA0:
+                    handle_opcode_0xA0_AND_B();
+                    break;
+                case 0xA1:
+                    handle_opcode_0xA1_AND_C();
+                    break;
+                case 0xA2:
+                    handle_opcode_0xA2_AND_D();
+                    break;
+                case 0xA3:
+                    handle_opcode_0xA3_AND_E();
+                    break;
+                case 0xA4:
+                    handle_opcode_0xA4_AND_H();
+                    break;
+                case 0xA5:
+                    handle_opcode_0xA5_AND_L();
+                    break;
+                case 0xA6:
+                    handle_opcode_0xA6_AND_HL_ptr();
+                    break;
+                case 0xA7:
+                    handle_opcode_0xA7_AND_A();
+                    break;
+                case 0xA8:
+                    handle_opcode_0xA8_XOR_B();
+                    break;
+                case 0xA9:
+                    handle_opcode_0xA9_XOR_C();
+                    break;
+                case 0xAA:
+                    handle_opcode_0xAA_XOR_D();
+                    break;
+                case 0xAB:
+                    handle_opcode_0xAB_XOR_E();
+                    break;
+                case 0xAC:
+                    handle_opcode_0xAC_XOR_H();
+                    break;
+                case 0xAD:
+                    handle_opcode_0xAD_XOR_L();
+                    break;
+                case 0xAE:
+                    handle_opcode_0xAE_XOR_HL_ptr();
+                    break;
+                case 0xAF:
+                    handle_opcode_0xAF_XOR_A();
+                    break;
+                case 0xB0:
+                    handle_opcode_0xB0_OR_B();
+                    break;
+                case 0xB1:
+                    handle_opcode_0xB1_OR_C();
+                    break;
+                case 0xB2:
+                    handle_opcode_0xB2_OR_D();
+                    break;
+                case 0xB3:
+                    handle_opcode_0xB3_OR_E();
+                    break;
+                case 0xB4:
+                    handle_opcode_0xB4_OR_H();
+                    break;
+                case 0xB5:
+                    handle_opcode_0xB5_OR_L();
+                    break;
+                case 0xB6:
+                    handle_opcode_0xB6_OR_HL_ptr();
+                    break;
+                case 0xB7:
+                    handle_opcode_0xB7_OR_A();
+                    break;
+                case 0xB8:
+                    handle_opcode_0xB8_CP_B();
+                    break;
+                case 0xB9:
+                    handle_opcode_0xB9_CP_C();
+                    break;
+                case 0xBA:
+                    handle_opcode_0xBA_CP_D();
+                    break;
+                case 0xBB:
+                    handle_opcode_0xBB_CP_E();
+                    break;
+                case 0xBC:
+                    handle_opcode_0xBC_CP_H();
+                    break;
+                case 0xBD:
+                    handle_opcode_0xBD_CP_L();
+                    break;
+                case 0xBE:
+                    handle_opcode_0xBE_CP_HL_ptr();
+                    break;
+                case 0xBF:
+                    handle_opcode_0xBF_CP_A();
+                    break;
+                case 0xC0:
+                    handle_opcode_0xC0_RET_NZ();
+                    break;
+                case 0xC1:
+                    handle_opcode_0xC1_POP_BC();
+                    break;
+                case 0xC2:
+                    handle_opcode_0xC2_JP_NZ_nn();
+                    break;
+                case 0xC3:
+                    handle_opcode_0xC3_JP_nn();
+                    break;
+                case 0xC4:
+                    handle_opcode_0xC4_CALL_NZ_nn();
+                    break;
+                case 0xC5:
+                    handle_opcode_0xC5_PUSH_BC();
+                    break;
+                case 0xC6:
+                    handle_opcode_0xC6_ADD_A_n();
+                    break;
+                case 0xC7:
+                    handle_opcode_0xC7_RST_00H();
+                    break;
+                case 0xC8:
+                    handle_opcode_0xC8_RET_Z();
+                    break;
+                case 0xC9:
+                    handle_opcode_0xC9_RET();
+                    break;
+                case 0xCA:
+                    handle_opcode_0xCA_JP_Z_nn();
+                    break;
+                case 0xCB:
+                    if (Z80_LIKELY((get_index_mode() == IndexMode::HL))) {
+                        uint8_t cb_opcode = fetch_next_opcode();
+                        handle_CB_opcodes(cb_opcode);
+                    } else { // DDCB d xx or FDCB d xx
+                        uint16_t index_reg = (get_index_mode() == IndexMode::IX) ? get_IX() : get_IY();
+                        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+                        uint8_t cb_opcode = fetch_next_byte();
+                        handle_CB_indexed_opcodes(index_reg, offset, cb_opcode);
+                    }
+                    break;
+                case 0xCC:
+                    handle_opcode_0xCC_CALL_Z_nn();
+                    break;
+                case 0xCD:
+                    handle_opcode_0xCD_CALL_nn();
+                    break;
+                case 0xCE:
+                    handle_opcode_0xCE_ADC_A_n();
+                    break;
+                case 0xCF:
+                    handle_opcode_0xCF_RST_08H();
+                    break;
+                case 0xD0:
+                    handle_opcode_0xD0_RET_NC();
+                    break;
+                case 0xD1:
+                    handle_opcode_0xD1_POP_DE();
+                    break;
+                case 0xD2:
+                    handle_opcode_0xD2_JP_NC_nn();
+                    break;
+                case 0xD3:
+                    handle_opcode_0xD3_OUT_n_ptr_A();
+                    break;
+                case 0xD4:
+                    handle_opcode_0xD4_CALL_NC_nn();
+                    break;
+                case 0xD5:
+                    handle_opcode_0xD5_PUSH_DE();
+                    break;
+                case 0xD6:
+                    handle_opcode_0xD6_SUB_n();
+                    break;
+                case 0xD7:
+                    handle_opcode_0xD7_RST_10H();
+                    break;
+                case 0xD8:
+                    handle_opcode_0xD8_RET_C();
+                    break;
+                case 0xD9:
+                    handle_opcode_0xD9_EXX();
+                    break;
+                case 0xDA:
+                    handle_opcode_0xDA_JP_C_nn();
+                    break;
+                case 0xDB:
+                    handle_opcode_0xDB_IN_A_n_ptr();
+                    break;
+                case 0xDC:
+                    handle_opcode_0xDC_CALL_C_nn();
+                    break;
+                case 0xDE:
+                    handle_opcode_0xDE_SBC_A_n();
+                    break;
+                case 0xDF:
+                    handle_opcode_0xDF_RST_18H();
+                    break;
+                case 0xE0:
+                    handle_opcode_0xE0_RET_PO();
+                    break;
+                case 0xE1:
+                    handle_opcode_0xE1_POP_HL();
+                    break;
+                case 0xE2:
+                    handle_opcode_0xE2_JP_PO_nn();
+                    break;
+                case 0xE3:
+                    handle_opcode_0xE3_EX_SP_ptr_HL();
+                    break;
+                case 0xE4:
+                    handle_opcode_0xE4_CALL_PO_nn();
+                    break;
+                case 0xE5:
+                    handle_opcode_0xE5_PUSH_HL();
+                    break;
+                case 0xE6:
+                    handle_opcode_0xE6_AND_n();
+                    break;
+                case 0xE7:
+                    handle_opcode_0xE7_RST_20H();
+                    break;
+                case 0xE8:
+                    handle_opcode_0xE8_RET_PE();
+                    break;
+                case 0xE9:
+                    handle_opcode_0xE9_JP_HL_ptr();
+                    break;
+                case 0xEA:
+                    handle_opcode_0xEA_JP_PE_nn();
+                    break;
+                case 0xEB:
+                    handle_opcode_0xEB_EX_DE_HL();
+                    break;
+                case 0xEC:
+                    handle_opcode_0xEC_CALL_PE_nn();
+                    break;
+                case 0xED: {
+                    uint8_t opcodeED = fetch_next_opcode();
+                    set_index_mode(IndexMode::HL);
+                    switch (opcodeED) {
+                    case 0x40:
+                        handle_opcode_0xED_0x40_IN_B_C_ptr();
                         break;
-                    case 0xCC: handle_opcode_0xCC_CALL_Z_nn(); break;
-                    case 0xCD: handle_opcode_0xCD_CALL_nn(); break;
-                    case 0xCE: handle_opcode_0xCE_ADC_A_n(); break;
-                    case 0xCF: handle_opcode_0xCF_RST_08H(); break;
-                    case 0xD0: handle_opcode_0xD0_RET_NC(); break;
-                    case 0xD1: handle_opcode_0xD1_POP_DE(); break;
-                    case 0xD2: handle_opcode_0xD2_JP_NC_nn(); break;
-                    case 0xD3: handle_opcode_0xD3_OUT_n_ptr_A(); break;
-                    case 0xD4: handle_opcode_0xD4_CALL_NC_nn(); break;
-                    case 0xD5: handle_opcode_0xD5_PUSH_DE(); break;
-                    case 0xD6: handle_opcode_0xD6_SUB_n(); break;
-                    case 0xD7: handle_opcode_0xD7_RST_10H(); break;
-                    case 0xD8: handle_opcode_0xD8_RET_C(); break;
-                    case 0xD9: handle_opcode_0xD9_EXX(); break;
-                    case 0xDA: handle_opcode_0xDA_JP_C_nn(); break;
-                    case 0xDB: handle_opcode_0xDB_IN_A_n_ptr(); break;
-                    case 0xDC: handle_opcode_0xDC_CALL_C_nn(); break;
-                    case 0xDE: handle_opcode_0xDE_SBC_A_n(); break;
-                    case 0xDF: handle_opcode_0xDF_RST_18H(); break;
-                    case 0xE0: handle_opcode_0xE0_RET_PO(); break;
-                    case 0xE1: handle_opcode_0xE1_POP_HL(); break;
-                    case 0xE2: handle_opcode_0xE2_JP_PO_nn(); break;
-                    case 0xE3: handle_opcode_0xE3_EX_SP_ptr_HL(); break;
-                    case 0xE4: handle_opcode_0xE4_CALL_PO_nn(); break;
-                    case 0xE5: handle_opcode_0xE5_PUSH_HL(); break;
-                    case 0xE6: handle_opcode_0xE6_AND_n(); break;
-                    case 0xE7: handle_opcode_0xE7_RST_20H(); break;
-                    case 0xE8: handle_opcode_0xE8_RET_PE(); break;
-                    case 0xE9: handle_opcode_0xE9_JP_HL_ptr(); break;
-                    case 0xEA: handle_opcode_0xEA_JP_PE_nn(); break;
-                    case 0xEB: handle_opcode_0xEB_EX_DE_HL(); break;
-                    case 0xEC: handle_opcode_0xEC_CALL_PE_nn(); break;
-                    case 0xED: {
-                        uint8_t opcodeED = fetch_next_opcode();
-                        set_index_mode(IndexMode::HL);
-                        switch (opcodeED) {
-                            case 0x40: handle_opcode_0xED_0x40_IN_B_C_ptr(); break;
-                            case 0x41: handle_opcode_0xED_0x41_OUT_C_ptr_B(); break;
-                            case 0x42: handle_opcode_0xED_0x42_SBC_HL_BC(); break;
-                            case 0x43: handle_opcode_0xED_0x43_LD_nn_ptr_BC(); break;
-                            case 0x44: handle_opcode_0xED_0x44_NEG(); break;
-                            case 0x45: handle_opcode_0xED_0x45_RETN(); break;
-                            case 0x46: handle_opcode_0xED_0x46_IM_0(); break;
-                            case 0x47: handle_opcode_0xED_0x47_LD_I_A(); break;
-                            case 0x48: handle_opcode_0xED_0x48_IN_C_C_ptr(); break;
-                            case 0x49: handle_opcode_0xED_0x49_OUT_C_ptr_C(); break;
-                            case 0x4A: handle_opcode_0xED_0x4A_ADC_HL_BC(); break;
-                            case 0x4B: handle_opcode_0xED_0x4B_LD_BC_nn_ptr(); break;
-                            case 0x4C: handle_opcode_0xED_0x4C_NEG(); break;
-                            case 0x4D: handle_opcode_0xED_0x4D_RETI(); break;
-                            case 0x4E: handle_opcode_0xED_0x4E_IM_0(); break;
-                            case 0x4F: handle_opcode_0xED_0x4F_LD_R_A(); break;
-                            case 0x50: handle_opcode_0xED_0x50_IN_D_C_ptr(); break;
-                            case 0x51: handle_opcode_0xED_0x51_OUT_C_ptr_D(); break;
-                            case 0x52: handle_opcode_0xED_0x52_SBC_HL_DE(); break;
-                            case 0x53: handle_opcode_0xED_0x53_LD_nn_ptr_DE(); break;
-                            case 0x54: handle_opcode_0xED_0x54_NEG(); break;
-                            case 0x55: handle_opcode_0xED_0x55_RETN(); break;
-                            case 0x56: handle_opcode_0xED_0x56_IM_1(); break;
-                            case 0x57: handle_opcode_0xED_0x57_LD_A_I(); break;
-                            case 0x58: handle_opcode_0xED_0x58_IN_E_C_ptr(); break;
-                            case 0x59: handle_opcode_0xED_0x59_OUT_C_ptr_E(); break;
-                            case 0x5A: handle_opcode_0xED_0x5A_ADC_HL_DE(); break;
-                            case 0x5B: handle_opcode_0xED_0x5B_LD_DE_nn_ptr(); break;
-                            case 0x5C: handle_opcode_0xED_0x5C_NEG(); break;
-                            case 0x5D: handle_opcode_0xED_0x5D_RETN(); break;
-                            case 0x5E: handle_opcode_0xED_0x5E_IM_2(); break;
-                            case 0x5F: handle_opcode_0xED_0x5F_LD_A_R(); break;
-                            case 0x60: handle_opcode_0xED_0x60_IN_H_C_ptr(); break;
-                            case 0x61: handle_opcode_0xED_0x61_OUT_C_ptr_H(); break;
-                            case 0x62: handle_opcode_0xED_0x62_SBC_HL_HL(); break;
-                            case 0x63: handle_opcode_0xED_0x63_LD_nn_ptr_HL_ED(); break;
-                            case 0x64: handle_opcode_0xED_0x64_NEG(); break;
-                            case 0x65: handle_opcode_0xED_0x65_RETN(); break;
-                            case 0x66: handle_opcode_0xED_0x66_IM_0(); break;
-                            case 0x67: handle_opcode_0xED_0x67_RRD(); break;
-                            case 0x68: handle_opcode_0xED_0x68_IN_L_C_ptr(); break;
-                            case 0x69: handle_opcode_0xED_0x69_OUT_C_ptr_L(); break;
-                            case 0x6A: handle_opcode_0xED_0x6A_ADC_HL_HL(); break;
-                            case 0x6B: handle_opcode_0xED_0x6B_LD_HL_nn_ptr_ED(); break;
-                            case 0x6C: handle_opcode_0xED_0x6C_NEG(); break;
-                            case 0x6D: handle_opcode_0xED_0x6D_RETN(); break;
-                            case 0x6E: handle_opcode_0xED_0x6E_IM_0(); break;
-                            case 0x6F: handle_opcode_0xED_0x6F_RLD(); break;
-                            case 0x70: handle_opcode_0xED_0x70_IN_C_ptr(); break;
-                            case 0x71: handle_opcode_0xED_0x71_OUT_C_ptr_0(); break;
-                            case 0x72: handle_opcode_0xED_0x72_SBC_HL_SP(); break;
-                            case 0x73: handle_opcode_0xED_0x73_LD_nn_ptr_SP(); break;
-                            case 0x74: handle_opcode_0xED_0x74_NEG(); break;
-                            case 0x75: handle_opcode_0xED_0x75_RETN(); break;
-                            case 0x76: handle_opcode_0xED_0x76_IM_1(); break;
-                            case 0x78: handle_opcode_0xED_0x78_IN_A_C_ptr(); break;
-                            case 0x79: handle_opcode_0xED_0x79_OUT_C_ptr_A(); break;
-                            case 0x7A: handle_opcode_0xED_0x7A_ADC_HL_SP(); break;
-                            case 0x7B: handle_opcode_0xED_0x7B_LD_SP_nn_ptr(); break;
-                            case 0x7C: handle_opcode_0xED_0x7C_NEG(); break;
-                            case 0x7D: handle_opcode_0xED_0x7D_RETN(); break;
-                            case 0x7E: handle_opcode_0xED_0x7E_IM_2(); break;
-                            case 0xA0: handle_opcode_0xED_0xA0_LDI(); break;
-                            case 0xA1: handle_opcode_0xED_0xA1_CPI(); break;
-                            case 0xA2: handle_opcode_0xED_0xA2_INI(); break;
-                            case 0xA3: handle_opcode_0xED_0xA3_OUTI(); break;
-                            case 0xA8: handle_opcode_0xED_0xA8_LDD(); break;
-                            case 0xA9: handle_opcode_0xED_0xA9_CPD(); break;
-                            case 0xAA: handle_opcode_0xED_0xAA_IND(); break;
-                            case 0xAB: handle_opcode_0xED_0xAB_OUTD(); break;
-                            case 0xB0: handle_opcode_0xED_0xB0_LDIR(); break;
-                            case 0xB1: handle_opcode_0xED_0xB1_CPIR(); break;
-                            case 0xB2: handle_opcode_0xED_0xB2_INIR(); break;
-                            case 0xB3: handle_opcode_0xED_0xB3_OTIR(); break;
-                            case 0xB8: handle_opcode_0xED_0xB8_LDDR(); break;
-                            case 0xB9: handle_opcode_0xED_0xB9_CPDR(); break;
-                            case 0xBA: handle_opcode_0xED_0xBA_INDR(); break;
-                            case 0xBB: handle_opcode_0xED_0xBB_OTDR(); break;
-                        }
+                    case 0x41:
+                        handle_opcode_0xED_0x41_OUT_C_ptr_B();
+                        break;
+                    case 0x42:
+                        handle_opcode_0xED_0x42_SBC_HL_BC();
+                        break;
+                    case 0x43:
+                        handle_opcode_0xED_0x43_LD_nn_ptr_BC();
+                        break;
+                    case 0x44:
+                        handle_opcode_0xED_0x44_NEG();
+                        break;
+                    case 0x45:
+                        handle_opcode_0xED_0x45_RETN();
+                        break;
+                    case 0x46:
+                        handle_opcode_0xED_0x46_IM_0();
+                        break;
+                    case 0x47:
+                        handle_opcode_0xED_0x47_LD_I_A();
+                        break;
+                    case 0x48:
+                        handle_opcode_0xED_0x48_IN_C_C_ptr();
+                        break;
+                    case 0x49:
+                        handle_opcode_0xED_0x49_OUT_C_ptr_C();
+                        break;
+                    case 0x4A:
+                        handle_opcode_0xED_0x4A_ADC_HL_BC();
+                        break;
+                    case 0x4B:
+                        handle_opcode_0xED_0x4B_LD_BC_nn_ptr();
+                        break;
+                    case 0x4C:
+                        handle_opcode_0xED_0x4C_NEG();
+                        break;
+                    case 0x4D:
+                        handle_opcode_0xED_0x4D_RETI();
+                        break;
+                    case 0x4E:
+                        handle_opcode_0xED_0x4E_IM_0();
+                        break;
+                    case 0x4F:
+                        handle_opcode_0xED_0x4F_LD_R_A();
+                        break;
+                    case 0x50:
+                        handle_opcode_0xED_0x50_IN_D_C_ptr();
+                        break;
+                    case 0x51:
+                        handle_opcode_0xED_0x51_OUT_C_ptr_D();
+                        break;
+                    case 0x52:
+                        handle_opcode_0xED_0x52_SBC_HL_DE();
+                        break;
+                    case 0x53:
+                        handle_opcode_0xED_0x53_LD_nn_ptr_DE();
+                        break;
+                    case 0x54:
+                        handle_opcode_0xED_0x54_NEG();
+                        break;
+                    case 0x55:
+                        handle_opcode_0xED_0x55_RETN();
+                        break;
+                    case 0x56:
+                        handle_opcode_0xED_0x56_IM_1();
+                        break;
+                    case 0x57:
+                        handle_opcode_0xED_0x57_LD_A_I();
+                        break;
+                    case 0x58:
+                        handle_opcode_0xED_0x58_IN_E_C_ptr();
+                        break;
+                    case 0x59:
+                        handle_opcode_0xED_0x59_OUT_C_ptr_E();
+                        break;
+                    case 0x5A:
+                        handle_opcode_0xED_0x5A_ADC_HL_DE();
+                        break;
+                    case 0x5B:
+                        handle_opcode_0xED_0x5B_LD_DE_nn_ptr();
+                        break;
+                    case 0x5C:
+                        handle_opcode_0xED_0x5C_NEG();
+                        break;
+                    case 0x5D:
+                        handle_opcode_0xED_0x5D_RETN();
+                        break;
+                    case 0x5E:
+                        handle_opcode_0xED_0x5E_IM_2();
+                        break;
+                    case 0x5F:
+                        handle_opcode_0xED_0x5F_LD_A_R();
+                        break;
+                    case 0x60:
+                        handle_opcode_0xED_0x60_IN_H_C_ptr();
+                        break;
+                    case 0x61:
+                        handle_opcode_0xED_0x61_OUT_C_ptr_H();
+                        break;
+                    case 0x62:
+                        handle_opcode_0xED_0x62_SBC_HL_HL();
+                        break;
+                    case 0x63:
+                        handle_opcode_0xED_0x63_LD_nn_ptr_HL_ED();
+                        break;
+                    case 0x64:
+                        handle_opcode_0xED_0x64_NEG();
+                        break;
+                    case 0x65:
+                        handle_opcode_0xED_0x65_RETN();
+                        break;
+                    case 0x66:
+                        handle_opcode_0xED_0x66_IM_0();
+                        break;
+                    case 0x67:
+                        handle_opcode_0xED_0x67_RRD();
+                        break;
+                    case 0x68:
+                        handle_opcode_0xED_0x68_IN_L_C_ptr();
+                        break;
+                    case 0x69:
+                        handle_opcode_0xED_0x69_OUT_C_ptr_L();
+                        break;
+                    case 0x6A:
+                        handle_opcode_0xED_0x6A_ADC_HL_HL();
+                        break;
+                    case 0x6B:
+                        handle_opcode_0xED_0x6B_LD_HL_nn_ptr_ED();
+                        break;
+                    case 0x6C:
+                        handle_opcode_0xED_0x6C_NEG();
+                        break;
+                    case 0x6D:
+                        handle_opcode_0xED_0x6D_RETN();
+                        break;
+                    case 0x6E:
+                        handle_opcode_0xED_0x6E_IM_0();
+                        break;
+                    case 0x6F:
+                        handle_opcode_0xED_0x6F_RLD();
+                        break;
+                    case 0x70:
+                        handle_opcode_0xED_0x70_IN_C_ptr();
+                        break;
+                    case 0x71:
+                        handle_opcode_0xED_0x71_OUT_C_ptr_0();
+                        break;
+                    case 0x72:
+                        handle_opcode_0xED_0x72_SBC_HL_SP();
+                        break;
+                    case 0x73:
+                        handle_opcode_0xED_0x73_LD_nn_ptr_SP();
+                        break;
+                    case 0x74:
+                        handle_opcode_0xED_0x74_NEG();
+                        break;
+                    case 0x75:
+                        handle_opcode_0xED_0x75_RETN();
+                        break;
+                    case 0x76:
+                        handle_opcode_0xED_0x76_IM_1();
+                        break;
+                    case 0x78:
+                        handle_opcode_0xED_0x78_IN_A_C_ptr();
+                        break;
+                    case 0x79:
+                        handle_opcode_0xED_0x79_OUT_C_ptr_A();
+                        break;
+                    case 0x7A:
+                        handle_opcode_0xED_0x7A_ADC_HL_SP();
+                        break;
+                    case 0x7B:
+                        handle_opcode_0xED_0x7B_LD_SP_nn_ptr();
+                        break;
+                    case 0x7C:
+                        handle_opcode_0xED_0x7C_NEG();
+                        break;
+                    case 0x7D:
+                        handle_opcode_0xED_0x7D_RETN();
+                        break;
+                    case 0x7E:
+                        handle_opcode_0xED_0x7E_IM_2();
+                        break;
+                    case 0xA0:
+                        handle_opcode_0xED_0xA0_LDI();
+                        break;
+                    case 0xA1:
+                        handle_opcode_0xED_0xA1_CPI();
+                        break;
+                    case 0xA2:
+                        handle_opcode_0xED_0xA2_INI();
+                        break;
+                    case 0xA3:
+                        handle_opcode_0xED_0xA3_OUTI();
+                        break;
+                    case 0xA8:
+                        handle_opcode_0xED_0xA8_LDD();
+                        break;
+                    case 0xA9:
+                        handle_opcode_0xED_0xA9_CPD();
+                        break;
+                    case 0xAA:
+                        handle_opcode_0xED_0xAA_IND();
+                        break;
+                    case 0xAB:
+                        handle_opcode_0xED_0xAB_OUTD();
+                        break;
+                    case 0xB0:
+                        handle_opcode_0xED_0xB0_LDIR();
+                        break;
+                    case 0xB1:
+                        handle_opcode_0xED_0xB1_CPIR();
+                        break;
+                    case 0xB2:
+                        handle_opcode_0xED_0xB2_INIR();
+                        break;
+                    case 0xB3:
+                        handle_opcode_0xED_0xB3_OTIR();
+                        break;
+                    case 0xB8:
+                        handle_opcode_0xED_0xB8_LDDR();
+                        break;
+                    case 0xB9:
+                        handle_opcode_0xED_0xB9_CPDR();
+                        break;
+                    case 0xBA:
+                        handle_opcode_0xED_0xBA_INDR();
+                        break;
+                    case 0xBB:
+                        handle_opcode_0xED_0xBB_OTDR();
                         break;
                     }
-                    case 0xEE: handle_opcode_0xEE_XOR_n(); break;
-                    case 0xEF: handle_opcode_0xEF_RST_28H(); break;
-                    case 0xF0: handle_opcode_0xF0_RET_P(); break;
-                    case 0xF1: handle_opcode_0xF1_POP_AF(); break;
-                    case 0xF2: handle_opcode_0xF2_JP_P_nn(); break;
-                    case 0xF3: handle_opcode_0xF3_DI(); break;
-                    case 0xF4: handle_opcode_0xF4_CALL_P_nn(); break;
-                    case 0xF5: handle_opcode_0xF5_PUSH_AF(); break;
-                    case 0xF6: handle_opcode_0xF6_OR_n(); break;
-                    case 0xF7: handle_opcode_0xF7_RST_30H(); break;
-                    case 0xF8: handle_opcode_0xF8_RET_M(); break;
-                    case 0xF9: handle_opcode_0xF9_LD_SP_HL(); break;
-                    case 0xFA: handle_opcode_0xFA_JP_M_nn(); break;
-                    case 0xFB: handle_opcode_0xFB_EI(); break;
-                    case 0xFC: handle_opcode_0xFC_CALL_M_nn(); break;
-                    case 0xFE: handle_opcode_0xFE_CP_n(); break;
-                    case 0xFF: handle_opcode_0xFF_RST_38H(); break;
-                }                
+                    break;
+                }
+                case 0xEE:
+                    handle_opcode_0xEE_XOR_n();
+                    break;
+                case 0xEF:
+                    handle_opcode_0xEF_RST_28H();
+                    break;
+                case 0xF0:
+                    handle_opcode_0xF0_RET_P();
+                    break;
+                case 0xF1:
+                    handle_opcode_0xF1_POP_AF();
+                    break;
+                case 0xF2:
+                    handle_opcode_0xF2_JP_P_nn();
+                    break;
+                case 0xF3:
+                    handle_opcode_0xF3_DI();
+                    break;
+                case 0xF4:
+                    handle_opcode_0xF4_CALL_P_nn();
+                    break;
+                case 0xF5:
+                    handle_opcode_0xF5_PUSH_AF();
+                    break;
+                case 0xF6:
+                    handle_opcode_0xF6_OR_n();
+                    break;
+                case 0xF7:
+                    handle_opcode_0xF7_RST_30H();
+                    break;
+                case 0xF8:
+                    handle_opcode_0xF8_RET_M();
+                    break;
+                case 0xF9:
+                    handle_opcode_0xF9_LD_SP_HL();
+                    break;
+                case 0xFA:
+                    handle_opcode_0xFA_JP_M_nn();
+                    break;
+                case 0xFB:
+                    handle_opcode_0xFB_EI();
+                    break;
+                case 0xFC:
+                    handle_opcode_0xFC_CALL_M_nn();
+                    break;
+                case 0xFE:
+                    handle_opcode_0xFE_CP_n();
+                    break;
+                case 0xFF:
+                    handle_opcode_0xFF_RST_38H();
+                    break;
+                }
                 if (get_flags_modified())
                     set_Q(get_F());
                 else
@@ -3198,14 +4184,12 @@ private:
 // Public execution API
 #ifdef Z80_ENABLE_EXEC_API
 private:
-    template<auto HandleFunc>
-    void exec_helper() {
+    template <auto HandleFunc> void exec_helper() {
         add_ticks(4);
         (this->*HandleFunc)();
-    }   
+    }
 
-    template <auto HandleFunc>
-    void exec_DD_helper() {
+    template <auto HandleFunc> void exec_DD_helper() {
         add_ticks(8);
         IndexMode old_index_mode = get_index_mode();
         set_index_mode(IndexMode::IX);
@@ -3213,8 +4197,7 @@ private:
         set_index_mode(old_index_mode);
     }
 
-    template <auto HandleFunc>
-    void exec_FD_helper() {
+    template <auto HandleFunc> void exec_FD_helper() {
         add_ticks(8);
         IndexMode old_index_mode = get_index_mode();
         set_index_mode(IndexMode::IY);
@@ -3222,8 +4205,7 @@ private:
         set_index_mode(old_index_mode);
     }
 
-    template <auto HandleFunc>
-    void exec_ED_helper() {
+    template <auto HandleFunc> void exec_ED_helper() {
         add_ticks(8);
         (this->*HandleFunc)();
     }
@@ -4672,7 +5654,6 @@ public:
         exec_ED_helper<&Z80::handle_opcode_0xED_0xA9_CPD>();
     }
     void exec_IND() {
-       
         exec_ED_helper<&Z80::handle_opcode_0xED_0xAA_IND>();
     }
     void exec_OUTD() {
@@ -4704,1976 +5685,1976 @@ public:
     }
 
     // --- CB Prefixed Opcodes ---
-    void exec_RLC_B()  {
+    void exec_RLC_B() {
         exec_CB_helper(0x00);
     }
-    void exec_RLC_C()  {
+    void exec_RLC_C() {
         exec_CB_helper(0x01);
     }
-    void exec_RLC_D()  {
+    void exec_RLC_D() {
         exec_CB_helper(0x02);
     }
-    void exec_RLC_E()  {
+    void exec_RLC_E() {
         exec_CB_helper(0x03);
     }
-    void exec_RLC_H()  {
+    void exec_RLC_H() {
         exec_CB_helper(0x04);
     }
-    void exec_RLC_L()  {
+    void exec_RLC_L() {
         exec_CB_helper(0x05);
     }
-    void exec_RLC_HL_ptr()  {
+    void exec_RLC_HL_ptr() {
         exec_CB_helper(0x06);
     }
-    void exec_RLC_A()  {
+    void exec_RLC_A() {
         exec_CB_helper(0x07);
     }
-    void exec_RRC_B()  {
+    void exec_RRC_B() {
         exec_CB_helper(0x08);
     }
-    void exec_RRC_C()  {
+    void exec_RRC_C() {
         exec_CB_helper(0x09);
     }
-    void exec_RRC_D()  {
+    void exec_RRC_D() {
         exec_CB_helper(0x0A);
     }
-    void exec_RRC_E()  {
+    void exec_RRC_E() {
         exec_CB_helper(0x0B);
     }
-    void exec_RRC_H()  {
+    void exec_RRC_H() {
         exec_CB_helper(0x0C);
     }
-    void exec_RRC_L()  {
+    void exec_RRC_L() {
         exec_CB_helper(0x0D);
     }
-    void exec_RRC_HL_ptr()  {
+    void exec_RRC_HL_ptr() {
         exec_CB_helper(0x0E);
     }
-    void exec_RRC_A()  {
+    void exec_RRC_A() {
         exec_CB_helper(0x0F);
     }
-    void exec_RL_B()  {
+    void exec_RL_B() {
         exec_CB_helper(0x10);
     }
-    void exec_RL_C()  {
+    void exec_RL_C() {
         exec_CB_helper(0x11);
     }
-    void exec_RL_D()  {
+    void exec_RL_D() {
         exec_CB_helper(0x12);
     }
-    void exec_RL_E()  {
+    void exec_RL_E() {
         exec_CB_helper(0x13);
     }
-    void exec_RL_H()  {
+    void exec_RL_H() {
         exec_CB_helper(0x14);
     }
-    void exec_RL_L()  {
+    void exec_RL_L() {
         exec_CB_helper(0x15);
     }
-    void exec_RL_HL_ptr()  {
+    void exec_RL_HL_ptr() {
         exec_CB_helper(0x16);
     }
-    void exec_RL_A()  {
+    void exec_RL_A() {
         exec_CB_helper(0x17);
     }
-    void exec_RR_B()  {
+    void exec_RR_B() {
         exec_CB_helper(0x18);
     }
-    void exec_RR_C()  {
+    void exec_RR_C() {
         exec_CB_helper(0x19);
     }
-    void exec_RR_D()  {
+    void exec_RR_D() {
         exec_CB_helper(0x1A);
     }
-    void exec_RR_E()  {
+    void exec_RR_E() {
         exec_CB_helper(0x1B);
     }
-    void exec_RR_H()  {
+    void exec_RR_H() {
         exec_CB_helper(0x1C);
     }
-    void exec_RR_L()  {
+    void exec_RR_L() {
         exec_CB_helper(0x1D);
     }
-    void exec_RR_HL_ptr()  {
+    void exec_RR_HL_ptr() {
         exec_CB_helper(0x1E);
     }
-    void exec_RR_A()  {
+    void exec_RR_A() {
         exec_CB_helper(0x1F);
     }
-    void exec_SLA_B()  {
+    void exec_SLA_B() {
         exec_CB_helper(0x20);
     }
-    void exec_SLA_C()  {
+    void exec_SLA_C() {
         exec_CB_helper(0x21);
     }
-    void exec_SLA_D()  {
+    void exec_SLA_D() {
         exec_CB_helper(0x22);
     }
-    void exec_SLA_E()  {
+    void exec_SLA_E() {
         exec_CB_helper(0x23);
     }
-    void exec_SLA_H()  {
+    void exec_SLA_H() {
         exec_CB_helper(0x24);
     }
-    void exec_SLA_L()  {
+    void exec_SLA_L() {
         exec_CB_helper(0x25);
     }
-    void exec_SLA_HL_ptr()  {
+    void exec_SLA_HL_ptr() {
         exec_CB_helper(0x26);
     }
-    void exec_SLA_A()  {
+    void exec_SLA_A() {
         exec_CB_helper(0x27);
     }
-    void exec_SRA_B()  {
+    void exec_SRA_B() {
         exec_CB_helper(0x28);
     }
-    void exec_SRA_C()  {
+    void exec_SRA_C() {
         exec_CB_helper(0x29);
     }
-    void exec_SRA_D()  {
+    void exec_SRA_D() {
         exec_CB_helper(0x2A);
     }
-    void exec_SRA_E()  {
+    void exec_SRA_E() {
         exec_CB_helper(0x2B);
     }
-    void exec_SRA_H()  {
+    void exec_SRA_H() {
         exec_CB_helper(0x2C);
     }
-    void exec_SRA_L()  {
+    void exec_SRA_L() {
         exec_CB_helper(0x2D);
     }
-    void exec_SRA_HL_ptr()  {
+    void exec_SRA_HL_ptr() {
         exec_CB_helper(0x2E);
     }
-    void exec_SRA_A()  {
+    void exec_SRA_A() {
         exec_CB_helper(0x2F);
     }
-    void exec_SLL_B()  {
+    void exec_SLL_B() {
         exec_CB_helper(0x30);
     }
-    void exec_SLL_C()  {
+    void exec_SLL_C() {
         exec_CB_helper(0x31);
     }
-    void exec_SLL_D()  {
+    void exec_SLL_D() {
         exec_CB_helper(0x32);
     }
-    void exec_SLL_E()  {
+    void exec_SLL_E() {
         exec_CB_helper(0x33);
     }
-    void exec_SLL_H()  {
+    void exec_SLL_H() {
         exec_CB_helper(0x34);
     }
-    void exec_SLL_L()  {
+    void exec_SLL_L() {
         exec_CB_helper(0x35);
     }
-    void exec_SLL_HL_ptr()  {
+    void exec_SLL_HL_ptr() {
         exec_CB_helper(0x36);
     }
-    void exec_SLL_A()  {
+    void exec_SLL_A() {
         exec_CB_helper(0x37);
     }
-    void exec_SRL_B()  {
+    void exec_SRL_B() {
         exec_CB_helper(0x38);
     }
-    void exec_SRL_C()  {
+    void exec_SRL_C() {
         exec_CB_helper(0x39);
     }
-    void exec_SRL_D()  {
+    void exec_SRL_D() {
         exec_CB_helper(0x3A);
     }
-    void exec_SRL_E()  {
+    void exec_SRL_E() {
         exec_CB_helper(0x3B);
     }
-    void exec_SRL_H()  {
+    void exec_SRL_H() {
         exec_CB_helper(0x3C);
     }
-    void exec_SRL_L()  {
+    void exec_SRL_L() {
         exec_CB_helper(0x3D);
     }
-    void exec_SRL_HL_ptr()  {
+    void exec_SRL_HL_ptr() {
         exec_CB_helper(0x3E);
     }
-    void exec_SRL_A()  {
+    void exec_SRL_A() {
         exec_CB_helper(0x3F);
     }
-    void exec_BIT_0_B()  {
+    void exec_BIT_0_B() {
         exec_CB_helper(0x40);
     }
-    void exec_BIT_0_C()  {
+    void exec_BIT_0_C() {
         exec_CB_helper(0x41);
     }
-    void exec_BIT_0_D()  {
+    void exec_BIT_0_D() {
         exec_CB_helper(0x42);
     }
-    void exec_BIT_0_E()  {
+    void exec_BIT_0_E() {
         exec_CB_helper(0x43);
     }
-    void exec_BIT_0_H()  {
+    void exec_BIT_0_H() {
         exec_CB_helper(0x44);
     }
-    void exec_BIT_0_L()  {
+    void exec_BIT_0_L() {
         exec_CB_helper(0x45);
     }
-    void exec_BIT_0_HL_ptr()  {
+    void exec_BIT_0_HL_ptr() {
         exec_CB_helper(0x46);
     }
-    void exec_BIT_0_A()  {
+    void exec_BIT_0_A() {
         exec_CB_helper(0x47);
     }
-    void exec_BIT_1_B()  {
+    void exec_BIT_1_B() {
         exec_CB_helper(0x48);
     }
-    void exec_BIT_1_C()  {
+    void exec_BIT_1_C() {
         exec_CB_helper(0x49);
     }
-    void exec_BIT_1_D()  {
+    void exec_BIT_1_D() {
         exec_CB_helper(0x4A);
     }
-    void exec_BIT_1_E()  {
+    void exec_BIT_1_E() {
         exec_CB_helper(0x4B);
     }
-    void exec_BIT_1_H()  {
+    void exec_BIT_1_H() {
         exec_CB_helper(0x4C);
     }
-    void exec_BIT_1_L()  {
+    void exec_BIT_1_L() {
         exec_CB_helper(0x4D);
     }
-    void exec_BIT_1_HL_ptr()  {
+    void exec_BIT_1_HL_ptr() {
         exec_CB_helper(0x4E);
     }
-    void exec_BIT_1_A()  {
+    void exec_BIT_1_A() {
         exec_CB_helper(0x4F);
     }
-    void exec_BIT_2_B()  {
+    void exec_BIT_2_B() {
         exec_CB_helper(0x50);
     }
-    void exec_BIT_2_C()  {
+    void exec_BIT_2_C() {
         exec_CB_helper(0x51);
     }
-    void exec_BIT_2_D()  {
+    void exec_BIT_2_D() {
         exec_CB_helper(0x52);
     }
-    void exec_BIT_2_E()  {
+    void exec_BIT_2_E() {
         exec_CB_helper(0x53);
     }
-    void exec_BIT_2_H()  {
+    void exec_BIT_2_H() {
         exec_CB_helper(0x54);
     }
-    void exec_BIT_2_L()  {
+    void exec_BIT_2_L() {
         exec_CB_helper(0x55);
     }
-    void exec_BIT_2_HL_ptr()  {
+    void exec_BIT_2_HL_ptr() {
         exec_CB_helper(0x56);
     }
-    void exec_BIT_2_A()  {
+    void exec_BIT_2_A() {
         exec_CB_helper(0x57);
     }
-    void exec_BIT_3_B()  {
+    void exec_BIT_3_B() {
         exec_CB_helper(0x58);
     }
-    void exec_BIT_3_C()  {
+    void exec_BIT_3_C() {
         exec_CB_helper(0x59);
     }
-    void exec_BIT_3_D()  {
+    void exec_BIT_3_D() {
         exec_CB_helper(0x5A);
     }
-    void exec_BIT_3_E()  {
+    void exec_BIT_3_E() {
         exec_CB_helper(0x5B);
     }
-    void exec_BIT_3_H()  {
+    void exec_BIT_3_H() {
         exec_CB_helper(0x5C);
     }
-    void exec_BIT_3_L()  {
+    void exec_BIT_3_L() {
         exec_CB_helper(0x5D);
     }
-    void exec_BIT_3_HL_ptr()  {
+    void exec_BIT_3_HL_ptr() {
         exec_CB_helper(0x5E);
     }
-    void exec_BIT_3_A()  {
+    void exec_BIT_3_A() {
         exec_CB_helper(0x5F);
     }
-    void exec_BIT_4_B()  {
+    void exec_BIT_4_B() {
         exec_CB_helper(0x60);
     }
-    void exec_BIT_4_C()  {
+    void exec_BIT_4_C() {
         exec_CB_helper(0x61);
     }
-    void exec_BIT_4_D()  {
+    void exec_BIT_4_D() {
         exec_CB_helper(0x62);
     }
-    void exec_BIT_4_E()  {
+    void exec_BIT_4_E() {
         exec_CB_helper(0x63);
     }
-    void exec_BIT_4_H()  {
+    void exec_BIT_4_H() {
         exec_CB_helper(0x64);
     }
-    void exec_BIT_4_L()  {
+    void exec_BIT_4_L() {
         exec_CB_helper(0x65);
     }
-    void exec_BIT_4_HL_ptr()  {
+    void exec_BIT_4_HL_ptr() {
         exec_CB_helper(0x66);
     }
-    void exec_BIT_4_A()  {
+    void exec_BIT_4_A() {
         exec_CB_helper(0x67);
     }
-    void exec_BIT_5_B()  {
+    void exec_BIT_5_B() {
         exec_CB_helper(0x68);
     }
-    void exec_BIT_5_C()  {
+    void exec_BIT_5_C() {
         exec_CB_helper(0x69);
     }
-    void exec_BIT_5_D()  {
+    void exec_BIT_5_D() {
         exec_CB_helper(0x6A);
     }
-    void exec_BIT_5_E()  {
+    void exec_BIT_5_E() {
         exec_CB_helper(0x6B);
     }
-    void exec_BIT_5_H()  {
+    void exec_BIT_5_H() {
         exec_CB_helper(0x6C);
     }
-    void exec_BIT_5_L()  {
+    void exec_BIT_5_L() {
         exec_CB_helper(0x6D);
     }
-    void exec_BIT_5_HL_ptr()  {
+    void exec_BIT_5_HL_ptr() {
         exec_CB_helper(0x6E);
     }
-    void exec_BIT_5_A()  {
+    void exec_BIT_5_A() {
         exec_CB_helper(0x6F);
     }
-    void exec_BIT_6_B()  {
+    void exec_BIT_6_B() {
         exec_CB_helper(0x70);
     }
-    void exec_BIT_6_C()  {
+    void exec_BIT_6_C() {
         exec_CB_helper(0x71);
     }
-    void exec_BIT_6_D()  {
+    void exec_BIT_6_D() {
         exec_CB_helper(0x72);
     }
-    void exec_BIT_6_E()  {
+    void exec_BIT_6_E() {
         exec_CB_helper(0x73);
     }
-    void exec_BIT_6_H()  {
+    void exec_BIT_6_H() {
         exec_CB_helper(0x74);
     }
-    void exec_BIT_6_L()  {
+    void exec_BIT_6_L() {
         exec_CB_helper(0x75);
     }
-    void exec_BIT_6_HL_ptr()  {
+    void exec_BIT_6_HL_ptr() {
         exec_CB_helper(0x76);
     }
-    void exec_BIT_6_A()  {
+    void exec_BIT_6_A() {
         exec_CB_helper(0x77);
     }
-    void exec_BIT_7_B()  {
+    void exec_BIT_7_B() {
         exec_CB_helper(0x78);
     }
-    void exec_BIT_7_C()  {
+    void exec_BIT_7_C() {
         exec_CB_helper(0x79);
     }
-    void exec_BIT_7_D()  {
+    void exec_BIT_7_D() {
         exec_CB_helper(0x7A);
     }
-    void exec_BIT_7_E()  {
+    void exec_BIT_7_E() {
         exec_CB_helper(0x7B);
     }
-    void exec_BIT_7_H()  {
+    void exec_BIT_7_H() {
         exec_CB_helper(0x7C);
     }
-    void exec_BIT_7_L()  {
+    void exec_BIT_7_L() {
         exec_CB_helper(0x7D);
     }
-    void exec_BIT_7_HL_ptr()  {
+    void exec_BIT_7_HL_ptr() {
         exec_CB_helper(0x7E);
     }
-    void exec_BIT_7_A()  {
+    void exec_BIT_7_A() {
         exec_CB_helper(0x7F);
     }
-    void exec_RES_0_B()  {
+    void exec_RES_0_B() {
         exec_CB_helper(0x80);
     }
-    void exec_RES_0_C()  {
+    void exec_RES_0_C() {
         exec_CB_helper(0x81);
     }
-    void exec_RES_0_D()  {
+    void exec_RES_0_D() {
         exec_CB_helper(0x82);
     }
-    void exec_RES_0_E()  {
+    void exec_RES_0_E() {
         exec_CB_helper(0x83);
     }
-    void exec_RES_0_H()  {
+    void exec_RES_0_H() {
         exec_CB_helper(0x84);
     }
-    void exec_RES_0_L()  {
+    void exec_RES_0_L() {
         exec_CB_helper(0x85);
     }
-    void exec_RES_0_HL_ptr()  {
+    void exec_RES_0_HL_ptr() {
         exec_CB_helper(0x86);
     }
-    void exec_RES_0_A()  {
+    void exec_RES_0_A() {
         exec_CB_helper(0x87);
     }
-    void exec_RES_1_B()  {
+    void exec_RES_1_B() {
         exec_CB_helper(0x88);
     }
-    void exec_RES_1_C()  {
+    void exec_RES_1_C() {
         exec_CB_helper(0x89);
     }
-    void exec_RES_1_D()  {
+    void exec_RES_1_D() {
         exec_CB_helper(0x8A);
     }
-    void exec_RES_1_E()  {
+    void exec_RES_1_E() {
         exec_CB_helper(0x8B);
     }
-    void exec_RES_1_H()  {
+    void exec_RES_1_H() {
         exec_CB_helper(0x8C);
     }
-    void exec_RES_1_L()  {
+    void exec_RES_1_L() {
         exec_CB_helper(0x8D);
     }
-    void exec_RES_1_HL_ptr()  {
+    void exec_RES_1_HL_ptr() {
         exec_CB_helper(0x8E);
     }
-    void exec_RES_1_A()  {
+    void exec_RES_1_A() {
         exec_CB_helper(0x8F);
     }
-    void exec_RES_2_B()  {
+    void exec_RES_2_B() {
         exec_CB_helper(0x90);
     }
-    void exec_RES_2_C()  {
+    void exec_RES_2_C() {
         exec_CB_helper(0x91);
     }
-    void exec_RES_2_D()  {
+    void exec_RES_2_D() {
         exec_CB_helper(0x92);
     }
-    void exec_RES_2_E()  {
+    void exec_RES_2_E() {
         exec_CB_helper(0x93);
     }
-    void exec_RES_2_H()  {
+    void exec_RES_2_H() {
         exec_CB_helper(0x94);
     }
-    void exec_RES_2_L()  {
+    void exec_RES_2_L() {
         exec_CB_helper(0x95);
     }
-    void exec_RES_2_HL_ptr()  {
+    void exec_RES_2_HL_ptr() {
         exec_CB_helper(0x96);
     }
-    void exec_RES_2_A()  {
+    void exec_RES_2_A() {
         exec_CB_helper(0x97);
     }
-    void exec_RES_3_B()  {
+    void exec_RES_3_B() {
         exec_CB_helper(0x98);
     }
-    void exec_RES_3_C()  {
+    void exec_RES_3_C() {
         exec_CB_helper(0x99);
     }
-    void exec_RES_3_D()  {
+    void exec_RES_3_D() {
         exec_CB_helper(0x9A);
     }
-    void exec_RES_3_E()  {
+    void exec_RES_3_E() {
         exec_CB_helper(0x9B);
     }
-    void exec_RES_3_H()  {
+    void exec_RES_3_H() {
         exec_CB_helper(0x9C);
     }
-    void exec_RES_3_L()  {
+    void exec_RES_3_L() {
         exec_CB_helper(0x9D);
     }
-    void exec_RES_3_HL_ptr()  {
+    void exec_RES_3_HL_ptr() {
         exec_CB_helper(0x9E);
     }
-    void exec_RES_3_A()  {
+    void exec_RES_3_A() {
         exec_CB_helper(0x9F);
     }
-    void exec_RES_4_B()  {
+    void exec_RES_4_B() {
         exec_CB_helper(0xA0);
     }
-    void exec_RES_4_C()  {
+    void exec_RES_4_C() {
         exec_CB_helper(0xA1);
     }
-    void exec_RES_4_D()  {
+    void exec_RES_4_D() {
         exec_CB_helper(0xA2);
     }
-    void exec_RES_4_E()  {
+    void exec_RES_4_E() {
         exec_CB_helper(0xA3);
     }
-    void exec_RES_4_H()  {
+    void exec_RES_4_H() {
         exec_CB_helper(0xA4);
     }
-    void exec_RES_4_L()  {
+    void exec_RES_4_L() {
         exec_CB_helper(0xA5);
     }
-    void exec_RES_4_HL_ptr()  {
+    void exec_RES_4_HL_ptr() {
         exec_CB_helper(0xA6);
     }
-    void exec_RES_4_A()  {
+    void exec_RES_4_A() {
         exec_CB_helper(0xA7);
     }
-    void exec_RES_5_B()  {
+    void exec_RES_5_B() {
         exec_CB_helper(0xA8);
     }
-    void exec_RES_5_C()  {
+    void exec_RES_5_C() {
         exec_CB_helper(0xA9);
     }
-    void exec_RES_5_D()  {
+    void exec_RES_5_D() {
         exec_CB_helper(0xAA);
     }
-    void exec_RES_5_E()  {
+    void exec_RES_5_E() {
         exec_CB_helper(0xAB);
     }
-    void exec_RES_5_H()  {
+    void exec_RES_5_H() {
         exec_CB_helper(0xAC);
     }
-    void exec_RES_5_L()  {
+    void exec_RES_5_L() {
         exec_CB_helper(0xAD);
     }
-    void exec_RES_5_HL_ptr()  {
+    void exec_RES_5_HL_ptr() {
         exec_CB_helper(0xAE);
     }
-    void exec_RES_5_A()  {
+    void exec_RES_5_A() {
         exec_CB_helper(0xAF);
     }
-    void exec_RES_6_B()  {
+    void exec_RES_6_B() {
         exec_CB_helper(0xB0);
     }
-    void exec_RES_6_C()  {
+    void exec_RES_6_C() {
         exec_CB_helper(0xB1);
     }
-    void exec_RES_6_D()  {
+    void exec_RES_6_D() {
         exec_CB_helper(0xB2);
     }
-    void exec_RES_6_E()  {
+    void exec_RES_6_E() {
         exec_CB_helper(0xB3);
     }
-    void exec_RES_6_H()  {
+    void exec_RES_6_H() {
         exec_CB_helper(0xB4);
     }
-    void exec_RES_6_L()  {
+    void exec_RES_6_L() {
         exec_CB_helper(0xB5);
     }
-    void exec_RES_6_HL_ptr()  {
+    void exec_RES_6_HL_ptr() {
         exec_CB_helper(0xB6);
     }
-    void exec_RES_6_A()  {
+    void exec_RES_6_A() {
         exec_CB_helper(0xB7);
     }
-    void exec_RES_7_B()  {
+    void exec_RES_7_B() {
         exec_CB_helper(0xB8);
     }
-    void exec_RES_7_C()  {
+    void exec_RES_7_C() {
         exec_CB_helper(0xB9);
     }
-    void exec_RES_7_D()  {
+    void exec_RES_7_D() {
         exec_CB_helper(0xBA);
     }
-    void exec_RES_7_E()  {
+    void exec_RES_7_E() {
         exec_CB_helper(0xBB);
     }
-    void exec_RES_7_H()  {
+    void exec_RES_7_H() {
         exec_CB_helper(0xBC);
     }
-    void exec_RES_7_L()  {
+    void exec_RES_7_L() {
         exec_CB_helper(0xBD);
     }
-    void exec_RES_7_HL_ptr()  {
+    void exec_RES_7_HL_ptr() {
         exec_CB_helper(0xBE);
     }
-    void exec_RES_7_A()  {
+    void exec_RES_7_A() {
         exec_CB_helper(0xBF);
     }
-    void exec_SET_0_B()  {
+    void exec_SET_0_B() {
         exec_CB_helper(0xC0);
     }
-    void exec_SET_0_C()  {
+    void exec_SET_0_C() {
         exec_CB_helper(0xC1);
     }
-    void exec_SET_0_D()  {
+    void exec_SET_0_D() {
         exec_CB_helper(0xC2);
     }
-    void exec_SET_0_E()  {
+    void exec_SET_0_E() {
         exec_CB_helper(0xC3);
     }
-    void exec_SET_0_H()  {
+    void exec_SET_0_H() {
         exec_CB_helper(0xC4);
     }
-    void exec_SET_0_L()  {
+    void exec_SET_0_L() {
         exec_CB_helper(0xC5);
     }
-    void exec_SET_0_HL_ptr()  {
+    void exec_SET_0_HL_ptr() {
         exec_CB_helper(0xC6);
     }
-    void exec_SET_0_A()  {
+    void exec_SET_0_A() {
         exec_CB_helper(0xC7);
     }
-    void exec_SET_1_B()  {
+    void exec_SET_1_B() {
         exec_CB_helper(0xC8);
     }
-    void exec_SET_1_C()  {
+    void exec_SET_1_C() {
         exec_CB_helper(0xC9);
     }
-    void exec_SET_1_D()  {
+    void exec_SET_1_D() {
         exec_CB_helper(0xCA);
     }
-    void exec_SET_1_E()  {
+    void exec_SET_1_E() {
         exec_CB_helper(0xCB);
     }
-    void exec_SET_1_H()  {
+    void exec_SET_1_H() {
         exec_CB_helper(0xCC);
     }
-    void exec_SET_1_L()  {
+    void exec_SET_1_L() {
         exec_CB_helper(0xCD);
     }
-    void exec_SET_1_HL_ptr()  {
+    void exec_SET_1_HL_ptr() {
         exec_CB_helper(0xCE);
     }
-    void exec_SET_1_A()  {
+    void exec_SET_1_A() {
         exec_CB_helper(0xCF);
     }
-    void exec_SET_2_B()  {
+    void exec_SET_2_B() {
         exec_CB_helper(0xD0);
     }
-    void exec_SET_2_C()  {
+    void exec_SET_2_C() {
         exec_CB_helper(0xD1);
     }
-    void exec_SET_2_D()  {
+    void exec_SET_2_D() {
         exec_CB_helper(0xD2);
     }
-    void exec_SET_2_E()  {
+    void exec_SET_2_E() {
         exec_CB_helper(0xD3);
     }
-    void exec_SET_2_H()  {
+    void exec_SET_2_H() {
         exec_CB_helper(0xD4);
     }
-    void exec_SET_2_L()  {
+    void exec_SET_2_L() {
         exec_CB_helper(0xD5);
     }
-    void exec_SET_2_HL_ptr()  {
+    void exec_SET_2_HL_ptr() {
         exec_CB_helper(0xD6);
     }
-    void exec_SET_2_A()  {
+    void exec_SET_2_A() {
         exec_CB_helper(0xD7);
     }
-    void exec_SET_3_B()  {
+    void exec_SET_3_B() {
         exec_CB_helper(0xD8);
     }
-    void exec_SET_3_C()  {
+    void exec_SET_3_C() {
         exec_CB_helper(0xD9);
     }
-    void exec_SET_3_D()  {
+    void exec_SET_3_D() {
         exec_CB_helper(0xDA);
     }
-    void exec_SET_3_E()  {
+    void exec_SET_3_E() {
         exec_CB_helper(0xDB);
     }
-    void exec_SET_3_H()  {
+    void exec_SET_3_H() {
         exec_CB_helper(0xDC);
     }
-    void exec_SET_3_L()  {
+    void exec_SET_3_L() {
         exec_CB_helper(0xDD);
     }
-    void exec_SET_3_HL_ptr()  {
+    void exec_SET_3_HL_ptr() {
         exec_CB_helper(0xDE);
     }
-    void exec_SET_3_A()  {
+    void exec_SET_3_A() {
         exec_CB_helper(0xDF);
     }
-    void exec_SET_4_B()  {
+    void exec_SET_4_B() {
         exec_CB_helper(0xE0);
     }
-    void exec_SET_4_C()  {
+    void exec_SET_4_C() {
         exec_CB_helper(0xE1);
     }
-    void exec_SET_4_D()  {
+    void exec_SET_4_D() {
         exec_CB_helper(0xE2);
     }
-    void exec_SET_4_E()  {
+    void exec_SET_4_E() {
         exec_CB_helper(0xE3);
     }
-    void exec_SET_4_H()  {
+    void exec_SET_4_H() {
         exec_CB_helper(0xE4);
     }
-    void exec_SET_4_L()  {
+    void exec_SET_4_L() {
         exec_CB_helper(0xE5);
     }
-    void exec_SET_4_HL_ptr()  {
+    void exec_SET_4_HL_ptr() {
         exec_CB_helper(0xE6);
     }
-    void exec_SET_4_A()  {
+    void exec_SET_4_A() {
         exec_CB_helper(0xE7);
     }
-    void exec_SET_5_B()  {
+    void exec_SET_5_B() {
         exec_CB_helper(0xE8);
     }
-    void exec_SET_5_C()  {
+    void exec_SET_5_C() {
         exec_CB_helper(0xE9);
     }
-    void exec_SET_5_D()  {
+    void exec_SET_5_D() {
         exec_CB_helper(0xEA);
     }
-    void exec_SET_5_E()  {
+    void exec_SET_5_E() {
         exec_CB_helper(0xEB);
     }
-    void exec_SET_5_H()  {
+    void exec_SET_5_H() {
         exec_CB_helper(0xEC);
     }
-    void exec_SET_5_L()  {
+    void exec_SET_5_L() {
         exec_CB_helper(0xED);
     }
-    void exec_SET_5_HL_ptr()  {
+    void exec_SET_5_HL_ptr() {
         exec_CB_helper(0xEE);
     }
-    void exec_SET_5_A()  {
+    void exec_SET_5_A() {
         exec_CB_helper(0xEF);
     }
-    void exec_SET_6_B()  {
+    void exec_SET_6_B() {
         exec_CB_helper(0xF0);
     }
-    void exec_SET_6_C()  {
+    void exec_SET_6_C() {
         exec_CB_helper(0xF1);
     }
-    void exec_SET_6_D()  {
+    void exec_SET_6_D() {
         exec_CB_helper(0xF2);
     }
-    void exec_SET_6_E()  {
+    void exec_SET_6_E() {
         exec_CB_helper(0xF3);
     }
-    void exec_SET_6_H()  {
+    void exec_SET_6_H() {
         exec_CB_helper(0xF4);
     }
-    void exec_SET_6_L()  {
+    void exec_SET_6_L() {
         exec_CB_helper(0xF5);
     }
-    void exec_SET_6_HL_ptr()  {
+    void exec_SET_6_HL_ptr() {
         exec_CB_helper(0xF6);
     }
-    void exec_SET_6_A()  {
+    void exec_SET_6_A() {
         exec_CB_helper(0xF7);
     }
-    void exec_SET_7_B()  {
+    void exec_SET_7_B() {
         exec_CB_helper(0xF8);
     }
-    void exec_SET_7_C()  {
+    void exec_SET_7_C() {
         exec_CB_helper(0xF9);
     }
-    void exec_SET_7_D()  {
+    void exec_SET_7_D() {
         exec_CB_helper(0xFA);
     }
-    void exec_SET_7_E()  {
+    void exec_SET_7_E() {
         exec_CB_helper(0xFB);
     }
-    void exec_SET_7_H()  {
+    void exec_SET_7_H() {
         exec_CB_helper(0xFC);
     }
-    void exec_SET_7_L()  {
+    void exec_SET_7_L() {
         exec_CB_helper(0xFD);
     }
-    void exec_SET_7_HL_ptr()  {
+    void exec_SET_7_HL_ptr() {
         exec_CB_helper(0xFE);
     }
-    void exec_SET_7_A()  {
+    void exec_SET_7_A() {
         exec_CB_helper(0xFF);
     }
 
     // --- DDCB Prefixed Opcodes ---
-    void exec_RLC_IX_d_ptr_B(int8_t offset)  {
+    void exec_RLC_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x00);
     }
-    void exec_RLC_IX_d_ptr_C(int8_t offset)  {
+    void exec_RLC_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x01);
     }
-    void exec_RLC_IX_d_ptr_D(int8_t offset)  {
+    void exec_RLC_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x02);
     }
-    void exec_RLC_IX_d_ptr_E(int8_t offset)  {
+    void exec_RLC_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x03);
     }
-    void exec_RLC_IX_d_ptr_H(int8_t offset)  {
+    void exec_RLC_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x04);
     }
-    void exec_RLC_IX_d_ptr_L(int8_t offset)  {
+    void exec_RLC_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x05);
     }
-    void exec_RLC_IX_d_ptr(int8_t offset)  {
+    void exec_RLC_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x06);
     }
-    void exec_RLC_IX_d_ptr_A(int8_t offset)  {
+    void exec_RLC_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x07);
     }
-    void exec_RRC_IX_d_ptr_B(int8_t offset)  {
+    void exec_RRC_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x08);
     }
-    void exec_RRC_IX_d_ptr_C(int8_t offset)  {
+    void exec_RRC_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x09);
     }
-    void exec_RRC_IX_d_ptr_D(int8_t offset)  {
+    void exec_RRC_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x0A);
     }
-    void exec_RRC_IX_d_ptr_E(int8_t offset)  {
+    void exec_RRC_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x0B);
     }
-    void exec_RRC_IX_d_ptr_H(int8_t offset)  {
+    void exec_RRC_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x0C);
     }
-    void exec_RRC_IX_d_ptr_L(int8_t offset)  {
+    void exec_RRC_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x0D);
     }
-    void exec_RRC_IX_d_ptr(int8_t offset)  {
+    void exec_RRC_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x0E);
     }
-    void exec_RRC_IX_d_ptr_A(int8_t offset)  {
+    void exec_RRC_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x0F);
     }
-    void exec_RL_IX_d_ptr_B(int8_t offset)  {
+    void exec_RL_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x10);
     }
-    void exec_RL_IX_d_ptr_C(int8_t offset)  {
+    void exec_RL_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x11);
     }
-    void exec_RL_IX_d_ptr_D(int8_t offset)  {
+    void exec_RL_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x12);
     }
-    void exec_RL_IX_d_ptr_E(int8_t offset)  {
+    void exec_RL_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x13);
     }
-    void exec_RL_IX_d_ptr_H(int8_t offset)  {
+    void exec_RL_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x14);
     }
-    void exec_RL_IX_d_ptr_L(int8_t offset)  {
+    void exec_RL_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x15);
     }
-    void exec_RL_IX_d_ptr(int8_t offset)  {
+    void exec_RL_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x16);
     }
-    void exec_RL_IX_d_ptr_A(int8_t offset)  {
+    void exec_RL_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x17);
     }
-    void exec_RR_IX_d_ptr_B(int8_t offset)  {
+    void exec_RR_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x18);
     }
-    void exec_RR_IX_d_ptr_C(int8_t offset)  {
+    void exec_RR_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x19);
     }
-    void exec_RR_IX_d_ptr_D(int8_t offset)  {
+    void exec_RR_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x1A);
     }
-    void exec_RR_IX_d_ptr_E(int8_t offset)  {
+    void exec_RR_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x1B);
     }
-    void exec_RR_IX_d_ptr_H(int8_t offset)  {
+    void exec_RR_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x1C);
     }
-    void exec_RR_IX_d_ptr_L(int8_t offset)  {
+    void exec_RR_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x1D);
     }
-    void exec_RR_IX_d_ptr(int8_t offset)  {
+    void exec_RR_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x1E);
     }
-    void exec_RR_IX_d_ptr_A(int8_t offset)  {
+    void exec_RR_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x1F);
     }
-    void exec_SLA_IX_d_ptr_B(int8_t offset)  {
+    void exec_SLA_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x20);
     }
-    void exec_SLA_IX_d_ptr_C(int8_t offset)  {
+    void exec_SLA_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x21);
     }
-    void exec_SLA_IX_d_ptr_D(int8_t offset)  {
+    void exec_SLA_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x22);
     }
-    void exec_SLA_IX_d_ptr_E(int8_t offset)  {
+    void exec_SLA_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x23);
     }
-    void exec_SLA_IX_d_ptr_H(int8_t offset)  {
+    void exec_SLA_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x24);
     }
-    void exec_SLA_IX_d_ptr_L(int8_t offset)  {
+    void exec_SLA_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x25);
     }
-    void exec_SLA_IX_d_ptr(int8_t offset)  {
+    void exec_SLA_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x26);
     }
-    void exec_SLA_IX_d_ptr_A(int8_t offset)  {
+    void exec_SLA_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x27);
     }
-    void exec_SRA_IX_d_ptr_B(int8_t offset)  {
+    void exec_SRA_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x28);
     }
-    void exec_SRA_IX_d_ptr_C(int8_t offset)  {
+    void exec_SRA_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x29);
     }
-    void exec_SRA_IX_d_ptr_D(int8_t offset)  {
+    void exec_SRA_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x2A);
     }
-    void exec_SRA_IX_d_ptr_E(int8_t offset)  {
+    void exec_SRA_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x2B);
     }
-    void exec_SRA_IX_d_ptr_H(int8_t offset)  {
+    void exec_SRA_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x2C);
     }
-    void exec_SRA_IX_d_ptr_L(int8_t offset)  {
+    void exec_SRA_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x2D);
     }
-    void exec_SRA_IX_d_ptr(int8_t offset)  {
+    void exec_SRA_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x2E);
     }
-    void exec_SRA_IX_d_ptr_A(int8_t offset)  {
+    void exec_SRA_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x2F);
     }
-    void exec_SLL_IX_d_ptr_B(int8_t offset)  {
+    void exec_SLL_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x30);
     }
-    void exec_SLL_IX_d_ptr_C(int8_t offset)  {
+    void exec_SLL_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x31);
     }
-    void exec_SLL_IX_d_ptr_D(int8_t offset)  {
+    void exec_SLL_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x32);
     }
-    void exec_SLL_IX_d_ptr_E(int8_t offset)  {
+    void exec_SLL_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x33);
     }
-    void exec_SLL_IX_d_ptr_H(int8_t offset)  {
+    void exec_SLL_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x34);
     }
-    void exec_SLL_IX_d_ptr_L(int8_t offset)  {
+    void exec_SLL_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x35);
     }
-    void exec_SLL_IX_d_ptr(int8_t offset)  {
+    void exec_SLL_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x36);
     }
-    void exec_SLL_IX_d_ptr_A(int8_t offset)  {
+    void exec_SLL_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x37);
     }
-    void exec_SRL_IX_d_ptr_B(int8_t offset)  {
+    void exec_SRL_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x38);
     }
-    void exec_SRL_IX_d_ptr_C(int8_t offset)  {
+    void exec_SRL_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x39);
     }
-    void exec_SRL_IX_d_ptr_D(int8_t offset)  {
+    void exec_SRL_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x3A);
     }
-    void exec_SRL_IX_d_ptr_E(int8_t offset)  {
+    void exec_SRL_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x3B);
     }
-    void exec_SRL_IX_d_ptr_H(int8_t offset)  {
+    void exec_SRL_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x3C);
     }
-    void exec_SRL_IX_d_ptr_L(int8_t offset)  {
+    void exec_SRL_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x3D);
     }
-    void exec_SRL_IX_d_ptr(int8_t offset)  {
+    void exec_SRL_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x3E);
     }
-    void exec_SRL_IX_d_ptr_A(int8_t offset)  {
+    void exec_SRL_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x3F);
     }
-    void exec_BIT_0_IX_d_ptr(int8_t offset)  {
+    void exec_BIT_0_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x46);
     }
-    void exec_BIT_1_IX_d_ptr(int8_t offset)  {
+    void exec_BIT_1_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x4E);
     }
-    void exec_BIT_2_IX_d_ptr(int8_t offset)  {
+    void exec_BIT_2_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x56);
     }
-    void exec_BIT_3_IX_d_ptr(int8_t offset)  {
+    void exec_BIT_3_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x5E);
     }
-    void exec_BIT_4_IX_d_ptr(int8_t offset)  {
+    void exec_BIT_4_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x66);
     }
-    void exec_BIT_5_IX_d_ptr(int8_t offset)  {
+    void exec_BIT_5_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x6E);
     }
-    void exec_BIT_6_IX_d_ptr(int8_t offset)  {
+    void exec_BIT_6_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x76);
     }
-    void exec_BIT_7_IX_d_ptr(int8_t offset)  {
+    void exec_BIT_7_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x7E);
     }
-    void exec_RES_0_IX_d_ptr_B(int8_t offset)  {
+    void exec_RES_0_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x80);
     }
-    void exec_RES_0_IX_d_ptr_C(int8_t offset)  {
+    void exec_RES_0_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x81);
     }
-    void exec_RES_0_IX_d_ptr_D(int8_t offset)  {
+    void exec_RES_0_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x82);
     }
-    void exec_RES_0_IX_d_ptr_E(int8_t offset)  {
+    void exec_RES_0_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x83);
     }
-    void exec_RES_0_IX_d_ptr_H(int8_t offset)  {
+    void exec_RES_0_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x84);
     }
-    void exec_RES_0_IX_d_ptr_L(int8_t offset)  {
+    void exec_RES_0_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x85);
     }
-    void exec_RES_0_IX_d_ptr(int8_t offset)  {
+    void exec_RES_0_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x86);
     }
-    void exec_RES_0_IX_d_ptr_A(int8_t offset)  {
+    void exec_RES_0_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x87);
     }
-    void exec_RES_1_IX_d_ptr_B(int8_t offset)  {
+    void exec_RES_1_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x88);
     }
-    void exec_RES_1_IX_d_ptr_C(int8_t offset)  {
+    void exec_RES_1_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x89);
     }
-    void exec_RES_1_IX_d_ptr_D(int8_t offset)  {
+    void exec_RES_1_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x8A);
     }
-    void exec_RES_1_IX_d_ptr_E(int8_t offset)  {
+    void exec_RES_1_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x8B);
     }
-    void exec_RES_1_IX_d_ptr_H(int8_t offset)  {
+    void exec_RES_1_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x8C);
     }
-    void exec_RES_1_IX_d_ptr_L(int8_t offset)  {
+    void exec_RES_1_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x8D);
     }
-    void exec_RES_1_IX_d_ptr(int8_t offset)  {
+    void exec_RES_1_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x8E);
     }
-    void exec_RES_1_IX_d_ptr_A(int8_t offset)  {
+    void exec_RES_1_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x8F);
     }
-    void exec_RES_2_IX_d_ptr_B(int8_t offset)  {
+    void exec_RES_2_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x90);
     }
-    void exec_RES_2_IX_d_ptr_C(int8_t offset)  {
+    void exec_RES_2_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x91);
     }
-    void exec_RES_2_IX_d_ptr_D(int8_t offset)  {
+    void exec_RES_2_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x92);
     }
-    void exec_RES_2_IX_d_ptr_E(int8_t offset)  {
+    void exec_RES_2_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x93);
     }
-    void exec_RES_2_IX_d_ptr_H(int8_t offset)  {
+    void exec_RES_2_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x94);
     }
-    void exec_RES_2_IX_d_ptr_L(int8_t offset)  {
+    void exec_RES_2_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x95);
     }
-    void exec_RES_2_IX_d_ptr(int8_t offset)  {
+    void exec_RES_2_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x96);
     }
-    void exec_RES_2_IX_d_ptr_A(int8_t offset)  {
+    void exec_RES_2_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x97);
     }
-    void exec_RES_3_IX_d_ptr_B(int8_t offset)  {
+    void exec_RES_3_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0x98);
     }
-    void exec_RES_3_IX_d_ptr_C(int8_t offset)  {
+    void exec_RES_3_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0x99);
     }
-    void exec_RES_3_IX_d_ptr_D(int8_t offset)  {
+    void exec_RES_3_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0x9A);
     }
-    void exec_RES_3_IX_d_ptr_E(int8_t offset)  {
+    void exec_RES_3_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0x9B);
     }
-    void exec_RES_3_IX_d_ptr_H(int8_t offset)  {
+    void exec_RES_3_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0x9C);
     }
-    void exec_RES_3_IX_d_ptr_L(int8_t offset)  {
+    void exec_RES_3_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0x9D);
     }
-    void exec_RES_3_IX_d_ptr(int8_t offset)  {
+    void exec_RES_3_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0x9E);
     }
-    void exec_RES_3_IX_d_ptr_A(int8_t offset)  {
+    void exec_RES_3_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0x9F);
     }
-    void exec_RES_4_IX_d_ptr_B(int8_t offset)  {
+    void exec_RES_4_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xA0);
     }
-    void exec_RES_4_IX_d_ptr_C(int8_t offset)  {
+    void exec_RES_4_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xA1);
     }
-    void exec_RES_4_IX_d_ptr_D(int8_t offset)  {
+    void exec_RES_4_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xA2);
     }
-    void exec_RES_4_IX_d_ptr_E(int8_t offset)  {
+    void exec_RES_4_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xA3);
     }
-    void exec_RES_4_IX_d_ptr_H(int8_t offset)  {
+    void exec_RES_4_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xA4);
     }
-    void exec_RES_4_IX_d_ptr_L(int8_t offset)  {
+    void exec_RES_4_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xA5);
     }
-    void exec_RES_4_IX_d_ptr(int8_t offset)  {
+    void exec_RES_4_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xA6);
     }
-    void exec_RES_4_IX_d_ptr_A(int8_t offset)  {
+    void exec_RES_4_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xA7);
     }
-    void exec_RES_5_IX_d_ptr_B(int8_t offset)  {
+    void exec_RES_5_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xA8);
     }
-    void exec_RES_5_IX_d_ptr_C(int8_t offset)  {
+    void exec_RES_5_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xA9);
     }
-    void exec_RES_5_IX_d_ptr_D(int8_t offset)  {
+    void exec_RES_5_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xAA);
     }
-    void exec_RES_5_IX_d_ptr_E(int8_t offset)  {
+    void exec_RES_5_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xAB);
     }
-    void exec_RES_5_IX_d_ptr_H(int8_t offset)  {
+    void exec_RES_5_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xAC);
     }
-    void exec_RES_5_IX_d_ptr_L(int8_t offset)  {
+    void exec_RES_5_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xAD);
     }
-    void exec_RES_5_IX_d_ptr(int8_t offset)  {
+    void exec_RES_5_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xAE);
     }
-    void exec_RES_5_IX_d_ptr_A(int8_t offset)  {
+    void exec_RES_5_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xAF);
     }
-    void exec_RES_6_IX_d_ptr_B(int8_t offset)  {
+    void exec_RES_6_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xB0);
     }
-    void exec_RES_6_IX_d_ptr_C(int8_t offset)  {
+    void exec_RES_6_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xB1);
     }
-    void exec_RES_6_IX_d_ptr_D(int8_t offset)  {
+    void exec_RES_6_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xB2);
     }
-    void exec_RES_6_IX_d_ptr_E(int8_t offset)  {
+    void exec_RES_6_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xB3);
     }
-    void exec_RES_6_IX_d_ptr_H(int8_t offset)  {
+    void exec_RES_6_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xB4);
     }
-    void exec_RES_6_IX_d_ptr_L(int8_t offset)  {
+    void exec_RES_6_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xB5);
     }
-    void exec_RES_6_IX_d_ptr(int8_t offset)  {
+    void exec_RES_6_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xB6);
     }
-    void exec_RES_6_IX_d_ptr_A(int8_t offset)  {
+    void exec_RES_6_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xB7);
     }
-    void exec_RES_7_IX_d_ptr_B(int8_t offset)  {
+    void exec_RES_7_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xB8);
     }
-    void exec_RES_7_IX_d_ptr_C(int8_t offset)  {
+    void exec_RES_7_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xB9);
     }
-    void exec_RES_7_IX_d_ptr_D(int8_t offset)  {
+    void exec_RES_7_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xBA);
     }
-    void exec_RES_7_IX_d_ptr_E(int8_t offset)  {
+    void exec_RES_7_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xBB);
     }
-    void exec_RES_7_IX_d_ptr_H(int8_t offset)  {
+    void exec_RES_7_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xBC);
     }
-    void exec_RES_7_IX_d_ptr_L(int8_t offset)  {
+    void exec_RES_7_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xBD);
     }
-    void exec_RES_7_IX_d_ptr(int8_t offset)  {
+    void exec_RES_7_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xBE);
     }
-    void exec_RES_7_IX_d_ptr_A(int8_t offset)  {
+    void exec_RES_7_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xBF);
     }
-    void exec_SET_0_IX_d_ptr_B(int8_t offset)  {
+    void exec_SET_0_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xC0);
     }
-    void exec_SET_0_IX_d_ptr_C(int8_t offset)  {
+    void exec_SET_0_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xC1);
     }
-    void exec_SET_0_IX_d_ptr_D(int8_t offset)  {
+    void exec_SET_0_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xC2);
     }
-    void exec_SET_0_IX_d_ptr_E(int8_t offset)  {
+    void exec_SET_0_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xC3);
     }
-    void exec_SET_0_IX_d_ptr_H(int8_t offset)  {
+    void exec_SET_0_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xC4);
     }
-    void exec_SET_0_IX_d_ptr_L(int8_t offset)  {
+    void exec_SET_0_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xC5);
     }
-    void exec_SET_0_IX_d_ptr(int8_t offset)  {
+    void exec_SET_0_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xC6);
     }
-    void exec_SET_0_IX_d_ptr_A(int8_t offset)  {
+    void exec_SET_0_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xC7);
     }
-    void exec_SET_1_IX_d_ptr_B(int8_t offset)  {
+    void exec_SET_1_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xC8);
     }
-    void exec_SET_1_IX_d_ptr_C(int8_t offset)  {
+    void exec_SET_1_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xC9);
     }
-    void exec_SET_1_IX_d_ptr_D(int8_t offset)  {
+    void exec_SET_1_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xCA);
     }
-    void exec_SET_1_IX_d_ptr_E(int8_t offset)  {
+    void exec_SET_1_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xCB);
     }
-    void exec_SET_1_IX_d_ptr_H(int8_t offset)  {
+    void exec_SET_1_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xCC);
     }
-    void exec_SET_1_IX_d_ptr_L(int8_t offset)  {
+    void exec_SET_1_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xCD);
     }
-    void exec_SET_1_IX_d_ptr(int8_t offset)  {
+    void exec_SET_1_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xCE);
     }
-    void exec_SET_1_IX_d_ptr_A(int8_t offset)  {
+    void exec_SET_1_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xCF);
     }
-    void exec_SET_2_IX_d_ptr_B(int8_t offset)  {
+    void exec_SET_2_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xD0);
     }
-    void exec_SET_2_IX_d_ptr_C(int8_t offset)  {
+    void exec_SET_2_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xD1);
     }
-    void exec_SET_2_IX_d_ptr_D(int8_t offset)  {
+    void exec_SET_2_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xD2);
     }
-    void exec_SET_2_IX_d_ptr_E(int8_t offset)  {
+    void exec_SET_2_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xD3);
     }
-    void exec_SET_2_IX_d_ptr_H(int8_t offset)  {
+    void exec_SET_2_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xD4);
     }
-    void exec_SET_2_IX_d_ptr_L(int8_t offset)  {
+    void exec_SET_2_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xD5);
     }
-    void exec_SET_2_IX_d_ptr(int8_t offset)  {
+    void exec_SET_2_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xD6);
     }
-    void exec_SET_2_IX_d_ptr_A(int8_t offset)  {
+    void exec_SET_2_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xD7);
     }
-    void exec_SET_3_IX_d_ptr_B(int8_t offset)  {
+    void exec_SET_3_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xD8);
     }
-    void exec_SET_3_IX_d_ptr_C(int8_t offset)  {
+    void exec_SET_3_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xD9);
     }
-    void exec_SET_3_IX_d_ptr_D(int8_t offset)  {
+    void exec_SET_3_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xDA);
     }
-    void exec_SET_3_IX_d_ptr_E(int8_t offset)  {
+    void exec_SET_3_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xDB);
     }
-    void exec_SET_3_IX_d_ptr_H(int8_t offset)  {
+    void exec_SET_3_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xDC);
     }
-    void exec_SET_3_IX_d_ptr_L(int8_t offset)  {
+    void exec_SET_3_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xDD);
     }
-    void exec_SET_3_IX_d_ptr(int8_t offset)  {
+    void exec_SET_3_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xDE);
     }
-    void exec_SET_3_IX_d_ptr_A(int8_t offset)  {
+    void exec_SET_3_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xDF);
     }
-    void exec_SET_4_IX_d_ptr_B(int8_t offset)  {
+    void exec_SET_4_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xE0);
     }
-    void exec_SET_4_IX_d_ptr_C(int8_t offset)  {
+    void exec_SET_4_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xE1);
     }
-    void exec_SET_4_IX_d_ptr_D(int8_t offset)  {
+    void exec_SET_4_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xE2);
     }
-    void exec_SET_4_IX_d_ptr_E(int8_t offset)  {
+    void exec_SET_4_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xE3);
     }
-    void exec_SET_4_IX_d_ptr_H(int8_t offset)  {
+    void exec_SET_4_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xE4);
     }
-    void exec_SET_4_IX_d_ptr_L(int8_t offset)  {
+    void exec_SET_4_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xE5);
     }
-    void exec_SET_4_IX_d_ptr(int8_t offset)  {
+    void exec_SET_4_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xE6);
     }
-    void exec_SET_4_IX_d_ptr_A(int8_t offset)  {
+    void exec_SET_4_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xE7);
     }
-    void exec_SET_5_IX_d_ptr_B(int8_t offset)  {
+    void exec_SET_5_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xE8);
     }
-    void exec_SET_5_IX_d_ptr_C(int8_t offset)  {
+    void exec_SET_5_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xE9);
     }
-    void exec_SET_5_IX_d_ptr_D(int8_t offset)  {
+    void exec_SET_5_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xEA);
     }
-    void exec_SET_5_IX_d_ptr_E(int8_t offset)  {
+    void exec_SET_5_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xEB);
     }
-    void exec_SET_5_IX_d_ptr_H(int8_t offset)  {
+    void exec_SET_5_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xEC);
     }
-    void exec_SET_5_IX_d_ptr_L(int8_t offset)  {
+    void exec_SET_5_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xED);
     }
-    void exec_SET_5_IX_d_ptr(int8_t offset)  {
+    void exec_SET_5_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xEE);
     }
-    void exec_SET_5_IX_d_ptr_A(int8_t offset)  {
+    void exec_SET_5_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xEF);
     }
-    void exec_SET_6_IX_d_ptr_B(int8_t offset)  {
+    void exec_SET_6_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xF0);
     }
-    void exec_SET_6_IX_d_ptr_C(int8_t offset)  {
+    void exec_SET_6_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xF1);
     }
-    void exec_SET_6_IX_d_ptr_D(int8_t offset)  {
+    void exec_SET_6_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xF2);
     }
-    void exec_SET_6_IX_d_ptr_E(int8_t offset)  {
+    void exec_SET_6_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xF3);
     }
-    void exec_SET_6_IX_d_ptr_H(int8_t offset)  {
+    void exec_SET_6_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xF4);
     }
-    void exec_SET_6_IX_d_ptr_L(int8_t offset)  {
+    void exec_SET_6_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xF5);
     }
-    void exec_SET_6_IX_d_ptr(int8_t offset)  {
+    void exec_SET_6_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xF6);
     }
-    void exec_SET_6_IX_d_ptr_A(int8_t offset)  {
+    void exec_SET_6_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xF7);
     }
-    void exec_SET_7_IX_d_ptr_B(int8_t offset)  {
+    void exec_SET_7_IX_d_ptr_B(int8_t offset) {
         exec_DDCB_helper(offset, 0xF8);
     }
-    void exec_SET_7_IX_d_ptr_C(int8_t offset)  {
+    void exec_SET_7_IX_d_ptr_C(int8_t offset) {
         exec_DDCB_helper(offset, 0xF9);
     }
-    void exec_SET_7_IX_d_ptr_D(int8_t offset)  {
+    void exec_SET_7_IX_d_ptr_D(int8_t offset) {
         exec_DDCB_helper(offset, 0xFA);
     }
-    void exec_SET_7_IX_d_ptr_E(int8_t offset)  {
+    void exec_SET_7_IX_d_ptr_E(int8_t offset) {
         exec_DDCB_helper(offset, 0xFB);
     }
-    void exec_SET_7_IX_d_ptr_H(int8_t offset)  {
+    void exec_SET_7_IX_d_ptr_H(int8_t offset) {
         exec_DDCB_helper(offset, 0xFC);
     }
-    void exec_SET_7_IX_d_ptr_L(int8_t offset)  {
+    void exec_SET_7_IX_d_ptr_L(int8_t offset) {
         exec_DDCB_helper(offset, 0xFD);
     }
-    void exec_SET_7_IX_d_ptr(int8_t offset)  {
+    void exec_SET_7_IX_d_ptr(int8_t offset) {
         exec_DDCB_helper(offset, 0xFE);
     }
-    void exec_SET_7_IX_d_ptr_A(int8_t offset)  {
+    void exec_SET_7_IX_d_ptr_A(int8_t offset) {
         exec_DDCB_helper(offset, 0xFF);
     }
 
     // --- FDCB Prefixed Opcodes ---
-    void exec_RLC_IY_d_ptr_B(int8_t offset)  {
+    void exec_RLC_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x00);
     }
-    void exec_RLC_IY_d_ptr_C(int8_t offset)  {
+    void exec_RLC_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x01);
     }
-    void exec_RLC_IY_d_ptr_D(int8_t offset)  {
+    void exec_RLC_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x02);
     }
-    void exec_RLC_IY_d_ptr_E(int8_t offset)  {
+    void exec_RLC_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x03);
     }
-    void exec_RLC_IY_d_ptr_H(int8_t offset)  {
+    void exec_RLC_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x04);
     }
-    void exec_RLC_IY_d_ptr_L(int8_t offset)  {
+    void exec_RLC_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x05);
     }
-    void exec_RLC_IY_d_ptr(int8_t offset)  {
+    void exec_RLC_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x06);
     }
-    void exec_RLC_IY_d_ptr_A(int8_t offset)  {
+    void exec_RLC_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x07);
     }
-    void exec_RRC_IY_d_ptr_B(int8_t offset)  {
+    void exec_RRC_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x08);
     }
-    void exec_RRC_IY_d_ptr_C(int8_t offset)  {
+    void exec_RRC_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x09);
     }
-    void exec_RRC_IY_d_ptr_D(int8_t offset)  {
+    void exec_RRC_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x0A);
     }
-    void exec_RRC_IY_d_ptr_E(int8_t offset)  {
+    void exec_RRC_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x0B);
     }
-    void exec_RRC_IY_d_ptr_H(int8_t offset)  {
+    void exec_RRC_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x0C);
     }
-    void exec_RRC_IY_d_ptr_L(int8_t offset)  {
+    void exec_RRC_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x0D);
     }
-    void exec_RRC_IY_d_ptr(int8_t offset)  {
+    void exec_RRC_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x0E);
     }
-    void exec_RRC_IY_d_ptr_A(int8_t offset)  {
+    void exec_RRC_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x0F);
     }
-    void exec_RL_IY_d_ptr_B(int8_t offset)  {
+    void exec_RL_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x10);
     }
-    void exec_RL_IY_d_ptr_C(int8_t offset)  {
+    void exec_RL_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x11);
     }
-    void exec_RL_IY_d_ptr_D(int8_t offset)  {
+    void exec_RL_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x12);
     }
-    void exec_RL_IY_d_ptr_E(int8_t offset)  {
+    void exec_RL_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x13);
     }
-    void exec_RL_IY_d_ptr_H(int8_t offset)  {
+    void exec_RL_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x14);
     }
-    void exec_RL_IY_d_ptr_L(int8_t offset)  {
+    void exec_RL_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x15);
     }
-    void exec_RL_IY_d_ptr(int8_t offset)  {
+    void exec_RL_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x16);
     }
-    void exec_RL_IY_d_ptr_A(int8_t offset)  {
+    void exec_RL_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x17);
     }
-    void exec_RR_IY_d_ptr_B(int8_t offset)  {
+    void exec_RR_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x18);
     }
-    void exec_RR_IY_d_ptr_C(int8_t offset)  {
+    void exec_RR_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x19);
     }
-    void exec_RR_IY_d_ptr_D(int8_t offset)  {
+    void exec_RR_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x1A);
     }
-    void exec_RR_IY_d_ptr_E(int8_t offset)  {
+    void exec_RR_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x1B);
     }
-    void exec_RR_IY_d_ptr_H(int8_t offset)  {
+    void exec_RR_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x1C);
     }
-    void exec_RR_IY_d_ptr_L(int8_t offset)  {
+    void exec_RR_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x1D);
     }
-    void exec_RR_IY_d_ptr(int8_t offset)  {
+    void exec_RR_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x1E);
     }
-    void exec_RR_IY_d_ptr_A(int8_t offset)  {
+    void exec_RR_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x1F);
     }
-    void exec_SLA_IY_d_ptr_B(int8_t offset)  {
+    void exec_SLA_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x20);
     }
-    void exec_SLA_IY_d_ptr_C(int8_t offset)  {
+    void exec_SLA_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x21);
     }
-    void exec_SLA_IY_d_ptr_D(int8_t offset)  {
+    void exec_SLA_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x22);
     }
-    void exec_SLA_IY_d_ptr_E(int8_t offset)  {
+    void exec_SLA_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x23);
     }
-    void exec_SLA_IY_d_ptr_H(int8_t offset)  {
+    void exec_SLA_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x24);
     }
-    void exec_SLA_IY_d_ptr_L(int8_t offset)  {
+    void exec_SLA_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x25);
     }
-    void exec_SLA_IY_d_ptr(int8_t offset)  {
+    void exec_SLA_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x26);
     }
-    void exec_SLA_IY_d_ptr_A(int8_t offset)  {
+    void exec_SLA_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x27);
     }
-    void exec_SRA_IY_d_ptr_B(int8_t offset)  {
+    void exec_SRA_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x28);
     }
-    void exec_SRA_IY_d_ptr_C(int8_t offset)  {
+    void exec_SRA_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x29);
     }
-    void exec_SRA_IY_d_ptr_D(int8_t offset)  {
+    void exec_SRA_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x2A);
     }
-    void exec_SRA_IY_d_ptr_E(int8_t offset)  {
+    void exec_SRA_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x2B);
     }
-    void exec_SRA_IY_d_ptr_H(int8_t offset)  {
+    void exec_SRA_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x2C);
     }
-    void exec_SRA_IY_d_ptr_L(int8_t offset)  {
+    void exec_SRA_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x2D);
     }
-    void exec_SRA_IY_d_ptr(int8_t offset)  {
+    void exec_SRA_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x2E);
     }
-    void exec_SRA_IY_d_ptr_A(int8_t offset)  {
+    void exec_SRA_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x2F);
     }
-    void exec_SLL_IY_d_ptr_B(int8_t offset)  {
+    void exec_SLL_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x30);
     }
-    void exec_SLL_IY_d_ptr_C(int8_t offset)  {
+    void exec_SLL_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x31);
     }
-    void exec_SLL_IY_d_ptr_D(int8_t offset)  {
+    void exec_SLL_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x32);
     }
-    void exec_SLL_IY_d_ptr_E(int8_t offset)  {
+    void exec_SLL_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x33);
     }
-    void exec_SLL_IY_d_ptr_H(int8_t offset)  {
+    void exec_SLL_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x34);
     }
-    void exec_SLL_IY_d_ptr_L(int8_t offset)  {
+    void exec_SLL_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x35);
     }
-    void exec_SLL_IY_d_ptr(int8_t offset)  {
+    void exec_SLL_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x36);
     }
-    void exec_SLL_IY_d_ptr_A(int8_t offset)  {
+    void exec_SLL_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x37);
     }
-    void exec_SRL_IY_d_ptr_B(int8_t offset)  {
+    void exec_SRL_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x38);
     }
-    void exec_SRL_IY_d_ptr_C(int8_t offset)  {
+    void exec_SRL_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x39);
     }
-    void exec_SRL_IY_d_ptr_D(int8_t offset)  {
+    void exec_SRL_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x3A);
     }
-    void exec_SRL_IY_d_ptr_E(int8_t offset)  {
+    void exec_SRL_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x3B);
     }
-    void exec_SRL_IY_d_ptr_H(int8_t offset)  {
+    void exec_SRL_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x3C);
     }
-    void exec_SRL_IY_d_ptr_L(int8_t offset)  {
+    void exec_SRL_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x3D);
     }
-    void exec_SRL_IY_d_ptr(int8_t offset)  {
+    void exec_SRL_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x3E);
     }
-    void exec_SRL_IY_d_ptr_A(int8_t offset)  {
+    void exec_SRL_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x3F);
     }
-    void exec_BIT_0_IY_d_ptr(int8_t offset)  {
+    void exec_BIT_0_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x46);
     }
-    void exec_BIT_1_IY_d_ptr(int8_t offset)  {
+    void exec_BIT_1_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x4E);
     }
-    void exec_BIT_2_IY_d_ptr(int8_t offset)  {
+    void exec_BIT_2_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x56);
     }
-    void exec_BIT_3_IY_d_ptr(int8_t offset)  {
+    void exec_BIT_3_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x5E);
     }
-    void exec_BIT_4_IY_d_ptr(int8_t offset)  {
+    void exec_BIT_4_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x66);
     }
-    void exec_BIT_5_IY_d_ptr(int8_t offset)  {
+    void exec_BIT_5_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x6E);
     }
-    void exec_BIT_6_IY_d_ptr(int8_t offset)  {
+    void exec_BIT_6_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x76);
     }
-    void exec_BIT_7_IY_d_ptr(int8_t offset)  {
+    void exec_BIT_7_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x7E);
     }
-    void exec_RES_0_IY_d_ptr_B(int8_t offset)  {
+    void exec_RES_0_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x80);
     }
-    void exec_RES_0_IY_d_ptr_C(int8_t offset)  {
+    void exec_RES_0_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x81);
     }
-    void exec_RES_0_IY_d_ptr_D(int8_t offset)  {
+    void exec_RES_0_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x82);
     }
-    void exec_RES_0_IY_d_ptr_E(int8_t offset)  {
+    void exec_RES_0_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x83);
     }
-    void exec_RES_0_IY_d_ptr_H(int8_t offset)  {
+    void exec_RES_0_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x84);
     }
-    void exec_RES_0_IY_d_ptr_L(int8_t offset)  {
+    void exec_RES_0_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x85);
     }
-    void exec_RES_0_IY_d_ptr(int8_t offset)  {
+    void exec_RES_0_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x86);
     }
-    void exec_RES_0_IY_d_ptr_A(int8_t offset)  {
+    void exec_RES_0_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x87);
     }
-    void exec_RES_1_IY_d_ptr_B(int8_t offset)  {
+    void exec_RES_1_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x88);
     }
-    void exec_RES_1_IY_d_ptr_C(int8_t offset)  {
+    void exec_RES_1_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x89);
     }
-    void exec_RES_1_IY_d_ptr_D(int8_t offset)  {
+    void exec_RES_1_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x8A);
     }
-    void exec_RES_1_IY_d_ptr_E(int8_t offset)  {
+    void exec_RES_1_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x8B);
     }
-    void exec_RES_1_IY_d_ptr_H(int8_t offset)  {
+    void exec_RES_1_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x8C);
     }
-    void exec_RES_1_IY_d_ptr_L(int8_t offset)  {
+    void exec_RES_1_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x8D);
     }
-    void exec_RES_1_IY_d_ptr(int8_t offset)  {
+    void exec_RES_1_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x8E);
     }
-    void exec_RES_1_IY_d_ptr_A(int8_t offset)  {
+    void exec_RES_1_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x8F);
     }
-    void exec_RES_2_IY_d_ptr_B(int8_t offset)  {
+    void exec_RES_2_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x90);
     }
-    void exec_RES_2_IY_d_ptr_C(int8_t offset)  {
+    void exec_RES_2_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x91);
     }
-    void exec_RES_2_IY_d_ptr_D(int8_t offset)  {
+    void exec_RES_2_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x92);
     }
-    void exec_RES_2_IY_d_ptr_E(int8_t offset)  {
+    void exec_RES_2_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x93);
     }
-    void exec_RES_2_IY_d_ptr_H(int8_t offset)  {
+    void exec_RES_2_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x94);
     }
-    void exec_RES_2_IY_d_ptr_L(int8_t offset)  {
+    void exec_RES_2_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x95);
     }
-    void exec_RES_2_IY_d_ptr(int8_t offset)  {
+    void exec_RES_2_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x96);
     }
-    void exec_RES_2_IY_d_ptr_A(int8_t offset)  {
+    void exec_RES_2_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x97);
     }
-    void exec_RES_3_IY_d_ptr_B(int8_t offset)  {
+    void exec_RES_3_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0x98);
     }
-    void exec_RES_3_IY_d_ptr_C(int8_t offset)  {
+    void exec_RES_3_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0x99);
     }
-    void exec_RES_3_IY_d_ptr_D(int8_t offset)  {
+    void exec_RES_3_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0x9A);
     }
-    void exec_RES_3_IY_d_ptr_E(int8_t offset)  {
+    void exec_RES_3_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0x9B);
     }
-    void exec_RES_3_IY_d_ptr_H(int8_t offset)  {
+    void exec_RES_3_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0x9C);
     }
-    void exec_RES_3_IY_d_ptr_L(int8_t offset)  {
+    void exec_RES_3_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0x9D);
     }
-    void exec_RES_3_IY_d_ptr(int8_t offset)  {
+    void exec_RES_3_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0x9E);
     }
-    void exec_RES_3_IY_d_ptr_A(int8_t offset)  {
+    void exec_RES_3_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0x9F);
     }
-    void exec_RES_4_IY_d_ptr_B(int8_t offset)  {
+    void exec_RES_4_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xA0);
     }
-    void exec_RES_4_IY_d_ptr_C(int8_t offset)  {
+    void exec_RES_4_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xA1);
     }
-    void exec_RES_4_IY_d_ptr_D(int8_t offset)  {
+    void exec_RES_4_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xA2);
     }
-    void exec_RES_4_IY_d_ptr_E(int8_t offset)  {
+    void exec_RES_4_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xA3);
     }
-    void exec_RES_4_IY_d_ptr_H(int8_t offset)  {
+    void exec_RES_4_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xA4);
     }
-    void exec_RES_4_IY_d_ptr_L(int8_t offset)  {
+    void exec_RES_4_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xA5);
     }
-    void exec_RES_4_IY_d_ptr(int8_t offset)  {
+    void exec_RES_4_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xA6);
     }
-    void exec_RES_4_IY_d_ptr_A(int8_t offset)  {
+    void exec_RES_4_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xA7);
     }
-    void exec_RES_5_IY_d_ptr_B(int8_t offset)  {
+    void exec_RES_5_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xA8);
     }
-    void exec_RES_5_IY_d_ptr_C(int8_t offset)  {
+    void exec_RES_5_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xA9);
     }
-    void exec_RES_5_IY_d_ptr_D(int8_t offset)  {
+    void exec_RES_5_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xAA);
     }
-    void exec_RES_5_IY_d_ptr_E(int8_t offset)  {
+    void exec_RES_5_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xAB);
     }
-    void exec_RES_5_IY_d_ptr_H(int8_t offset)  {
+    void exec_RES_5_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xAC);
     }
-    void exec_RES_5_IY_d_ptr_L(int8_t offset)  {
+    void exec_RES_5_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xAD);
     }
-    void exec_RES_5_IY_d_ptr(int8_t offset)  {
+    void exec_RES_5_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xAE);
     }
-    void exec_RES_5_IY_d_ptr_A(int8_t offset)  {
+    void exec_RES_5_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xAF);
     }
-    void exec_RES_6_IY_d_ptr_B(int8_t offset)  {
+    void exec_RES_6_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xB0);
     }
-    void exec_RES_6_IY_d_ptr_C(int8_t offset)  {
+    void exec_RES_6_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xB1);
     }
-    void exec_RES_6_IY_d_ptr_D(int8_t offset)  {
+    void exec_RES_6_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xB2);
     }
-    void exec_RES_6_IY_d_ptr_E(int8_t offset)  {
+    void exec_RES_6_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xB3);
     }
-    void exec_RES_6_IY_d_ptr_H(int8_t offset)  {
+    void exec_RES_6_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xB4);
     }
-    void exec_RES_6_IY_d_ptr_L(int8_t offset)  {
+    void exec_RES_6_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xB5);
     }
-    void exec_RES_6_IY_d_ptr(int8_t offset)  {
+    void exec_RES_6_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xB6);
     }
-    void exec_RES_6_IY_d_ptr_A(int8_t offset)  {
+    void exec_RES_6_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xB7);
     }
-    void exec_RES_7_IY_d_ptr_B(int8_t offset)  {
+    void exec_RES_7_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xB8);
     }
-    void exec_RES_7_IY_d_ptr_C(int8_t offset)  {
+    void exec_RES_7_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xB9);
     }
-    void exec_RES_7_IY_d_ptr_D(int8_t offset)  {
+    void exec_RES_7_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xBA);
     }
-    void exec_RES_7_IY_d_ptr_E(int8_t offset)  {
+    void exec_RES_7_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xBB);
     }
-    void exec_RES_7_IY_d_ptr_H(int8_t offset)  {
+    void exec_RES_7_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xBC);
     }
-    void exec_RES_7_IY_d_ptr_L(int8_t offset)  {
+    void exec_RES_7_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xBD);
     }
-    void exec_RES_7_IY_d_ptr(int8_t offset)  {
+    void exec_RES_7_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xBE);
     }
-    void exec_RES_7_IY_d_ptr_A(int8_t offset)  {
+    void exec_RES_7_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xBF);
     }
-    void exec_SET_0_IY_d_ptr_B(int8_t offset)  {
+    void exec_SET_0_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xC0);
     }
-    void exec_SET_0_IY_d_ptr_C(int8_t offset)  {
+    void exec_SET_0_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xC1);
     }
-    void exec_SET_0_IY_d_ptr_D(int8_t offset)  {
+    void exec_SET_0_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xC2);
     }
-    void exec_SET_0_IY_d_ptr_E(int8_t offset)  {
+    void exec_SET_0_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xC3);
     }
-    void exec_SET_0_IY_d_ptr_H(int8_t offset)  {
+    void exec_SET_0_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xC4);
     }
-    void exec_SET_0_IY_d_ptr_L(int8_t offset)  {
+    void exec_SET_0_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xC5);
     }
-    void exec_SET_0_IY_d_ptr(int8_t offset)  {
+    void exec_SET_0_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xC6);
     }
-    void exec_SET_0_IY_d_ptr_A(int8_t offset)  {
+    void exec_SET_0_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xC7);
     }
-    void exec_SET_1_IY_d_ptr_B(int8_t offset)  {
+    void exec_SET_1_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xC8);
     }
-    void exec_SET_1_IY_d_ptr_C(int8_t offset)  {
+    void exec_SET_1_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xC9);
     }
-    void exec_SET_1_IY_d_ptr_D(int8_t offset)  {
+    void exec_SET_1_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xCA);
     }
-    void exec_SET_1_IY_d_ptr_E(int8_t offset)  {
+    void exec_SET_1_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xCB);
     }
-    void exec_SET_1_IY_d_ptr_H(int8_t offset)  {
+    void exec_SET_1_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xCC);
     }
-    void exec_SET_1_IY_d_ptr_L(int8_t offset)  {
+    void exec_SET_1_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xCD);
     }
-    void exec_SET_1_IY_d_ptr(int8_t offset)  {
+    void exec_SET_1_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xCE);
     }
-    void exec_SET_1_IY_d_ptr_A(int8_t offset)  {
+    void exec_SET_1_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xCF);
     }
-    void exec_SET_2_IY_d_ptr_B(int8_t offset)  {
+    void exec_SET_2_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xD0);
     }
-    void exec_SET_2_IY_d_ptr_C(int8_t offset)  {
+    void exec_SET_2_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xD1);
     }
-    void exec_SET_2_IY_d_ptr_D(int8_t offset)  {
+    void exec_SET_2_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xD2);
     }
-    void exec_SET_2_IY_d_ptr_E(int8_t offset)  {
+    void exec_SET_2_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xD3);
     }
-    void exec_SET_2_IY_d_ptr_H(int8_t offset)  {
+    void exec_SET_2_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xD4);
     }
-    void exec_SET_2_IY_d_ptr_L(int8_t offset)  {
+    void exec_SET_2_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xD5);
     }
-    void exec_SET_2_IY_d_ptr(int8_t offset)  {
+    void exec_SET_2_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xD6);
     }
-    void exec_SET_2_IY_d_ptr_A(int8_t offset)  {
+    void exec_SET_2_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xD7);
     }
-    void exec_SET_3_IY_d_ptr_B(int8_t offset)  {
+    void exec_SET_3_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xD8);
     }
-    void exec_SET_3_IY_d_ptr_C(int8_t offset)  {
+    void exec_SET_3_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xD9);
     }
-    void exec_SET_3_IY_d_ptr_D(int8_t offset)  {
+    void exec_SET_3_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xDA);
     }
-    void exec_SET_3_IY_d_ptr_E(int8_t offset)  {
+    void exec_SET_3_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xDB);
     }
-    void exec_SET_3_IY_d_ptr_H(int8_t offset)  {
+    void exec_SET_3_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xDC);
     }
-    void exec_SET_3_IY_d_ptr_L(int8_t offset)  {
+    void exec_SET_3_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xDD);
     }
-    void exec_SET_3_IY_d_ptr(int8_t offset)  {
+    void exec_SET_3_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xDE);
     }
-    void exec_SET_3_IY_d_ptr_A(int8_t offset)  {
+    void exec_SET_3_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xDF);
     }
-    void exec_SET_4_IY_d_ptr_B(int8_t offset)  {
+    void exec_SET_4_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xE0);
     }
-    void exec_SET_4_IY_d_ptr_C(int8_t offset)  {
+    void exec_SET_4_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xE1);
     }
-    void exec_SET_4_IY_d_ptr_D(int8_t offset)  {
+    void exec_SET_4_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xE2);
     }
-    void exec_SET_4_IY_d_ptr_E(int8_t offset)  {
+    void exec_SET_4_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xE3);
     }
-    void exec_SET_4_IY_d_ptr_H(int8_t offset)  {
+    void exec_SET_4_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xE4);
     }
-    void exec_SET_4_IY_d_ptr_L(int8_t offset)  {
+    void exec_SET_4_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xE5);
     }
-    void exec_SET_4_IY_d_ptr(int8_t offset)  {
+    void exec_SET_4_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xE6);
     }
-    void exec_SET_4_IY_d_ptr_A(int8_t offset)  {
+    void exec_SET_4_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xE7);
     }
-    void exec_SET_5_IY_d_ptr_B(int8_t offset)  {
+    void exec_SET_5_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xE8);
     }
-    void exec_SET_5_IY_d_ptr_C(int8_t offset)  {
+    void exec_SET_5_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xE9);
     }
-    void exec_SET_5_IY_d_ptr_D(int8_t offset)  {
+    void exec_SET_5_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xEA);
     }
-    void exec_SET_5_IY_d_ptr_E(int8_t offset)  {
+    void exec_SET_5_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xEB);
     }
-    void exec_SET_5_IY_d_ptr_H(int8_t offset)  {
+    void exec_SET_5_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xEC);
     }
-    void exec_SET_5_IY_d_ptr_L(int8_t offset)  {
+    void exec_SET_5_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xED);
     }
-    void exec_SET_5_IY_d_ptr(int8_t offset)  {
+    void exec_SET_5_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xEE);
     }
-    void exec_SET_5_IY_d_ptr_A(int8_t offset)  {
+    void exec_SET_5_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xEF);
     }
-    void exec_SET_6_IY_d_ptr_B(int8_t offset)  {
+    void exec_SET_6_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xF0);
     }
-    void exec_SET_6_IY_d_ptr_C(int8_t offset)  {
+    void exec_SET_6_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xF1);
     }
-    void exec_SET_6_IY_d_ptr_D(int8_t offset)  {
+    void exec_SET_6_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xF2);
     }
-    void exec_SET_6_IY_d_ptr_E(int8_t offset)  {
+    void exec_SET_6_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xF3);
     }
-    void exec_SET_6_IY_d_ptr_H(int8_t offset)  {
+    void exec_SET_6_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xF4);
     }
-    void exec_SET_6_IY_d_ptr_L(int8_t offset)  {
+    void exec_SET_6_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xF5);
     }
-    void exec_SET_6_IY_d_ptr(int8_t offset)  {
+    void exec_SET_6_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xF6);
     }
-    void exec_SET_6_IY_d_ptr_A(int8_t offset)  {
+    void exec_SET_6_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xF7);
     }
-    void exec_SET_7_IY_d_ptr_B(int8_t offset)  {
+    void exec_SET_7_IY_d_ptr_B(int8_t offset) {
         exec_FDCB_helper(offset, 0xF8);
     }
-    void exec_SET_7_IY_d_ptr_C(int8_t offset)  {
+    void exec_SET_7_IY_d_ptr_C(int8_t offset) {
         exec_FDCB_helper(offset, 0xF9);
     }
-    void exec_SET_7_IY_d_ptr_D(int8_t offset)  {
+    void exec_SET_7_IY_d_ptr_D(int8_t offset) {
         exec_FDCB_helper(offset, 0xFA);
     }
-    void exec_SET_7_IY_d_ptr_E(int8_t offset)  {
+    void exec_SET_7_IY_d_ptr_E(int8_t offset) {
         exec_FDCB_helper(offset, 0xFB);
     }
-    void exec_SET_7_IY_d_ptr_H(int8_t offset)  {
+    void exec_SET_7_IY_d_ptr_H(int8_t offset) {
         exec_FDCB_helper(offset, 0xFC);
     }
-    void exec_SET_7_IY_d_ptr_L(int8_t offset)  {
+    void exec_SET_7_IY_d_ptr_L(int8_t offset) {
         exec_FDCB_helper(offset, 0xFD);
     }
-    void exec_SET_7_IY_d_ptr(int8_t offset)  {
+    void exec_SET_7_IY_d_ptr(int8_t offset) {
         exec_FDCB_helper(offset, 0xFE);
     }
-    void exec_SET_7_IY_d_ptr_A(int8_t offset)  {
+    void exec_SET_7_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xFF);
     }
 #endif
@@ -6681,14 +7662,28 @@ public:
 
 class Z80DefaultBus {
 public:
-    Z80DefaultBus() { m_ram.resize(0x10000, 0); }
-    template <typename TEvents, typename TDebugger> void connect(Z80<Z80DefaultBus, TEvents, TDebugger>* cpu) {}
-    void reset() { std::fill(m_ram.begin(), m_ram.end(), 0); }
-    uint8_t read(uint16_t address) { return m_ram[address]; }
-    uint8_t peek(uint16_t address) const { return m_ram[address]; }
-    void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
-    uint8_t in(uint16_t port) { return 0xFF; }
-    void out(uint16_t port, uint8_t value) { /* no-op */ }
+    Z80DefaultBus() {
+        m_ram.resize(0x10000, 0);
+    }
+    template <typename TEvents, typename TDebugger> void connect(Z80<Z80DefaultBus, TEvents, TDebugger>* cpu) {
+    }
+    void reset() {
+        std::fill(m_ram.begin(), m_ram.end(), 0);
+    }
+    uint8_t read(uint16_t address) {
+        return m_ram[address];
+    }
+    uint8_t peek(uint16_t address) const {
+        return m_ram[address];
+    }
+    void write(uint16_t address, uint8_t value) {
+        m_ram[address] = value;
+    }
+    uint8_t in(uint16_t port) {
+        return 0xFF;
+    }
+    void out(uint16_t port, uint8_t value) { /* no-op */
+    }
 
 private:
     std::vector<uint8_t> m_ram;
@@ -6697,24 +7692,35 @@ private:
 class Z80DefaultEvents {
 public:
     static constexpr long long CYCLES_PER_EVENT = LLONG_MAX;
-    template <typename TBus, typename TDebugger>
-    void connect(const Z80<TBus, Z80DefaultEvents, TDebugger>* cpu) {}
-    void reset() {}
-    long long get_event_limit() const { return LLONG_MAX; }
-    void handle_event(long long tick) {}
+    template <typename TBus, typename TDebugger> void connect(const Z80<TBus, Z80DefaultEvents, TDebugger>* cpu) {
+    }
+    void reset() {
+    }
+    long long get_event_limit() const {
+        return LLONG_MAX;
+    }
+    void handle_event(long long tick) {
+    }
 };
 
 class Z80DefaultDebugger {
-public: 
-    template <typename TBus, typename TEvents> 
-    void connect(const Z80<TBus, TEvents, Z80DefaultDebugger>* cpu) {}
-    void reset() {}
-    void before_step(const std::vector<uint8_t>& opcodes) {}
-    void after_step(const std::vector<uint8_t>& opcodes) {}
-    void before_IRQ() {}
-    void after_IRQ() {}
-    void before_NMI() {}
-    void after_NMI() {}
+public:
+    template <typename TBus, typename TEvents> void connect(const Z80<TBus, TEvents, Z80DefaultDebugger>* cpu) {
+    }
+    void reset() {
+    }
+    void before_step(const std::vector<uint8_t>& opcodes) {
+    }
+    void after_step(const std::vector<uint8_t>& opcodes) {
+    }
+    void before_IRQ() {
+    }
+    void after_IRQ() {
+    }
+    void before_NMI() {
+    }
+    void after_NMI() {
+    }
 };
 
 #endif //__Z80_H__
