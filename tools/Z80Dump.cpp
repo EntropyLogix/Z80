@@ -23,16 +23,12 @@
 #include <sstream>
 #include <iomanip>
 
-// --- Helper Functions ---
-
 template <typename T>
 std::string format_hex(T value, int width) {
     std::stringstream ss;
     ss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(width) << value;
     return ss.str();
 }
-
-// --- Command-line Tool Functions ---
 
 void print_usage() {
     std::cerr << "Usage: Z80Dump <file_path> [options]\n"
@@ -46,7 +42,11 @@ void print_usage() {
             << "    Example: --disassemble 8000 20\n\n"
             << "  --load-addr <address_hex>\n"
             << "    Specifies the loading address for .bin files (default: 0x0000).\n"
-            << "    Example: --load-addr 8000\n";
+            << "    Example: --load-addr 8000\n\n"
+            << "  --reg-dump [format_string]\n"
+            << "    Dumps CPU registers. An optional format string can be provided.\n"
+            << "    Example: --reg-dump \"PC=%pc SP=%sp AF=%af BC=%bc DE=%de HL=%hl\"\n";
+
 }
 
 std::string get_file_extension(const std::string& filename) {
@@ -86,7 +86,6 @@ bool load_sna_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
         std::cerr << "Error: Invalid 48K SNA file size." << std::endl;
         return false;
     }
-
     Z80<>::State state;
     state.m_I = data[0];
     state.m_HLp.w = (data[2] << 8) | data[1];
@@ -104,17 +103,11 @@ bool load_sna_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
     state.m_AF.w = (data[22] << 8) | data[21];
     state.m_SP.w = (data[24] << 8) | data[23];
     state.m_IRQ_mode = data[25];
-    // Border color at data[26] is ignored
-
-    // Load RAM
     for (size_t i = 0; i < 49152; ++i) {
         cpu.get_bus()->write(0x4000 + i, data[27 + i]);
     }
-
-    // PC is on the stack
     state.m_PC.w = cpu.get_bus()->peek(state.m_SP.w) | (cpu.get_bus()->peek(state.m_SP.w + 1) << 8);
     state.m_SP.w += 2;
-
     cpu.restore_state(state);
     return true;
 }
@@ -156,14 +149,14 @@ bool load_z80_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
         std::cerr << "Error: Z80 v2/v3 files are not supported yet." << std::endl;
         return false;
     }
-
     size_t data_ptr = 30;
     if (compressed) {
         uint16_t mem_addr = 0x4000;
         while (data_ptr < data.size() && mem_addr < 0xFFFF) {
             if (data_ptr + 1 < data.size() && data[data_ptr] == 0xED && data[data_ptr + 1] == 0xED) {
-                if (data_ptr + 2 >= data.size()) break; // Corrupted sequence
-                uint8_t count = 4; // Z80 spec says ED ED is 4 repetitions
+                if (data_ptr + 2 >= data.size())
+                    break; // Corrupted sequence
+                uint8_t count = 4;
                 uint8_t value = data[data_ptr + 2];
                 data_ptr += 3;
                 for (int i = 0; i < count && mem_addr < 0xFFFF; ++i) {
@@ -197,12 +190,12 @@ int main(int argc, char* argv[]) {
         print_usage();
         return 1;
     }
-
     std::string file_path = argv[1];
     uint16_t mem_dump_addr = 0, disasm_addr = 0;
     size_t mem_dump_size = 0, disasm_lines = 0;
     uint16_t load_addr = 0x0000;
-
+    bool reg_dump_action = false;
+    std::string reg_dump_format;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--mem-dump" && i + 2 < argc) {
@@ -213,24 +206,27 @@ int main(int argc, char* argv[]) {
             disasm_lines = std::stoul(argv[++i], nullptr, 10);
         } else if (arg == "--load-addr" && i + 1 < argc) {
             load_addr = std::stoul(argv[++i], nullptr, 16);
+        } else if (arg == "--reg-dump") {
+            reg_dump_action = true;
+            // Check if the next argument is not another option flag
+            if (i + 1 < argc && argv[i+1][0] != '-') {
+                reg_dump_format = argv[++i];
+            }
         } else {
             std::cerr << "Error: Unknown or incomplete argument '" << arg << "'." << std::endl;
             print_usage();
             return 1;
         }
     }
-
     auto file_data = read_file(file_path);
     if (file_data.empty()) {
         std::cerr << "Error: Could not read file '" << file_path << "'." << std::endl;
         return 1;
     }
-
     Z80<> cpu;
-    Z80Analyzer analyzer(*cpu.get_bus());
+    Z80Analyzer<Z80DefaultBus, Z80<>> analyzer(cpu.get_bus(), &cpu);
     std::string ext = get_file_extension(file_path);
     bool loaded = false;
-
     std::cout << "Loading file: " << file_path << " (type: " << (ext.empty() ? "bin" : ext) << ")" << std::endl;
     if (ext == "sna") {
         loaded = load_sna_file(cpu, file_data);
@@ -243,23 +239,22 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: Unsupported file extension '" << ext << "'." << std::endl;
         return 1;
     }
-
     if (!loaded) {
         std::cerr << "Error: Failed to load file content into emulator." << std::endl;
         return 1;
     }
-
-    std::cout << "File loaded successfully." << std::endl;
-    if (ext == "sna" || ext == "z80") {
-        std::cout << "Initial PC from snapshot: " << format_hex(cpu.get_PC(), 4) << std::endl;
+    std::cout << "File loaded successfully.\n" << std::endl;
+    if (mem_dump_size == 0 && disasm_lines == 0 && !reg_dump_action) {
+        reg_dump_action = true;
     }
-
-    // --- Perform requested actions ---
-
-    // 1. Memory Dump
+    if (reg_dump_action) {
+        std::string format = reg_dump_format.empty() ? "AF=%af BC=%bc DE=%de HL=%hl IX=%ix IY=%iy PC=%pc SP=%sp | %flags" : reg_dump_format;
+        std::cout << "--- Register Dump ---\n";
+        std::cout << analyzer.dump_registers(format) << std::endl;
+    }
     if (mem_dump_size > 0) {
         std::cout << "\n--- Memory Dump from " << format_hex(mem_dump_addr, 4)
-                  << " (" << mem_dump_size << " bytes) ---\n";
+                << " (" << mem_dump_size << " bytes) ---\n";
         
         uint16_t current_addr = mem_dump_addr;
         size_t bytes_remaining = mem_dump_size;
@@ -278,11 +273,9 @@ int main(int argc, char* argv[]) {
             bytes_remaining -= bytes_dumped;
         }
     }
-
-    // 2. Disassembly
     if (disasm_lines > 0) {
         std::cout << "\n--- Disassembly from " << format_hex(disasm_addr, 4)
-                  << " (" << disasm_lines << " lines) ---\n";
+                << " (" << disasm_lines << " lines) ---\n";
         
         uint16_t pc = disasm_addr;
         auto listing = analyzer.disassemble(pc, disasm_lines);
@@ -290,10 +283,8 @@ int main(int argc, char* argv[]) {
             std::cout << line << std::endl;
         }
     }
-
-    if (mem_dump_size == 0 && disasm_lines == 0) {
-        std::cout << "\nNo action specified. Use --mem-dump or --disassemble to see output." << std::endl;
+    if (mem_dump_size == 0 && disasm_lines == 0 && !reg_dump_action) {
+        std::cout << "\nNo action specified. Use --reg-dump, --mem-dump, or --disassemble to see output." << std::endl;
     }
-
     return 0;
 }

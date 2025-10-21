@@ -22,10 +22,13 @@
 #include <iomanip>
 #include <vector>
 
-template <class TBus>
+// Forward-declare Z80 to resolve circular dependency
+template <typename, typename, typename> class Z80; // Pozostaje dla kompatybilności typów w razie potrzeby
+
+template <typename TMemory, typename TRegisters>
 class Z80Analyzer {
 public:
-    Z80Analyzer(TBus& bus) : m_bus(bus) {}
+    Z80Analyzer(TMemory* memory, TRegisters* registers) : m_memory(memory), m_registers(registers) {}
 
     std::string disassemble(uint16_t& address) {
         return disassemble(address, "%a: %-12b %m");
@@ -60,7 +63,7 @@ public:
             row_bytes.reserve(cols);
             for (size_t j = 0; j < cols; ++j) {
                 if (address > 0xFFFF) break;
-                row_bytes.push_back(m_bus.peek(address++));
+                row_bytes.push_back(m_memory->peek(address++));
             }
             if (row_bytes.empty())
                 break;
@@ -76,6 +79,45 @@ public:
             result.push_back(ss.str());
         }
         return result;
+    }
+
+    // Dumps the current state of CPU registers into a formatted string.
+    //
+    // Format specifiers for dump_registers:
+    // - Lowercase (e.g., %pc, %af, %a): Hexadecimal output.
+    // - Uppercase (e.g., %PC, %AF, %A): Decimal output.
+    //
+    // - %af, %bc, %de, %hl, %ix, %iy, %sp, %pc: 16-bit registers.
+    // - %af', %bc', %de', %hl': Alternate 16-bit registers.
+    // - %a, %f, %b, %c, %d, %e, %h, %l: 8-bit main registers.
+    // - %i, %r: 8-bit special registers.
+    // - %flags: String representation of the F register (e.g., "SZ-H-PNC").
+    std::string dump_registers(const std::string& format) {
+        std::stringstream ss;
+        for (size_t i = 0; i < format.length(); ++i) {
+            if (format[i] == '%' && i + 1 < format.length()) {
+                std::string specifier;
+                size_t j = i + 1;
+                // Consume multi-character specifiers (e.g., "af", "af'", "flags")
+                while (j < format.length() && (isalnum(format[j]) || format[j] == '\''))
+                    specifier += format[j++];
+                if (!specifier.empty()) {
+                    ss << format_register_segment(specifier);
+                    i = j - 1;
+                } else 
+                    ss << format[i];
+            } else if (format[i] == '\\' && i + 1 < format.length()) {
+                switch (format[i+1]) {
+                    case 'n': ss << '\n'; break;
+                    case 't': ss << '\t'; break;
+                    default: ss << format[i+1]; break;
+                }
+                i++;
+            }
+            else 
+                ss << format[i];
+        }
+        return ss.str();
     }
 
     //Format specifiers:
@@ -128,7 +170,7 @@ public:
                             break;
                     }
                     ss << std::setfill(fill_char) << std::setw(width) << (left_align ? std::left : std::right) << replacement;
-                    ss << std::setfill(' '); // Reset fill character
+                    ss << std::setfill(' ');
                     i = j;
                 }
             } else
@@ -138,6 +180,61 @@ public:
     }
 
 private:
+    std::string format_register_segment(const std::string& specifier) {
+        std::string s_lower = specifier;
+        std::transform(s_lower.begin(), s_lower.end(), s_lower.begin(), ::tolower);
+        bool is_upper = (specifier.length() > 0 && isupper(specifier[0]));
+
+        // 16-bit registers
+        if (s_lower == "af") return is_upper ? format_dec(m_registers->get_AF()) : format_hex(m_registers->get_AF(), 4);
+        if (s_lower == "bc") return is_upper ? format_dec(m_registers->get_BC()) : format_hex(m_registers->get_BC(), 4);
+        if (s_lower == "de") return is_upper ? format_dec(m_registers->get_DE()) : format_hex(m_registers->get_DE(), 4);
+        if (s_lower == "hl") return is_upper ? format_dec(m_registers->get_HL()) : format_hex(m_registers->get_HL(), 4);
+        if (s_lower == "ix") return is_upper ? format_dec(m_registers->get_IX()) : format_hex(m_registers->get_IX(), 4);
+        if (s_lower == "iy") return is_upper ? format_dec(m_registers->get_IY()) : format_hex(m_registers->get_IY(), 4);
+        if (s_lower == "sp") return is_upper ? format_dec(m_registers->get_SP()) : format_hex(m_registers->get_SP(), 4);
+        if (s_lower == "pc") return is_upper ? format_dec(m_registers->get_PC()) : format_hex(m_registers->get_PC(), 4);
+
+        // Alternate 16-bit registers
+        if (s_lower == "af'") return is_upper ? format_dec(m_registers->get_AFp()) : format_hex(m_registers->get_AFp(), 4);
+        if (s_lower == "bc'") return is_upper ? format_dec(m_registers->get_BCp()) : format_hex(m_registers->get_BCp(), 4);
+        if (s_lower == "de'") return is_upper ? format_dec(m_registers->get_DEp()) : format_hex(m_registers->get_DEp(), 4);
+        if (s_lower == "hl'") return is_upper ? format_dec(m_registers->get_HLp()) : format_hex(m_registers->get_HLp(), 4);
+
+        // 8-bit registers
+        if (s_lower == "a") return is_upper ? format_dec(m_registers->get_A()) : format_hex(m_registers->get_A(), 2);
+        if (s_lower == "f") return is_upper ? format_dec(m_registers->get_F()) : format_hex(m_registers->get_F(), 2);
+        if (s_lower == "b") return is_upper ? format_dec(m_registers->get_B()) : format_hex(m_registers->get_B(), 2);
+        if (s_lower == "c") return is_upper ? format_dec(m_registers->get_C()) : format_hex(m_registers->get_C(), 2);
+        if (s_lower == "d") return is_upper ? format_dec(m_registers->get_D()) : format_hex(m_registers->get_D(), 2);
+        if (s_lower == "e") return is_upper ? format_dec(m_registers->get_E()) : format_hex(m_registers->get_E(), 2);
+        if (s_lower == "h") return is_upper ? format_dec(m_registers->get_H()) : format_hex(m_registers->get_H(), 2);
+        if (s_lower == "l") return is_upper ? format_dec(m_registers->get_L()) : format_hex(m_registers->get_L(), 2);
+        if (s_lower == "i") return is_upper ? format_dec(m_registers->get_I()) : format_hex(m_registers->get_I(), 2);
+        if (s_lower == "r") return is_upper ? format_dec(m_registers->get_R()) : format_hex(m_registers->get_R(), 2);
+
+        // Flags string
+        if (s_lower == "flags")
+            return format_flags_string();
+
+        return "%" + specifier;
+    }
+
+    std::string format_flags_string() {
+        std::stringstream ss;
+        auto f = m_registers->get_F();
+        using Flags = typename TRegisters::Flags;
+        ss << (f.is_set(Flags::S)  ? 'S' : '-');
+        ss << (f.is_set(Flags::Z)  ? 'Z' : '-');
+        ss << (f.is_set(Flags::Y)  ? 'Y' : '-');
+        ss << (f.is_set(Flags::H)  ? 'H' : '-');
+        ss << (f.is_set(Flags::X)  ? 'X' : '-');
+        ss << (f.is_set(Flags::PV) ? 'P' : '-');
+        ss << (f.is_set(Flags::N)  ? 'N' : '-');
+        ss << (f.is_set(Flags::C)  ? 'C' : '-');
+        return ss.str();
+    }
+
     std::string format_dump_segment(char specifier, uint16_t row_address, const std::vector<uint8_t>& bytes) {
         std::stringstream ss;
         switch (specifier) {
@@ -683,7 +780,7 @@ private:
     }
 
     uint8_t peek_next_byte() {
-        uint8_t value = m_bus.peek(m_address++);
+        uint8_t value = m_memory->peek(m_address++);
         m_bytes.push_back(value);
         return value;
     }
@@ -705,7 +802,15 @@ private:
         return ss.str();
     }
 
-    TBus& m_bus;
+    template<typename T>
+    std::string format_dec(T value) {
+        std::stringstream ss;
+        ss << std::dec << static_cast<int>(value);
+        return ss.str();
+    }
+
+    TRegisters* m_registers;
+    TMemory* m_memory;
 };
 
 #endif//__Z80ANALYZE_H__
