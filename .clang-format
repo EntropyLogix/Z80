@@ -16,6 +16,7 @@ BraceWrapping:
   AfterUnion: false
   BeforeElse: true
   IndentBraces: false
+AlignOperands: Align
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortBlocksOnASingleLine: false
 AllowShortFunctionsOnASingleLine: None
