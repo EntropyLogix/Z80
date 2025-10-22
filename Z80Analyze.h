@@ -16,31 +16,21 @@
 #ifndef __Z80ANALYZE_H__
 #define __Z80ANALYZE_H__
 
+#include <algorithm>
 #include <cstdint>
+#include <fstream>
 #include <iomanip>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
 
-// Forward-declare Z80 to resolve circular dependency
 template <typename, typename, typename> class Z80;
 
-template <typename TMemory, typename TRegisters> class Z80Analyzer {
+template <typename TMemory, typename TRegisters, typename TLabels> class Z80Analyzer {
 public:
-    Z80Analyzer(TMemory* memory, TRegisters* registers) : m_memory(memory), m_registers(registers) {
-    }
-
-    std::string disassemble(uint16_t& address) {
-        return disassemble(address, "%a: %-12b %m %t");
-    }
-
-    std::vector<std::string> disassemble(uint16_t& address, size_t lines,
-                                         const std::string& format = "%a: %-12b %-15m %t") {
-        std::vector<std::string> result;
-        result.reserve(lines);
-        for (size_t i = 0; i < lines; ++i)
-            result.push_back(disassemble(address, format));
-        return result;
+    Z80Analyzer(TMemory* memory, TRegisters* registers, TLabels* labels)
+        : m_memory(memory), m_registers(registers), m_labels(labels) {
     }
 
     // Dumps a region of memory into a vector of formatted strings.
@@ -137,6 +127,15 @@ public:
     //  supports width (`%10`), alignment (`%-10`), and fill character (`%-10.b` uses `.` instead of space).
     std::string disassemble(uint16_t& address, const std::string& format) {
         uint16_t initial_address = address;
+
+        // Check for a label at the current address to print it on a separate line.
+        std::string label_prefix;
+        if (m_labels) {
+            std::string labels_str = m_labels->get_labels_str(initial_address);
+            if (!labels_str.empty()) {
+                label_prefix = labels_str + ":\n";
+            }
+        }
         parse_instruction(address);
         std::stringstream ss;
         for (size_t i = 0; i < format.length(); ++i) {
@@ -161,26 +160,26 @@ public:
                     char specifier = format[j];
                     std::string replacement;
                     switch (specifier) {
-                    case 'a': // hex address
+                    case 'a':
                         replacement = format_hex(initial_address, 4);
                         break;
-                    case 'A': // dec address
-                        replacement = std::to_string(initial_address);
+                    case 'A':
+                        replacement = format_dec(initial_address);
                         break;
-                    case 'b': // hex bytes
+                    case 'b':
                         replacement = get_bytes_str(true);
                         break;
-                    case 'B': // dec bytes
+                    case 'B':
                         replacement = get_bytes_str(false);
                         break;
-                    case 'm': // mnemonic
+                    case 'm':
                         replacement = m_mnemonic;
                         break;
-                    case 't': // ticks
+                    case 't':
                         if (m_ticks_alt > 0) {
-                            replacement = std::to_string(m_ticks) + "/" + std::to_string(m_ticks_alt);
+                            replacement = "(" + std::to_string(m_ticks) + "/" + std::to_string(m_ticks_alt) + "T)";
                         } else
-                            replacement = std::to_string(m_ticks);
+                            replacement = "(" + std::to_string(m_ticks) + "T)";
                         break;
                     }
                     ss << std::setfill(fill_char) << std::setw(width) << (left_align ? std::left : std::right)
@@ -191,7 +190,20 @@ public:
             } else
                 ss << format[i];
         }
-        return ss.str();
+        return label_prefix + ss.str();
+    }
+
+    std::string disassemble(uint16_t& address) {
+        return disassemble(address, "%a: %-12b %m %t");
+    }
+
+    std::vector<std::string> disassemble(uint16_t& address, size_t lines,
+                                         const std::string& format = "%a: %-12b %-15m %t") {
+        std::vector<std::string> result;
+        result.reserve(lines);
+        for (size_t i = 0; i < lines; ++i)
+            result.push_back(disassemble(address, format));
+        return result;
     }
 
 private:
@@ -199,8 +211,6 @@ private:
         std::string s_lower = specifier;
         std::transform(s_lower.begin(), s_lower.end(), s_lower.begin(), ::tolower);
         bool is_upper = (specifier.length() > 0 && isupper(specifier[0]));
-
-        // 16-bit registers
         if (s_lower == "af")
             return is_upper ? format_dec(m_registers->get_AF()) : format_hex(m_registers->get_AF(), 4);
         if (s_lower == "bc")
@@ -217,8 +227,6 @@ private:
             return is_upper ? format_dec(m_registers->get_SP()) : format_hex(m_registers->get_SP(), 4);
         if (s_lower == "pc")
             return is_upper ? format_dec(m_registers->get_PC()) : format_hex(m_registers->get_PC(), 4);
-
-        // Alternate 16-bit registers
         if (s_lower == "af'")
             return is_upper ? format_dec(m_registers->get_AFp()) : format_hex(m_registers->get_AFp(), 4);
         if (s_lower == "bc'")
@@ -227,8 +235,6 @@ private:
             return is_upper ? format_dec(m_registers->get_DEp()) : format_hex(m_registers->get_DEp(), 4);
         if (s_lower == "hl'")
             return is_upper ? format_dec(m_registers->get_HLp()) : format_hex(m_registers->get_HLp(), 4);
-
-        // 8-bit registers
         if (s_lower == "a")
             return is_upper ? format_dec(m_registers->get_A()) : format_hex(m_registers->get_A(), 2);
         if (s_lower == "f")
@@ -249,11 +255,8 @@ private:
             return is_upper ? format_dec(m_registers->get_I()) : format_hex(m_registers->get_I(), 2);
         if (s_lower == "r")
             return is_upper ? format_dec(m_registers->get_R()) : format_hex(m_registers->get_R(), 2);
-
-        // Flags string
         if (s_lower == "flags")
             return format_flags_string();
-
         return "%" + specifier;
     }
 
@@ -275,24 +278,24 @@ private:
     std::string format_dump_segment(char specifier, uint16_t row_address, const std::vector<uint8_t>& bytes) {
         std::stringstream ss;
         switch (specifier) {
-        case 'a': // hex address
+        case 'a':
             ss << format_hex(row_address, 4);
             break;
-        case 'A': // dec address
+        case 'A':
             ss << std::dec << std::setw(5) << std::setfill('0') << row_address;
             break;
-        case 'h': // hex bytes
+        case 'h':
             for (size_t i = 0; i < bytes.size(); ++i) {
                 ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i])
                    << " ";
             }
             break;
-        case 'd': // dec bytes
+        case 'd':
             for (size_t i = 0; i < bytes.size(); ++i) {
                 ss << std::dec << std::setw(3) << std::setfill('0') << static_cast<int>(bytes[i]) << " ";
             }
             break;
-        case 'c': // ASCII characters
+        case 'c':
             for (uint8_t byte : bytes) {
                 ss << (isprint(byte) ? static_cast<char>(byte) : '.');
             }
@@ -321,7 +324,7 @@ private:
             m_ticks = 4;
             break;
         case 0x01:
-            m_mnemonic = "LD BC, " + format_hex(peek_next_word());
+            m_mnemonic = "LD BC, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0x02:
@@ -383,13 +386,13 @@ private:
         case 0x10: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "DJNZ " + format_hex(address);
+            m_mnemonic = "DJNZ " + format_address_label(address);
             m_ticks = 8;
             m_ticks_alt = 13;
             break;
         }
         case 0x11:
-            m_mnemonic = "LD DE, " + format_hex(peek_next_word());
+            m_mnemonic = "LD DE, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0x12:
@@ -419,7 +422,7 @@ private:
         case 0x18: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR " + format_hex(address);
+            m_mnemonic = "JR " + format_address_label(address);
             m_ticks = 12;
             break;
         }
@@ -454,17 +457,17 @@ private:
         case 0x20: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR NZ, " + format_hex(address);
+            m_mnemonic = "JR NZ, " + format_address_label(address);
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
         }
         case 0x21:
-            m_mnemonic = "LD " + get_indexed_reg_str() + ", " + format_hex(peek_next_word());
+            m_mnemonic = "LD " + get_indexed_reg_str() + ", " + format_address_label(peek_next_word());
             m_ticks = (get_index_mode() == IndexMode::HL) ? 10 : 14;
             break;
         case 0x22:
-            m_mnemonic = "LD (" + format_hex(peek_next_word()) + "), " + get_indexed_reg_str();
+            m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), " + get_indexed_reg_str();
             m_ticks = (get_index_mode() == IndexMode::HL) ? 16 : 20;
             break;
         case 0x23:
@@ -490,7 +493,7 @@ private:
         case 0x28: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR Z, " + format_hex(address);
+            m_mnemonic = "JR Z, " + format_address_label(address);
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
@@ -502,7 +505,7 @@ private:
             break;
         }
         case 0x2A:
-            m_mnemonic = "LD " + get_indexed_reg_str() + ", (" + format_hex(peek_next_word()) + ")";
+            m_mnemonic = "LD " + get_indexed_reg_str() + ", (" + format_address_label(peek_next_word()) + ")";
             m_ticks = (get_index_mode() == IndexMode::HL) ? 16 : 20;
             break;
         case 0x2B:
@@ -528,17 +531,17 @@ private:
         case 0x30: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR NC, " + format_hex(address);
+            m_mnemonic = "JR NC, " + format_address_label(address);
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
         }
         case 0x31:
-            m_mnemonic = "LD SP, " + format_hex(peek_next_word());
+            m_mnemonic = "LD SP, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0x32:
-            m_mnemonic = "LD (" + format_hex(peek_next_word()) + "), A";
+            m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), A";
             m_ticks = 13;
             break;
         case 0x33:
@@ -567,7 +570,7 @@ private:
         case 0x38: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR C, " + format_hex(address);
+            m_mnemonic = "JR C, " + format_address_label(address);
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
@@ -577,7 +580,7 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 15;
             break;
         case 0x3A:
-            m_mnemonic = "LD A, (" + format_hex(peek_next_word()) + ")";
+            m_mnemonic = "LD A, (" + format_address_label(peek_next_word()) + ")";
             m_ticks = 13;
             break;
         case 0x3B:
@@ -1126,15 +1129,15 @@ private:
             m_ticks = 10;
             break;
         case 0xC2:
-            m_mnemonic = "JP NZ, " + format_hex(peek_next_word());
+            m_mnemonic = "JP NZ, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0xC3:
-            m_mnemonic = "JP " + format_hex(peek_next_word());
+            m_mnemonic = "JP " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0xC4:
-            m_mnemonic = "CALL NZ, " + format_hex(peek_next_word());
+            m_mnemonic = "CALL NZ, " + format_address_label(peek_next_word());
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1160,7 +1163,7 @@ private:
             m_ticks = 10;
             break;
         case 0xCA:
-            m_mnemonic = "JP Z, " + format_hex(peek_next_word());
+            m_mnemonic = "JP Z, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0xCB:
@@ -1216,12 +1219,12 @@ private:
             }
             break;
         case 0xCC:
-            m_mnemonic = "CALL Z, " + format_hex(peek_next_word());
+            m_mnemonic = "CALL Z, " + format_address_label(peek_next_word());
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
         case 0xCD:
-            m_mnemonic = "CALL " + format_hex(peek_next_word());
+            m_mnemonic = "CALL " + format_address_label(peek_next_word());
             m_ticks = 17;
             break;
         case 0xCE:
@@ -1242,7 +1245,7 @@ private:
             m_ticks = 10;
             break;
         case 0xD2:
-            m_mnemonic = "JP NC, " + format_hex(peek_next_word());
+            m_mnemonic = "JP NC, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0xD3:
@@ -1250,7 +1253,7 @@ private:
             m_ticks = 11;
             break;
         case 0xD4:
-            m_mnemonic = "CALL NC, " + format_hex(peek_next_word());
+            m_mnemonic = "CALL NC, " + format_address_label(peek_next_word());
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1276,7 +1279,7 @@ private:
             m_ticks = 4;
             break;
         case 0xDA:
-            m_mnemonic = "JP C, " + format_hex(peek_next_word());
+            m_mnemonic = "JP C, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0xDB:
@@ -1284,7 +1287,7 @@ private:
             m_ticks = 11;
             break;
         case 0xDC:
-            m_mnemonic = "CALL C, " + format_hex(peek_next_word());
+            m_mnemonic = "CALL C, " + format_address_label(peek_next_word());
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1306,7 +1309,7 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 10 : 14;
             break;
         case 0xE2:
-            m_mnemonic = "JP PO, " + format_hex(peek_next_word());
+            m_mnemonic = "JP PO, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0xE3:
@@ -1314,7 +1317,7 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 19 : 23;
             break;
         case 0xE4:
-            m_mnemonic = "CALL PO, " + format_hex(peek_next_word());
+            m_mnemonic = "CALL PO, " + format_address_label(peek_next_word());
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1340,7 +1343,7 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xEA:
-            m_mnemonic = "JP PE, " + format_hex(peek_next_word());
+            m_mnemonic = "JP PE, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0xEB:
@@ -1348,7 +1351,7 @@ private:
             m_ticks = 4;
             break;
         case 0xEC:
-            m_mnemonic = "CALL PE, " + format_hex(peek_next_word());
+            m_mnemonic = "CALL PE, " + format_address_label(peek_next_word());
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1369,7 +1372,7 @@ private:
                 m_ticks = 15;
                 break;
             case 0x43:
-                m_mnemonic = "LD (" + format_hex(peek_next_word()) + "), BC";
+                m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), BC";
                 m_ticks = 20;
                 break;
             case 0x44:
@@ -1417,7 +1420,7 @@ private:
                 m_ticks = 15;
                 break;
             case 0x4B:
-                m_mnemonic = "LD BC, (" + format_hex(peek_next_word()) + ")";
+                m_mnemonic = "LD BC, (" + format_address_label(peek_next_word()) + ")";
                 m_ticks = 20;
                 break;
             case 0x4D:
@@ -1441,7 +1444,7 @@ private:
                 m_ticks = 15;
                 break;
             case 0x53:
-                m_mnemonic = "LD (" + format_hex(peek_next_word()) + "), DE";
+                m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), DE";
                 m_ticks = 20;
                 break;
             case 0x56: // IM 1
@@ -1466,7 +1469,7 @@ private:
                 m_ticks = 15;
                 break;
             case 0x5B:
-                m_mnemonic = "LD DE, (" + format_hex(peek_next_word()) + ")";
+                m_mnemonic = "LD DE, (" + format_address_label(peek_next_word()) + ")";
                 m_ticks = 20;
                 break;
             case 0x5E:
@@ -1491,7 +1494,7 @@ private:
                 m_ticks = 15;
                 break;
             case 0x63:
-                m_mnemonic = "LD (" + format_hex(peek_next_word()) + "), HL";
+                m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), HL";
                 m_ticks = 20;
                 break;
             case 0x67:
@@ -1511,7 +1514,7 @@ private:
                 m_ticks = 15;
                 break;
             case 0x6B:
-                m_mnemonic = "LD HL, (" + format_hex(peek_next_word()) + ")";
+                m_mnemonic = "LD HL, (" + format_address_label(peek_next_word()) + ")";
                 m_ticks = 20;
                 break;
             case 0x6F:
@@ -1531,7 +1534,7 @@ private:
                 m_ticks = 15;
                 break;
             case 0x73:
-                m_mnemonic = "LD (" + format_hex(peek_next_word()) + "), SP";
+                m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), SP";
                 m_ticks = 20;
                 break;
             case 0x78:
@@ -1547,7 +1550,7 @@ private:
                 m_ticks = 15;
                 break;
             case 0x7B:
-                m_mnemonic = "LD SP, (" + format_hex(peek_next_word()) + ")";
+                m_mnemonic = "LD SP, (" + format_address_label(peek_next_word()) + ")";
                 m_ticks = 20;
                 break;
             case 0xA0:
@@ -1646,7 +1649,7 @@ private:
             m_ticks = 10;
             break;
         case 0xF2:
-            m_mnemonic = "JP P, " + format_hex(peek_next_word());
+            m_mnemonic = "JP P, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0xF3:
@@ -1654,7 +1657,7 @@ private:
             m_ticks = 4;
             break;
         case 0xF4:
-            m_mnemonic = "CALL P, " + format_hex(peek_next_word());
+            m_mnemonic = "CALL P, " + format_address_label(peek_next_word());
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1680,7 +1683,7 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 6 : 10;
             break;
         case 0xFA:
-            m_mnemonic = "JP M, " + format_hex(peek_next_word());
+            m_mnemonic = "JP M, " + format_address_label(peek_next_word());
             m_ticks = 10;
             break;
         case 0xFB:
@@ -1688,7 +1691,7 @@ private:
             m_ticks = 4;
             break;
         case 0xFC:
-            m_mnemonic = "CALL M, " + format_hex(peek_next_word());
+            m_mnemonic = "CALL M, " + format_address_label(peek_next_word());
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1709,6 +1712,7 @@ private:
     int m_ticks;
     int m_ticks_alt;
 
+    TLabels* m_labels;
     enum class IndexMode { HL, IX, IY };
     IndexMode m_index_mode;
 
@@ -1764,6 +1768,16 @@ private:
                 ss << " ";
         }
         return ss.str();
+    }
+
+    std::string format_address_label(uint16_t address, int width = -1, bool hex = true) {
+        if (m_labels) {
+            std::string labels_str = m_labels->get_labels_str(address);
+            if (!labels_str.empty()) {
+                return labels_str;
+            }
+        }
+        return hex ? format_hex(address, width) : format_dec(address);
     }
 
     uint8_t peek_next_byte() {
