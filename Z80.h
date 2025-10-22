@@ -7659,7 +7659,6 @@ public:
     }
 #endif
 };
-
 class Z80DefaultBus {
 public:
     Z80DefaultBus() {
@@ -7688,7 +7687,6 @@ public:
 private:
     std::vector<uint8_t> m_ram;
 };
-
 class Z80DefaultEvents {
 public:
     static constexpr long long CYCLES_PER_EVENT = LLONG_MAX;
@@ -7702,7 +7700,6 @@ public:
     void handle_event(long long tick) {
     }
 };
-
 class Z80DefaultDebugger {
 public:
     template <typename TBus, typename TEvents> void connect(const Z80<TBus, TEvents, Z80DefaultDebugger>* cpu) {
