@@ -7672,9 +7672,6 @@ public:
     uint8_t read(uint16_t address) {
         return m_ram[address];
     }
-    uint8_t peek(uint16_t address) const {
-        return m_ram[address];
-    }
     void write(uint16_t address, uint8_t value) {
         m_ram[address] = value;
     }
