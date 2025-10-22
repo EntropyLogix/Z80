@@ -1,12 +1,12 @@
-//  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄   
-//  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██  
-//      ██▀   ██▄  ▄██  ██    ██ 
-//    ▄██▀     ██████   ██ ██ ██ 
-//   ▄██      ██▀  ▀██  ██    ██ 
-//  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██  
+//  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄
+//  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██
+//      ██▀   ██▄  ▄██  ██    ██
+//    ▄██▀     ██████   ██ ██ ██
+//   ▄██      ██▀  ▀██  ██    ██
+//  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Asm.cpp
 // Verson: 1.0.4
-// 
+//
 // This file contains a command-line utility for assembling Z80 code.
 // It serves as an example of how to use the Z80Assembler class.
 //
@@ -14,8 +14,8 @@
 // MIT License
 
 #include "Z80Assemble.h"
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 
 void print_bytes(const std::vector<uint8_t>& bytes) {
     for (uint8_t byte : bytes) {
@@ -25,7 +25,9 @@ void print_bytes(const std::vector<uint8_t>& bytes) {
 }
 
 int main() {
-    Z80Assembler<> assembler;
+    // The assembler needs a bus to interact with memory, even if it's just for calculating sizes.
+    Z80DefaultBus bus;
+    Z80Assembler<Z80DefaultBus> assembler(&bus);
 
     std::string source_code = R"(
         ; Example with labels, data directives, and EQU
@@ -52,9 +54,11 @@ BUFFER:
     try {
         std::cout << "Assembling source code:" << std::endl;
         std::cout << source_code << std::endl;
-        auto machine_code = assembler.assemble(source_code); // ORG in code is used
-        std::cout << "Machine code -> ";
-        print_bytes(machine_code);
+        std::vector<uint8_t> machine_code;
+        if (assembler.assemble(source_code, machine_code)) {
+            std::cout << "Machine code -> ";
+            print_bytes(machine_code);
+        }
 
     } catch (const std::exception& e) {
         std::cerr << "Assembly error: " << e.what() << std::endl;
