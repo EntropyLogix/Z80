@@ -7675,6 +7675,12 @@ public:
     void write(uint16_t address, uint8_t value) {
         m_ram[address] = value;
     }
+    uint8_t peek(uint16_t address) const {
+        return m_ram[address];
+    }
+    void poke(uint16_t address, uint8_t value) {
+        m_ram[address] = value;
+    }
     uint8_t in(uint16_t port) {
         return 0xFF;
     }
