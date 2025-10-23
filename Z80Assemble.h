@@ -78,7 +78,6 @@ public:
         ParsedLine result;
         std::string processed_line = line;
 
-        // Remove comments
         size_t comment_pos = processed_line.find(';');
         if (comment_pos != std::string::npos) {
             processed_line.erase(comment_pos);
@@ -170,7 +169,9 @@ public:
         }
         if (is_indexed(op_str)) {
             std::string inner = op_str.substr(1, op_str.length() - 2);
-            if (s_reg16_names.count(inner)) {
+            inner.erase(0, inner.find_first_not_of(" \t"));
+            inner.erase(inner.find_last_not_of(" \t") + 1);
+            if (is_reg16(inner)) {
                 op.type = OperandType::MEM_REG16;
                 op.str_val = inner;
                 return op;
@@ -180,30 +181,19 @@ public:
                 op.num_val = num_val;
                 return op;
             }
-            size_t plus_pos = inner.find('+');
-            size_t minus_pos = inner.find('-');
-            size_t sign_pos = (plus_pos != std::string::npos) ? plus_pos : minus_pos;
-            if (sign_pos != std::string::npos) {
-                op.base_reg = inner.substr(0, sign_pos);
+            if (parse_offset(inner, op.base_reg, op.offset)) {
                 std::transform(op.base_reg.begin(), op.base_reg.end(), op.base_reg.begin(), ::toupper);
-                if (op.base_reg == "IX" || op.base_reg == "IY") {
-                    std::string offset_str = inner.substr(sign_pos);
-                    auto result = std::from_chars(offset_str.data(), offset_str.data() + offset_str.size(), op.offset);
-                    if (result.ec == std::errc()) {
-                        op.type = OperandType::MEM_INDEXED;
-                        return op;
-                    }
-                }
+                if (op.base_reg == "IX" || op.base_reg == "IY")
+                    op.type = OperandType::MEM_INDEXED;
+                return op;
             }
         }
         if (phase == ParsePhase::SymbolTableBuild) {
-            if (op.type == OperandType::UNKNOWN) {
-                if (phase == ParsePhase::SymbolTableBuild)
-                    op.type = OperandType::LABEL;
-            }
+            if (op.type == OperandType::UNKNOWN)
+                op.type = OperandType::LABEL;
         }
         else if (phase == ParsePhase::GeneratingFinalCode) {
-            if (symbol_table.count(op_str)) {
+            if (is_symbol(op_str, symbol_table)) {
                 op.num_val = symbol_table.at(op_str);
                 op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
                 return op;
@@ -213,8 +203,35 @@ public:
     }
 
 private:
+    bool parse_offset(const std::string& s, std::string& out_base, int8_t& out_offset) const {
+        size_t plus_pos = s.find('+');
+        size_t minus_pos = s.find('-');
+        if (plus_pos == 0 || minus_pos == 0)
+            return false;
+        size_t sign_pos = (plus_pos != std::string::npos) ? plus_pos : minus_pos;
+        if (sign_pos != std::string::npos) {
+            out_base = s.substr(0, sign_pos);
+            out_base.erase(out_base.find_last_not_of(" \t") + 1);
+            std::string offset_str = s.substr(sign_pos);
+            offset_str.erase(0, offset_str.find_first_not_of(" \t"));
+            uint16_t num_val;
+            if (is_number(offset_str.substr(1), num_val)) {
+                if (offset_str.front() == '-')
+                    out_offset = -static_cast<int8_t>(num_val);
+                else
+                    out_offset = static_cast<int8_t>(num_val);
+                return true;
+            }
+        }
+        return false;
+    }
+
     inline bool is_indexed(const std::string& s) const {
         return !s.empty() && s.front() == '(' && s.back() == ')';
+    }
+
+    inline bool is_symbol(const std::string& s, const std::map<std::string, uint16_t>& symbol_table) const {
+        return symbol_table.count(s);
     }
 
     inline bool is_reg8(const std::string& s) const {
