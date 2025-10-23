@@ -42,7 +42,7 @@ public:
         : m_memory(memory), m_operand_parser(m_symbol_table, m_current_address, m_phase), m_encoder(m_memory, m_current_address, m_phase) {
     }
 
-    bool assemble(const std::string& source_code, uint16_t default_org = 0x0000) {
+    bool compile(const std::string& source_code, uint16_t default_org = 0x0000) {
         std::stringstream ss(source_code);
         std::vector<std::string> lines;
         std::string line;
@@ -899,6 +899,38 @@ private:
                 assemble(0xCD, (uint8_t)(op.num_val & 0xFF),
                          (uint8_t)(op.num_val >> 8));
                 return true;
+            }
+            if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
+                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && match(op, OperandType::REG8)) {
+                uint8_t base_opcode = 0;
+                if (mnemonic == "ADD")
+                    base_opcode = 0x80;
+                else if (mnemonic == "ADC")
+                    base_opcode = 0x88;
+                else if (mnemonic == "SUB")
+                    base_opcode = 0x90;
+                else if (mnemonic == "SBC")
+                    base_opcode = 0x98;
+                else if (mnemonic == "AND")
+                    base_opcode = 0xA0;
+                else if (mnemonic == "XOR")
+                    base_opcode = 0xA8;
+                else if (mnemonic == "OR")
+                    base_opcode = 0xB0;
+                else if (mnemonic == "CP")
+                    base_opcode = 0xB8;
+
+                uint8_t reg_code = reg8_map.at(op.str_val);
+                assemble((uint8_t)(base_opcode | reg_code));
+                return true;
+            }
+
+            if (mnemonic == "RET" && match(op, OperandType::CONDITION)) {
+                if (condition_map.count(op.str_val)) {
+                    uint8_t cond_code = condition_map.at(op.str_val);
+                    assemble((uint8_t)(0xC0 | (cond_code << 3)));
+                    return true;
+                }
             }
 
             return false;
