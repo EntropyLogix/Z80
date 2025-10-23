@@ -352,19 +352,17 @@ private:
 
     public:
         bool encode_pseudo_instruction(const std::string& mnemonic, const std::vector<Operand>& ops) {
-            if (mnemonic == "ORG") {
-                if (ops.size() == 1 &&
-                    (ops[0].type == OperandParser::OperandType::IMM8 || ops[0].type == OperandParser::OperandType::IMM16)) {
+            if (mnemonic == "ORG") { // Handle ORG
+                if (ops.size() == 1 && (match(ops[0], OperandType::IMM8) || match(ops[0], OperandType::IMM16))) {
                     m_current_address = ops[0].num_val;
                     return true; // ORG doesn't generate bytes
                 } else {
                     throw std::runtime_error("Invalid operand for ORG directive");
                 }
             }
-
-            if (mnemonic == "DB" || mnemonic == "DEFB") {
+            if (mnemonic == "DB" || mnemonic == "DEFB") { // Handle DB/DEFB
                 for (const auto& op : ops) {
-                    if (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16) {
+                    if (match(op, OperandType::IMM8) || match(op, OperandType::IMM16)) {
                         if (op.num_val > 0xFF) {
                             throw std::runtime_error("Value in DB statement exceeds 1 byte: " + op.str_val);
                         }
@@ -381,10 +379,9 @@ private:
                 return true;
             }
 
-            if (mnemonic == "DW" || mnemonic == "DEFW") {
+            if (mnemonic == "DW" || mnemonic == "DEFW") { // Handle DW/DEFW
                 for (const auto& op : ops) {
-                    if (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16 ||
-                        (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandParser::OperandType::EXPRESSION)) {
+                    if (match(op, OperandType::IMM8) || match(op, OperandType::IMM16)) {
                         assemble(static_cast<uint8_t>(op.num_val & 0xFF), static_cast<uint8_t>(op.num_val >> 8));
                     } else {
                         throw std::runtime_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
@@ -393,11 +390,11 @@ private:
                 return true;
             }
 
-            if (mnemonic == "DS" || mnemonic == "DEFS") {
+            if (mnemonic == "DS" || mnemonic == "DEFS") { // Handle DS/DEFS
                 if (ops.empty() || ops.size() > 2) {
                     throw std::runtime_error("DS/DEFS requires 1 or 2 operands.");
                 }
-                if (ops[0].type != OperandParser::OperandType::IMM8 && ops[0].type != OperandParser::OperandType::IMM16) {
+                if (!match(ops[0], OperandType::IMM8) && !match(ops[0], OperandType::IMM16)) {
                     throw std::runtime_error("DS/DEFS size must be a number.");
                 }
                 size_t count = ops[0].num_val;
@@ -415,6 +412,9 @@ private:
             : m_memory(memory), m_current_address(current_address), m_phase(phase) {}
 
         bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
+            if (encode_pseudo_instruction(mnemonic, operands)) {
+                return true;
+            }
             switch (operands.size()) {
             case 0:
                 return encode_no_operand(mnemonic);
