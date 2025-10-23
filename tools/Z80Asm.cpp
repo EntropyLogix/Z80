@@ -48,7 +48,6 @@ VIDEO_RAM       EQU 0x4000
 IO_PORT         EQU 0x38
 STACK_SIZE      EQU 256
 STACK_BASE      EQU 0xF000
-STACK_TOP       EQU 0xF100 ; STACK_BASE + STACK_SIZE
 
 ; --- Main program ---
 START:
@@ -160,8 +159,8 @@ INDEXED_OPS:
         LD (IY+10), A
 
         ; Arithmetic operations using indexed registers
-        ADD A, (IX+1)
-        SUB (IX+2)
+        ADD (IX+1)
+        SUB A, (IX+2)
 
         ; Using parts of IX/IY registers
         LD IXH, 0x80            ; Load high part of IX
@@ -190,7 +189,7 @@ STACK_TOP:                      ; Label indicating the top of the stack
             const auto& symbol_table = assembler.get_symbol_table();
             std::vector<uint8_t> machine_code;
             uint16_t start_addr = 0x8000; 
-            uint16_t end_addr = symbol_table.get_value("STACK_TOP", 0);
+            uint16_t end_addr = symbol_table.get_value("STACK_BASE", 0);
             for (uint16_t addr = start_addr; addr < end_addr; ++addr) {
                 machine_code.push_back(bus.peek(addr));
             }

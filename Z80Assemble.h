@@ -1295,6 +1295,10 @@ private:
         const char* start = str.data();
         const char* end = str.data() + str.size();
         int base = 10;
+        if (str.size() > 1 && str.front() == '+') {
+            start += 1;
+        }
+
         if (str.size() > 2 && (str.substr(0, 2) == "0X" || str.substr(0, 2) == "0x")) {
             start += 2;
             base = 16;
