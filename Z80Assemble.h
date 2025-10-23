@@ -39,8 +39,7 @@ struct ParsedLine {
     bool is_equ = false;
     std::string equ_value;
 };
-
-enum class OperandType { REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, LABEL, UNKNOWN };
+enum class OperandType { REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, UNKNOWN };
 
 struct Operand {
     OperandType type = OperandType::UNKNOWN;
@@ -187,12 +186,13 @@ public:
                     op.type = OperandType::MEM_INDEXED;
                 return op;
             }
+            if (phase == ParsePhase::GeneratingFinalCode && is_symbol(inner, symbol_table)) {
+                op.type = OperandType::MEM_IMM16;
+                op.num_val = symbol_table.at(inner);
+                return op;
+            }
         }
-        if (phase == ParsePhase::SymbolTableBuild) {
-            if (op.type == OperandType::UNKNOWN)
-                op.type = OperandType::LABEL;
-        }
-        else if (phase == ParsePhase::GeneratingFinalCode) {
+        if (phase == ParsePhase::GeneratingFinalCode) {
             if (is_symbol(op_str, symbol_table)) {
                 op.num_val = symbol_table.at(op_str);
                 op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
@@ -246,8 +246,7 @@ private:
         return s_condition_names.count(s);
     }
 
-    inline static const std::set<std::string> s_reg8_names = {"B",    "C", "D",   "E",   "H",   "L",
-                                                              "(HL)", "A", "IXH", "IXL", "IYH", "IYL"};
+    inline static const std::set<std::string> s_reg8_names = {"B",    "C", "D",   "E",   "H",   "L", "(HL)", "A", "IXH", "IXL", "IYH", "IYL"};
     inline static const std::set<std::string> s_reg16_names = {"BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
     inline static const std::set<std::string> s_condition_names = {"NZ", "Z", "NC", "C", "PO", "PE", "P", "M"};
 };
@@ -481,8 +480,7 @@ private:
             assemble(memory, current_address, phase, (uint8_t)(0x05 | (reg8_map.at(op.str_val) << 3)));
             return true;
         }
-        if (mnemonic == "JP" &&
-            (op.type == OperandType::IMM8 || op.type == OperandType::IMM16 || op.type == OperandType::LABEL)) {
+        if (mnemonic == "JP" && (op.type == OperandType::IMM8 || op.type == OperandType::IMM16)) {
             assemble(memory, current_address, phase, 0xC3, (uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8));
             return true;
         }
@@ -503,7 +501,7 @@ private:
         if (mnemonic == "JR" && (op.type == OperandType::IMM8 || op.type == OperandType::IMM16)) {
             int32_t target_addr = op.num_val;
             uint16_t instruction_size = 2;
-            int32_t offset = (op.type == OperandType::LABEL) ? 0 : target_addr - (current_address + instruction_size);
+            int32_t offset = target_addr - (current_address + instruction_size);
             if (phase == ParsePhase::GeneratingFinalCode && (offset < -128 || offset > 127))
                 throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
             assemble(memory, current_address, phase, 0x18, static_cast<uint8_t>(offset));
@@ -520,7 +518,7 @@ private:
         if (mnemonic == "DJNZ" && (op.type == OperandType::IMM8 || op.type == OperandType::IMM16)) {
             int32_t target_addr = op.num_val;
             uint16_t instruction_size = 2;
-            int32_t offset = (op.type == OperandType::LABEL) ? 0 : target_addr - (current_address + instruction_size);
+            int32_t offset = target_addr - (current_address + instruction_size);
             if (phase == ParsePhase::GeneratingFinalCode && (offset < -128 || offset > 127))
                 throw std::runtime_error("DJNZ jump target out of range. Offset: " + std::to_string(offset));
             assemble(memory, current_address, phase, 0x10, static_cast<uint8_t>(offset));
@@ -572,8 +570,7 @@ private:
             assemble(memory, current_address, phase, prefix, (uint8_t)(0x06 | (reg8_map.at(op1.str_val) << 3)), (uint8_t)op2.num_val);
             return true;
         }
-        if (mnemonic == "LD" && op1.type == OperandType::REG16 &&
-            (op2.type == OperandType::IMM8 || op2.type == OperandType::IMM16 || op2.type == OperandType::LABEL)) {
+        if (mnemonic == "LD" && op1.type == OperandType::REG16 && (op2.type == OperandType::IMM8 || op2.type == OperandType::IMM16)) {
             if (reg16_map.count(op1.str_val)) {
                 assemble(memory, current_address, phase, (uint8_t)(0x01 | (reg16_map.at(op1.str_val) << 4)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
                 return true;
@@ -660,8 +657,7 @@ private:
                 assemble(memory, current_address, phase, (uint8_t)(base_opcode | reg_code));
             return true;
         }
-        if (mnemonic == "JP" && op1.type == OperandType::CONDITION &&
-            (op2.type == OperandType::IMM8 || op2.type == OperandType::IMM16 || op2.type == OperandType::LABEL)) {
+        if (mnemonic == "JP" && op1.type == OperandType::CONDITION && (op2.type == OperandType::IMM8 || op2.type == OperandType::IMM16)) {
             uint8_t cond_code = condition_map.at(op1.str_val);
             assemble(memory, current_address, phase, (uint8_t)(0xC2 | (cond_code << 3)),
                      (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
@@ -815,8 +811,7 @@ private:
     void assemble_instruction(const std::string& mnemonic, const std::vector<Operand>& ops) {
         // Handle ORG directive
         if (mnemonic == "ORG") {
-            if (ops.size() == 1 && (ops[0].type == OperandType::IMM8 || ops[0].type == OperandType::IMM16 ||
-                                    ops[0].type == OperandType::LABEL)) {
+            if (ops.size() == 1 && (ops[0].type == OperandType::IMM8 || ops[0].type == OperandType::IMM16)) {
                 m_current_address = ops[0].num_val;
                 return; // ORG doesn't generate bytes
             } else {
@@ -828,7 +823,7 @@ private:
             std::vector<uint8_t> bytes;
             bytes.reserve(ops.size());
             for (const auto& op : ops) {
-                if (op.type == OperandType::IMM8 || op.type == OperandType::IMM16 || op.type == OperandType::LABEL) {
+                if (op.type == OperandType::IMM8 || op.type == OperandType::IMM16) {
                     if (op.num_val > 0xFF) {
                         throw std::runtime_error("Value in DB statement exceeds 1 byte: " + op.str_val);
                     }
@@ -853,7 +848,7 @@ private:
 
         if (mnemonic == "DW" || mnemonic == "DEFW") {
             for (const auto& op : ops) {
-                if (op.type == OperandType::IMM8 || op.type == OperandType::IMM16 || op.type == OperandType::LABEL) {
+                if (op.type == OperandType::IMM8 || op.type == OperandType::IMM16) {
                     if (m_phase == ParsePhase::GeneratingFinalCode) {
                         m_memory->poke(m_current_address++, static_cast<uint8_t>(op.num_val & 0xFF));
                         m_memory->poke(m_current_address++, static_cast<uint8_t>(op.num_val >> 8));
@@ -870,7 +865,7 @@ private:
             if (ops.empty() || ops.size() > 2) {
                 throw std::runtime_error("DS/DEFS requires 1 or 2 operands.");
             }
-            if (ops[0].type != OperandType::IMM8 && ops[0].type != OperandType::IMM16 && ops[0].type != OperandType::LABEL) {
+            if (ops[0].type != OperandType::IMM8 && ops[0].type != OperandType::IMM16) {
                 throw std::runtime_error("DS/DEFS size must be a number.");
             }
             size_t count = ops[0].num_val;
