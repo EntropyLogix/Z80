@@ -36,18 +36,17 @@ int main() {
 ; ============================================================================
 ; Comprehensive example for Z80Asm
 ; Demonstrates labels, directives, prefixed instructions,
-; and various addressing modes.
-; ============================================================================
-
-        ORG 0x8000              ; Set the program's starting address
-
-; --- Constants defined with EQU ---
 SCREEN_WIDTH    EQU 32
 SCREEN_HEIGHT   EQU 24
 VIDEO_RAM       EQU 0x4000
 IO_PORT         EQU 0x38
 STACK_SIZE      EQU 256
 STACK_BASE      EQU 0xF000
+
+; and various addressing modes.
+; ============================================================================
+
+        ORG 0x8000              ; Set the program's starting address
 
 ; --- Main program ---
 START:
@@ -183,17 +182,21 @@ STACK_TOP:                      ; Label indicating the top of the stack
     try {
         std::cout << "Assembling source code:" << std::endl;
         std::cout << source_code << std::endl;
-        if (assembler.compile(source_code)) {
-            std::cout << "Machine code -> ";
-            // Read back from the bus to display the assembled code
-            const auto& symbol_table = assembler.get_symbol_table();
-            std::vector<uint8_t> machine_code;
-            uint16_t start_addr = 0x8000; 
-            uint16_t end_addr = symbol_table.get_value("STACK_BASE", 0);
-            for (uint16_t addr = start_addr; addr < end_addr; ++addr) {
-                machine_code.push_back(bus.peek(addr));
+        if (assembler.compile(source_code, 0x8000)) {
+            std::cout << "--- Generated Code Blocks ---" << std::endl;
+            const auto& blocks = assembler.get_org_blocks();
+            for (const auto& block : blocks) {
+                if (block.size > 0) {
+                    std::cout << "Block at 0x" << std::hex << std::setw(4) << std::setfill('0') << block.start_address
+                              << " (size: " << std::dec << block.size << " bytes):" << std::endl;
+
+                    std::vector<uint8_t> machine_code;
+                    for (size_t i = 0; i < block.size; ++i) {
+                        machine_code.push_back(bus.peek(block.start_address + i));
+                    }
+                    print_bytes(machine_code);
+                }
             }
-            print_bytes(machine_code);
             std::cout << "Assembly successful. Code written to bus memory." << std::endl;
         }
 

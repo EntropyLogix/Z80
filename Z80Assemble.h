@@ -36,6 +36,11 @@
 
 template <typename TMemory> class Z80Assembler {
 public:
+    struct OrgBlock {
+        uint16_t start_address;
+        size_t size;
+    };
+
     enum class ParsePhase { SymbolTableBuild, ExpressionsEvaluation, CodeGeneration };
 
     Z80Assembler(TMemory* memory)
@@ -52,6 +57,8 @@ public:
         try {
             // Pass 1: Collect all labels with their addresses and raw EQU definitions.
             m_symbol_table.clear();
+            m_org_blocks.clear();
+            m_org_blocks.push_back({default_org, 0});
             m_current_address = default_org;
             m_current_line_number = 0;
             m_phase = ParsePhase::SymbolTableBuild;
@@ -74,6 +81,8 @@ public:
 
         try {
             // Pass 3: Generate the final machine code.
+            m_org_blocks.clear();
+            m_org_blocks.push_back({default_org, 0});
             m_current_address = default_org;
             m_current_line_number = 0;
             m_phase = ParsePhase::CodeGeneration;
@@ -86,6 +95,10 @@ public:
         }
 
         return true;
+    }
+
+    const std::vector<OrgBlock>& get_org_blocks() const {
+        return m_org_blocks;
     }
 
     class SymbolTable {
@@ -1261,6 +1274,8 @@ private:
 
     void process_line(const std::string& line) {
         typename Z80Assembler<TMemory>::LineParser::ParsedLine parsed = m_line_parser.parse(line);
+        uint16_t address_before = m_current_address;
+
 
         switch (m_phase) {
         case ParsePhase::SymbolTableBuild: {
@@ -1297,6 +1312,17 @@ private:
                     error_line += parsed.operands[i] + (i < parsed.operands.size() - 1 ? "," : "");
             }
             throw std::runtime_error("Unsupported or invalid instruction: " + error_line);
+        }
+
+        if (!parsed.mnemonic.empty() && parsed.mnemonic == "ORG") {
+            uint16_t org_addr = ops[0].num_val;
+            m_org_blocks.push_back({org_addr, 0});
+            return; // ORG does not generate bytes, so we skip the size calculation
+        }
+
+        uint16_t bytes_generated = m_current_address - address_before;
+        if (bytes_generated > 0 && !m_org_blocks.empty()) {
+            m_org_blocks.back().size += bytes_generated;
         }
     }
 
@@ -1339,6 +1365,7 @@ private:
     ParsePhase m_phase;
     uint16_t m_current_address = 0;
     size_t m_current_line_number = 0;
+    std::vector<OrgBlock> m_org_blocks;
     TMemory* m_memory = nullptr;
     typename Z80Assembler<TMemory>::SymbolTable m_symbol_table;
     typename Z80Assembler<TMemory>::LineParser m_line_parser;
