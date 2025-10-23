@@ -206,14 +206,14 @@ private:
                         op.type = OperandType::MEM_INDEXED;
                     return op;
                 }
-                if (evaluate_expression(inner, op.num_val)) {
-                    op.type = OperandType::MEM_IMM16;
-                    return op;
-                }
-
                 if (m_phase == ParsePhase::GeneratingFinalCode && m_symbol_table.is_symbol(inner)) {
                     op.type = OperandType::MEM_IMM16;
                     op.num_val = m_symbol_table.get_value(inner, m_current_address);
+                    return op;
+                } else if (m_phase == ParsePhase::SymbolTableBuild) {
+                    // During the first pass, we can't resolve the symbol value yet,
+                    // but we know the type.
+                    op.type = OperandType::MEM_IMM16;
                     return op;
                 }
             }
@@ -234,12 +234,18 @@ private:
                 op.type = (num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
                 return op;
             }
-            if (evaluate_expression(op_str, op.num_val)) {
+            if (m_symbol_table.is_symbol(op_str)) {
+                op.num_val = m_symbol_table.get_value(op_str, m_current_address);
                 op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
                 return op;
             }
-            if (m_phase == ParsePhase::SymbolTableBuild) {
+            if (m_phase == ParsePhase::SymbolTableBuild)
                 op.type = OperandType::IMM16;
+            else if (m_phase == ParsePhase::GeneratingFinalCode) {
+                if (parse_offset(op_str, op.base_reg, op.offset)) {
+                    op.num_val = m_symbol_table.get_value(op.base_reg, m_current_address) + op.offset;
+                    op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
+                }
             }
             return op;
         }
@@ -247,148 +253,6 @@ private:
     private:
         inline bool is_indexed(const std::string& s) const {
             return !s.empty() && s.front() == '(' && s.back() == ')';
-        }
-
-        struct ExpressionToken {
-            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, LPAREN, RPAREN };
-            Type type = Type::UNKNOWN;
-            std::string s_val;
-            uint16_t n_val = 0;
-            int precedence = 0;
-            bool left_assoc = true;
-        };
-
-        std::vector<ExpressionToken> tokenize_expression(const std::string& expr) const {
-            std::vector<ExpressionToken> tokens;
-            for (size_t i = 0; i < expr.length(); ++i) {
-                char c = expr[i];
-                if (isspace(c)) continue;
-
-                if (isalpha(c) || c == '_' || c == '$') { // Symbol or register
-                    size_t j = i;
-                    while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_')) {
-                        j++;
-                    }
-                    tokens.push_back({ExpressionToken::Type::SYMBOL, expr.substr(i, j - i)});
-                    i = j - 1;
-                } else if (isdigit(c) || (c == '0' && (expr[i+1] == 'x' || expr[i+1] == 'X'))) { // Number
-                    size_t j = i;
-                    if (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X") j += 2;
-                    while (j < expr.length() && isxdigit(expr[j])) {
-                        j++;
-                    }
-                    if (j < expr.length() && (expr[j] == 'h' || expr[j] == 'H')) j++;
-                    
-                    uint16_t val;
-                    if (is_number(expr.substr(i, j - i), val)) {
-                        tokens.push_back({ExpressionToken::Type::NUMBER, "", val});
-                    } else {
-                         throw std::runtime_error("Invalid number in expression: " + expr.substr(i, j - i));
-                    }
-                    i = j - 1;
-                } else if (c == '+' || c == '-' || c == '*' || c == '/') {
-                    int precedence = (c == '+' || c == '-') ? 1 : 2;
-                    tokens.push_back({ExpressionToken::Type::OPERATOR, std::string(1, c), 0, precedence, true});
-                } else if (c == '(') {
-                    tokens.push_back({ExpressionToken::Type::LPAREN, "("});
-                } else if (c == ')') {
-                    tokens.push_back({ExpressionToken::Type::RPAREN, ")"});
-                } else {
-                    throw std::runtime_error("Invalid character in expression: " + std::string(1, c));
-                }
-            }
-            return tokens;
-        }
-
-        std::vector<ExpressionToken> shunting_yard(const std::vector<ExpressionToken>& infix) const {
-            std::vector<ExpressionToken> postfix;
-            std::vector<ExpressionToken> op_stack;
-            for (const auto& token : infix) {
-                switch (token.type) {
-                    case ExpressionToken::Type::NUMBER:
-                    case ExpressionToken::Type::SYMBOL:
-                        postfix.push_back(token);
-                        break;
-                    case ExpressionToken::Type::OPERATOR:
-                        while (!op_stack.empty() && op_stack.back().type == ExpressionToken::Type::OPERATOR &&
-                               ((op_stack.back().precedence > token.precedence) ||
-                                (op_stack.back().precedence == token.precedence && token.left_assoc))) {
-                            postfix.push_back(op_stack.back());
-                            op_stack.pop_back();
-                        }
-                        op_stack.push_back(token);
-                        break;
-                    case ExpressionToken::Type::LPAREN:
-                        op_stack.push_back(token);
-                        break;
-                    case ExpressionToken::Type::RPAREN:
-                        while (!op_stack.empty() && op_stack.back().type != ExpressionToken::Type::LPAREN) {
-                            postfix.push_back(op_stack.back());
-                            op_stack.pop_back();
-                        }
-                        if (op_stack.empty()) throw std::runtime_error("Mismatched parentheses in expression.");
-                        op_stack.pop_back(); // Pop the LPAREN
-                        break;
-                    default: break;
-                }
-            }
-            while (!op_stack.empty()) {
-                if (op_stack.back().type == ExpressionToken::Type::LPAREN) throw std::runtime_error("Mismatched parentheses in expression.");
-                postfix.push_back(op_stack.back());
-                op_stack.pop_back();
-            }
-            return postfix;
-        }
-
-        uint16_t evaluate_rpn(const std::vector<ExpressionToken>& rpn) const {
-            std::vector<uint16_t> val_stack;
-            for (const auto& token : rpn) {
-                if (token.type == ExpressionToken::Type::NUMBER) {
-                    val_stack.push_back(token.n_val);
-                } else if (token.type == ExpressionToken::Type::SYMBOL) {
-                    val_stack.push_back(m_symbol_table.get_value(token.s_val, m_current_address));
-                } else if (token.type == ExpressionToken::Type::OPERATOR) {
-                    if (val_stack.size() < 2) throw std::runtime_error("Invalid expression syntax.");
-                    uint16_t v2 = val_stack.back(); val_stack.pop_back();
-                    uint16_t v1 = val_stack.back(); val_stack.pop_back();
-                    if (token.s_val == "+") val_stack.push_back(v1 + v2);
-                    else if (token.s_val == "-") val_stack.push_back(v1 - v2);
-                    else if (token.s_val == "*") val_stack.push_back(v1 * v2);
-                    else if (token.s_val == "/") {
-                        if (v2 == 0) throw std::runtime_error("Division by zero in expression.");
-                        val_stack.push_back(v1 / v2);
-                    }
-                }
-            }
-            if (val_stack.size() != 1) throw std::runtime_error("Invalid expression syntax.");
-            return val_stack.back();
-        }
-
-        bool evaluate_expression(const std::string& s, uint16_t& out_value) const {
-            try {
-                auto tokens = tokenize_expression(s);
-                if (m_phase == ParsePhase::SymbolTableBuild) {
-                    for(const auto& token : tokens) {
-                        if (token.type == ExpressionToken::Type::SYMBOL && !m_symbol_table.is_symbol(token.s_val)) {
-                             out_value = 0;
-                             return true;
-                        }
-                    }
-                }
-                auto rpn = shunting_yard(tokens);
-                out_value = evaluate_rpn(rpn);
-                return true;
-            } catch (const std::exception&) {
-                if (m_symbol_table.is_symbol(s)) {
-                    if (m_phase == ParsePhase::GeneratingFinalCode) {
-                        out_value = m_symbol_table.get_value(s, m_current_address);
-                    } else {
-                        out_value = 0;
-                    }
-                    return true;
-                }
-                return false;
-            }
         }
 
         inline bool is_reg8(const std::string& s) const {
@@ -722,6 +586,61 @@ private:
                 assemble(0x10, static_cast<uint8_t>(offset));
                 return true;
             }
+            if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
+                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") &&
+                op.type == OperandParser::OperandType::MEM_INDEXED) {
+                uint8_t base_opcode = 0;
+                if (mnemonic == "ADD")
+                    base_opcode = 0x86;
+                else if (mnemonic == "ADC")
+                    base_opcode = 0x8E;
+                else if (mnemonic == "SUB")
+                    base_opcode = 0x96;
+                else if (mnemonic == "SBC")
+                    base_opcode = 0x9E;
+                else if (mnemonic == "AND")
+                    base_opcode = 0xA6;
+                else if (mnemonic == "XOR")
+                    base_opcode = 0xAE;
+                else if (mnemonic == "OR")
+                    base_opcode = 0xB6;
+                else if (mnemonic == "CP")
+                    base_opcode = 0xBE;
+
+                if (op.base_reg == "IX")
+                    assemble(0xDD, base_opcode, static_cast<int8_t>(op.offset));
+                else if (op.base_reg == "IY")
+                    assemble(0xFD, base_opcode, static_cast<int8_t>(op.offset));
+
+                return true;
+            }
+            if (mnemonic == "CP" && op.type == OperandParser::OperandType::IMM8) {
+                assemble(0xFE, (uint8_t)op.num_val);
+                return true;
+            }
+            if (mnemonic == "AND" && op.type == OperandParser::OperandType::IMM8) {
+                assemble(0xE6, (uint8_t)op.num_val);
+                return true;
+            }
+            if (mnemonic == "OR" && op.type == OperandParser::OperandType::IMM8) {
+                assemble(0xF6, (uint8_t)op.num_val);
+                return true;
+            }
+            if (mnemonic == "XOR" && op.type == OperandParser::OperandType::IMM8) {
+                assemble(0xEE, (uint8_t)op.num_val);
+                return true;
+            }
+            if (mnemonic == "SUB" && op.type == OperandParser::OperandType::IMM8) {
+                assemble(0xD6, (uint8_t)op.num_val);
+                return true;
+            }
+            if (mnemonic == "CALL" &&
+                (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16)) {
+                assemble(0xCD, (uint8_t)(op.num_val & 0xFF),
+                         (uint8_t)(op.num_val >> 8));
+                return true;
+            }
+
             return false;
         }
 
@@ -798,6 +717,14 @@ private:
                     return true;
                 }
             }
+            if (mnemonic == "LD" && op1.type == OperandParser::OperandType::MEM_REG16 &&
+                op2.type == OperandParser::OperandType::IMM8) {
+                if (op1.str_val == "HL") {
+                    uint8_t reg_code = reg8_map.at("(HL)");
+                    assemble((uint8_t)(0x06 | (reg_code << 3)), (uint8_t)op2.num_val);
+                    return true;
+                }
+            }
             if (mnemonic == "LD" && op1.str_val == "A" && op2.type == OperandParser::OperandType::MEM_REG16) {
                 if (op2.str_val == "BC") {
                     assemble(0x0A);
@@ -816,6 +743,21 @@ private:
             if (mnemonic == "LD" && op1.str_val == "A" && op2.type == OperandParser::OperandType::MEM_IMM16) {
                 assemble(0x3A, (uint8_t)(op2.num_val & 0xFF),
                          (uint8_t)(op2.num_val >> 8));
+                return true;
+            }
+            if (mnemonic == "LD" && op1.str_val == "A" && op2.type == OperandParser::OperandType::MEM_IMM16) {
+                assemble(0x3A, (uint8_t)(op2.num_val & 0xFF),
+                         (uint8_t)(op2.num_val >> 8));
+                return true;
+            }
+            if (mnemonic == "IN" && op1.str_val == "A" && op2.type == OperandParser::OperandType::MEM_IMM16) {
+                if (op2.num_val > 0xFF) throw std::runtime_error("Port for IN instruction must be 8-bit");
+                assemble(0xDB, (uint8_t)op2.num_val);
+                return true;
+            }
+            if (mnemonic == "OUT" && op1.type == OperandParser::OperandType::MEM_IMM16 && op2.str_val == "A") {
+                if (op1.num_val > 0xFF) throw std::runtime_error("Port for OUT instruction must be 8-bit");
+                assemble(0xD3, (uint8_t)op1.num_val);
                 return true;
             }
             if (mnemonic == "LD" && op1.type == OperandParser::OperandType::MEM_INDEXED &&
@@ -867,10 +809,61 @@ private:
                     assemble((uint8_t)(base_opcode | reg_code));
                 return true;
             }
+            if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
+                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") &&
+                op1.str_val == "A" && op2.type == OperandParser::OperandType::MEM_INDEXED) {
+                uint8_t base_opcode = 0;
+                if (mnemonic == "ADD")
+                    base_opcode = 0x86;
+                else if (mnemonic == "ADC")
+                    base_opcode = 0x8E;
+                else if (mnemonic == "SUB")
+                    base_opcode = 0x96;
+                else if (mnemonic == "SBC")
+                    base_opcode = 0x9E;
+                else if (mnemonic == "AND")
+                    base_opcode = 0xA6;
+                else if (mnemonic == "XOR")
+                    base_opcode = 0xAE;
+                else if (mnemonic == "OR")
+                    base_opcode = 0xB6;
+                else if (mnemonic == "CP")
+                    base_opcode = 0xBE;
+
+                if (op2.base_reg == "IX")
+                    assemble(0xDD, base_opcode, static_cast<int8_t>(op2.offset));
+                else if (op2.base_reg == "IY")
+                    assemble(0xFD, base_opcode, static_cast<int8_t>(op2.offset));
+
+                return true;
+            }
             if (mnemonic == "JP" && op1.type == OperandParser::OperandType::CONDITION &&
                 (op2.type == OperandParser::OperandType::IMM8 || op2.type == OperandParser::OperandType::IMM16)) {
                 uint8_t cond_code = condition_map.at(op1.str_val);
                 assemble((uint8_t)(0xC2 | (cond_code << 3)),
+                         (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
+                return true;
+            }
+            if (mnemonic == "JR" &&
+                (op1.type == OperandParser::OperandType::CONDITION &&
+                 (op2.type == OperandParser::OperandType::IMM8 || op2.type == OperandParser::OperandType::IMM16))) {
+                const std::map<std::string, uint8_t> jr_condition_map = {
+                    {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}};
+                if (jr_condition_map.count(op1.str_val)) {
+                    int32_t target_addr = op2.num_val;
+                    uint16_t instruction_size = 2;
+                    int32_t offset = target_addr - (m_current_address + instruction_size);
+                    if (m_phase == ParsePhase::GeneratingFinalCode && (offset < -128 || offset > 127))
+                        throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
+                    assemble(jr_condition_map.at(op1.str_val),
+                             static_cast<uint8_t>(offset));
+                    return true;
+                }
+            }
+            if (mnemonic == "CALL" && op1.type == OperandParser::OperandType::CONDITION &&
+                (op2.type == OperandParser::OperandType::IMM8 || op2.type == OperandParser::OperandType::IMM16)) {
+                uint8_t cond_code = condition_map.at(op1.str_val);
+                assemble((uint8_t)(0xC4 | (cond_code << 3)),
                          (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
                 return true;
             }
@@ -941,6 +934,30 @@ private:
                 assemble(0xCB, (uint8_t)(0x30 | reg_code));
                 return true;
             }
+            if ((mnemonic == "BIT" || mnemonic == "SET" || mnemonic == "RES") &&
+                op1.type == OperandParser::OperandType::IMM8 && op2.type == OperandParser::OperandType::MEM_INDEXED) {
+                if (op1.num_val > 7)
+                    throw std::runtime_error(mnemonic + " bit index must be 0-7");
+                uint8_t bit = op1.num_val;
+                uint8_t base_opcode = 0;
+                if (mnemonic == "BIT")
+                    base_opcode = 0x40;
+                else if (mnemonic == "RES")
+                    base_opcode = 0x80;
+                else // SET
+                    base_opcode = 0xC0;
+
+                uint8_t final_opcode = base_opcode | (bit << 3) | 6; // 6 is the code for (HL)
+
+                if (op2.base_reg == "IX") {
+                    assemble(0xDD, 0xCB, static_cast<uint8_t>(op2.offset), final_opcode);
+                } else if (op2.base_reg == "IY") {
+                    assemble(0xFD, 0xCB, static_cast<uint8_t>(op2.offset), final_opcode);
+                } else {
+                    return false;
+                }
+                return true;
+            }
             return false;
         }
 
@@ -991,6 +1008,11 @@ private:
         str.erase(str.find_last_not_of(" \t\n\r") + 1);
         if (str.empty())
             return false;
+        if (str.length() == 3 && str.front() == '\'' && str.back() == '\'') {
+            out_value = static_cast<uint8_t>(str[1]);
+            return true;
+        }
+
         const char* start = str.data();
         const char* end = str.data() + str.size();
         int base = 10;
