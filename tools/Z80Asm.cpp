@@ -54,10 +54,17 @@ BUFFER:
     try {
         std::cout << "Assembling source code:" << std::endl;
         std::cout << source_code << std::endl;
-        std::vector<uint8_t> machine_code;
-        if (assembler.assemble(source_code, machine_code)) {
+        if (assembler.assemble(source_code)) {
             std::cout << "Machine code -> ";
+            // Read back from the bus to display the assembled code
+            std::vector<uint8_t> machine_code;
+            uint16_t start_addr = 0x8000;
+            uint16_t end_addr = 0x8000 + 3 + 1 + 3 + 3 + 15 + 2 + 16; // Approximate end
+            for (uint16_t addr = start_addr; addr < end_addr; ++addr) {
+                machine_code.push_back(bus.peek(addr));
+            }
             print_bytes(machine_code);
+            std::cout << "Assembly successful. Code written to bus memory." << std::endl;
         }
 
     } catch (const std::exception& e) {
