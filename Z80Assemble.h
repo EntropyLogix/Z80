@@ -534,19 +534,17 @@ private:
     class InstructionEncoder {
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
-        using InstructionRule = std::function<bool(const std::string&, const std::vector<Operand>&)>;
 
     public:
         bool encode_pseudo_instruction(const std::string& mnemonic, const std::vector<Operand>& ops) {
-            if (mnemonic == "ORG") { // Handle ORG
+            if (mnemonic == "ORG") {
                 if (ops.size() == 1 && (match(ops[0], OperandType::IMM8) || match(ops[0], OperandType::IMM16))) {
                     m_current_address = ops[0].num_val;
-                    return true; // ORG doesn't generate bytes
-                } else {
+                    return true;
+                } else
                     throw std::runtime_error("Invalid operand for ORG directive");
-                }
             }
-            if (mnemonic == "DB" || mnemonic == "DEFB") { // Handle DB/DEFB
+            if (mnemonic == "DB" || mnemonic == "DEFB") {
                 for (const auto& op : ops) {
                     if (match(op, OperandType::IMM8) || match(op, OperandType::IMM16)) {
                         if (op.num_val > 0xFF) {
@@ -558,14 +556,13 @@ private:
                         for (char c : str_content) {
                             assemble(static_cast<uint8_t>(c));
                         }
-                    } else {
+                    } else 
                         throw std::runtime_error("Unsupported operand for DB: " + op.str_val);
-                    }
                 }
                 return true;
             }
 
-            if (mnemonic == "DW" || mnemonic == "DEFW") { // Handle DW/DEFW
+            if (mnemonic == "DW" || mnemonic == "DEFW") {
                 for (const auto& op : ops) {
                     if (match(op, OperandType::IMM8) || match(op, OperandType::IMM16)) {
                         assemble(static_cast<uint8_t>(op.num_val & 0xFF), static_cast<uint8_t>(op.num_val >> 8));
@@ -575,8 +572,7 @@ private:
                 }
                 return true;
             }
-
-            if (mnemonic == "DS" || mnemonic == "DEFS") { // Handle DS/DEFS
+            if (mnemonic == "DS" || mnemonic == "DEFS") {
                 if (ops.empty() || ops.size() > 2) {
                     throw std::runtime_error("DS/DEFS requires 1 or 2 operands.");
                 }
@@ -590,8 +586,7 @@ private:
                 }
                 return true;
             }
-
-            return false; // Not a pseudo-instruction
+            return false;
         }
 
         InstructionEncoder(TMemory* memory, uint16_t& current_address, const ParsePhase& phase)
@@ -964,7 +959,6 @@ private:
                     return true;
                 }
             }
-
             return false;
         }
 
@@ -1313,13 +1307,11 @@ private:
             }
             throw std::runtime_error("Unsupported or invalid instruction: " + error_line);
         }
-
         if (!parsed.mnemonic.empty() && parsed.mnemonic == "ORG") {
             uint16_t org_addr = ops[0].num_val;
             m_org_blocks.push_back({org_addr, 0});
-            return; // ORG does not generate bytes, so we skip the size calculation
+            return;
         }
-
         uint16_t bytes_generated = m_current_address - address_before;
         if (bytes_generated > 0 && !m_org_blocks.empty()) {
             m_org_blocks.back().size += bytes_generated;

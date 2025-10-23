@@ -46,7 +46,6 @@ STACK_BASE      EQU 0xF000
 ; and various addressing modes.
 ; ============================================================================
 
-        ORG 0x8000              ; Set the program's starting address
 
 ; --- Main program ---
 START:
@@ -182,7 +181,7 @@ STACK_TOP:                      ; Label indicating the top of the stack
     try {
         std::cout << "Assembling source code:" << std::endl;
         std::cout << source_code << std::endl;
-        if (assembler.compile(source_code, 0x8000)) {
+        if (assembler.compile(source_code)) {
             std::cout << "--- Generated Code Blocks ---" << std::endl;
             const auto& blocks = assembler.get_org_blocks();
             for (const auto& block : blocks) {
