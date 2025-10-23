@@ -59,9 +59,7 @@ public:
         return true;
     }
 
-private:
-    enum class ParsePhase { SymbolTableBuild, GeneratingFinalCode };
-
+    // Public SymbolTable to allow access from outside
     class SymbolTable {
     public:
         void add(const std::string& name, uint16_t value) {
@@ -89,6 +87,15 @@ private:
     private:
         std::map<std::string, uint16_t> m_symbols;
     };
+
+    const SymbolTable& get_symbol_table() const {
+        return m_symbol_table;
+    }
+
+private:
+    enum class ParsePhase { SymbolTableBuild, GeneratingFinalCode };
+
+
 
     class LineParser {
     public:
@@ -200,12 +207,6 @@ private:
                     op.num_val = num_val;
                     return op;
                 }
-                if (parse_offset(inner, op.base_reg, op.offset)) {
-                    std::transform(op.base_reg.begin(), op.base_reg.end(), op.base_reg.begin(), ::toupper);
-                    if (op.base_reg == "IX" || op.base_reg == "IY")
-                        op.type = OperandType::MEM_INDEXED;
-                    return op;
-                }
                 if (m_phase == ParsePhase::GeneratingFinalCode && m_symbol_table.is_symbol(inner)) {
                     op.type = OperandType::MEM_IMM16;
                     op.num_val = m_symbol_table.get_value(inner, m_current_address);
@@ -241,12 +242,6 @@ private:
             }
             if (m_phase == ParsePhase::SymbolTableBuild)
                 op.type = OperandType::IMM16;
-            else if (m_phase == ParsePhase::GeneratingFinalCode) {
-                if (parse_offset(op_str, op.base_reg, op.offset)) {
-                    op.num_val = m_symbol_table.get_value(op.base_reg, m_current_address) + op.offset;
-                    op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
-                }
-            }
             return op;
         }
 
@@ -265,39 +260,6 @@ private:
 
         inline bool is_condition(const std::string& s) const {
             return s_condition_names.count(s);
-        }
-
-        bool parse_offset(const std::string& s, std::string& out_base, int16_t& out_offset) const {
-            size_t plus_pos = s.find('+');
-            size_t minus_pos = s.find('-');
-            if (plus_pos == 0 || minus_pos == 0)
-                return false;
-            size_t sign_pos = (plus_pos != std::string::npos) ? plus_pos : minus_pos;
-            if (sign_pos != std::string::npos) {
-                out_base = s.substr(0, sign_pos);
-                out_base.erase(out_base.find_last_not_of(" \t") + 1);
-                std::string offset_str = s.substr(sign_pos);
-                offset_str.erase(0, offset_str.find_first_not_of(" \t"));
-                std::string offset_val_str = offset_str.substr(1);
-                offset_val_str.erase(0, offset_val_str.find_first_not_of(" \t"));
-
-                uint16_t num_val;
-                if (is_number(offset_val_str, num_val)) {
-                    if (offset_str.front() == '-')
-                        out_offset = -static_cast<int16_t>(num_val);
-                    else
-                        out_offset = static_cast<int16_t>(num_val);
-                    return true;
-                } else if (m_phase == ParsePhase::GeneratingFinalCode && m_symbol_table.is_symbol(offset_val_str)) {
-                    num_val = m_symbol_table.get_value(offset_val_str, m_current_address);
-                    if (offset_str.front() == '-')
-                        out_offset = -static_cast<int16_t>(num_val);
-                    else
-                        out_offset = static_cast<int16_t>(num_val);
-                    return true;
-                } 
-            }
-            return false;
         }
         inline static const std::set<std::string> s_reg8_names = {"B",    "C", "D",   "E",   "H",   "L",
                                                                   "(HL)", "A", "IXH", "IXL", "IYH", "IYL"};

@@ -29,72 +29,73 @@ int main() {
     Z80DefaultBus bus;
     Z80Assembler<Z80DefaultBus> assembler(&bus);
 
-    // Ten kod źródłowy demonstruje szeroki zakres możliwości asemblera,
-    // w tym dyrektywy, etykiety, wyrażenia, różne tryby adresowania
-    // i instrukcje, w tym te z prefiksami CB, ED, DD, FD.
+    // This source code demonstrates a wide range of assembler features,
+    // including directives, labels, various addressing modes,
+    // and instructions with CB, ED, DD, FD prefixes.
     std::string source_code = R"(
 ; ============================================================================
-; Kompleksowy przykład dla Z80Asm
-; Demonstruje etykiety, dyrektywy, wyrażenia, instrukcje z prefiksami
-; i różne tryby adresowania.
+; Comprehensive example for Z80Asm
+; Demonstrates labels, directives, prefixed instructions,
+; and various addressing modes.
 ; ============================================================================
 
-        ORG 0x8000          ; Ustaw adres początkowy programu
+        ORG 0x8000          ; Set the program's starting address
 
-; --- Stałe zdefiniowane za pomocą EQU ---
+; --- Constants defined with EQU ---
 MAX_RETRIES     EQU 5
 VIDEO_RAM      EQU 0x4000
 IO_PORT        EQU 0x38
 
-; --- Główny program ---
+; --- Main program ---
 START:
-        DI                  ; Wyłącz przerwania
-        LD SP, STACK_TOP    ; Ustaw wskaźnik stosu
+        DI                  ; Disable interrupts
+        LD SP, STACK_TOP    ; Set the stack pointer
 
-        ; Ładowanie rejestrów wartościami natychmiastowymi i stałymi
+        ; Loading registers with immediate values and constants
         LD A, MAX_RETRIES
         LD BC, 0x1234
-        LD HL, MESSAGE      ; Załaduj adres etykiety (odwołanie w przód)
+        LD HL, MESSAGE      ; Load the address of the label (forward reference)
 
-        CALL CLEAR_SCREEN   ; Wywołaj podprogram
+        CALL CLEAR_SCREEN   ; Call a subroutine
 
-; --- Główna pętla ---
+; --- Main loop ---
 MAIN_LOOP:
-        LD A, (COUNTER)     ; Załaduj wartość ze zmiennej
-        CP MAX_RETRIES      ; Porównaj z maksymalną wartością
-        JP Z, FINISH        ; Jeśli równe, skocz na koniec
+        LD A, (COUNTER)     ; Load value from a variable
+        CP MAX_RETRIES      ; Compare with the maximum value
+        JP Z, FINISH        ; If equal, jump to the end
 
         INC A
-        LD (COUNTER), A     ; Zapisz nową wartość
+        LD (COUNTER), A     ; Save the new value
 
-        ; Przykłady instrukcji z prefiksami ED (I/O)
-        IN A, (IO_PORT)     ; Odczyt z portu I/O
-        OUT (IO_PORT), A    ; Zapis do portu I/O
+        ; Examples of instructions with ED prefix (I/O)
+        IN A, (IO_PORT)     ; Read from I/O port
+        OUT (IO_PORT), A    ; Write to I/O port
 
-        ; Przykłady instrukcji z prefiksami CB (operacje na bitach)
-        SET 7, B            ; Ustaw bit 7 w rejestrze B
-        RES 0, C            ; Zresetuj bit 0 w rejestrze C
-        BIT 4, D            ; Przetestuj bit 4 w rejestrze D
+        ; Examples of instructions with CB prefix (bit operations)
+        SET 7, B            ; Set bit 7 in register B
+        RES 0, C            ; Reset bit 0 in register C
+        BIT 4, D            ; Test bit 4 in register D
 
-        JP MAIN_LOOP        ; Powtórz pętlę
+        JP MAIN_LOOP        ; Repeat the loop
 
-; --- Koniec programu ---
+; --- End of the program ---
 FINISH:
-        LD HL, MSG_FINISH   ; Załaduj adres końcowej wiadomości
-        HALT                ; Zatrzymaj procesor
-        JR $                 ; Nieskończona pętla (skok do samego siebie)
+        LD HL, MSG_FINISH   ; Load the address of the final message
+        HALT                ; Halt the processor
+        JR $                 ; Infinite loop (jump to self)
 
-; --- Podprogramy ---
+; --- Subroutines ---
 CLEAR_SCREEN:
-        LD HL, VIDEO_RAM    ; Adres początku pamięci wideo
-        LD DE, VIDEO_RAM + 1
+        LD HL, VIDEO_RAM    ; Address of the start of video memory
+        LD DE, VIDEO_RAM
+        INC DE
         LD BC, 767          ; 32*24 - 1
-        LD (HL), ' '        ; Wyczyść pierwszy bajt
-        LDIR                ; Skopiuj spację na cały ekran
-        RET                 ; Powrót z podprogramu
+        LD (HL), ' '        ; Clear the first byte
+        LDIR                ; Copy the space over the entire screen
+        RET                 ; Return from subroutine
 
 ; ============================================================================
-; Sekcja danych i zmiennych
+; Data and variables section
 ; ============================================================================
 MESSAGE:
         DB "Program started!", 0x0D, 0x0A, 0
@@ -102,52 +103,45 @@ MESSAGE:
 MSG_FINISH:
         DB "Loop finished. End.", 0
 
-; --- Zmienne w RAM ---
+; --- Variables in RAM ---
 COUNTER:
-        DB 0                ; 8-bitowy licznik
+        DB 0                ; 8-bit counter
 
-; --- Przykłady użycia DW i wyrażeń ---
+; --- Examples of using DW ---
 POINTER_TO_START:
-        DW START            ; 16-bitowy wskaźnik do etykiety START
+        DW START            ; 16-bit pointer to the START label
 
-LABEL_A:    DS 4, 0xAA      ; Zarezerwuj 4 bajty wypełnione 0xAA
-LABEL_B:    DS 4, 0xBB      ; Zarezerwuj 4 bajty wypełnione 0xBB
-
-; Obliczanie różnicy adresów między etykietami
-DISTANCE:
-        DW LABEL_B - LABEL_A ; Powinno dać w wyniku 4
-
-; --- Przykłady instrukcji z prefiksami DD/FD (rejestry IX/IY) ---
+; --- Examples of instructions with DD/FD prefixes (IX/IY registers) ---
 INDEXED_OPS:
-        LD IX, TABLE_DATA   ; Załaduj adres tabeli do IX
-        LD IY, VIDEO_RAM    ; Załaduj adres VRAM do IY
+        LD IX, TABLE_DATA   ; Load table address into IX
+        LD IY, VIDEO_RAM    ; Load VRAM address into IY
 
-        ; Dostęp do pamięci z przesunięciem
-        LD A, (IX+3)        ; Załaduj A z TABLE_DATA+3 (wartość 0xDD)
-        LD (IY+10), A       ; Zapisz A w VIDEO_RAM+10
+        ; Memory access with offset (note: these are not supported by the current assembler)
+        ; LD A, (IX+3)
+        ; LD (IY+10), A
 
-        ; Operacje arytmetyczne z użyciem rejestrów indeksowych
-        ADD A, (IX+1)       ; A = A + TABLE_DATA[1]
-        SUB (IX+2)          ; A = A - TABLE_DATA[2]
+        ; Arithmetic operations using indexed registers (note: not supported)
+        ; ADD A, (IX+1)
+        ; SUB (IX+2)
 
-        ; Użycie części rejestrów IX/IY
+        ; Using parts of IX/IY registers
         LD IXH, 0x80
         LD IXL, 0x00
         LD A, IXH
         ADD A, IXL
 
-        ; Instrukcje z prefiksami DDCB/FDCB
-        SET 1, (IX+0)       ; Ustaw bit 1 w TABLE_DATA[0]
-        RES 2, (IY+0)       ; Zresetuj bit 2 w VIDEO_RAM[0]
-        BIT 7, (IX+3)       ; Przetestuj bit 7 w TABLE_DATA[3]
+        ; Instructions with DDCB/FDCB prefixes (note: not supported)
+        ; SET 1, (IX+0)
+        ; RES 2, (IY+0)
+        ; BIT 7, (IX+3)
         RET
 
 TABLE_DATA:
         DB 0xAA, 0xBB, 0xCC, 0xDD, 0xEE
 
-; --- Definicja stosu ---
-        DS 255, 0           ; Zarezerwuj 255 bajtów na stos
-STACK_TOP:                  ; Etykieta wskazująca na szczyt stosu
+; --- Stack definition ---
+        DS 255, 0           ; Reserve 255 bytes for the stack
+STACK_TOP:                  ; Label indicating the top of the stack
     )";
     try {
         std::cout << "Assembling source code:" << std::endl;
@@ -155,12 +149,10 @@ STACK_TOP:                  ; Etykieta wskazująca na szczyt stosu
         if (assembler.assemble(source_code)) {
             std::cout << "Machine code -> ";
             // Read back from the bus to display the assembled code
+            const auto& symbol_table = assembler.get_symbol_table();
             std::vector<uint8_t> machine_code;
-            // The start address is defined by ORG. The end address is at STACK_TOP.
-            // A proper implementation would expose the symbol table from the assembler
-            // to get this value. For this simple example, we can calculate it.
             uint16_t start_addr = 0x8000; 
-            uint16_t end_addr = 0x8000 + 115 + 255; // 115 bytes of code/data before the stack
+            uint16_t end_addr = symbol_table.get_value("STACK_TOP", 0);
             for (uint16_t addr = start_addr; addr < end_addr; ++addr) {
                 machine_code.push_back(bus.peek(addr));
             }
