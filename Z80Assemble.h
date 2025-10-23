@@ -29,8 +29,38 @@
 #include <string>
 #include <system_error>
 #include <vector>
+
 template <typename TMemory> class Z80Assembler {
 public:
+    Z80Assembler(TMemory* memory) : m_memory(memory) {
+    }
+
+    bool assemble(const std::string& source_code, uint16_t default_org = 0x0000) {
+        m_symbol_table.clear(); // Use the new class method
+
+        std::stringstream ss(source_code);
+        std::vector<std::string> lines;
+        std::string line;
+
+        while (std::getline(ss, line))
+            lines.push_back(line);
+
+        m_current_address = default_org;
+        m_phase = ParsePhase::SymbolTableBuild;
+        for (const auto& l : lines)
+            process_line(l);
+
+        m_current_address = default_org;
+        m_phase = ParsePhase::GeneratingFinalCode;
+        for (const auto& l : lines)
+            process_line(l);
+
+        return true;
+    }
+
+private:
+    enum class ParsePhase { SymbolTableBuild, GeneratingFinalCode };
+
     class SymbolTable {
     public:
         void add(const std::string& name, uint16_t value) {
@@ -39,13 +69,11 @@ public:
             }
             m_symbols[name] = value;
         }
-
         bool is_symbol(const std::string& name) const {
             if (name == "$")
                 return true;
             return m_symbols.count(name);
         }
-
         uint16_t get_value(const std::string& name, uint16_t current_address) const {
             if (name == "$")
                 return current_address;
@@ -53,7 +81,6 @@ public:
                 return m_symbols.at(name);
             throw std::runtime_error("Undefined symbol: " + name);
         }
-
         void clear() {
             m_symbols.clear();
         }
@@ -61,6 +88,7 @@ public:
     private:
         std::map<std::string, uint16_t> m_symbols;
     };
+
     class LineParser {
     public:
         struct ParsedLine {
@@ -133,33 +161,9 @@ public:
         }
     };
 
-    inline static bool is_number(const std::string& s, uint16_t& out_value) {
-        std::string str = s;
-        str.erase(0, str.find_first_not_of(" \t\n\r"));
-        str.erase(str.find_last_not_of(" \t\n\r") + 1);
-        if (str.empty())
-            return false;
-        const char* start = str.data();
-        const char* end = str.data() + str.size();
-        int base = 10;
-        if (str.size() > 2 && (str.substr(0, 2) == "0X" || str.substr(0, 2) == "0x")) {
-            start += 2;
-            base = 16;
-        } else if (str.back() == 'H' || str.back() == 'h') {
-            end -= 1;
-            base = 16;
-        }
-        auto result = std::from_chars(start, end, out_value, base);
-        return result.ec == std::errc() && result.ptr == end;
-    }
-
-public:
-    enum class ParsePhase { SymbolTableBuild, GeneratingFinalCode };
-
     class OperandParser {
     public:
         enum class OperandType { REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, UNKNOWN };
-
         struct Operand {
             OperandType type = OperandType::UNKNOWN;
             std::string str_val;
@@ -776,40 +780,6 @@ public:
             return false;
         }
     };
-    Z80Assembler(TMemory* memory) : m_memory(memory) {
-    }
-
-    bool assemble(const std::string& source_code, uint16_t default_org = 0x0000) {
-        m_symbol_table.clear(); // Use the new class method
-
-        std::stringstream ss(source_code);
-        std::vector<std::string> lines;
-        std::string line;
-
-        while (std::getline(ss, line))
-            lines.push_back(line);
-
-        m_current_address = default_org;
-        m_phase = ParsePhase::SymbolTableBuild;
-        for (const auto& l : lines)
-            process_line(l);
-
-        m_current_address = default_org;
-        m_phase = ParsePhase::GeneratingFinalCode;
-        for (const auto& l : lines)
-            process_line(l);
-
-        return true;
-    }
-
-private:
-    ParsePhase m_phase;
-    uint16_t m_current_address = 0;
-    TMemory* m_memory = nullptr;
-    typename Z80Assembler<TMemory>::SymbolTable m_symbol_table;
-    typename Z80Assembler<TMemory>::LineParser m_line_parser;
-    OperandParser m_operand_parser;
-    InstructionEncoder m_encoder;
 
     void process_line(const std::string& line) {
         typename Z80Assembler<TMemory>::LineParser::ParsedLine parsed = m_line_parser.parse(line);
@@ -845,6 +815,26 @@ private:
             ops.push_back(m_operand_parser.parse(s, m_symbol_table, m_current_address, m_phase));
 
         assemble_instruction(parsed.mnemonic, ops);
+    }
+
+    inline static bool is_number(const std::string& s, uint16_t& out_value) {
+        std::string str = s;
+        str.erase(0, str.find_first_not_of(" \t\n\r"));
+        str.erase(str.find_last_not_of(" \t\n\r") + 1);
+        if (str.empty())
+            return false;
+        const char* start = str.data();
+        const char* end = str.data() + str.size();
+        int base = 10;
+        if (str.size() > 2 && (str.substr(0, 2) == "0X" || str.substr(0, 2) == "0x")) {
+            start += 2;
+            base = 16;
+        } else if (str.back() == 'H' || str.back() == 'h') {
+            end -= 1;
+            base = 16;
+        }
+        auto result = std::from_chars(start, end, out_value, base);
+        return result.ec == std::errc() && result.ptr == end;
     }
 
     void assemble_instruction(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& ops) {
@@ -932,6 +922,14 @@ private:
             throw std::runtime_error("Unsupported or invalid instruction: " + mnemonic + " " + ops_str);
         }
     }
+
+    ParsePhase m_phase;
+    uint16_t m_current_address = 0;
+    TMemory* m_memory = nullptr;
+    typename Z80Assembler<TMemory>::SymbolTable m_symbol_table;
+    typename Z80Assembler<TMemory>::LineParser m_line_parser;
+    OperandParser m_operand_parser;
+    InstructionEncoder m_encoder;
 };
 
 #endif //__Z80ASSEMBLE_H__
