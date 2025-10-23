@@ -229,12 +229,14 @@ private:
                 op.type = (num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
                 return op;
             }
-            if (m_phase == ParsePhase::GeneratingFinalCode && m_symbol_table.is_symbol(op_str)) {
+            if (m_symbol_table.is_symbol(op_str)) {
                 op.num_val = m_symbol_table.get_value(op_str, m_current_address);
                 op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
                 return op;
             }
-            if (m_phase == ParsePhase::GeneratingFinalCode) {
+            if (m_phase == ParsePhase::SymbolTableBuild)
+                op.type = OperandType::IMM16;
+            else if (m_phase == ParsePhase::GeneratingFinalCode) {
                 if (parse_offset(op_str, op.base_reg, op.offset)) {
                     op.num_val = m_symbol_table.get_value(op.base_reg, m_current_address) + op.offset;
                     op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
