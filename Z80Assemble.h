@@ -32,7 +32,8 @@
 
 template <typename TMemory> class Z80Assembler {
 public:
-    Z80Assembler(TMemory* memory) : m_memory(memory) {
+    Z80Assembler(TMemory* memory)
+        : m_memory(memory), m_operand_parser(m_symbol_table, m_current_address, m_phase), m_encoder(m_memory, m_current_address, m_phase) {
     }
 
     bool assemble(const std::string& source_code, uint16_t default_org = 0x0000) {
@@ -163,17 +164,20 @@ private:
 
     class OperandParser {
     public:
+        OperandParser(const SymbolTable& symbol_table, const uint16_t& current_address, const ParsePhase& phase)
+            : m_symbol_table(symbol_table), m_current_address(current_address), m_phase(phase) {
+        }
+
         enum class OperandType { REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, UNKNOWN };
         struct Operand {
             OperandType type = OperandType::UNKNOWN;
             std::string str_val;
             uint16_t num_val = 0;
-            int8_t offset = 0;
-            std::string base_reg; // For indexed addressing
+            int16_t offset = 0;
+            std::string base_reg;
         };
 
-        Operand parse(const std::string& op_str, const typename Z80Assembler<TMemory>::SymbolTable& symbol_table,
-                      uint16_t current_address, ParsePhase phase) {
+        Operand parse(const std::string& op_str) {
             Operand op;
             op.str_val = op_str;
             uint16_t num_val;
@@ -202,9 +206,9 @@ private:
                         op.type = OperandType::MEM_INDEXED;
                     return op;
                 }
-                if (phase == ParsePhase::GeneratingFinalCode && symbol_table.is_symbol(inner)) {
+                if (m_phase == ParsePhase::GeneratingFinalCode && m_symbol_table.is_symbol(inner)) {
                     op.type = OperandType::MEM_IMM16;
-                    op.num_val = symbol_table.get_value(inner, current_address);
+                    op.num_val = m_symbol_table.get_value(inner, m_current_address);
                     return op;
                 }
             }
@@ -225,10 +229,16 @@ private:
                 op.type = (num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
                 return op;
             }
-            if (phase == ParsePhase::GeneratingFinalCode && symbol_table.is_symbol(op_str)) {
-                op.num_val = symbol_table.get_value(op_str, current_address);
+            if (m_phase == ParsePhase::GeneratingFinalCode && m_symbol_table.is_symbol(op_str)) {
+                op.num_val = m_symbol_table.get_value(op_str, m_current_address);
                 op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
                 return op;
+            }
+            if (m_phase == ParsePhase::GeneratingFinalCode) {
+                if (parse_offset(op_str, op.base_reg, op.offset)) {
+                    op.num_val = m_symbol_table.get_value(op.base_reg, m_current_address) + op.offset;
+                    op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
+                }
             }
             return op;
         }
@@ -250,7 +260,7 @@ private:
             return s_condition_names.count(s);
         }
 
-        bool parse_offset(const std::string& s, std::string& out_base, int8_t& out_offset) const {
+        bool parse_offset(const std::string& s, std::string& out_base, int16_t& out_offset) const {
             size_t plus_pos = s.find('+');
             size_t minus_pos = s.find('-');
             if (plus_pos == 0 || minus_pos == 0)
@@ -261,14 +271,24 @@ private:
                 out_base.erase(out_base.find_last_not_of(" \t") + 1);
                 std::string offset_str = s.substr(sign_pos);
                 offset_str.erase(0, offset_str.find_first_not_of(" \t"));
+                std::string offset_val_str = offset_str.substr(1);
+                offset_val_str.erase(0, offset_val_str.find_first_not_of(" \t"));
+
                 uint16_t num_val;
-                if (is_number(offset_str.substr(1), num_val)) {
+                if (is_number(offset_val_str, num_val)) {
                     if (offset_str.front() == '-')
-                        out_offset = -static_cast<int8_t>(num_val);
+                        out_offset = -static_cast<int16_t>(num_val);
                     else
-                        out_offset = static_cast<int8_t>(num_val);
+                        out_offset = static_cast<int16_t>(num_val);
                     return true;
-                }
+                } else if (m_phase == ParsePhase::GeneratingFinalCode && m_symbol_table.is_symbol(offset_val_str)) {
+                    num_val = m_symbol_table.get_value(offset_val_str, m_current_address);
+                    if (offset_str.front() == '-')
+                        out_offset = -static_cast<int16_t>(num_val);
+                    else
+                        out_offset = static_cast<int16_t>(num_val);
+                    return true;
+                } 
             }
             return false;
         }
@@ -276,30 +296,35 @@ private:
                                                                   "(HL)", "A", "IXH", "IXL", "IYH", "IYL"};
         inline static const std::set<std::string> s_reg16_names = {"BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
         inline static const std::set<std::string> s_condition_names = {"NZ", "Z", "NC", "C", "PO", "PE", "P", "M"};
+
+        const SymbolTable& m_symbol_table;
+        const uint16_t& m_current_address;
+        const ParsePhase& m_phase;
     };
     class InstructionEncoder {
     public:
-        bool encode(TMemory* memory, uint16_t& current_address, ParsePhase phase, const std::string& mnemonic,
-                    const std::vector<typename OperandParser::Operand>& operands, const OperandParser& operand_parser) {
+        InstructionEncoder(TMemory* memory, uint16_t& current_address, const ParsePhase& phase)
+            : m_memory(memory), m_current_address(current_address), m_phase(phase) {}
+
+        bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
             switch (operands.size()) {
             case 0:
-                return encode_no_operand(memory, current_address, phase, mnemonic);
+                return encode_no_operand(mnemonic);
             case 1:
-                return encode_one_operand(memory, current_address, phase, mnemonic, operands[0], operand_parser);
+                return encode_one_operand(mnemonic, operands[0]);
             case 2:
-                return encode_two_operands(memory, current_address, phase, mnemonic, operands[0], operands[1],
-                                           operand_parser);
+                return encode_two_operands(mnemonic, operands[0], operands[1]);
             }
             return false;
         }
 
     private:
         template <typename... Args>
-        void assemble(TMemory* memory, uint16_t& current_address, ParsePhase phase, Args... args) {
-            if (phase == ParsePhase::GeneratingFinalCode)
-                (memory->poke(current_address++, static_cast<uint8_t>(args)), ...);
+        void assemble(Args... args) {
+            if (m_phase == ParsePhase::GeneratingFinalCode)
+                (m_memory->poke(m_current_address++, static_cast<uint8_t>(args)), ...);
             else
-                current_address += sizeof...(args);
+                m_current_address += sizeof...(args);
         }
 
         inline static const std::map<std::string, uint8_t> reg8_map = {{"B", 0},   {"C", 1},   {"D", 2},    {"E", 3},
@@ -309,223 +334,220 @@ private:
         inline static const std::map<std::string, uint8_t> reg16_af_map = {{"BC", 0}, {"DE", 1}, {"HL", 2}, {"AF", 3}};
         inline static const std::map<std::string, uint8_t> condition_map = {{"NZ", 0}, {"Z", 1},  {"NC", 2}, {"C", 3},
                                                                             {"PO", 4}, {"PE", 5}, {"P", 6},  {"M", 7}};
-        bool encode_no_operand(TMemory* memory, uint16_t& current_address, ParsePhase phase,
-                               const std::string& mnemonic) {
+        bool encode_no_operand(const std::string& mnemonic) {
             if (mnemonic == "NOP") {
-                assemble(memory, current_address, phase, 0x00);
+                assemble(0x00);
                 return true;
             }
             if (mnemonic == "HALT") {
-                assemble(memory, current_address, phase, 0x76);
+                assemble(0x76);
                 return true;
             }
             if (mnemonic == "DI") {
-                assemble(memory, current_address, phase, 0xF3);
+                assemble(0xF3);
                 return true;
             }
             if (mnemonic == "EI") {
-                assemble(memory, current_address, phase, 0xFB);
+                assemble(0xFB);
                 return true;
             }
             if (mnemonic == "EXX") {
-                assemble(memory, current_address, phase, 0xD9);
+                assemble(0xD9);
                 return true;
             }
             if (mnemonic == "RET") {
-                assemble(memory, current_address, phase, 0xC9);
+                assemble(0xC9);
                 return true;
             }
             if (mnemonic == "RETI") {
-                assemble(memory, current_address, phase, 0xED, 0x4D);
+                assemble(0xED, 0x4D);
                 return true;
             }
             if (mnemonic == "RETN") {
-                assemble(memory, current_address, phase, 0xED, 0x45);
+                assemble(0xED, 0x45);
                 return true;
             }
             if (mnemonic == "RLCA") {
-                assemble(memory, current_address, phase, 0x07);
+                assemble(0x07);
                 return true;
             }
             if (mnemonic == "RRCA") {
-                assemble(memory, current_address, phase, 0x0F);
+                assemble(0x0F);
                 return true;
             }
             if (mnemonic == "RLA") {
-                assemble(memory, current_address, phase, 0x17);
+                assemble(0x17);
                 return true;
             }
             if (mnemonic == "RRA") {
-                assemble(memory, current_address, phase, 0x1F);
+                assemble(0x1F);
                 return true;
             }
             if (mnemonic == "DAA") {
-                assemble(memory, current_address, phase, 0x27);
+                assemble(0x27);
                 return true;
             }
             if (mnemonic == "CPL") {
-                assemble(memory, current_address, phase, 0x2F);
+                assemble(0x2F);
                 return true;
             }
             if (mnemonic == "SCF") {
-                assemble(memory, current_address, phase, 0x37);
+                assemble(0x37);
                 return true;
             }
             if (mnemonic == "CCF") {
-                assemble(memory, current_address, phase, 0x3F);
+                assemble(0x3F);
                 return true;
             }
             if (mnemonic == "LDI") {
-                assemble(memory, current_address, phase, 0xED, 0xA0);
+                assemble(0xED, 0xA0);
                 return true;
             }
             if (mnemonic == "CPI") {
-                assemble(memory, current_address, phase, 0xED, 0xA1);
+                assemble(0xED, 0xA1);
                 return true;
             }
             if (mnemonic == "INI") {
-                assemble(memory, current_address, phase, 0xED, 0xA2);
+                assemble(0xED, 0xA2);
                 return true;
             }
             if (mnemonic == "OUTI") {
-                assemble(memory, current_address, phase, 0xED, 0xA3);
+                assemble(0xED, 0xA3);
                 return true;
             }
             if (mnemonic == "LDD") {
-                assemble(memory, current_address, phase, 0xED, 0xA8);
+                assemble(0xED, 0xA8);
                 return true;
             }
             if (mnemonic == "CPD") {
-                assemble(memory, current_address, phase, 0xED, 0xA9);
+                assemble(0xED, 0xA9);
                 return true;
             }
             if (mnemonic == "IND") {
-                assemble(memory, current_address, phase, 0xED, 0xAA);
+                assemble(0xED, 0xAA);
                 return true;
             }
             if (mnemonic == "OUTD") {
-                assemble(memory, current_address, phase, 0xED, 0xAB);
+                assemble(0xED, 0xAB);
                 return true;
             }
             if (mnemonic == "LDIR") {
-                assemble(memory, current_address, phase, 0xED, 0xB0);
+                assemble(0xED, 0xB0);
                 return true;
             }
             if (mnemonic == "CPIR") {
-                assemble(memory, current_address, phase, 0xED, 0xB1);
+                assemble(0xED, 0xB1);
                 return true;
             }
             if (mnemonic == "INIR") {
-                assemble(memory, current_address, phase, 0xED, 0xB2);
+                assemble(0xED, 0xB2);
                 return true;
             }
             if (mnemonic == "OTIR") {
-                assemble(memory, current_address, phase, 0xED, 0xB3);
+                assemble(0xED, 0xB3);
                 return true;
             }
             if (mnemonic == "LDDR") {
-                assemble(memory, current_address, phase, 0xED, 0xB8);
+                assemble(0xED, 0xB8);
                 return true;
             }
             if (mnemonic == "CPDR") {
-                assemble(memory, current_address, phase, 0xED, 0xB9);
+                assemble(0xED, 0xB9);
                 return true;
             }
             if (mnemonic == "INDR") {
-                assemble(memory, current_address, phase, 0xED, 0xBA);
+                assemble(0xED, 0xBA);
                 return true;
             }
             if (mnemonic == "OTDR") {
-                assemble(memory, current_address, phase, 0xED, 0xBB);
+                assemble(0xED, 0xBB);
                 return true;
             }
             return false;
         }
 
-        bool encode_one_operand(TMemory* memory, uint16_t& current_address, ParsePhase phase,
-                                const std::string& mnemonic, const typename OperandParser::Operand& op,
-                                const OperandParser& operand_parser) {
+        bool encode_one_operand(const std::string& mnemonic, const typename OperandParser::Operand& op) {
             if (mnemonic == "PUSH" && op.type == OperandParser::OperandType::REG16) {
                 if (reg16_af_map.count(op.str_val)) {
-                    assemble(memory, current_address, phase, (uint8_t)(0xC5 | (reg16_af_map.at(op.str_val) << 4)));
+                    assemble((uint8_t)(0xC5 | (reg16_af_map.at(op.str_val) << 4)));
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble(memory, current_address, phase, 0xDD, 0xE5);
+                    assemble(0xDD, 0xE5);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble(memory, current_address, phase, 0xFD, 0xE5);
+                    assemble(0xFD, 0xE5);
                     return true;
                 }
             }
             if (mnemonic == "POP" && op.type == OperandParser::OperandType::REG16) {
                 if (reg16_af_map.count(op.str_val)) {
-                    assemble(memory, current_address, phase, (uint8_t)(0xC1 | (reg16_af_map.at(op.str_val) << 4)));
+                    assemble((uint8_t)(0xC1 | (reg16_af_map.at(op.str_val) << 4)));
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble(memory, current_address, phase, 0xDD, 0xE1);
+                    assemble(0xDD, 0xE1);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble(memory, current_address, phase, 0xFD, 0xE1);
+                    assemble(0xFD, 0xE1);
                     return true;
                 }
             }
             if (mnemonic == "INC" && op.type == OperandParser::OperandType::REG16) {
                 if (reg16_map.count(op.str_val)) {
-                    assemble(memory, current_address, phase, (uint8_t)(0x03 | (reg16_map.at(op.str_val) << 4)));
+                    assemble((uint8_t)(0x03 | (reg16_map.at(op.str_val) << 4)));
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble(memory, current_address, phase, 0xDD, 0x23);
+                    assemble(0xDD, 0x23);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble(memory, current_address, phase, 0xFD, 0x23);
+                    assemble(0xFD, 0x23);
                     return true;
                 }
             }
             if (mnemonic == "DEC" && op.type == OperandParser::OperandType::REG16) {
                 if (reg16_map.count(op.str_val)) {
-                    assemble(memory, current_address, phase, (uint8_t)(0x0B | (reg16_map.at(op.str_val) << 4)));
+                    assemble((uint8_t)(0x0B | (reg16_map.at(op.str_val) << 4)));
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble(memory, current_address, phase, 0xDD, 0x2B);
+                    assemble(0xDD, 0x2B);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble(memory, current_address, phase, 0xFD, 0x2B);
+                    assemble(0xFD, 0x2B);
                     return true;
                 }
             }
             if (mnemonic == "INC" && op.type == OperandParser::OperandType::REG8) {
-                assemble(memory, current_address, phase, (uint8_t)(0x04 | (reg8_map.at(op.str_val) << 3)));
+                assemble((uint8_t)(0x04 | (reg8_map.at(op.str_val) << 3)));
                 return true;
             }
             if (mnemonic == "DEC" && op.type == OperandParser::OperandType::REG8) {
-                assemble(memory, current_address, phase, (uint8_t)(0x05 | (reg8_map.at(op.str_val) << 3)));
+                assemble((uint8_t)(0x05 | (reg8_map.at(op.str_val) << 3)));
                 return true;
             }
             if (mnemonic == "JP" &&
                 (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16)) {
-                assemble(memory, current_address, phase, 0xC3, (uint8_t)(op.num_val & 0xFF),
+                assemble(0xC3, (uint8_t)(op.num_val & 0xFF),
                          (uint8_t)(op.num_val >> 8));
                 return true;
             }
             if (mnemonic == "JP" && op.type == OperandParser::OperandType::MEM_REG16) {
                 if (op.str_val == "HL") {
-                    assemble(memory, current_address, phase, 0xE9);
+                    assemble(0xE9);
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble(memory, current_address, phase, 0xDD, 0xE9);
+                    assemble(0xDD, 0xE9);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble(memory, current_address, phase, 0xFD, 0xE9);
+                    assemble(0xFD, 0xE9);
                     return true;
                 }
             }
@@ -533,42 +555,41 @@ private:
                 (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (current_address + instruction_size);
-                if (phase == ParsePhase::GeneratingFinalCode && (offset < -128 || offset > 127))
+                int32_t offset = target_addr - (m_current_address + instruction_size);
+                if (m_phase == ParsePhase::GeneratingFinalCode && (offset < -128 || offset > 127))
                     throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
-                assemble(memory, current_address, phase, 0x18, static_cast<uint8_t>(offset));
+                assemble(0x18, static_cast<uint8_t>(offset));
                 return true;
             }
             if (mnemonic == "SUB" && op.type == OperandParser::OperandType::IMM8) {
-                assemble(memory, current_address, phase, 0xD6, (uint8_t)op.num_val);
+                assemble(0xD6, (uint8_t)op.num_val);
                 return true;
             }
             if (mnemonic == "ADD" && op.type == OperandParser::OperandType::REG8) {
-                assemble(memory, current_address, phase, (uint8_t)(0x80 | reg8_map.at(op.str_val)));
+                assemble((uint8_t)(0x80 | reg8_map.at(op.str_val)));
                 return true;
             }
             if (mnemonic == "DJNZ" &&
                 (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (current_address + instruction_size);
-                if (phase == ParsePhase::GeneratingFinalCode && (offset < -128 || offset > 127))
+                int32_t offset = target_addr - (m_current_address + instruction_size);
+                if (m_phase == ParsePhase::GeneratingFinalCode && (offset < -128 || offset > 127))
                     throw std::runtime_error("DJNZ jump target out of range. Offset: " + std::to_string(offset));
-                assemble(memory, current_address, phase, 0x10, static_cast<uint8_t>(offset));
+                assemble(0x10, static_cast<uint8_t>(offset));
                 return true;
             }
             return false;
         }
 
-        bool encode_two_operands(TMemory* memory, uint16_t& current_address, ParsePhase phase,
-                                 const std::string& mnemonic, const typename OperandParser::Operand& op1,
-                                 const typename OperandParser::Operand& op2, const OperandParser& operand_parser) {
+        bool encode_two_operands(const std::string& mnemonic, const typename OperandParser::Operand& op1,
+                                 const typename OperandParser::Operand& op2) {
             if (mnemonic == "EX" && op1.str_val == "AF" && op2.str_val == "AF'") {
-                assemble(memory, current_address, phase, 0x08);
+                assemble(0x08);
                 return true;
             }
             if (mnemonic == "EX" && op1.str_val == "DE" && op2.str_val == "HL") {
-                assemble(memory, current_address, phase, 0xEB);
+                assemble(0xEB);
                 return true;
             }
             uint8_t prefix = 0;
@@ -587,93 +608,93 @@ private:
                     if ((op1.str_val.find("IX") != std::string::npos && op2.str_val.find("IY") != std::string::npos) ||
                         (op1.str_val.find("IY") != std::string::npos && op2.str_val.find("IX") != std::string::npos))
                         throw std::runtime_error("Cannot mix IX and IY register parts");
-                    assemble(memory, current_address, phase, prefix, (uint8_t)(0x40 | (dest_code << 3) | src_code));
+                    assemble(prefix, (uint8_t)(0x40 | (dest_code << 3) | src_code));
                     return true;
                 }
-                assemble(memory, current_address, phase, (uint8_t)(0x40 | (dest_code << 3) | src_code));
+                assemble((uint8_t)(0x40 | (dest_code << 3) | src_code));
                 return true;
             }
             if (mnemonic == "LD" && op1.type == OperandParser::OperandType::REG8 &&
                 op2.type == OperandParser::OperandType::IMM8) {
                 uint8_t dest_code = reg8_map.at(op1.str_val);
-                assemble(memory, current_address, phase, (uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val);
+                assemble((uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val);
                 return true;
             }
             if (mnemonic == "LD" &&
                 (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") &&
                 op2.type == OperandParser::OperandType::IMM8) {
-                assemble(memory, current_address, phase, prefix, (uint8_t)(0x06 | (reg8_map.at(op1.str_val) << 3)),
+                assemble(prefix, (uint8_t)(0x06 | (reg8_map.at(op1.str_val) << 3)),
                          (uint8_t)op2.num_val);
                 return true;
             }
             if (mnemonic == "LD" && op1.type == OperandParser::OperandType::REG16 &&
                 (op2.type == OperandParser::OperandType::IMM8 || op2.type == OperandParser::OperandType::IMM16)) {
                 if (reg16_map.count(op1.str_val)) {
-                    assemble(memory, current_address, phase, (uint8_t)(0x01 | (reg16_map.at(op1.str_val) << 4)),
+                    assemble((uint8_t)(0x01 | (reg16_map.at(op1.str_val) << 4)),
                              (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
                     return true;
                 }
                 if (op1.str_val == "IX") {
-                    assemble(memory, current_address, phase, 0xDD, 0x21, (uint8_t)(op2.num_val & 0xFF),
+                    assemble(0xDD, 0x21, (uint8_t)(op2.num_val & 0xFF),
                              (uint8_t)(op2.num_val >> 8));
                     return true;
                 }
                 if (op1.str_val == "IY") {
-                    assemble(memory, current_address, phase, 0xFD, 0x21, (uint8_t)(op2.num_val & 0xFF),
+                    assemble(0xFD, 0x21, (uint8_t)(op2.num_val & 0xFF),
                              (uint8_t)(op2.num_val >> 8));
                     return true;
                 }
             }
             if (mnemonic == "LD" && op1.type == OperandParser::OperandType::MEM_REG16 && op2.str_val == "A") {
                 if (op1.str_val == "BC") {
-                    assemble(memory, current_address, phase, 0x02);
+                    assemble(0x02);
                     return true;
                 }
                 if (op1.str_val == "DE") {
-                    assemble(memory, current_address, phase, 0x12);
+                    assemble(0x12);
                     return true;
                 }
             }
             if (mnemonic == "LD" && op1.str_val == "A" && op2.type == OperandParser::OperandType::MEM_REG16) {
                 if (op2.str_val == "BC") {
-                    assemble(memory, current_address, phase, 0x0A);
+                    assemble(0x0A);
                     return true;
                 }
                 if (op2.str_val == "DE") {
-                    assemble(memory, current_address, phase, 0x1A);
+                    assemble(0x1A);
                     return true;
                 }
             }
             if (mnemonic == "LD" && op1.type == OperandParser::OperandType::MEM_IMM16 && op2.str_val == "A") {
-                assemble(memory, current_address, phase, 0x32, (uint8_t)(op1.num_val & 0xFF),
+                assemble(0x32, (uint8_t)(op1.num_val & 0xFF),
                          (uint8_t)(op1.num_val >> 8));
                 return true;
             }
             if (mnemonic == "LD" && op1.str_val == "A" && op2.type == OperandParser::OperandType::MEM_IMM16) {
-                assemble(memory, current_address, phase, 0x3A, (uint8_t)(op2.num_val & 0xFF),
+                assemble(0x3A, (uint8_t)(op2.num_val & 0xFF),
                          (uint8_t)(op2.num_val >> 8));
                 return true;
             }
             if (mnemonic == "LD" && op1.type == OperandParser::OperandType::MEM_INDEXED &&
                 op2.type == OperandParser::OperandType::IMM8) {
-                assemble(memory, current_address, phase, prefix, 0x36, (uint8_t)op1.offset, (uint8_t)op2.num_val);
+                assemble(prefix, 0x36, static_cast<int8_t>(op1.offset), (uint8_t)op2.num_val);
                 return true;
             }
             if (mnemonic == "LD" && op1.type == OperandParser::OperandType::REG8 &&
                 op2.type == OperandParser::OperandType::MEM_INDEXED) {
                 uint8_t reg_code = reg8_map.at(op1.str_val);
-                assemble(memory, current_address, phase, prefix, (uint8_t)(0x46 | (reg_code << 3)),
-                         (uint8_t)op2.offset);
+                assemble(prefix, (uint8_t)(0x46 | (reg_code << 3)),
+                         static_cast<int8_t>(op2.offset));
                 return true;
             }
             if (mnemonic == "LD" && op1.type == OperandParser::OperandType::MEM_INDEXED &&
                 op2.type == OperandParser::OperandType::REG8) {
                 uint8_t reg_code = reg8_map.at(op2.str_val);
-                assemble(memory, current_address, phase, prefix, (uint8_t)(0x70 | reg_code), (uint8_t)op1.offset);
+                assemble(prefix, (uint8_t)(0x70 | reg_code), static_cast<int8_t>(op1.offset));
                 return true;
             }
             if (mnemonic == "ADD" && op1.str_val == "A" && op2.type == OperandParser::OperandType::IMM8) {
-                assemble(memory, current_address, phase, 0xC6, (uint8_t)op2.num_val);
+                assemble(0xC6, (uint8_t)op2.num_val);
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
@@ -698,15 +719,15 @@ private:
                     base_opcode = 0xB8;
                 uint8_t reg_code = reg8_map.at(op2.str_val);
                 if (prefix)
-                    assemble(memory, current_address, phase, prefix, (uint8_t)(base_opcode | reg_code));
+                    assemble(prefix, (uint8_t)(base_opcode | reg_code));
                 else
-                    assemble(memory, current_address, phase, (uint8_t)(base_opcode | reg_code));
+                    assemble((uint8_t)(base_opcode | reg_code));
                 return true;
             }
             if (mnemonic == "JP" && op1.type == OperandParser::OperandType::CONDITION &&
                 (op2.type == OperandParser::OperandType::IMM8 || op2.type == OperandParser::OperandType::IMM16)) {
                 uint8_t cond_code = condition_map.at(op1.str_val);
-                assemble(memory, current_address, phase, (uint8_t)(0xC2 | (cond_code << 3)),
+                assemble((uint8_t)(0xC2 | (cond_code << 3)),
                          (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
                 return true;
             }
@@ -718,10 +739,10 @@ private:
                 if (jr_condition_map.count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (current_address + instruction_size);
-                    if (phase == ParsePhase::GeneratingFinalCode && (offset < -128 || offset > 127))
+                    int32_t offset = target_addr - (m_current_address + instruction_size);
+                    if (m_phase == ParsePhase::GeneratingFinalCode && (offset < -128 || offset > 127))
                         throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
-                    assemble(memory, current_address, phase, jr_condition_map.at(op1.str_val),
+                    assemble(jr_condition_map.at(op1.str_val),
                              static_cast<uint8_t>(offset));
                     return true;
                 }
@@ -729,17 +750,17 @@ private:
             if (mnemonic == "IN" && op1.type == OperandParser::OperandType::REG8 && op2.str_val == "(C)") {
                 uint8_t reg_code = reg8_map.at(op1.str_val);
                 if (reg_code == 6) {
-                    assemble(memory, current_address, phase, 0xED, 0x70);
+                    assemble(0xED, 0x70);
                     return true;
                 }
-                assemble(memory, current_address, phase, 0xED, (uint8_t)(0x40 | (reg_code << 3)));
+                assemble(0xED, (uint8_t)(0x40 | (reg_code << 3)));
                 return true;
             }
             if (mnemonic == "OUT" && op1.str_val == "(C)" && op2.type == OperandParser::OperandType::REG8) {
                 uint8_t reg_code = reg8_map.at(op2.str_val);
                 if (reg_code == 6)
                     throw std::runtime_error("OUT (C), (HL) is not a valid instruction");
-                assemble(memory, current_address, phase, 0xED, (uint8_t)(0x41 | (reg_code << 3)));
+                assemble(0xED, (uint8_t)(0x41 | (reg_code << 3)));
                 return true;
             }
             if (mnemonic == "BIT" && op1.type == OperandParser::OperandType::IMM8 &&
@@ -748,7 +769,7 @@ private:
                     throw std::runtime_error("BIT index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code = reg8_map.at(op2.str_val);
-                assemble(memory, current_address, phase, 0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code));
+                assemble(0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code));
                 return true;
             }
             if (mnemonic == "SET" && op1.type == OperandParser::OperandType::IMM8 &&
@@ -757,7 +778,7 @@ private:
                     throw std::runtime_error("SET index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code = reg8_map.at(op2.str_val);
-                assemble(memory, current_address, phase, 0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code));
+                assemble(0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code));
                 return true;
             }
             if (mnemonic == "RES" && op1.type == OperandParser::OperandType::IMM8 &&
@@ -766,7 +787,7 @@ private:
                     throw std::runtime_error("RES index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code = reg8_map.at(op2.str_val);
-                assemble(memory, current_address, phase, 0xCB, (uint8_t)(0x80 | (bit << 3) | reg_code));
+                assemble(0xCB, (uint8_t)(0x80 | (bit << 3) | reg_code));
                 return true;
             }
             if ((mnemonic == "SLL" || mnemonic == "SLI") && op1.type == OperandParser::OperandType::REG8) {
@@ -774,11 +795,15 @@ private:
                     throw std::runtime_error("SLL bit index must be 0-7");
                 }
                 uint8_t reg_code = reg8_map.at(op1.str_val);
-                assemble(memory, current_address, phase, 0xCB, (uint8_t)(0x30 | reg_code));
+                assemble(0xCB, (uint8_t)(0x30 | reg_code));
                 return true;
             }
             return false;
         }
+
+        TMemory* m_memory;
+        uint16_t& m_current_address;
+        const ParsePhase& m_phase;
     };
 
     void process_line(const std::string& line) {
@@ -812,7 +837,7 @@ private:
 
         std::vector<typename OperandParser::Operand> ops;
         for (const auto& s : parsed.operands)
-            ops.push_back(m_operand_parser.parse(s, m_symbol_table, m_current_address, m_phase));
+            ops.push_back(m_operand_parser.parse(s));
 
         assemble_instruction(parsed.mnemonic, ops);
     }
@@ -914,7 +939,7 @@ private:
             return;
         }
 
-        if (!m_encoder.encode(m_memory, m_current_address, m_phase, mnemonic, ops, m_operand_parser)) {
+        if (!m_encoder.encode(mnemonic, ops)) {
             std::string ops_str;
             for (const auto& op : ops) {
                 ops_str += op.str_val + " ";
