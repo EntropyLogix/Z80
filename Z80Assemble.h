@@ -51,6 +51,32 @@ struct Operand {
 
 enum class ParsePhase { SymbolTableBuild, GeneratingFinalCode };
 
+class SymbolTable {
+public:
+    void add(const std::string& name, uint16_t value) {
+        if (is_symbol(name)) {
+            throw std::runtime_error("Duplicate symbol definition: " + name);
+        }
+        m_symbols[name] = value;
+    }
+
+    bool is_symbol(const std::string& name) const {
+        if (name == "$") return true;
+        return m_symbols.count(name);
+    }
+
+    uint16_t get_value(const std::string& name, uint16_t current_address) const {
+        if (name == "$") return current_address;
+        if (m_symbols.count(name)) return m_symbols.at(name);
+        throw std::runtime_error("Undefined symbol: " + name);
+    }
+
+    void clear() { m_symbols.clear(); }
+
+private:
+    std::map<std::string, uint16_t> m_symbols;
+};
+
 inline bool is_number(const std::string& s, uint16_t& out_value) {
     std::string str = s;
     str.erase(0, str.find_first_not_of(" \t\n\r"));
@@ -138,16 +164,41 @@ public:
 };
 class OperandParser {
 public:
-    Operand parse(const std::string& op_str, const std::map<std::string, uint16_t>& symbol_table,
-                  uint16_t current_address, ParsePhase phase) {
+    Operand parse(const std::string& op_str, const SymbolTable& symbol_table, uint16_t current_address,
+                  ParsePhase phase) {
         Operand op;
         op.str_val = op_str;
         uint16_t num_val;
-
-        if (op_str == "$") {
-            op.num_val = current_address;
-            op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
-            return op;
+        if (is_indexed(op_str)) {
+            std::string inner = op_str.substr(1, op_str.length() - 2);
+            inner.erase(0, inner.find_first_not_of(" \t"));
+            inner.erase(inner.find_last_not_of(" \t") + 1);
+            if (is_reg16(inner)) {
+                op.type = OperandType::MEM_REG16;
+                op.str_val = inner;
+                return op;
+            }
+            if (is_number(inner, num_val)) {
+                op.type = OperandType::MEM_IMM16;
+                op.num_val = num_val;
+                return op;
+            }
+            if (is_number(inner, num_val)) {
+                op.type = OperandType::MEM_IMM16;
+                op.num_val = num_val;
+                return op;
+            }
+            if (parse_offset(inner, op.base_reg, op.offset)) {
+                std::transform(op.base_reg.begin(), op.base_reg.end(), op.base_reg.begin(), ::toupper);
+                if (op.base_reg == "IX" || op.base_reg == "IY")
+                    op.type = OperandType::MEM_INDEXED;
+                return op;
+            }
+            if (phase == ParsePhase::GeneratingFinalCode && symbol_table.is_symbol(inner)) {
+                op.type = OperandType::MEM_IMM16;
+                op.num_val = symbol_table.get_value(inner, current_address);
+                return op;
+            }
         }
         if (is_reg8(op_str)) {
             op.type = OperandType::REG8;
@@ -166,43 +217,31 @@ public:
             op.type = (num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
             return op;
         }
-        if (is_indexed(op_str)) {
-            std::string inner = op_str.substr(1, op_str.length() - 2);
-            inner.erase(0, inner.find_first_not_of(" \t"));
-            inner.erase(inner.find_last_not_of(" \t") + 1);
-            if (is_reg16(inner)) {
-                op.type = OperandType::MEM_REG16;
-                op.str_val = inner;
-                return op;
-            }
-            if (is_number(inner, num_val)) {
-                op.type = OperandType::MEM_IMM16;
-                op.num_val = num_val;
-                return op;
-            }
-            if (parse_offset(inner, op.base_reg, op.offset)) {
-                std::transform(op.base_reg.begin(), op.base_reg.end(), op.base_reg.begin(), ::toupper);
-                if (op.base_reg == "IX" || op.base_reg == "IY")
-                    op.type = OperandType::MEM_INDEXED;
-                return op;
-            }
-            if (phase == ParsePhase::GeneratingFinalCode && is_symbol(inner, symbol_table)) {
-                op.type = OperandType::MEM_IMM16;
-                op.num_val = symbol_table.at(inner);
-                return op;
-            }
-        }
-        if (phase == ParsePhase::GeneratingFinalCode) {
-            if (is_symbol(op_str, symbol_table)) {
-                op.num_val = symbol_table.at(op_str);
-                op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
-                return op;
-            }
+        if (phase == ParsePhase::GeneratingFinalCode && symbol_table.is_symbol(op_str)) {
+            op.num_val = symbol_table.get_value(op_str, current_address);
+            op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
+            return op;
         }
         return op;
     }
 
 private:
+    inline bool is_indexed(const std::string& s) const {
+        return !s.empty() && s.front() == '(' && s.back() == ')';
+    }
+
+    inline bool is_reg8(const std::string& s) const {
+        return s_reg8_names.count(s);
+    }
+
+    inline bool is_reg16(const std::string& s) const {
+        return s_reg16_names.count(s);
+    }
+
+    inline bool is_condition(const std::string& s) const {
+        return s_condition_names.count(s);
+    }
+
     bool parse_offset(const std::string& s, std::string& out_base, int8_t& out_offset) const {
         size_t plus_pos = s.find('+');
         size_t minus_pos = s.find('-');
@@ -224,26 +263,6 @@ private:
             }
         }
         return false;
-    }
-
-    inline bool is_indexed(const std::string& s) const {
-        return !s.empty() && s.front() == '(' && s.back() == ')';
-    }
-
-    inline bool is_symbol(const std::string& s, const std::map<std::string, uint16_t>& symbol_table) const {
-        return symbol_table.count(s);
-    }
-
-    inline bool is_reg8(const std::string& s) const {
-        return s_reg8_names.count(s);
-    }
-
-    inline bool is_reg16(const std::string& s) const {
-        return s_reg16_names.count(s);
-    }
-
-    inline bool is_condition(const std::string& s) const {
-        return s_condition_names.count(s);
     }
 
     inline static const std::set<std::string> s_reg8_names = {"B",    "C", "D",   "E",   "H",   "L", "(HL)", "A", "IXH", "IXL", "IYH", "IYL"};
@@ -734,7 +753,7 @@ public:
     }
 
     bool assemble(const std::string& source_code, uint16_t default_org = 0x0000) {
-        m_symbol_table.clear();
+        m_symbol_table.clear(); // Use the new class method
 
         std::stringstream ss(source_code);
         std::vector<std::string> lines;
@@ -760,7 +779,7 @@ private:
     ParsePhase m_phase;
     uint16_t m_current_address = 0;
     TMemory* m_memory = nullptr;
-    std::map<std::string, uint16_t> m_symbol_table;
+    SymbolTable m_symbol_table;
 
     SourceLineParser m_line_parser;
     OperandParser m_operand_parser;
@@ -774,10 +793,7 @@ private:
             if (parsed.is_equ) {
                 uint16_t value;
                 if (is_number(parsed.equ_value, value)) {
-                    if (m_symbol_table.count(parsed.label)) {
-                        throw std::runtime_error("Duplicate symbol definition: " + parsed.label);
-                    }
-                    m_symbol_table[parsed.label] = value;
+                    m_symbol_table.add(parsed.label, value);
                 } else {
                     throw std::runtime_error("Invalid value for EQU: " + parsed.equ_value);
                 }
@@ -785,10 +801,7 @@ private:
             }
 
             if (!parsed.label.empty()) {
-                if (m_symbol_table.count(parsed.label)) {
-                    throw std::runtime_error("Duplicate label definition: " + parsed.label);
-                }
-                m_symbol_table[parsed.label] = m_current_address;
+                m_symbol_table.add(parsed.label, m_current_address);
             }
             break;
 
