@@ -206,6 +206,11 @@ private:
                         op.type = OperandType::MEM_INDEXED;
                     return op;
                 }
+                if (evaluate_expression(inner, op.num_val)) {
+                    op.type = OperandType::MEM_IMM16;
+                    return op;
+                }
+
                 if (m_phase == ParsePhase::GeneratingFinalCode && m_symbol_table.is_symbol(inner)) {
                     op.type = OperandType::MEM_IMM16;
                     op.num_val = m_symbol_table.get_value(inner, m_current_address);
@@ -229,8 +234,7 @@ private:
                 op.type = (num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
                 return op;
             }
-            if (m_symbol_table.is_symbol(op_str)) {
-                op.num_val = m_symbol_table.get_value(op_str, m_current_address);
+            if (evaluate_expression(op_str, op.num_val)) {
                 op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
                 return op;
             }
@@ -243,6 +247,148 @@ private:
     private:
         inline bool is_indexed(const std::string& s) const {
             return !s.empty() && s.front() == '(' && s.back() == ')';
+        }
+
+        struct ExpressionToken {
+            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, LPAREN, RPAREN };
+            Type type = Type::UNKNOWN;
+            std::string s_val;
+            uint16_t n_val = 0;
+            int precedence = 0;
+            bool left_assoc = true;
+        };
+
+        std::vector<ExpressionToken> tokenize_expression(const std::string& expr) const {
+            std::vector<ExpressionToken> tokens;
+            for (size_t i = 0; i < expr.length(); ++i) {
+                char c = expr[i];
+                if (isspace(c)) continue;
+
+                if (isalpha(c) || c == '_' || c == '$') { // Symbol or register
+                    size_t j = i;
+                    while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_')) {
+                        j++;
+                    }
+                    tokens.push_back({ExpressionToken::Type::SYMBOL, expr.substr(i, j - i)});
+                    i = j - 1;
+                } else if (isdigit(c) || (c == '0' && (expr[i+1] == 'x' || expr[i+1] == 'X'))) { // Number
+                    size_t j = i;
+                    if (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X") j += 2;
+                    while (j < expr.length() && isxdigit(expr[j])) {
+                        j++;
+                    }
+                    if (j < expr.length() && (expr[j] == 'h' || expr[j] == 'H')) j++;
+                    
+                    uint16_t val;
+                    if (is_number(expr.substr(i, j - i), val)) {
+                        tokens.push_back({ExpressionToken::Type::NUMBER, "", val});
+                    } else {
+                         throw std::runtime_error("Invalid number in expression: " + expr.substr(i, j - i));
+                    }
+                    i = j - 1;
+                } else if (c == '+' || c == '-' || c == '*' || c == '/') {
+                    int precedence = (c == '+' || c == '-') ? 1 : 2;
+                    tokens.push_back({ExpressionToken::Type::OPERATOR, std::string(1, c), 0, precedence, true});
+                } else if (c == '(') {
+                    tokens.push_back({ExpressionToken::Type::LPAREN, "("});
+                } else if (c == ')') {
+                    tokens.push_back({ExpressionToken::Type::RPAREN, ")"});
+                } else {
+                    throw std::runtime_error("Invalid character in expression: " + std::string(1, c));
+                }
+            }
+            return tokens;
+        }
+
+        std::vector<ExpressionToken> shunting_yard(const std::vector<ExpressionToken>& infix) const {
+            std::vector<ExpressionToken> postfix;
+            std::vector<ExpressionToken> op_stack;
+            for (const auto& token : infix) {
+                switch (token.type) {
+                    case ExpressionToken::Type::NUMBER:
+                    case ExpressionToken::Type::SYMBOL:
+                        postfix.push_back(token);
+                        break;
+                    case ExpressionToken::Type::OPERATOR:
+                        while (!op_stack.empty() && op_stack.back().type == ExpressionToken::Type::OPERATOR &&
+                               ((op_stack.back().precedence > token.precedence) ||
+                                (op_stack.back().precedence == token.precedence && token.left_assoc))) {
+                            postfix.push_back(op_stack.back());
+                            op_stack.pop_back();
+                        }
+                        op_stack.push_back(token);
+                        break;
+                    case ExpressionToken::Type::LPAREN:
+                        op_stack.push_back(token);
+                        break;
+                    case ExpressionToken::Type::RPAREN:
+                        while (!op_stack.empty() && op_stack.back().type != ExpressionToken::Type::LPAREN) {
+                            postfix.push_back(op_stack.back());
+                            op_stack.pop_back();
+                        }
+                        if (op_stack.empty()) throw std::runtime_error("Mismatched parentheses in expression.");
+                        op_stack.pop_back(); // Pop the LPAREN
+                        break;
+                    default: break;
+                }
+            }
+            while (!op_stack.empty()) {
+                if (op_stack.back().type == ExpressionToken::Type::LPAREN) throw std::runtime_error("Mismatched parentheses in expression.");
+                postfix.push_back(op_stack.back());
+                op_stack.pop_back();
+            }
+            return postfix;
+        }
+
+        uint16_t evaluate_rpn(const std::vector<ExpressionToken>& rpn) const {
+            std::vector<uint16_t> val_stack;
+            for (const auto& token : rpn) {
+                if (token.type == ExpressionToken::Type::NUMBER) {
+                    val_stack.push_back(token.n_val);
+                } else if (token.type == ExpressionToken::Type::SYMBOL) {
+                    val_stack.push_back(m_symbol_table.get_value(token.s_val, m_current_address));
+                } else if (token.type == ExpressionToken::Type::OPERATOR) {
+                    if (val_stack.size() < 2) throw std::runtime_error("Invalid expression syntax.");
+                    uint16_t v2 = val_stack.back(); val_stack.pop_back();
+                    uint16_t v1 = val_stack.back(); val_stack.pop_back();
+                    if (token.s_val == "+") val_stack.push_back(v1 + v2);
+                    else if (token.s_val == "-") val_stack.push_back(v1 - v2);
+                    else if (token.s_val == "*") val_stack.push_back(v1 * v2);
+                    else if (token.s_val == "/") {
+                        if (v2 == 0) throw std::runtime_error("Division by zero in expression.");
+                        val_stack.push_back(v1 / v2);
+                    }
+                }
+            }
+            if (val_stack.size() != 1) throw std::runtime_error("Invalid expression syntax.");
+            return val_stack.back();
+        }
+
+        bool evaluate_expression(const std::string& s, uint16_t& out_value) const {
+            try {
+                auto tokens = tokenize_expression(s);
+                if (m_phase == ParsePhase::SymbolTableBuild) {
+                    for(const auto& token : tokens) {
+                        if (token.type == ExpressionToken::Type::SYMBOL && !m_symbol_table.is_symbol(token.s_val)) {
+                             out_value = 0;
+                             return true;
+                        }
+                    }
+                }
+                auto rpn = shunting_yard(tokens);
+                out_value = evaluate_rpn(rpn);
+                return true;
+            } catch (const std::exception&) {
+                if (m_symbol_table.is_symbol(s)) {
+                    if (m_phase == ParsePhase::GeneratingFinalCode) {
+                        out_value = m_symbol_table.get_value(s, m_current_address);
+                    } else {
+                        out_value = 0;
+                    }
+                    return true;
+                }
+                return false;
+            }
         }
 
         inline bool is_reg8(const std::string& s) const {
