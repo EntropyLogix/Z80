@@ -351,6 +351,66 @@ private:
         using InstructionRule = std::function<bool(const std::string&, const std::vector<Operand>&)>;
 
     public:
+        bool encode_pseudo_instruction(const std::string& mnemonic, const std::vector<Operand>& ops) {
+            if (mnemonic == "ORG") {
+                if (ops.size() == 1 &&
+                    (ops[0].type == OperandParser::OperandType::IMM8 || ops[0].type == OperandParser::OperandType::IMM16)) {
+                    m_current_address = ops[0].num_val;
+                    return true; // ORG doesn't generate bytes
+                } else {
+                    throw std::runtime_error("Invalid operand for ORG directive");
+                }
+            }
+
+            if (mnemonic == "DB" || mnemonic == "DEFB") {
+                for (const auto& op : ops) {
+                    if (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16) {
+                        if (op.num_val > 0xFF) {
+                            throw std::runtime_error("Value in DB statement exceeds 1 byte: " + op.str_val);
+                        }
+                        assemble(static_cast<uint8_t>(op.num_val));
+                    } else if (!op.str_val.empty() && op.str_val.front() == '"' && op.str_val.back() == '"') {
+                        std::string str_content = op.str_val.substr(1, op.str_val.length() - 2);
+                        for (char c : str_content) {
+                            assemble(static_cast<uint8_t>(c));
+                        }
+                    } else {
+                        throw std::runtime_error("Unsupported operand for DB: " + op.str_val);
+                    }
+                }
+                return true;
+            }
+
+            if (mnemonic == "DW" || mnemonic == "DEFW") {
+                for (const auto& op : ops) {
+                    if (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16 ||
+                        (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandParser::OperandType::EXPRESSION)) {
+                        assemble(static_cast<uint8_t>(op.num_val & 0xFF), static_cast<uint8_t>(op.num_val >> 8));
+                    } else {
+                        throw std::runtime_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                    }
+                }
+                return true;
+            }
+
+            if (mnemonic == "DS" || mnemonic == "DEFS") {
+                if (ops.empty() || ops.size() > 2) {
+                    throw std::runtime_error("DS/DEFS requires 1 or 2 operands.");
+                }
+                if (ops[0].type != OperandParser::OperandType::IMM8 && ops[0].type != OperandParser::OperandType::IMM16) {
+                    throw std::runtime_error("DS/DEFS size must be a number.");
+                }
+                size_t count = ops[0].num_val;
+                uint8_t fill_value = (ops.size() == 2) ? static_cast<uint8_t>(ops[1].num_val) : 0;
+                for (size_t i = 0; i < count; ++i) {
+                    assemble(fill_value);
+                }
+                return true;
+            }
+
+            return false; // Not a pseudo-instruction
+        }
+
         InstructionEncoder(TMemory* memory, uint16_t& current_address, const ParsePhase& phase)
             : m_memory(memory), m_current_address(current_address), m_phase(phase) {}
 
@@ -1011,10 +1071,6 @@ private:
             }
             break;
         }
-        case ParsePhase::ExpressionsEvaluation:
-            // This phase is handled outside process_line
-            return;
-
         case ParsePhase::CodeGeneration:
             if (parsed.is_equ)
                 return;
@@ -1029,13 +1085,11 @@ private:
             ops.push_back(m_operand_parser.parse(s));
 
         if (!assemble_instruction(parsed.mnemonic, ops)) {
-            // Reconstruct the problematic part of the line for a better error message.
             std::string error_line = parsed.mnemonic;
             if (!parsed.operands.empty()) {
                 error_line += " ";
-                for (size_t i = 0; i < parsed.operands.size(); ++i) {
+                for (size_t i = 0; i < parsed.operands.size(); ++i)
                     error_line += parsed.operands[i] + (i < parsed.operands.size() - 1 ? "," : "");
-                }
             }
             throw std::runtime_error("Unsupported or invalid instruction: " + error_line);
         }
@@ -1067,83 +1121,9 @@ private:
     }
 
     bool assemble_instruction(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& ops) {
-        // Handle ORG directive
-        if (mnemonic == "ORG") {
-            if (ops.size() == 1 &&
-                (ops[0].type == OperandParser::OperandType::IMM8 || ops[0].type == OperandParser::OperandType::IMM16)) {
-                m_current_address = ops[0].num_val;
-                return true; // ORG doesn't generate bytes
-            } else {
-                throw std::runtime_error("Invalid operand for ORG directive");
-            }
-        }
-        // --- Pseudo-instructions ---
-        if (mnemonic == "DB" || mnemonic == "DEFB") {
-            std::vector<uint8_t> bytes;
-            bytes.reserve(ops.size());
-            for (const auto& op : ops) {
-                if (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16) {
-                    if (op.num_val > 0xFF) {
-                        throw std::runtime_error("Value in DB statement exceeds 1 byte: " + op.str_val);
-                    }
-                    if (m_phase == ParsePhase::CodeGeneration)
-                        m_memory->poke(m_current_address++, static_cast<uint8_t>(op.num_val));
-                    else
-                        m_current_address++;
-                } else if (op.str_val.front() == '"' && op.str_val.back() == '"') {
-                    std::string str_content = op.str_val.substr(1, op.str_val.length() - 2);
-                    for (char c : str_content) {
-                        if (m_phase == ParsePhase::CodeGeneration)
-                            m_memory->poke(m_current_address++, static_cast<uint8_t>(c));
-                        else
-                            m_current_address++;
-                    }
-                } else {
-                    throw std::runtime_error("Unsupported operand for DB: " + op.str_val);
-                }
-            }
+        if (m_encoder.encode_pseudo_instruction(mnemonic, ops)) {
             return true;
         }
-
-        if (mnemonic == "DW" || mnemonic == "DEFW") {
-            for (const auto& op : ops) {
-                if (op.type == OperandParser::OperandType::IMM8 || op.type == OperandParser::OperandType::IMM16 ||
-                    (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandParser::OperandType::EXPRESSION)) {
-                    if (m_phase == ParsePhase::CodeGeneration) {
-                        m_memory->poke(m_current_address++, static_cast<uint8_t>(op.num_val & 0xFF));
-                        m_memory->poke(m_current_address++, static_cast<uint8_t>(op.num_val >> 8));
-                    } else
-                        m_current_address += 2;
-                } else {
-                    throw std::runtime_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
-                }
-            }
-            return true;
-        }
-
-        if (mnemonic == "DS" || mnemonic == "DEFS") {
-            if (ops.empty() || ops.size() > 2) {
-                throw std::runtime_error("DS/DEFS requires 1 or 2 operands.");
-            }
-            if (ops[0].type != OperandParser::OperandType::IMM8 && ops[0].type != OperandParser::OperandType::IMM16) {
-                throw std::runtime_error("DS/DEFS size must be a number.");
-            }
-            size_t count = ops[0].num_val;
-            uint8_t fill_value = 0;
-            if (ops.size() == 2) {
-                if (ops[1].type != OperandParser::OperandType::IMM8) {
-                    throw std::runtime_error("DS/DEFS fill value must be an 8-bit number.");
-                }
-                fill_value = static_cast<uint8_t>(ops[1].num_val);
-            }
-            if (m_phase == ParsePhase::CodeGeneration)
-                for (size_t i = 0; i < count; ++i)
-                    m_memory->poke(m_current_address++, fill_value);
-            else
-                m_current_address += count;
-            return true;
-        }
-
         return m_encoder.encode(mnemonic, ops);
     }
 
