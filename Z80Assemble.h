@@ -48,25 +48,42 @@ public:
         std::string line;
         while (std::getline(ss, line))
             lines.push_back(line);
-
-        // Pass 1: Collect all labels with their addresses and raw EQU definitions.
-        m_symbol_table.clear();
-        m_current_address = default_org;
-        m_phase = ParsePhase::SymbolTableBuild;
-        for (const auto& l : lines)
-            process_line(l);
+        
+        try {
+            // Pass 1: Collect all labels with their addresses and raw EQU definitions.
+            m_symbol_table.clear();
+            m_current_address = default_org;
+            m_current_line_number = 0;
+            m_phase = ParsePhase::SymbolTableBuild;
+            for (size_t i = 0; i < lines.size(); ++i) {
+                m_current_line_number = i + 1;
+                process_line(lines[i]);
+            }
+        } catch (const std::runtime_error& e) {
+            throw std::runtime_error(std::string(e.what()) + " on line " + std::to_string(m_current_line_number));
+        }
 
         // Pass 2: Iteratively evaluate all expressions from EQU directives.
         std::cout << "--- Starting Pass 2: Expressions Evaluation ---" << std::endl;
         m_phase = ParsePhase::ExpressionsEvaluation;
+        // We don't have a specific line number for expression resolution,
+        // but errors here will point to the symbol name.
+        m_current_line_number = 0;
         m_symbol_table.resolve_expressions(m_current_address);
         std::cout << "--- Finished Pass 2 ---" << std::endl;
 
-        // Pass 3: Generate the final machine code.
-        m_current_address = default_org;
-        m_phase = ParsePhase::CodeGeneration;
-        for (const auto& l : lines)
-            process_line(l);
+        try {
+            // Pass 3: Generate the final machine code.
+            m_current_address = default_org;
+            m_current_line_number = 0;
+            m_phase = ParsePhase::CodeGeneration;
+            for (size_t i = 0; i < lines.size(); ++i) {
+                m_current_line_number = i + 1;
+                process_line(lines[i]);
+            }
+        } catch (const std::runtime_error& e) {
+            throw std::runtime_error(std::string(e.what()) + " on line " + std::to_string(m_current_line_number));
+        }
 
         return true;
     }
@@ -287,6 +304,7 @@ private:
         struct ParsedLine {
             std::string label;
             std::string mnemonic;
+            std::string original_mnemonic;
             std::vector<std::string> operands;
             bool is_equ = false;
             std::string equ_value;
@@ -335,6 +353,7 @@ private:
 
             std::stringstream instr_stream(processed_line);
             instr_stream >> result.mnemonic;
+            result.original_mnemonic = result.mnemonic;
             std::transform(result.mnemonic.begin(), result.mnemonic.end(), result.mnemonic.begin(), ::toupper);
 
             std::string ops_str;
@@ -1271,7 +1290,7 @@ private:
             ops.push_back(m_operand_parser.parse(s));
 
         if (!assemble_instruction(parsed.mnemonic, ops)) {
-            std::string error_line = parsed.mnemonic;
+            std::string error_line = parsed.original_mnemonic;
             if (!parsed.operands.empty()) {
                 error_line += " ";
                 for (size_t i = 0; i < parsed.operands.size(); ++i)
@@ -1319,6 +1338,7 @@ private:
 
     ParsePhase m_phase;
     uint16_t m_current_address = 0;
+    size_t m_current_line_number = 0;
     TMemory* m_memory = nullptr;
     typename Z80Assembler<TMemory>::SymbolTable m_symbol_table;
     typename Z80Assembler<TMemory>::LineParser m_line_parser;
