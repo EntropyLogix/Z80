@@ -1288,37 +1288,28 @@ private:
 
     void process_line(const std::string& line) {
         typename Z80Assembler<TMemory>::LineParser::ParsedLine parsed = m_line_parser.parse(line);
-        uint16_t address_before = m_current_address;
+        
 
-
-        switch (m_phase) {
-        case ParsePhase::SymbolTableBuild: {
+        if (m_phase == ParsePhase::SymbolTableBuild) {
             if (parsed.is_equ) {
                 m_symbol_table.add_expression(parsed.label, parsed.equ_value);
-                std::cout << "[PASS 1] Found EQU: " << parsed.label << " = " << parsed.equ_value << std::endl;
                 return;
             }
-
-            if (!parsed.label.empty()) {
+            if (!parsed.label.empty())
                 m_symbol_table.add(parsed.label, m_current_address);
-                std::cout << "[PASS 1] Found Label: " << parsed.label << " at 0x" << std::hex << m_current_address << std::dec << std::endl;
-            }
-            break;
-        }
-        case ParsePhase::CodeGeneration:
+        } else {
             if (parsed.is_equ)
                 return;
-            break;
         }
 
         if (parsed.mnemonic.empty())
             return;
-
-        std::vector<typename OperandParser::Operand> ops;
+        std::vector<typename OperandParser::Operand> operands;
         for (const auto& s : parsed.operands)
-            ops.push_back(m_operand_parser.parse(s));
+            operands.push_back(m_operand_parser.parse(s));
 
-        if (!assemble_instruction(parsed.mnemonic, ops)) {
+        uint16_t address_before = m_current_address;
+        if (!assemble_instruction(parsed.mnemonic, operands)) {
             std::string error_line = parsed.original_mnemonic;
             if (!parsed.operands.empty()) {
                 error_line += " ";
@@ -1327,6 +1318,7 @@ private:
             }
             throw std::runtime_error("Unsupported or invalid instruction: " + error_line);
         }
+/*        
         if (!parsed.mnemonic.empty() && parsed.mnemonic == "ORG") {
             uint16_t org_addr = ops[0].num_val;
             m_org_blocks.push_back({org_addr, 0});
@@ -1335,7 +1327,7 @@ private:
         uint16_t bytes_generated = m_current_address - address_before;
         if (bytes_generated > 0 && !m_org_blocks.empty()) {
             m_org_blocks.back().size += bytes_generated;
-        }
+        }*/
     }
 
     inline static bool is_number(const std::string& s, uint16_t& out_value) {
