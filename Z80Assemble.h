@@ -374,7 +374,7 @@ private:
             : m_symbol_table(symbol_table), m_current_address(current_address), m_phase(phase) {
         }
 
-        enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, EXPRESSION, UNKNOWN};
+        enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, EXPRESSION, UNKNOWN };
         struct Operand {
             OperandType type = OperandType::UNKNOWN;
             std::string str_val;
@@ -491,10 +491,10 @@ private:
             // Case 3: Handle (number) or (LABEL)
             uint16_t inner_num_val;
             if (is_number(inner, inner_num_val)) {
-                op.type = OperandType::MEM_IMM16;
+                op.type = OperandType::MEM_IMMEDIATE;
                 op.num_val = inner_num_val;
             } else { // Assume it's a symbol
-                op.type = OperandType::MEM_IMM16;
+                op.type = OperandType::MEM_IMMEDIATE;
                 op.str_val = inner; // Store the original symbol name for later resolution
             }
             return op;
@@ -582,7 +582,7 @@ private:
                 return true;
             // During pass 1, an EXPRESSION can stand in for any value-based operand type
             if (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandType::EXPRESSION) {
-                return type == OperandType::IMMEDIATE || type == OperandType::MEM_IMM16;
+                return type == OperandType::IMMEDIATE || type == OperandType::MEM_IMMEDIATE;
             }
             return false;
         }
@@ -1027,27 +1027,27 @@ private:
                     return true;
                 }
             }
-            if (mnemonic == "LD" && match(op1, OperandType::MEM_IMM16) && op2.str_val == "A") {
+            if (mnemonic == "LD" && match(op1, OperandType::MEM_IMMEDIATE) && op2.str_val == "A") {
                 assemble(0x32, (uint8_t)(op1.num_val & 0xFF),
                          (uint8_t)(op1.num_val >> 8));
                 return true;
             }
-            if (mnemonic == "LD" && op1.str_val == "A" && match(op2, OperandType::MEM_IMM16)) {
+            if (mnemonic == "LD" && op1.str_val == "A" && match(op2, OperandType::MEM_IMMEDIATE)) {
                 assemble(0x3A, (uint8_t)(op2.num_val & 0xFF),
                          (uint8_t)(op2.num_val >> 8));
                 return true;
             }
-            if (mnemonic == "LD" && op1.str_val == "A" && match(op2, OperandType::MEM_IMM16)) {
+            if (mnemonic == "LD" && op1.str_val == "A" && match(op2, OperandType::MEM_IMMEDIATE)) {
                 assemble(0x3A, (uint8_t)(op2.num_val & 0xFF),
                          (uint8_t)(op2.num_val >> 8));
                 return true;
             }
-            if (mnemonic == "IN" && op1.str_val == "A" && match(op2, OperandType::MEM_IMM16)) {
+            if (mnemonic == "IN" && op1.str_val == "A" && match(op2, OperandType::MEM_IMMEDIATE)) {
                 if (op2.num_val > 0xFF) throw std::runtime_error("Port for IN instruction must be 8-bit");
                 assemble(0xDB, (uint8_t)op2.num_val);
                 return true;
             }
-            if (mnemonic == "OUT" && match(op1, OperandType::MEM_IMM16) && op2.str_val == "A" && op1.num_val <= 0xFF) {
+            if (mnemonic == "OUT" && match(op1, OperandType::MEM_IMMEDIATE) && op2.str_val == "A" && op1.num_val <= 0xFF) {
                 if (op1.num_val > 0xFF) throw std::runtime_error("Port for OUT instruction must be 8-bit");
                 assemble(0xD3, (uint8_t)op1.num_val);
                 return true;
