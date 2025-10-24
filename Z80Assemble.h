@@ -118,23 +118,23 @@ public:
             m_expressions.clear();
         }
 
+        bool expression_to_resolve() const {
+            return !m_expressions.empty();
+        }
+
         bool resolve_expressions(uint16_t& current_address) {
-            if (m_expressions.empty()) {
-                std::cout << "[PASS 2] No EQU expressions to resolve." << std::endl;
-                return true;
-            }
-            
-            for (const auto& pair : m_expressions) {
+            auto it = m_expressions.begin();
+            while (it != m_expressions.end()) {
                 uint16_t value;
-                if (is_number(pair.second, value)) {
-                    add(pair.first, value);
-                    std::cout << "[PASS 2] Resolved EQU: " << pair.first << " = " << value << " (0x" << std::hex << value << std::dec << ")" << std::endl;
+                if (is_number(it->second, value)) {
+                    add(it->first, value);
+                    std::cout << "[PASS] Resolved EQU: " << it->first << " = " << value << " (0x" << std::hex << value << std::dec << ")" << std::endl;
+                    it = m_expressions.erase(it);
                 } else {
-                    throw std::runtime_error("Could not resolve EQU expression for '" + pair.first + "'. Only numeric literals are currently supported.");
+                    ++it;
                 }
             }
-            m_expressions.clear();
-            return true;
+            return m_expressions.empty();
         }
 
     private:
@@ -308,45 +308,64 @@ private:
         ParsedLine parse(const std::string& line) {
             ParsedLine result;
             std::string processed_line = line;
+            parse_comments(processed_line);
+            if (parse_equ(processed_line, result)) {
+                return result;
+            }
+            parse_label(processed_line, result);
+            parse_instruction(processed_line, result);
+            return result;
+        }
 
-            size_t comment_pos = processed_line.find(';');
-            if (comment_pos != std::string::npos)
-                processed_line.erase(comment_pos);
+    private:
+        void parse_comments(std::string& line) {
+            size_t comment_pos = line.find(';');
+            if (comment_pos != std::string::npos) {
+                line.erase(comment_pos);
+            }
+        }
 
-            // Handle EQU directive
-            std::string temp_upper = processed_line;
+        bool parse_equ(const std::string& line, ParsedLine& result) {
+            std::string temp_upper = line;
             std::transform(temp_upper.begin(), temp_upper.end(), temp_upper.begin(), ::toupper);
             size_t equ_pos = temp_upper.find(" EQU ");
             if (equ_pos != std::string::npos) {
                 result.is_equ = true;
-                result.label = processed_line.substr(0, equ_pos);
+                result.label = line.substr(0, equ_pos);
                 result.label.erase(0, result.label.find_first_not_of(" \t"));
                 result.label.erase(result.label.find_last_not_of(" \t") + 1);
                 std::transform(result.label.begin(), result.label.end(), result.label.begin(), ::toupper);
 
-                result.equ_value = processed_line.substr(equ_pos + 5);
+                result.equ_value = line.substr(equ_pos + 5);
                 result.equ_value.erase(0, result.equ_value.find_first_not_of(" \t"));
                 result.equ_value.erase(result.equ_value.find_last_not_of(" \t") + 1);
-                return result;
+                return true;
             }
+            return false;
+        }
 
-            // Handle labels
-            size_t colon_pos = processed_line.find(':');
+        void parse_label(std::string& line, ParsedLine& result) {
+            size_t colon_pos = line.find(':');
             if (colon_pos != std::string::npos) {
-                result.label = processed_line.substr(0, colon_pos);
-                result.label.erase(0, result.label.find_first_not_of(" \t"));
-                result.label.erase(result.label.find_last_not_of(" \t") + 1);
-                std::transform(result.label.begin(), result.label.end(), result.label.begin(), ::toupper);
-                processed_line.erase(0, colon_pos + 1);
+                std::string potential_label = line.substr(0, colon_pos);
+                if (potential_label.find_first_of(" \t") == std::string::npos) {
+                    result.label = potential_label;
+                    result.label.erase(0, result.label.find_first_not_of(" \t"));
+                    result.label.erase(result.label.find_last_not_of(" \t") + 1);
+                    std::transform(result.label.begin(), result.label.end(), result.label.begin(), ::toupper);
+                    line.erase(0, colon_pos + 1);
+                }
             }
+        }
 
-            processed_line.erase(0, processed_line.find_first_not_of(" \t\n\r"));
-            processed_line.erase(processed_line.find_last_not_of(" \t\n\r") + 1);
+        void parse_instruction(std::string& line, ParsedLine& result) {
+            line.erase(0, line.find_first_not_of(" \t\n\r"));
+            line.erase(line.find_last_not_of(" \t\n\r") + 1);
 
-            if (processed_line.empty())
-                return result;
+            if (line.empty())
+                return;
 
-            std::stringstream instr_stream(processed_line);
+            std::stringstream instr_stream(line);
             instr_stream >> result.mnemonic;
             result.original_mnemonic = result.mnemonic;
             std::transform(result.mnemonic.begin(), result.mnemonic.end(), result.mnemonic.begin(), ::toupper);
@@ -364,7 +383,6 @@ private:
                     }
                 }
             }
-            return result;
         }
     };
 
@@ -580,19 +598,16 @@ private:
         bool match(const Operand& op, OperandType type) const {
             if (op.type == type)
                 return true;
-            // During pass 1, an EXPRESSION can stand in for any value-based operand type
             if (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandType::EXPRESSION) {
                 return type == OperandType::IMMEDIATE || type == OperandType::MEM_IMMEDIATE;
             }
             return false;
         }
 
-        // Check if an operand is an immediate value that fits in 8 bits
         bool match_imm8(const Operand& op) const {
             return match(op, OperandType::IMMEDIATE) && op.num_val <= 0xFF;
         }
 
-        // Check if an operand is an immediate value (16-bit is the general case)
         bool match_imm16(const Operand& op) const {
             return match(op, OperandType::IMMEDIATE);
         }
