@@ -380,7 +380,7 @@ private:
             : m_symbol_table(symbol_table), m_current_address(current_address), m_phase(phase) {
         }
 
-        enum class OperandType { REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, EXPRESSION, UNKNOWN};
+        enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, EXPRESSION, UNKNOWN};
         struct Operand {
             OperandType type = OperandType::UNKNOWN;
             std::string str_val;
@@ -389,52 +389,52 @@ private:
             std::string base_reg;
         };
 
-        Operand parse(const std::string& op_str) {
-            std::string upper_op_str = op_str;
-            std::transform(upper_op_str.begin(), upper_op_str.end(), upper_op_str.begin(), ::toupper);
+        Operand parse(const std::string& operand_string) {
+            std::string upper_opperand_string = operand_string;
+            std::transform(upper_opperand_string.begin(), upper_opperand_string.end(), upper_opperand_string.begin(), ::toupper);
 
             Operand operand;
-            operand.str_val = op_str;
+            operand.str_val = operand_string;
 
-            if (is_string_literal(op_str)) {
+            if (is_string_literal(operand_string)) {
                 operand.type = OperandType::STRING_LITERAL;
                 return operand;
             }
-            if (is_reg8(upper_op_str)) {
+            if (is_reg8(upper_opperand_string)) {
                 operand.type = OperandType::REG8;
                 return operand;
             }
-            if (is_reg16(upper_op_str)) {
+            if (is_reg16(upper_opperand_string)) {
                 operand.type = OperandType::REG16;
                 return operand;
             }
-            if (is_condition(upper_op_str)) {
+            if (is_condition(upper_opperand_string)) {
                 operand.type = OperandType::CONDITION;
                 return operand;
             }
             uint16_t num_val;
-            if (is_number(op_str, num_val)) {
+            if (is_number(operand_string, num_val)) {
                 operand.num_val = num_val;
-                operand.type = (num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
+                operand.type = OperandType::IMMEDIATE;
                 return operand;
             }
-            if (is_mem_ptr(op_str)) { // (HL), (IX+d), (nn)
-                std::string inner = op_str.substr(1, op_str.length() - 2);
+            if (is_mem_ptr(operand_string)) { // (HL), (IX+d), (nn)
+                std::string inner = operand_string.substr(1, operand_string.length() - 2);
                 inner.erase(0, inner.find_first_not_of(" \t"));
                 inner.erase(inner.find_last_not_of(" \t") + 1);
                 return parse_ptr(inner);
             }
-            if (m_phase == ParsePhase::SymbolTableBuild) {
+            if (m_phase == ParsePhase::SymbolTableBuild && !m_symbol_table.is_symbol(upper_opperand_string)) {
                 operand.type = OperandType::EXPRESSION;
-                operand.str_val = op_str;
+                operand.str_val = operand_string;
                 return operand;
             }
-            if (m_symbol_table.is_symbol(upper_op_str)) {
-                operand.num_val = m_symbol_table.get_value(upper_op_str, m_current_address);
-                operand.type = (operand.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
+            if (m_symbol_table.is_symbol(upper_opperand_string)) {
+                operand.num_val = m_symbol_table.get_value(upper_opperand_string, m_current_address); // Value might be 0 in pass 1, that's ok
+                operand.type = OperandType::IMMEDIATE;
                 return operand;
             }
-            throw std::runtime_error("Unknown operand or undefined symbol: " + op_str);
+            throw std::runtime_error("Unknown operand or undefined symbol: " + operand_string);
         }
 
     private:
@@ -517,7 +517,7 @@ private:
     public:
         bool encode_pseudo_instruction(const std::string& mnemonic, const std::vector<Operand>& ops) {
             if (mnemonic == "ORG") {
-                if (ops.size() == 1 && (match(ops[0], OperandType::IMM8) || match(ops[0], OperandType::IMM16))) {
+                if (ops.size() == 1 && match(ops[0], OperandType::IMMEDIATE)) {
                     m_current_address = ops[0].num_val;
                     return true;
                 } else
@@ -525,7 +525,7 @@ private:
             }
             if (mnemonic == "DB" || mnemonic == "DEFB") {
                 for (const auto& op : ops) {
-                    if (match(op, OperandType::IMM8) || match(op, OperandType::IMM16)) {
+                    if (match(op, OperandType::IMMEDIATE)) {
                         if (op.num_val > 0xFF)
                             throw std::runtime_error("Value in DB statement exceeds 1 byte: " + op.str_val);
                         assemble(static_cast<uint8_t>(op.num_val));
@@ -541,7 +541,7 @@ private:
             }
             if (mnemonic == "DW" || mnemonic == "DEFW") {
                 for (const auto& op : ops) {
-                    if (match(op, OperandType::IMM8) || match(op, OperandType::IMM16)) {
+                    if (match(op, OperandType::IMMEDIATE)) {
                         assemble(static_cast<uint8_t>(op.num_val & 0xFF), static_cast<uint8_t>(op.num_val >> 8));
                     } else 
                         throw std::runtime_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
@@ -552,7 +552,7 @@ private:
                 if (ops.empty() || ops.size() > 2) {
                     throw std::runtime_error("DS/DEFS requires 1 or 2 operands.");
                 }
-                if (!match(ops[0], OperandType::IMM8) && !match(ops[0], OperandType::IMM16)) {
+                if (!match(ops[0], OperandType::IMMEDIATE)) {
                     throw std::runtime_error("DS/DEFS size must be a number.");
                 }
                 size_t count = ops[0].num_val;
@@ -586,9 +586,21 @@ private:
         bool match(const Operand& op, OperandType type) const {
             if (op.type == type)
                 return true;
-            if (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandType::EXPRESSION)
-                return type == OperandType::IMM8 || type == OperandType::IMM16 || type == OperandType::MEM_IMM16;
+            // During pass 1, an EXPRESSION can stand in for any value-based operand type
+            if (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandType::EXPRESSION) {
+                return type == OperandType::IMMEDIATE || type == OperandType::MEM_IMM16;
+            }
             return false;
+        }
+
+        // Check if an operand is an immediate value that fits in 8 bits
+        bool match_imm8(const Operand& op) const {
+            return match(op, OperandType::IMMEDIATE) && op.num_val <= 0xFF;
+        }
+
+        // Check if an operand is an immediate value (16-bit is the general case)
+        bool match_imm16(const Operand& op) const {
+            return match(op, OperandType::IMMEDIATE);
         }
 
         template <typename... Args>
@@ -804,7 +816,7 @@ private:
                 assemble((uint8_t)(0x05 | (reg8_map.at(op.str_val) << 3)));
                 return true;
             }
-            if (mnemonic == "JP" && (match(op, OperandType::IMM8) || match(op, OperandType::IMM16))) {
+            if (mnemonic == "JP" && match_imm16(op)) {
                 assemble(0xC3, (uint8_t)(op.num_val & 0xFF),
                          (uint8_t)(op.num_val >> 8));
                 return true;
@@ -823,7 +835,7 @@ private:
                     return true;
                 }
             }
-            if (mnemonic == "JR" && (match(op, OperandType::IMM8) || match(op, OperandType::IMM16))) {
+            if (mnemonic == "JR" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (m_current_address + instruction_size);
@@ -832,7 +844,7 @@ private:
                 assemble(0x18, static_cast<uint8_t>(offset));
                 return true;
             }
-            if (mnemonic == "SUB" && match(op, OperandType::IMM8)) {
+            if (mnemonic == "SUB" && match_imm8(op)) {
                 assemble(0xD6, (uint8_t)op.num_val);
                 return true;
             }
@@ -840,7 +852,7 @@ private:
                 assemble((uint8_t)(0x80 | reg8_map.at(op.str_val)));
                 return true;
             }
-            if (mnemonic == "DJNZ" && (match(op, OperandType::IMM8) || match(op, OperandType::IMM16))) {
+            if (mnemonic == "DJNZ" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (m_current_address + instruction_size);
@@ -876,27 +888,27 @@ private:
 
                 return true;
             }
-            if (mnemonic == "CP" && match(op, OperandType::IMM8)) {
+            if (mnemonic == "CP" && match_imm8(op)) {
                 assemble(0xFE, (uint8_t)op.num_val);
                 return true;
             }
-            if (mnemonic == "AND" && match(op, OperandType::IMM8)) {
+            if (mnemonic == "AND" && match_imm8(op)) {
                 assemble(0xE6, (uint8_t)op.num_val);
                 return true;
             }
-            if (mnemonic == "OR" && match(op, OperandType::IMM8)) {
+            if (mnemonic == "OR" && match_imm8(op)) {
                 assemble(0xF6, (uint8_t)op.num_val);
                 return true;
             }
-            if (mnemonic == "XOR" && match(op, OperandType::IMM8)) {
+            if (mnemonic == "XOR" && match_imm8(op)) {
                 assemble(0xEE, (uint8_t)op.num_val);
                 return true;
             }
-            if (mnemonic == "SUB" && match(op, OperandType::IMM8)) {
+            if (mnemonic == "SUB" && match_imm8(op)) {
                 assemble(0xD6, (uint8_t)op.num_val); // Note: This is SUB A, n - SUB n is ambiguous
                 return true;
             }
-            if (mnemonic == "CALL" && (match(op, OperandType::IMM8) || match(op, OperandType::IMM16))) {
+            if (mnemonic == "CALL" && match_imm16(op)) {
                 assemble(0xCD, (uint8_t)(op.num_val & 0xFF),
                          (uint8_t)(op.num_val >> 8));
                 return true;
@@ -966,19 +978,18 @@ private:
                 assemble((uint8_t)(0x40 | (dest_code << 3) | src_code));
                 return true;
             }
-            if (mnemonic == "LD" && match(op1, OperandType::REG8) && match(op2, OperandType::IMM8)) {
+            if (mnemonic == "LD" && match(op1, OperandType::REG8) && match_imm8(op2)) {
                 uint8_t dest_code = reg8_map.at(op1.str_val);
                 assemble((uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val);
                 return true;
             }
             if (mnemonic == "LD" &&
-                (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") &&
-                match(op2, OperandType::IMM8)) {
+                (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && match_imm8(op2)) {
                 assemble(prefix, (uint8_t)(0x06 | (reg8_map.at(op1.str_val) << 3)),
                          (uint8_t)op2.num_val);
                 return true;
             }
-            if (mnemonic == "LD" && match(op1, OperandType::REG16) && (match(op2, OperandType::IMM8) || match(op2, OperandType::IMM16))) {
+            if (mnemonic == "LD" && match(op1, OperandType::REG16) && match_imm16(op2)) {
                 if (reg16_map.count(op1.str_val)) {
                     assemble((uint8_t)(0x01 | (reg16_map.at(op1.str_val) << 4)),
                              (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
@@ -1005,7 +1016,7 @@ private:
                     return true;
                 }
             }
-            if (mnemonic == "LD" && match(op1, OperandType::MEM_REG16) && match(op2, OperandType::IMM8)) {
+            if (mnemonic == "LD" && match(op1, OperandType::MEM_REG16) && match_imm8(op2)) {
                 if (op1.str_val == "HL") {
                     uint8_t reg_code = reg8_map.at("(HL)");
                     assemble((uint8_t)(0x06 | (reg_code << 3)), (uint8_t)op2.num_val);
@@ -1042,12 +1053,12 @@ private:
                 assemble(0xDB, (uint8_t)op2.num_val);
                 return true;
             }
-            if (mnemonic == "OUT" && match(op1, OperandType::MEM_IMM16) && op2.str_val == "A") {
+            if (mnemonic == "OUT" && match(op1, OperandType::MEM_IMM16) && op2.str_val == "A" && op1.num_val <= 0xFF) {
                 if (op1.num_val > 0xFF) throw std::runtime_error("Port for OUT instruction must be 8-bit");
                 assemble(0xD3, (uint8_t)op1.num_val);
                 return true;
             }
-            if (mnemonic == "LD" && match(op1, OperandType::MEM_INDEXED) && match(op2, OperandType::IMM8)) {
+            if (mnemonic == "LD" && match(op1, OperandType::MEM_INDEXED) && match_imm8(op2)) {
                 assemble(prefix, 0x36, static_cast<int8_t>(op1.offset), (uint8_t)op2.num_val);
                 return true;
             }
@@ -1062,7 +1073,7 @@ private:
                 assemble(prefix, (uint8_t)(0x70 | reg_code), static_cast<int8_t>(op1.offset));
                 return true;
             }
-            if (mnemonic == "ADD" && op1.str_val == "A" && match(op2, OperandType::IMM8)) {
+            if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2)) {
                 assemble(0xC6, (uint8_t)op2.num_val); // Note: This is ADD A, n
                 return true;
             }
@@ -1120,13 +1131,13 @@ private:
 
                 return true;
             }
-            if (mnemonic == "JP" && match(op1, OperandType::CONDITION) && (match(op2, OperandType::IMM8) || match(op2, OperandType::IMM16))) {
+            if (mnemonic == "JP" && match(op1, OperandType::CONDITION) && match_imm16(op2)) {
                 uint8_t cond_code = condition_map.at(op1.str_val);
                 assemble((uint8_t)(0xC2 | (cond_code << 3)),
                          (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
                 return true;
             }
-            if (mnemonic == "JR" && match(op1, OperandType::CONDITION) && (match(op2, OperandType::IMM8) || match(op2, OperandType::IMM16))) {
+            if (mnemonic == "JR" && match(op1, OperandType::CONDITION) && match_imm16(op2)) {
                 const std::map<std::string, uint8_t> jr_condition_map = {
                     {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}};
                 if (jr_condition_map.count(op1.str_val)) {
@@ -1140,13 +1151,13 @@ private:
                     return true;
                 }
             }
-            if (mnemonic == "CALL" && match(op1, OperandType::CONDITION) && (match(op2, OperandType::IMM8) || match(op2, OperandType::IMM16))) {
+            if (mnemonic == "CALL" && match(op1, OperandType::CONDITION) && match_imm16(op2)) {
                 uint8_t cond_code = condition_map.at(op1.str_val);
                 assemble((uint8_t)(0xC4 | (cond_code << 3)),
                          (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
                 return true;
             }
-            if (mnemonic == "JR" && match(op1, OperandType::CONDITION) && (match(op2, OperandType::IMM8) || match(op2, OperandType::IMM16))) {
+            if (mnemonic == "JR" && match(op1, OperandType::CONDITION) && match_imm16(op2)) {
                 const std::map<std::string, uint8_t> jr_condition_map = {
                     {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}};
                 if (jr_condition_map.count(op1.str_val)) {
@@ -1176,7 +1187,7 @@ private:
                 assemble(0xED, (uint8_t)(0x41 | (reg_code << 3)));
                 return true;
             }
-            if (mnemonic == "BIT" && match(op1, OperandType::IMM8) && match(op2, OperandType::REG8)) {
+            if (mnemonic == "BIT" && match_imm8(op1) && match(op2, OperandType::REG8)) {
                 if (op1.num_val > 7)
                     throw std::runtime_error("BIT index must be 0-7");
                 uint8_t bit = op1.num_val;
@@ -1184,7 +1195,7 @@ private:
                 assemble(0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code));
                 return true;
             }
-            if (mnemonic == "SET" && match(op1, OperandType::IMM8) && match(op2, OperandType::REG8)) {
+            if (mnemonic == "SET" && match_imm8(op1) && match(op2, OperandType::REG8)) {
                 if (op1.num_val > 7)
                     throw std::runtime_error("SET index must be 0-7");
                 uint8_t bit = op1.num_val;
@@ -1192,7 +1203,7 @@ private:
                 assemble(0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code));
                 return true;
             }
-            if (mnemonic == "RES" && match(op1, OperandType::IMM8) && match(op2, OperandType::REG8)) {
+            if (mnemonic == "RES" && match_imm8(op1) && match(op2, OperandType::REG8)) {
                 if (op1.num_val > 7)
                     throw std::runtime_error("RES index must be 0-7");
                 uint8_t bit = op1.num_val;
@@ -1209,7 +1220,7 @@ private:
                 return true;
             }
             if ((mnemonic == "BIT" || mnemonic == "SET" || mnemonic == "RES") &&
-                match(op1, OperandType::IMM8) && match(op2, OperandType::MEM_INDEXED)) {
+                match_imm8(op1) && match(op2, OperandType::MEM_INDEXED)) {
                 if (op1.num_val > 7)
                     throw std::runtime_error(mnemonic + " bit index must be 0-7");
                 uint8_t bit = op1.num_val;
