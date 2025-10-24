@@ -41,7 +41,7 @@ public:
         size_t size;
     };
 
-    enum class ParsePhase { SymbolTableBuild, ExpressionsEvaluation, CodeGeneration };
+    enum class ParsePhase { SymbolTableBuild, CodeGeneration };
 
     Z80Assembler(TMemory* memory)
         : m_memory(memory), m_operand_parser(m_symbol_table, m_current_address, m_phase), m_encoder(m_memory, m_current_address, m_phase) {
@@ -55,13 +55,12 @@ public:
             lines.push_back(line);
         
         try {
-            // Pass 1: Collect all labels with their addresses and raw EQU definitions.
+            m_phase = ParsePhase::SymbolTableBuild;
             m_symbol_table.clear();
             m_org_blocks.clear();
             m_org_blocks.push_back({default_org, 0});
             m_current_address = default_org;
             m_current_line_number = 0;
-            m_phase = ParsePhase::SymbolTableBuild;
             for (size_t i = 0; i < lines.size(); ++i) {
                 m_current_line_number = i + 1;
                 process_line(lines[i]);
@@ -69,23 +68,13 @@ public:
         } catch (const std::runtime_error& e) {
             throw std::runtime_error(std::string(e.what()) + " on line " + std::to_string(m_current_line_number));
         }
-
-        // Pass 2: Iteratively evaluate all expressions from EQU directives.
-        std::cout << "--- Starting Pass 2: Expressions Evaluation ---" << std::endl;
-        m_phase = ParsePhase::ExpressionsEvaluation;
-        // We don't have a specific line number for expression resolution,
-        // but errors here will point to the symbol name.
-        m_current_line_number = 0;
         m_symbol_table.resolve_expressions(m_current_address);
-        std::cout << "--- Finished Pass 2 ---" << std::endl;
-
         try {
-            // Pass 3: Generate the final machine code.
+            m_phase = ParsePhase::CodeGeneration;
             m_org_blocks.clear();
             m_org_blocks.push_back({default_org, 0});
             m_current_address = default_org;
             m_current_line_number = 0;
-            m_phase = ParsePhase::CodeGeneration;
             for (size_t i = 0; i < lines.size(); ++i) {
                 m_current_line_number = i + 1;
                 process_line(lines[i]);
@@ -93,7 +82,6 @@ public:
         } catch (const std::runtime_error& e) {
             throw std::runtime_error(std::string(e.what()) + " on line " + std::to_string(m_current_line_number));
         }
-
         return true;
     }
 
@@ -392,7 +380,7 @@ private:
             : m_symbol_table(symbol_table), m_current_address(current_address), m_phase(phase) {
         }
 
-        enum class OperandType { REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, UNKNOWN, EXPRESSION };
+        enum class OperandType { REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, EXPRESSION, UNKNOWN};
         struct Operand {
             OperandType type = OperandType::UNKNOWN;
             std::string str_val;
@@ -402,69 +390,60 @@ private:
         };
 
         Operand parse(const std::string& op_str) {
-            Operand op;
             std::string upper_op_str = op_str;
-            // Keep the original string for case-sensitive values like string literals
-            op.str_val = op_str;
             std::transform(upper_op_str.begin(), upper_op_str.end(), upper_op_str.begin(), ::toupper);
 
-            // 1. Check for registers and conditions first to avoid symbol name conflicts
-            if (op_str.length() > 1 && op_str.front() == '"' && op_str.back() == '"') {
-                // This is a string literal for DB/DEFB. Don't treat it as a symbol.
-                // The DB handler will process it based on op.str_val.
-                return op;
+            Operand operand;
+            operand.str_val = op_str;
+
+            if (is_string_literal(op_str)) {
+                operand.type = OperandType::STRING_LITERAL;
+                return operand;
             }
             if (is_reg8(upper_op_str)) {
-                op.type = OperandType::REG8;
-                return op;
+                operand.type = OperandType::REG8;
+                return operand;
             }
             if (is_reg16(upper_op_str)) {
-                op.type = OperandType::REG16;
-                return op;
+                operand.type = OperandType::REG16;
+                return operand;
             }
             if (is_condition(upper_op_str)) {
-                op.type = OperandType::CONDITION;
-                return op;
+                operand.type = OperandType::CONDITION;
+                return operand;
             }
-
-            // 2. Check for indexed memory access like (HL), (IX+d), (nn)
             uint16_t num_val;
-            if (is_ptr(op_str)) {
+            if (is_number(op_str, num_val)) {
+                operand.num_val = num_val;
+                operand.type = (num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
+                return operand;
+            }
+            if (is_mem_ptr(op_str)) { // (HL), (IX+d), (nn)
                 std::string inner = op_str.substr(1, op_str.length() - 2);
                 inner.erase(0, inner.find_first_not_of(" \t"));
                 inner.erase(inner.find_last_not_of(" \t") + 1);
                 return parse_ptr(inner);
             }
-
-            // 3. Check for a number literal
-            if (is_number(op_str, num_val)) {
-                op.num_val = num_val;
-                op.type = (num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
-                return op;
-            }
-
-            // 4. In Pass 1, anything that is not a number or register is an expression to be resolved later.
             if (m_phase == ParsePhase::SymbolTableBuild) {
-                op.type = OperandType::EXPRESSION;
-                op.str_val = op_str; // Keep original string for later evaluation
-                return op;
+                operand.type = OperandType::EXPRESSION;
+                operand.str_val = op_str;
+                return operand;
             }
-
-            // 5. In Pass 3 (CodeGeneration), it must be a resolvable symbol.
-            // Pass 2 (ExpressionsEvaluation) does not use this parser.
             if (m_symbol_table.is_symbol(upper_op_str)) {
-                op.num_val = m_symbol_table.get_value(upper_op_str, m_current_address);
-                op.type = (op.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
-                return op;
+                operand.num_val = m_symbol_table.get_value(upper_op_str, m_current_address);
+                operand.type = (operand.num_val <= 0xFF) ? OperandType::IMM8 : OperandType::IMM16;
+                return operand;
             }
-
-            // If we are here in CodeGeneration phase, the symbol is undefined.
             throw std::runtime_error("Unknown operand or undefined symbol: " + op_str);
         }
 
     private:
-        inline bool is_ptr(const std::string& s) const {
+        inline bool is_mem_ptr(const std::string& s) const {
             return !s.empty() && s.front() == '(' && s.back() == ')';
+        }
+
+        inline bool is_string_literal(const std::string& s) const {
+            return s.length() > 1 && s.front() == '"' && s.back() == '"';
         }
 
         inline bool is_reg8(const std::string& s) const {
@@ -547,28 +526,25 @@ private:
             if (mnemonic == "DB" || mnemonic == "DEFB") {
                 for (const auto& op : ops) {
                     if (match(op, OperandType::IMM8) || match(op, OperandType::IMM16)) {
-                        if (op.num_val > 0xFF) {
+                        if (op.num_val > 0xFF)
                             throw std::runtime_error("Value in DB statement exceeds 1 byte: " + op.str_val);
-                        }
                         assemble(static_cast<uint8_t>(op.num_val));
-                    } else if (!op.str_val.empty() && op.str_val.front() == '"' && op.str_val.back() == '"') {
+                    } else if (match(op, OperandType::STRING_LITERAL)) {
                         std::string str_content = op.str_val.substr(1, op.str_val.length() - 2);
                         for (char c : str_content) {
                             assemble(static_cast<uint8_t>(c));
                         }
-                    } else 
+                    } else
                         throw std::runtime_error("Unsupported operand for DB: " + op.str_val);
                 }
                 return true;
             }
-
             if (mnemonic == "DW" || mnemonic == "DEFW") {
                 for (const auto& op : ops) {
                     if (match(op, OperandType::IMM8) || match(op, OperandType::IMM16)) {
                         assemble(static_cast<uint8_t>(op.num_val & 0xFF), static_cast<uint8_t>(op.num_val >> 8));
-                    } else {
+                    } else 
                         throw std::runtime_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
-                    }
                 }
                 return true;
             }
@@ -593,27 +569,25 @@ private:
             : m_memory(memory), m_current_address(current_address), m_phase(phase) {}
 
         bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
-            if (encode_pseudo_instruction(mnemonic, operands)) {
+            if (encode_pseudo_instruction(mnemonic, operands))
                 return true;
-            }
             switch (operands.size()) {
-            case 0:
-                return encode_no_operand(mnemonic);
-            case 1:
-                return encode_one_operand(mnemonic, operands[0]);
-            case 2:
-                return encode_two_operands(mnemonic, operands[0], operands[1]);
+                case 0:
+                    return encode_no_operand(mnemonic);
+                case 1:
+                    return encode_one_operand(mnemonic, operands[0]);
+                case 2:
+                    return encode_two_operands(mnemonic, operands[0], operands[1]);
             }
             return false;
         }
 
     private:
         bool match(const Operand& op, OperandType type) const {
-            if (op.type == type) return true;
-            if (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandType::EXPRESSION) {
-                // In Pass 1, an EXPRESSION can match any immediate or memory address type
+            if (op.type == type)
+                return true;
+            if (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandType::EXPRESSION)
                 return type == OperandType::IMM8 || type == OperandType::IMM16 || type == OperandType::MEM_IMM16;
-            }
             return false;
         }
 
