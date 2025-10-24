@@ -62,6 +62,7 @@ START:
 ; --- Main loop ---
 MAIN_LOOP:
         LD A, (COUNTER)         ; Load value from a variable
+        LD HL, (VIDEO_RAM)
         CP 10                   ; Compare with immediate value
         JP Z, FINISH            ; If equal, jump to the end
 

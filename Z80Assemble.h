@@ -1000,6 +1000,32 @@ private:
                     return true;
                 }
             }
+            if (mnemonic == "LD" && match(op1, OperandType::REG16) && match(op2, OperandType::MEM_IMMEDIATE)) {
+                if (op1.str_val == "HL") {
+                    assemble(0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
+                    return true;
+                }
+                if (op1.str_val == "BC") {
+                    assemble(0xED, 0x4B, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
+                    return true;
+                }
+                if (op1.str_val == "DE") {
+                    assemble(0xED, 0x5B, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
+                    return true;
+                }
+                if (op1.str_val == "SP") {
+                    assemble(0xED, 0x7B, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
+                    return true;
+                }
+                if (op1.str_val == "IX") {
+                    assemble(0xDD, 0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
+                    return true;
+                }
+                if (op1.str_val == "IY") {
+                    assemble(0xFD, 0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8));
+                    return true;
+                }
+            }
             if (mnemonic == "LD" && match(op1, OperandType::MEM_REG16) && op2.str_val == "A") {
                 if (op1.str_val == "BC") {
                     assemble(0x02);
