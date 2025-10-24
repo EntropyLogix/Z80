@@ -416,7 +416,7 @@ private:
                 std::string inner = operand_string.substr(1, operand_string.length() - 2);
                 inner.erase(0, inner.find_first_not_of(" \t"));
                 inner.erase(inner.find_last_not_of(" \t") + 1);
-                return parse_ptr(inner);
+                return parse_mem_ptr(inner);
             }
             if (m_phase == ParsePhase::SymbolTableBuild && !m_symbol_table.is_symbol(upper_opperand_string)) {
                 operand.type = OperandType::EXPRESSION;
@@ -456,7 +456,7 @@ private:
         inline static const std::set<std::string> s_reg16_names = {"BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
         inline static const std::set<std::string> s_condition_names = {"NZ", "Z", "NC", "C", "PO", "PE", "P", "M"};
 
-        Operand parse_ptr(const std::string& inner) {
+        Operand parse_mem_ptr(const std::string& inner) {
             Operand op;
             std::string upper_inner = inner;
             std::transform(upper_inner.begin(), upper_inner.end(), upper_inner.begin(), ::toupper);
