@@ -102,12 +102,12 @@ public:
             m_expressions[name] = expression;
         }
         bool is_symbol(const std::string& name) const {
-            if (name == "$")
+            if (name == "$" || name == "_")
                 return true;
             return m_symbols.count(name);
         }
         uint16_t get_value(const std::string& name, uint16_t current_address) const {
-            if (name == "$")
+            if (name == "$" || name == "_")
                 return current_address;
             if (m_symbols.count(name))
                 return m_symbols.at(name);
