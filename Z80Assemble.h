@@ -81,21 +81,47 @@ public:
         }
         throw std::runtime_error("Failed to resolve all symbols after " + std::to_string(max_passes) + " passes.");
     }
+
+    struct CompilationContext;
+    class CodeBlocks {
+        public:
+            CodeBlocks(CompilationContext& context) : m_context(context) {}
+            struct Block {
+                uint16_t m_start_address = 0;
+                uint16_t m_length = 0;
+                std::string m_name;
+            };
+
+            Block* start_block() {
+                m_blocks.push_back({});
+                return &m_blocks.back();
+            }
+
+        private:
+            CompilationContext& m_context;
+            std::vector<Block> m_blocks;
+    };
     class Symbols {
     public:
-        Symbols(uint16_t& current_address) : m_current_address(current_address) {}
+        struct Symbol {
+            typename CodeBlocks::Block* m_block;
+            uint16_t m_offset;
+        };
+
+        Symbols(CompilationContext& context) : m_context(context) {}
 
         void add(const std::string& name, uint16_t value) {
-            if (exists(name)) {
-                std::cout << "here" << std::endl;
+            if (exists(name))
                 throw std::runtime_error("Duplicate symbol definition: " + name);
-            }
-            m_symbols[name] = value;
+            typename CodeBlocks::Block* block = m_context.m_current_block;
+            if (block)
+                value -= block->m_start_address;
+            m_symbols[name] = { block, value };
             std::cout << "  [Symbol] Defined " << std::setw(20) << std::left << name << " = 0x" << std::hex
                       << std::setw(4) << std::setfill('0') << value << std::dec << std::setfill(' ') << std::endl;
         }
         void add(const std::string& name) {
-            add(name, m_current_address);
+            add(name, m_context.m_current_address);
         }
         bool exists(const std::string& name) const {
             if (name == "$" || name == "_")
@@ -104,9 +130,15 @@ public:
         }
         uint16_t get_address(const std::string& name) const {
             if (name == "$" || name == "_")
-                return m_current_address;
-            if (m_symbols.count(name))
-                return m_symbols.at(name);
+                return m_context.m_current_address;
+            if (m_symbols.count(name)) {
+                Symbol symbol = m_symbols.at(name);
+                uint16_t address = symbol.m_offset;
+                if (symbol.m_block)
+                    return address = symbol.m_block->m_start_address;
+                return address;
+            }
+                
             throw std::runtime_error("Undefined symbol: " + name);
         }
         void clear() {
@@ -141,25 +173,26 @@ public:
         }
 
     private:
-        const uint16_t& m_current_address;
-        std::map<std::string, uint16_t> m_symbols;
+        CompilationContext& m_context;
+        std::map<std::string, Symbol> m_symbols;
         std::map<std::string, std::string> m_unresolved_symbols;
     };
-
-private:
     struct CompilationContext {
-        CompilationContext() : m_symbols(m_current_address) {}
+        CompilationContext() : m_symbols(*this), m_blocks(*this) {}
         CompilationContext(const CompilationContext& other) = delete;
         CompilationContext& operator=(const CompilationContext& other) = delete;
 
         TMemory* m_memory = nullptr;
         Symbols m_symbols;
+        CodeBlocks m_blocks;
         uint16_t m_current_address = 0;
         size_t m_current_line_number = 0;
         ParsePhase m_phase = ParsePhase::CodeGeneration;
         int pass = 0;
+        typename CodeBlocks::Block* m_current_block = nullptr;
     };
 
+private:
     class StringHelper {
     public:
         static void trim_whitespace(std::string& s) {
@@ -198,7 +231,6 @@ private:
             return result.ec == std::errc() && result.ptr == end;
         }
     };
-
     class ExpressionEvaluator {
     public:
         ExpressionEvaluator(const Symbols& symbols, const uint16_t& current_address)
@@ -342,7 +374,6 @@ private:
         const Symbols& m_symbols;
         const uint16_t& m_current_address;
     };
-
     class OperandParser {
     public:
         OperandParser(CompilationContext& context) : m_context(context) {}
@@ -482,6 +513,10 @@ private:
             if (mnemonic == "ORG") {
                 if (ops.size() == 1 && match(ops[0], OperandType::IMMEDIATE)) {
                     m_context.m_current_address = ops[0].num_val;
+                    typename CodeBlocks::Block* block = m_context.m_blocks.start_block();
+                    if (block)
+                        block->m_start_address = ops[0].num_val;
+                    m_context.m_current_block = block;
                     return true;
                 } else
                     throw std::runtime_error("Invalid operand for ORG directive");
