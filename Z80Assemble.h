@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <functional>
 #include <set>
@@ -114,7 +115,22 @@ public:
                 if (block)
                     block->m_start_address = m_context.m_current_address;
                 m_context.m_current_block = block;
+                m_context.m_current_block->m_length = 0;
                 return block;
+            }
+
+            void update_block_address(const std::string& name, uint16_t new_address) {
+                std::cout << "  [Block] Checking block '" << name << "'" << std::endl;
+                auto it = std::find_if(m_blocks.begin(), m_blocks.end(),
+                                       [&name](const Block& b) { return b.m_name == name; });
+                if (it != m_blocks.end()) {
+                    std::cout << "  [Block] Updating block '" << name << "' to new address 0x" << std::hex << new_address << std::dec << std::endl;
+                    it->m_start_address = new_address;
+                    it->m_name.clear(); // Clear the name as it's now resolved
+                }
+                else {
+                    std::cout << "  [Block] Block '" << name << "' not found." << std::endl;
+                }
             }
 
             const std::vector<Block>& get_blocks() const {
@@ -186,6 +202,7 @@ public:
                 uint16_t value;
                 if (StringHelper::is_number(it->second, value)) {
                     std::cout << "  [Symbol] Resolved " << it->first << " = " << it->second << std::endl;
+                    m_context.m_blocks.update_block_address(it->first, value);
                     add(it->first, value);
                     it = m_unresolved_symbols.erase(it);
                 } else {
@@ -574,7 +591,9 @@ private:
             if (mnemonic == "ORG") {
                 if (ops.size() == 1 && match(ops[0], OperandType::IMMEDIATE)) {
                     m_context.m_current_address = ops[0].num_val;
-                    m_context.m_blocks.start_block();
+                    typename CodeBlocks::Block *pBlock = m_context.m_blocks.start_block();
+                    if (pBlock && ops[0].type == OperandType::EXPRESSION)
+                        pBlock->m_name = ops[0].str_val;
                     return true;
                 } else
                     throw std::runtime_error("Invalid operand for ORG directive");
