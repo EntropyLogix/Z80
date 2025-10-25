@@ -50,20 +50,13 @@ public:
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
         
-        std::vector<ParsePhase> phases = {ParsePhase::SymbolsGathering, ParsePhase::CodeGeneration};
-
-        
-        auto phase_it = phases.begin();
-        while (phase_it != phases.end()) {
-            const auto& phase = *phase_it;
-            if (phase == ParsePhase::SymbolsGathering)
-                std::cout << "\n--- Starting Pass 1: Symbols Gathering ---" << std::endl;
-            else 
-                std::cout << "\n--- Starting Pass 2: Code Generation ---" << std::endl;
-
-            bool next_phase = false;
+        int pass_count = 0;
+        const int max_passes = 10;
+        while (pass_count < max_passes) {
+            pass_count++;
+            std::cout << "\n--- Starting Pass " << pass_count << ": Symbols Gathering ---" << std::endl;
             try {
-                m_context.m_phase = phase;
+                m_context.m_phase = ParsePhase::SymbolsGathering;
                 m_context.m_current_address = default_org;
                 m_context.m_current_line_number = 0;
                 LineProcessor line_processor(m_context);
@@ -71,24 +64,35 @@ public:
                     m_context.m_current_line_number = i + 1;
                     line_processor.process(source_lines[i]);
                 }
-                if (phase == ParsePhase::SymbolsGathering)
-                    next_phase = m_context.m_symbols.resolve();
+                if (m_context.m_symbols.resolve()) {
+                    std::cout << "\n--- Starting Final Pass: Code Generation ---" << std::endl;
+                    m_context.m_phase = ParsePhase::CodeGeneration;
+                    m_context.m_current_address = default_org;
+                    m_context.m_current_line_number = 0;
+                    for (size_t i = 0; i < source_lines.size(); ++i) {
+                        m_context.m_current_line_number = i + 1;
+                        LineProcessor(m_context).process(source_lines[i]);
+                    }
+                    return true;
+                }
             } catch (const std::runtime_error& e) {
                 throw std::runtime_error(std::string(e.what()) + " on line " + std::to_string(m_context.m_current_line_number));
             }
-            if (next_phase)
-                ++phase_it;
         }
-        return true;
+        throw std::runtime_error("Failed to resolve all symbols after " + std::to_string(max_passes) + " passes.");
     }
     class Symbols {
     public:
         Symbols(uint16_t& current_address) : m_current_address(current_address) {}
 
         void add(const std::string& name, uint16_t value) {
-            if (exists(name))
+            if (exists(name)) {
+                std::cout << "here" << std::endl;
                 throw std::runtime_error("Duplicate symbol definition: " + name);
+            }
             m_symbols[name] = value;
+            std::cout << "  [Symbol] Defined " << std::setw(20) << std::left << name << " = 0x" << std::hex
+                      << std::setw(4) << std::setfill('0') << value << std::dec << std::setfill(' ') << std::endl;
         }
         void add(const std::string& name) {
             add(name, m_current_address);
@@ -113,16 +117,24 @@ public:
             if (exists(name) || m_unresolved_symbols.count(name))
                 throw std::runtime_error("Duplicate symbol definition: " + name);
             m_unresolved_symbols[name] = expression;
+            std::cout << "  [Symbol] Unresolved " << std::setw(16) << std::left << name << " = " << expression
+                      << std::endl;
         }
         bool resolve() {
             auto it = m_unresolved_symbols.begin();
             while (it != m_unresolved_symbols.end()) {
                 uint16_t value;
                 if (StringHelper::is_number(it->second, value)) {
+                    std::cout << "  [Symbol] Resolved " << it->first << " = " << it->second << std::endl;
                     add(it->first, value);
                     it = m_unresolved_symbols.erase(it);
                 } else {
                     ++it;
+                }
+            }
+            if (!m_unresolved_symbols.empty()) {
+                for (const auto& pair : m_unresolved_symbols) {
+                    std::cout << "  [Symbol] Still unresolved: " << pair.first << " = " << pair.second << std::endl;
                 }
             }
             return m_unresolved_symbols.empty();
@@ -137,6 +149,9 @@ public:
 private:
     struct CompilationContext {
         CompilationContext() : m_symbols(m_current_address) {}
+        CompilationContext(const CompilationContext& other) = delete;
+        CompilationContext& operator=(const CompilationContext& other) = delete;
+
         TMemory* m_memory = nullptr;
         Symbols m_symbols;
         uint16_t m_current_address = 0;
@@ -330,7 +345,7 @@ private:
 
     class OperandParser {
     public:
-        OperandParser(CompilationContext context) : m_context(context) {}
+        OperandParser(CompilationContext& context) : m_context(context) {}
 
         enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, EXPRESSION, UNKNOWN };
         struct Operand {
@@ -440,11 +455,11 @@ private:
             }
             return op;
         }
-        CompilationContext m_context;
+        CompilationContext& m_context;
     };
     class InstructionEncoder {
     public:
-        InstructionEncoder(CompilationContext context) : m_context(context) {}
+        InstructionEncoder(CompilationContext& context) : m_context(context) {}
 
         bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
             if (encode_pseudo_instruction(mnemonic, operands))
@@ -1189,7 +1204,7 @@ private:
             }
             return false;
         }
-        CompilationContext m_context;
+        CompilationContext& m_context;
     };
     class LineProcessor {
     public:
