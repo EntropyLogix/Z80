@@ -56,6 +56,8 @@ public:
             pass_count++;
             std::cout << "\n--- Starting Pass " << pass_count << ": Symbols Gathering ---" << std::endl;
             try {
+                m_context.m_blocks.clear();
+                m_context.m_current_block = nullptr;
                 m_context.m_phase = ParsePhase::SymbolsGathering;
                 m_context.m_current_address = default_org;
                 m_context.m_current_line_number = 0;
@@ -93,8 +95,17 @@ public:
             };
 
             Block* start_block() {
+                std::cout << "  [Block] Starting new code block at 0x" << std::hex << m_context.m_current_address << std::dec << std::endl;
                 m_blocks.push_back({});
                 return &m_blocks.back();
+            }
+
+            const std::vector<Block>& get_blocks() const {
+                return m_blocks;
+            }
+            void clear() {
+                std::cout << "  [Block] Clearing all code blocks." << std::endl;
+                m_blocks.clear();
             }
 
         private:
@@ -135,7 +146,7 @@ public:
                 Symbol symbol = m_symbols.at(name);
                 uint16_t address = symbol.m_offset;
                 if (symbol.m_block)
-                    return address = symbol.m_block->m_start_address;
+                    address += symbol.m_block->m_start_address;
                 return address;
             }
                 
@@ -192,6 +203,10 @@ public:
         typename CodeBlocks::Block* m_current_block = nullptr;
     };
 
+    const CodeBlocks& get_code_blocks() const {
+        return m_context.m_blocks;
+    }
+
 private:
     class StringHelper {
     public:
@@ -210,26 +225,46 @@ private:
             trim_whitespace(str);
             if (str.empty())
                 return false;
-            if (str.length() == 3 && str.front() == '\'' && str.back() == '\'') {
-                out_value = static_cast<uint8_t>(str[1]);
-                return true;
-            }
             const char* start = str.data();
             const char* end = str.data() + str.size();
-            int base = 10;
-            if (str.size() > 1 && str.front() == '+') {
+            if (start < end && *start == '+')
                 start += 1;
+            bool has_h_suffix = false;
+            bool has_b_suffix = false;
+            bool has_0x_prefix = false;
+            int base = 10;
+            if ((end - start) > 0) {
+                char last_char = *(end - 1);
+                if (last_char == 'H' || last_char == 'h') {
+                    end -= 1;
+                    has_h_suffix = true;
+                } else if (last_char == 'B' || last_char == 'b') {
+                    end -= 1;
+                    has_b_suffix = true;
+                }
             }
-            if (str.size() > 2 && (str.substr(0, 2) == "0X" || str.substr(0, 2) == "0x")) {
+            if ((end - start) > 2 && *start == '0' && (*(start + 1) == 'x' || *(start + 1) == 'X')) {
                 start += 2;
-                base = 16;
-            } else if (str.back() == 'H' || str.back() == 'h') {
-                end -= 1;
-                base = 16;
+                has_0x_prefix = true;
             }
+            if (has_0x_prefix) {
+                if (has_h_suffix)
+                    return false;
+                if (has_b_suffix)
+                    return false;
+                base = 16;
+            } else if (has_h_suffix)
+                base = 16;
+            else if (has_b_suffix)
+                base = 2;
+            else
+                base = 10;
+            if (start == end)
+                return false;
             auto result = std::from_chars(start, end, out_value, base);
             return result.ec == std::errc() && result.ptr == end;
         }
+
     };
     class ExpressionEvaluator {
     public:
@@ -377,8 +412,7 @@ private:
     class OperandParser {
     public:
         OperandParser(CompilationContext& context) : m_context(context) {}
-
-        enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, EXPRESSION, UNKNOWN };
+        enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, CHAR_LITERAL, EXPRESSION, UNKNOWN };
         struct Operand {
             OperandType type = OperandType::UNKNOWN;
             std::string str_val;
@@ -388,16 +422,26 @@ private:
         };
 
         Operand parse(const std::string& operand_string) {
-            std::string upper_opperand_string = operand_string;
-            StringHelper::to_upper(upper_opperand_string);
-
             Operand operand;
             operand.str_val = operand_string;
-
             if (is_string_literal(operand_string)) {
-                operand.type = OperandType::STRING_LITERAL;
+                if (operand_string.length() == 3) {
+                    operand.num_val = static_cast<uint16_t>(operand_string[1]);
+                    operand.type = OperandType::CHAR_LITERAL;
+                    return operand;
+                } else {
+                    operand.type = OperandType::STRING_LITERAL;
+                    return operand;
+                }
+            }
+            if (is_char_literal(operand_string)) {
+                operand.num_val = static_cast<uint16_t>(operand_string[1]);
+                operand.type = OperandType::CHAR_LITERAL;
                 return operand;
             }
+            
+            std::string upper_opperand_string = operand_string;
+            StringHelper::to_upper(upper_opperand_string);
             if (is_reg8(upper_opperand_string)) {
                 operand.type = OperandType::REG8;
                 return operand;
@@ -437,6 +481,7 @@ private:
 
     private:
         inline bool is_mem_ptr(const std::string& s) const { return !s.empty() && s.front() == '(' && s.back() == ')'; }
+        inline bool is_char_literal(const std::string& s) const { return s.length() == 3 && s.front() == '\'' && s.back() == '\''; }
         inline bool is_string_literal(const std::string& s) const { return s.length() > 1 && s.front() == '"' && s.back() == '"'; }
         inline bool is_reg8(const std::string& s) const { return s_reg8_names.count(s);}
         inline bool is_reg16(const std::string& s) const { return s_reg16_names.count(s); }
@@ -459,8 +504,7 @@ private:
                 std::string base_reg_str = upper_inner.substr(0, operator_pos);
                 base_reg_str.erase(base_reg_str.find_last_not_of(" \t") + 1);
                 if (base_reg_str == "IX" || base_reg_str == "IY") {
-                    std::string offset_str = inner.substr(operator_pos);
-                    uint16_t offset_val;
+                    std::string offset_str = inner.substr(operator_pos); uint16_t offset_val;
                     if (StringHelper::is_number(offset_str, offset_val)) {
                         op.type = OperandType::MEM_INDEXED;
                         op.base_reg = base_reg_str;
@@ -516,6 +560,7 @@ private:
                     typename CodeBlocks::Block* block = m_context.m_blocks.start_block();
                     if (block)
                         block->m_start_address = ops[0].num_val;
+                        block->m_name = "BLOCK_" + std::to_string(m_context.m_blocks.get_blocks().size());
                     m_context.m_current_block = block;
                     return true;
                 } else
@@ -523,7 +568,7 @@ private:
             }
             if (mnemonic == "DB" || mnemonic == "DEFB") {
                 for (const auto& op : ops) {
-                    if (match(op, OperandType::IMMEDIATE)) {
+                    if (match(op, OperandType::IMMEDIATE) || match(op, OperandType::CHAR_LITERAL)) {
                         if (op.num_val > 0xFF)
                             throw std::runtime_error("Value in DB statement exceeds 1 byte: " + op.str_val);
                         assemble(static_cast<uint8_t>(op.num_val));
@@ -539,7 +584,7 @@ private:
             }
             if (mnemonic == "DW" || mnemonic == "DEFW") {
                 for (const auto& op : ops) {
-                    if (match(op, OperandType::IMMEDIATE)) {
+                    if (match(op, OperandType::IMMEDIATE) || match(op, OperandType::CHAR_LITERAL)) {
                         assemble(static_cast<uint8_t>(op.num_val & 0xFF), static_cast<uint8_t>(op.num_val >> 8));
                     } else 
                         throw std::runtime_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
@@ -571,17 +616,20 @@ private:
             return false;
         }
         bool match_imm8(const Operand& op) const {
-            return match(op, OperandType::IMMEDIATE) && op.num_val <= 0xFF;
+            return (match(op, OperandType::IMMEDIATE) || match(op, OperandType::CHAR_LITERAL)) && op.num_val <= 0xFF;
         }
         bool match_imm16(const Operand& op) const {
             return match(op, OperandType::IMMEDIATE);
         }
         template <typename... Args>
         void assemble(Args... args) {
-            if (m_context.m_phase == ParsePhase::CodeGeneration)
+            if (m_context.m_phase == ParsePhase::CodeGeneration) {
                 (m_context.m_memory->poke(m_context.m_current_address++, static_cast<uint8_t>(args)), ...);
-            else
+            } else {
                 m_context.m_current_address += sizeof...(args);
+            }
+            if (m_context.m_current_block)
+                m_context.m_current_block->m_length += sizeof...(args);
         }
         inline static const std::map<std::string, uint8_t> reg8_map = {{"B", 0},   {"C", 1},   {"D", 2},    {"E", 3},
                                                                        {"H", 4},   {"L", 5},   {"(HL)", 6}, {"A", 7},
