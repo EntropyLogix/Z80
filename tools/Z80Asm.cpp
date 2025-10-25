@@ -14,11 +14,13 @@
 // MIT License
 
 #include "Z80Assemble.h"
+#include "Z80Analyze.h"
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
 
 int main() {
+    Z80<> cpu;
     // The assembler needs a bus to interact with memory, even if it's just for calculating sizes.
     Z80DefaultBus bus;
     Z80Assembler<Z80DefaultBus> assembler(&bus);
@@ -169,7 +171,7 @@ INDEXED_OPS:
         
 ; --- Stack definition ---
         DS 10                   ; Reserve 10 bytes (filled with 0)
-        ;ORG STACK_BASE
+        ORG STACK_BASE
         DS STACK_SIZE, 0xFF     ; Reserve stack space, fill with 0xFF
 STACK_TOP:                      ; Label indicating the top of the stack
     )";
@@ -185,12 +187,21 @@ STACK_TOP:                      ; Label indicating the top of the stack
                       << std::setw(10) << std::left << "Size (bytes)" << std::endl;
             std::cout << "--------------------------------" << std::endl;
 
+            Z80Analyzer<Z80DefaultBus, Z80<>, void> analyzer(&bus, &cpu, nullptr);
             const auto& blocks = assembler.get_code_blocks().get_blocks();
             for (const auto& block : blocks) {
                 std::cout << "0x" << std::hex << std::setw(4) << std::setfill('0') << block.m_start_address << "    "
                           << "0x" << std::hex << std::setw(4) << std::setfill('0') << (block.m_start_address + block.m_length -1) << "    "
                           << std::dec << block.m_length
                           << std::endl;
+                
+                if (block.m_length > 0) {
+                    uint16_t current_addr = block.m_start_address;
+                    size_t bytes_to_dump = block.m_length;
+                    auto dump = analyzer.dump_memory(current_addr, (bytes_to_dump + 15) / 16, 16);
+                    for (const auto& line : dump)
+                        std::cout << "  " << line << std::endl;
+                }
             }
         }
     } catch (const std::exception& e) {
