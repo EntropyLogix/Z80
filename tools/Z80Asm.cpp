@@ -176,11 +176,21 @@ STACK_TOP:                      ; Label indicating the top of the stack
     try {
         std::cout << "Assembling source code:" << std::endl;
         std::cout << source_code << std::endl;
-        if (assembler.compile(source_code, 0)) {
-                std::cout << "Assembly successful. Code written to bus memory." << std::endl;
-            for (size_t i = 0; i < 1000; ++i) {
-                uint8_t byte = bus.peek(i);
-                std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
+        if (assembler.compile(source_code, 0x8000)) {
+            std::cout << "\nAssembly successful. Code written to bus memory." << std::endl;
+
+            std::cout << "\n--- Code Blocks Summary ---" << std::endl;
+            std::cout << std::setw(10) << std::left << "Start"
+                      << std::setw(10) << std::left << "End"
+                      << std::setw(10) << std::left << "Size (bytes)" << std::endl;
+            std::cout << "--------------------------------" << std::endl;
+
+            const auto& blocks = assembler.get_code_blocks().get_blocks();
+            for (const auto& block : blocks) {
+                std::cout << "0x" << std::hex << std::setw(4) << std::setfill('0') << block.m_start_address << "    "
+                          << "0x" << std::hex << std::setw(4) << std::setfill('0') << (block.m_start_address + block.m_length -1) << "    "
+                          << std::dec << block.m_length
+                          << std::endl;
             }
         }
     } catch (const std::exception& e) {

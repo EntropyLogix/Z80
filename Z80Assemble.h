@@ -50,14 +50,15 @@ public:
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
         
+        m_context.m_current_address = default_org;
+        m_context.m_blocks.start_block();
+
         int pass_count = 0;
         const int max_passes = 10;
         while (pass_count < max_passes) {
             pass_count++;
             std::cout << "\n--- Starting Pass " << pass_count << ": Symbols Gathering ---" << std::endl;
             try {
-                m_context.m_blocks.clear();
-                m_context.m_current_block = nullptr;
                 m_context.m_phase = ParsePhase::SymbolsGathering;
                 m_context.m_current_address = default_org;
                 m_context.m_current_line_number = 0;
@@ -75,7 +76,13 @@ public:
                         m_context.m_current_line_number = i + 1;
                         LineProcessor(m_context).process(source_lines[i]);
                     }
+                    for(const auto& block : m_context.m_blocks.get_blocks()) {
+                        std::cout << "  [Debug] Block '" << block.m_name << "' at 0x" << std::hex << block.m_start_address
+                                  << " has length " << std::dec << block.m_length << " bytes." << std::endl;
+                    }
                     return true;
+                } else {
+                    std::cout << "  [Debug] Symbol resolution failed. Skipping code generation." << std::endl;
                 }
             } catch (const std::runtime_error& e) {
                 throw std::runtime_error(std::string(e.what()) + " on line " + std::to_string(m_context.m_current_line_number));
@@ -96,8 +103,18 @@ public:
 
             Block* start_block() {
                 std::cout << "  [Block] Starting new code block at 0x" << std::hex << m_context.m_current_address << std::dec << std::endl;
-                m_blocks.push_back({});
-                return &m_blocks.back();
+                Block* block = nullptr;
+                auto it = std::find_if(m_blocks.begin(), m_blocks.end(),
+                                        [this](const Block& b) { return b.m_start_address == m_context.m_current_address; });
+                if (it == m_blocks.end()) {
+                    m_blocks.push_back({m_context.m_current_address, 0});
+                    block = &m_blocks.back();
+                } else 
+                    block = &(*it);
+                if (block)
+                    block->m_start_address = m_context.m_current_address;
+                m_context.m_current_block = block;
+                return block;
             }
 
             const std::vector<Block>& get_blocks() const {
@@ -439,7 +456,7 @@ private:
                 operand.type = OperandType::CHAR_LITERAL;
                 return operand;
             }
-            
+
             std::string upper_opperand_string = operand_string;
             StringHelper::to_upper(upper_opperand_string);
             if (is_reg8(upper_opperand_string)) {
@@ -557,11 +574,7 @@ private:
             if (mnemonic == "ORG") {
                 if (ops.size() == 1 && match(ops[0], OperandType::IMMEDIATE)) {
                     m_context.m_current_address = ops[0].num_val;
-                    typename CodeBlocks::Block* block = m_context.m_blocks.start_block();
-                    if (block)
-                        block->m_start_address = ops[0].num_val;
-                        block->m_name = "BLOCK_" + std::to_string(m_context.m_blocks.get_blocks().size());
-                    m_context.m_current_block = block;
+                    m_context.m_blocks.start_block();
                     return true;
                 } else
                     throw std::runtime_error("Invalid operand for ORG directive");
