@@ -30,16 +30,17 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <sys/types.h>
 #include <system_error>
 #include <utility>
 #include <vector>
 
 template <typename TMemory> class Z80Assembler {
 public:
-    enum class ParsePhase { SymbolTableBuild, CodeGeneration };
+    enum class ParsePhase { SymbolsGathering, CodeGeneration };
 
-    Z80Assembler(TMemory* memory)
-        : m_memory(memory)  {
+    Z80Assembler(TMemory* memory) {
+        m_context.m_memory = memory;
     }
 
     bool compile(const std::string& source_code, uint16_t default_org = 0x0000) {
@@ -49,83 +50,144 @@ public:
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
         
-        std::vector<ParsePhase> phases = {ParsePhase::SymbolTableBuild, ParsePhase::CodeGeneration};
+        std::vector<ParsePhase> phases = {ParsePhase::SymbolsGathering, ParsePhase::CodeGeneration};
 
-        for (const auto& phase : phases) {
+        
+        auto phase_it = phases.begin();
+        while (phase_it != phases.end()) {
+            const auto& phase = *phase_it;
+            if (phase == ParsePhase::SymbolsGathering)
+                std::cout << "\n--- Starting Pass 1: Symbols Gathering ---" << std::endl;
+            else 
+                std::cout << "\n--- Starting Pass 2: Code Generation ---" << std::endl;
+
+            bool next_phase = false;
             try {
-                m_phase = ParsePhase::SymbolTableBuild;
-                m_symbol_table.clear();
-                m_current_address = default_org;
-                m_current_line_number = 0;
-                LineProcessor line_processor(m_memory, m_symbol_table,  m_current_address, m_phase);
+                m_context.m_phase = phase;
+                m_context.m_current_address = default_org;
+                m_context.m_current_line_number = 0;
+                LineProcessor line_processor(m_context);
                 for (size_t i = 0; i < source_lines.size(); ++i) {
-                    m_current_line_number = i + 1;
+                    m_context.m_current_line_number = i + 1;
                     line_processor.process(source_lines[i]);
                 }
-                if (phase == ParsePhase::SymbolTableBuild)
-                    m_symbol_table.resolve_expressions(m_current_address);
+                if (phase == ParsePhase::SymbolsGathering)
+                    next_phase = m_context.m_symbols.resolve();
             } catch (const std::runtime_error& e) {
-                throw std::runtime_error(std::string(e.what()) + " on line " + std::to_string(m_current_line_number));
+                throw std::runtime_error(std::string(e.what()) + " on line " + std::to_string(m_context.m_current_line_number));
             }
+            if (next_phase)
+                ++phase_it;
         }
         return true;
     }
-    class SymbolTable {
+    class Symbols {
     public:
-        void add_symbol(const std::string& name, uint16_t value) {
-            if (is_symbol(name))
+        Symbols(uint16_t& current_address) : m_current_address(current_address) {}
+
+        void add(const std::string& name, uint16_t value) {
+            if (exists(name))
                 throw std::runtime_error("Duplicate symbol definition: " + name);
             m_symbols[name] = value;
         }
-        bool is_symbol(const std::string& name) const {
+        void add(const std::string& name) {
+            add(name, m_current_address);
+        }
+        bool exists(const std::string& name) const {
             if (name == "$" || name == "_")
                 return true;
             return m_symbols.count(name);
         }
-        uint16_t get_symbol_value(const std::string& name, uint16_t current_address) const {
+        uint16_t get_address(const std::string& name) const {
             if (name == "$" || name == "_")
-                return current_address;
+                return m_current_address;
             if (m_symbols.count(name))
                 return m_symbols.at(name);
             throw std::runtime_error("Undefined symbol: " + name);
         }
         void clear() {
             m_symbols.clear();
-            m_expressions.clear();
+            m_unresolved_symbols.clear();
         }
-
-        void add_expression(const std::string& name, const std::string& expression) {
-            if (is_symbol(name) || m_expressions.count(name))
+        void add_unresolved(const std::string& name, const std::string& expression) {
+            if (exists(name) || m_unresolved_symbols.count(name))
                 throw std::runtime_error("Duplicate symbol definition: " + name);
-            m_expressions[name] = expression;
+            m_unresolved_symbols[name] = expression;
         }
-        bool expression_to_resolve() const {
-            return !m_expressions.empty();
-        }
-        bool resolve_expressions(uint16_t& current_address) {
-            auto it = m_expressions.begin();
-            while (it != m_expressions.end()) {
+        bool resolve() {
+            auto it = m_unresolved_symbols.begin();
+            while (it != m_unresolved_symbols.end()) {
                 uint16_t value;
                 if (StringHelper::is_number(it->second, value)) {
-                    add_symbol(it->first, value);
-                    std::cout << "[PASS] Resolved EQU: " << it->first << " = " << value << " (0x" << std::hex << value << std::dec << ")" << std::endl;
-                    it = m_expressions.erase(it);
+                    add(it->first, value);
+                    it = m_unresolved_symbols.erase(it);
                 } else {
                     ++it;
                 }
             }
-            return m_expressions.empty();
+            return m_unresolved_symbols.empty();
         }
 
     private:
+        const uint16_t& m_current_address;
         std::map<std::string, uint16_t> m_symbols;
-        std::map<std::string, std::string> m_expressions;
+        std::map<std::string, std::string> m_unresolved_symbols;
+    };
+
+private:
+    struct CompilationContext {
+        CompilationContext() : m_symbols(m_current_address) {}
+        TMemory* m_memory = nullptr;
+        Symbols m_symbols;
+        uint16_t m_current_address = 0;
+        size_t m_current_line_number = 0;
+        ParsePhase m_phase = ParsePhase::CodeGeneration;
+        int pass = 0;
+    };
+
+    class StringHelper {
+    public:
+        static void trim_whitespace(std::string& s) {
+            const char* whitespace = " \t";
+            s.erase(0, s.find_first_not_of(whitespace));
+            s.erase(s.find_last_not_of(whitespace) + 1);
+        }
+
+        static void to_upper(std::string& s) {
+            std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+        }
+
+        static bool is_number(const std::string& s, uint16_t& out_value) {
+            std::string str = s;
+            trim_whitespace(str);
+            if (str.empty())
+                return false;
+            if (str.length() == 3 && str.front() == '\'' && str.back() == '\'') {
+                out_value = static_cast<uint8_t>(str[1]);
+                return true;
+            }
+            const char* start = str.data();
+            const char* end = str.data() + str.size();
+            int base = 10;
+            if (str.size() > 1 && str.front() == '+') {
+                start += 1;
+            }
+            if (str.size() > 2 && (str.substr(0, 2) == "0X" || str.substr(0, 2) == "0x")) {
+                start += 2;
+                base = 16;
+            } else if (str.back() == 'H' || str.back() == 'h') {
+                end -= 1;
+                base = 16;
+            }
+            auto result = std::from_chars(start, end, out_value, base);
+            return result.ec == std::errc() && result.ptr == end;
+        }
     };
 
     class ExpressionEvaluator {
     public:
-        ExpressionEvaluator(const SymbolTable& symbol_table, const uint16_t& current_address)
-            : m_symbol_table(symbol_table), m_current_address(current_address) {}
+        ExpressionEvaluator(const Symbols& symbols, const uint16_t& current_address)
+            : m_symbols(symbols), m_current_address(current_address) {}
 
         bool evaluate(const std::string& s, uint16_t& out_value) const {
             try {
@@ -134,8 +196,8 @@ public:
                 out_value = evaluate_rpn(rpn);
                 return true;
             } catch (const std::exception&) {
-                if (m_symbol_table.is_symbol(s)) {
-                    out_value = m_symbol_table.get_value(s, m_current_address);
+                if (m_symbols.exists(s)) {
+                    out_value = m_symbols.get_value(s, m_current_address);
                     return true;
                 }
                 return false;
@@ -238,7 +300,7 @@ public:
                 if (token.type == ExpressionToken::Type::NUMBER) {
                     val_stack.push_back(token.n_val);
                 } else if (token.type == ExpressionToken::Type::SYMBOL) {
-                    val_stack.push_back(m_symbol_table.get_value(token.s_val, m_current_address));
+                    val_stack.push_back(m_symbols.get_value(token.s_val, m_current_address));
                 } else if (token.type == ExpressionToken::Type::OPERATOR) {
                     if (val_stack.size() < 2)
                         throw std::runtime_error("Invalid expression syntax.");
@@ -262,55 +324,13 @@ public:
                 throw std::runtime_error("Invalid expression syntax.");
             return val_stack.back();
         }
-        const SymbolTable& m_symbol_table;
+        const Symbols& m_symbols;
         const uint16_t& m_current_address;
-    };
-
-private:
-    class StringHelper {
-    public:
-        static void trim_whitespace(std::string& s) {
-            const char* whitespace = " \t";
-            s.erase(0, s.find_first_not_of(whitespace));
-            s.erase(s.find_last_not_of(whitespace) + 1);
-        }
-
-        static void to_upper(std::string& s) {
-            std::transform(s.begin(), s.end(), s.begin(), ::toupper);
-        }
-
-        static bool is_number(const std::string& s, uint16_t& out_value) {
-            std::string str = s;
-            trim_whitespace(str);
-            if (str.empty())
-                return false;
-            if (str.length() == 3 && str.front() == '\'' && str.back() == '\'') {
-                out_value = static_cast<uint8_t>(str[1]);
-                return true;
-            }
-            const char* start = str.data();
-            const char* end = str.data() + str.size();
-            int base = 10;
-            if (str.size() > 1 && str.front() == '+') {
-                start += 1;
-            }
-            if (str.size() > 2 && (str.substr(0, 2) == "0X" || str.substr(0, 2) == "0x")) {
-                start += 2;
-                base = 16;
-            } else if (str.back() == 'H' || str.back() == 'h') {
-                end -= 1;
-                base = 16;
-            }
-            auto result = std::from_chars(start, end, out_value, base);
-            return result.ec == std::errc() && result.ptr == end;
-        }
     };
 
     class OperandParser {
     public:
-        OperandParser(const SymbolTable& symbol_table, const uint16_t& current_address, const ParsePhase& phase)
-            : m_symbol_table(symbol_table), m_current_address(current_address), m_phase(phase) {
-        }
+        OperandParser(CompilationContext context) : m_context(context) {}
 
         enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, EXPRESSION, UNKNOWN };
         struct Operand {
@@ -356,13 +376,13 @@ private:
                 inner.erase(inner.find_last_not_of(" \t") + 1);
                 return parse_mem_ptr(inner);
             }
-            if (m_phase == ParsePhase::SymbolTableBuild && !m_symbol_table.is_symbol(upper_opperand_string)) {
+            if (m_context.m_phase == ParsePhase::SymbolsGathering && !m_context.m_symbols.exists(upper_opperand_string)) {
                 operand.type = OperandType::EXPRESSION;
                 operand.str_val = operand_string;
                 return operand;
             }
-            if (m_symbol_table.is_symbol(upper_opperand_string)) {
-                operand.num_val = m_symbol_table.get_symbol_value(upper_opperand_string, m_current_address);
+            if (m_context.m_symbols.exists(operand_string)) {
+                operand.num_val = m_context.m_symbols.get_address(operand_string);
                 operand.type = OperandType::IMMEDIATE;
                 return operand;
             }
@@ -420,19 +440,33 @@ private:
             }
             return op;
         }
-        const SymbolTable& m_symbol_table;
-        const uint16_t& m_current_address;
-        const ParsePhase& m_phase;
+        CompilationContext m_context;
     };
     class InstructionEncoder {
+    public:
+        InstructionEncoder(CompilationContext context) : m_context(context) {}
+
+        bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
+            if (encode_pseudo_instruction(mnemonic, operands))
+                return true;
+            switch (operands.size()) {
+                case 0:
+                    return encode_no_operand(mnemonic);
+                case 1:
+                    return encode_one_operand(mnemonic, operands[0]);
+                case 2:
+                    return encode_two_operands(mnemonic, operands[0], operands[1]);
+            }
+            return false;
+        }
+    private:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
 
-    public:
         bool encode_pseudo_instruction(const std::string& mnemonic, const std::vector<Operand>& ops) {
             if (mnemonic == "ORG") {
                 if (ops.size() == 1 && match(ops[0], OperandType::IMMEDIATE)) {
-                    m_current_address = ops[0].num_val;
+                    m_context.m_current_address = ops[0].num_val;
                     return true;
                 } else
                     throw std::runtime_error("Invalid operand for ORG directive");
@@ -478,50 +512,27 @@ private:
             }
             return false;
         }
-
-        InstructionEncoder(TMemory* memory, uint16_t& current_address, const ParsePhase& phase)
-            : m_memory(memory), m_current_address(current_address), m_phase(phase) {}
-
-        bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
-            if (encode_pseudo_instruction(mnemonic, operands))
-                return true;
-            switch (operands.size()) {
-                case 0:
-                    return encode_no_operand(mnemonic);
-                case 1:
-                    return encode_one_operand(mnemonic, operands[0]);
-                case 2:
-                    return encode_two_operands(mnemonic, operands[0], operands[1]);
-            }
-            return false;
-        }
-
-    private:
         bool match(const Operand& op, OperandType type) const {
             if (op.type == type)
                 return true;
-            if (m_phase == ParsePhase::SymbolTableBuild && op.type == OperandType::EXPRESSION) {
+            if (m_context.m_phase == ParsePhase::SymbolsGathering && op.type == OperandType::EXPRESSION) {
                 return type == OperandType::IMMEDIATE || type == OperandType::MEM_IMMEDIATE;
             }
             return false;
         }
-
         bool match_imm8(const Operand& op) const {
             return match(op, OperandType::IMMEDIATE) && op.num_val <= 0xFF;
         }
-
         bool match_imm16(const Operand& op) const {
             return match(op, OperandType::IMMEDIATE);
         }
-
         template <typename... Args>
         void assemble(Args... args) {
-            if (m_phase == ParsePhase::CodeGeneration)
-                (m_memory->poke(m_current_address++, static_cast<uint8_t>(args)), ...);
+            if (m_context.m_phase == ParsePhase::CodeGeneration)
+                (m_context.m_memory->poke(m_context.m_current_address++, static_cast<uint8_t>(args)), ...);
             else
-                m_current_address += sizeof...(args);
+                m_context.m_current_address += sizeof...(args);
         }
-
         inline static const std::map<std::string, uint8_t> reg8_map = {{"B", 0},   {"C", 1},   {"D", 2},    {"E", 3},
                                                                        {"H", 4},   {"L", 5},   {"(HL)", 6}, {"A", 7},
                                                                        {"IXH", 4}, {"IXL", 5}, {"IYH", 4},  {"IYL", 5}};
@@ -529,7 +540,6 @@ private:
         inline static const std::map<std::string, uint8_t> reg16_af_map = {{"BC", 0}, {"DE", 1}, {"HL", 2}, {"AF", 3}};
         inline static const std::map<std::string, uint8_t> condition_map = {{"NZ", 0}, {"Z", 1},  {"NC", 2}, {"C", 3},
                                                                             {"PO", 4}, {"PE", 5}, {"P", 6},  {"M", 7}};
-
         bool encode_no_operand(const std::string& mnemonic) {
             if (mnemonic == "NOP") {
                 assemble(0x00);
@@ -749,8 +759,8 @@ private:
             if (mnemonic == "JR" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_current_address + instruction_size);
-                if (m_phase == ParsePhase::CodeGeneration && (offset < -128 || offset > 127))
+                int32_t offset = target_addr - (m_context.m_current_address + instruction_size);
+                if (m_context.m_phase == ParsePhase::CodeGeneration && (offset < -128 || offset > 127))
                     throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
                 assemble(0x18, static_cast<uint8_t>(offset));
                 return true;
@@ -766,8 +776,8 @@ private:
             if (mnemonic == "DJNZ" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_current_address + instruction_size);
-                if (m_phase == ParsePhase::CodeGeneration && (offset < -128 || offset > 127))
+                int32_t offset = target_addr - (m_context.m_current_address + instruction_size);
+                if (m_context.m_phase == ParsePhase::CodeGeneration && (offset < -128 || offset > 127))
                     throw std::runtime_error("DJNZ jump target out of range. Offset: " + std::to_string(offset));
                 assemble(0x10, static_cast<uint8_t>(offset));
                 return true;
@@ -858,7 +868,6 @@ private:
             }
             return false;
         }
-
         bool encode_two_operands(const std::string& mnemonic, const Operand& op1, const Operand& op2) {
             if (mnemonic == "EX" && op1.str_val == "AF" && op2.str_val == "AF'") {
                 assemble(0x08);
@@ -1080,8 +1089,8 @@ private:
                 if (jr_condition_map.count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (m_current_address + instruction_size);
-                    if (m_phase == ParsePhase::CodeGeneration && (offset < -128 || offset > 127))
+                    int32_t offset = target_addr - (m_context.m_current_address + instruction_size);
+                    if (m_context.m_phase == ParsePhase::CodeGeneration && (offset < -128 || offset > 127))
                         throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
                     assemble(jr_condition_map.at(op1.str_val),
                              static_cast<uint8_t>(offset));
@@ -1100,8 +1109,8 @@ private:
                 if (jr_condition_map.count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (m_current_address + instruction_size);
-                    if (m_phase == ParsePhase::CodeGeneration && (offset < -128 || offset > 127))
+                    int32_t offset = target_addr - (m_context.m_current_address + instruction_size);
+                    if (m_context.m_phase == ParsePhase::CodeGeneration && (offset < -128 || offset > 127))
                         throw std::runtime_error("JR jump target out of range. Offset: " + std::to_string(offset));
                     assemble(jr_condition_map.at(op1.str_val),
                              static_cast<uint8_t>(offset));
@@ -1168,9 +1177,7 @@ private:
                     base_opcode = 0x80;
                 else // SET
                     base_opcode = 0xC0;
-
                 uint8_t final_opcode = base_opcode | (bit << 3) | 6; // 6 is the code for (HL)
-
                 if (op2.base_reg == "IX") {
                     assemble(0xDD, 0xCB, static_cast<uint8_t>(op2.offset), final_opcode);
                 } else if (op2.base_reg == "IY") {
@@ -1182,23 +1189,19 @@ private:
             }
             return false;
         }
-
-        TMemory* m_memory;
-        uint16_t& m_current_address;
-        const ParsePhase& m_phase;
+        CompilationContext m_context;
     };
-
     class LineProcessor {
     public:
-        LineProcessor(TMemory* memory, const SymbolTable& symbol_table,  uint16_t& current_address, const ParsePhase& phase) :
-            m_memory(memory), m_symbol_table(symbol_table), m_current_address(current_address), m_phase(phase) {}
+        LineProcessor(CompilationContext& context) : m_context(context) {}
     
         bool process(const std::string& source_line) {
             std::string line = source_line;
+            bool add_symbols = m_context.m_phase == ParsePhase::SymbolsGathering;
             strip_comments(line);
-            if (process_equ(line))
+            if (process_equ(line, add_symbols))
                 return true;
-            process_label(line);
+            process_label(line, add_symbols);
             if (!line.empty()) {
                 return process_instruction(line);
             }
@@ -1206,13 +1209,16 @@ private:
         }
 
     private:
-        void strip_comments(std::string& line) {
+        bool strip_comments(std::string& line) {
             size_t comment_pos = line.find(';');
-            if (comment_pos != std::string::npos)
+            if (comment_pos != std::string::npos) {
                 line.erase(comment_pos);
+                return true;
+            }
+            return false;
         }
 
-        bool process_equ(const std::string& line) {
+        bool process_equ(const std::string& line, bool add_symbol) {
             std::string temp_upper = line;
             StringHelper::to_upper(temp_upper);
             size_t equ_pos = temp_upper.find(" EQU ");
@@ -1221,13 +1227,14 @@ private:
                 StringHelper::trim_whitespace(equ_label);
                 std::string equ_value = line.substr(equ_pos + 5);
                 StringHelper::trim_whitespace(equ_value);
-                //m_symbol_table.add_expression(equ_label, equ_value);
+                if (add_symbol)
+                    m_context.m_symbols.add_unresolved(equ_label, equ_value);
                 return true;
             }
             return false;
         }
 
-        void process_label(std::string& line) {
+        bool process_label(std::string& line, bool add_symbol) {
             size_t colon_pos = line.find(':');
             if (colon_pos != std::string::npos) {
                 std::string potential_label = line.substr(0, colon_pos);
@@ -1235,9 +1242,12 @@ private:
                     std::string label = potential_label;
                     StringHelper::trim_whitespace(label);
                     line.erase(0, colon_pos + 1);
-                    //m_symbol_table.is_symbol(label, m_current_address);
+                    if (add_symbol)
+                        m_context.m_symbols.add(label);
+                    return true;
                 }
             }
+            return false;
         }
 
         bool process_instruction(std::string& line) {
@@ -1249,7 +1259,7 @@ private:
                 instruction_stream >> mnemonic;
                 StringHelper::to_upper(mnemonic);
 
-                OperandParser operand_parser(m_symbol_table, m_current_address, m_phase);
+                OperandParser operand_parser(m_context);
                 std::vector<typename OperandParser::Operand> operands;
 
                 std::string ops;
@@ -1266,22 +1276,15 @@ private:
                         }
                     }
                 }
-                InstructionEncoder encoder(m_memory, m_current_address, m_phase);
+                InstructionEncoder encoder(m_context);
                 return encoder.encode(mnemonic, operands);
             }
             return true;
         }
-        const SymbolTable& m_symbol_table;
-        uint16_t& m_current_address;
-        const ParsePhase& m_phase;
-        TMemory *m_memory = nullptr;
+        CompilationContext& m_context;
     };
 
-    ParsePhase m_phase;
-    uint16_t m_current_address = 0;
-    size_t m_current_line_number = 0;
-    TMemory* m_memory = nullptr;
-    SymbolTable m_symbol_table;
+    CompilationContext m_context;
 };
 
 #endif //__Z80ASSEMBLE_H__
