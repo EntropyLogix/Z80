@@ -14,15 +14,9 @@
 // MIT License
 
 #include "Z80Assemble.h"
+#include <cstdint>
 #include <iomanip>
 #include <iostream>
-
-void print_bytes(const std::vector<uint8_t>& bytes) {
-    for (uint8_t byte : bytes) {
-        std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
-    }
-    std::cout << std::endl;
-}
 
 int main() {
     // The assembler needs a bus to interact with memory, even if it's just for calculating sizes.
@@ -175,31 +169,20 @@ INDEXED_OPS:
         
 ; --- Stack definition ---
         DS 10                   ; Reserve 10 bytes (filled with 0)
-        ORG STACK_BASE
+        ;ORG STACK_BASE
         DS STACK_SIZE, 0xFF     ; Reserve stack space, fill with 0xFF
 STACK_TOP:                      ; Label indicating the top of the stack
     )";
     try {
         std::cout << "Assembling source code:" << std::endl;
         std::cout << source_code << std::endl;
-        if (assembler.compile(source_code)) {
-            std::cout << "--- Generated Code Blocks ---" << std::endl;
-            const auto& blocks = assembler.get_org_blocks();
-            for (const auto& block : blocks) {
-                if (block.size > 0) {
-                    std::cout << "Block at 0x" << std::hex << std::setw(4) << std::setfill('0') << block.start_address
-                              << " (size: " << std::dec << block.size << " bytes):" << std::endl;
-
-                    std::vector<uint8_t> machine_code;
-                    for (size_t i = 0; i < block.size; ++i) {
-                        machine_code.push_back(bus.peek(block.start_address + i));
-                    }
-                    print_bytes(machine_code);
-                }
+        if (assembler.compile(source_code, 0)) {
+                std::cout << "Assembly successful. Code written to bus memory." << std::endl;
+            for (size_t i = 0; i < 1000; ++i) {
+                uint8_t byte = bus.peek(i);
+                std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
             }
-            std::cout << "Assembly successful. Code written to bus memory." << std::endl;
         }
-
     } catch (const std::exception& e) {
         std::cerr << "Assembly error: " << e.what() << std::endl;
     }
