@@ -207,15 +207,9 @@ public:
             auto it = m_symbols.begin();
             while (it != m_symbols.end()) {
                 uint16_t value;
-                bool evaluated = false;
                 if (it->second.m_unresolved) {
-                    if (StringHelper::is_number(it->second.m_expression, value))
-                        evaluated = true;
-                    else {
-                        ExpressionEvaluator evaluator(m_context);
-                        evaluated = evaluator.evaluate(it->second.m_expression, value);
-                    }
-                    if (evaluated) {
+                    ExpressionEvaluator evaluator(m_context);
+                    if (evaluator.evaluate(it->second.m_expression, value)) {
                         m_context.m_blocks.update_block(it->first, value);
                         typename Symbols::Symbol::Type type = it->second.m_type;
                         std::string name = it->first;
@@ -492,7 +486,8 @@ private:
                 return operand;
             }
             uint16_t num_val;
-            if (StringHelper::is_number(operand_string, num_val)) {
+            ExpressionEvaluator evaluator(m_context);
+            if (evaluator.evaluate(operand_string, num_val)) {
                 operand.num_val = num_val;
                 operand.type = OperandType::IMMEDIATE;
                 return operand;
@@ -558,11 +553,13 @@ private:
             }
             // Handle (number) or (LABEL)
             uint16_t inner_num_val;
-            if (StringHelper::is_number(inner, inner_num_val)) {
+            ExpressionEvaluator evaluator(m_context);
+            if (evaluator.evaluate(inner, inner_num_val)) {
                 op.type = OperandType::MEM_IMMEDIATE;
                 op.num_val = inner_num_val;
             } else {
                 op.type = OperandType::MEM_IMMEDIATE;
+                op.num_val = 0; // Ensure num_val is zeroed for unresolved expressions
                 op.str_val = inner;
             }
             return op;
