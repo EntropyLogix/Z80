@@ -1430,13 +1430,25 @@ private:
                 if (std::getline(instruction_stream, ops)) {
                     StringHelper::trim_whitespace(ops);
                     if (!ops.empty()) {
-                        std::stringstream operands_stream(ops);
-                        std::string operand;
-                        while (std::getline(operands_stream, operand, ',')) {
-                            StringHelper::trim_whitespace(operand);
-                            if (!operand.empty()) {
-                                operands.push_back(operand_parser.parse(operand));
+                        std::string current_operand;
+                        bool in_string = false;
+                        for (char c : ops) {
+                            if (c == '"') {
+                                in_string = !in_string;
                             }
+                            if (c == ',' && !in_string) {
+                                StringHelper::trim_whitespace(current_operand);
+                                if (!current_operand.empty()) {
+                                    operands.push_back(operand_parser.parse(current_operand));
+                                }
+                                current_operand.clear();
+                            } else {
+                                current_operand += c;
+                            }
+                        }
+                        StringHelper::trim_whitespace(current_operand);
+                        if (!current_operand.empty()) {
+                            operands.push_back(operand_parser.parse(current_operand));
                         }
                     }
                 }
