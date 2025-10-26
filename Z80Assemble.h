@@ -553,7 +553,7 @@ private:
         inline bool is_reg8(const std::string& s) const { return s_reg8_names.count(s);}
         inline bool is_reg16(const std::string& s) const { return s_reg16_names.count(s); }
         inline bool is_condition(const std::string& s) const { return s_condition_names.count(s); }
-        inline static const std::set<std::string> s_reg8_names = {"B",    "C", "D",   "E",   "H",   "L", "(HL)", "A", "IXH", "IXL", "IYH", "IYL"};
+        inline static const std::set<std::string> s_reg8_names = {"B", "C", "D", "E", "H", "L", "(HL)", "A", "I", "R", "IXH", "IXL", "IYH", "IYL"};
         inline static const std::set<std::string> s_reg16_names = {"BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
         inline static const std::set<std::string> s_condition_names = {"NZ", "Z", "NC", "C", "PO", "PE", "P", "M"};
 
@@ -1039,6 +1039,22 @@ private:
             }
             if (mnemonic == "EX" && op1.str_val == "DE" && op2.str_val == "HL") {
                 assemble(0xEB);
+                return true;
+            }
+            if (mnemonic == "LD" && op1.str_val == "I" && op2.str_val == "A") {
+                assemble(0xED, 0x47);
+                return true;
+            }
+            if (mnemonic == "LD" && op1.str_val == "R" && op2.str_val == "A") {
+                assemble(0xED, 0x4F);
+                return true;
+            }
+            if (mnemonic == "LD" && op1.str_val == "A" && op2.str_val == "I") {
+                assemble(0xED, 0x57);
+                return true;
+            }
+            if (mnemonic == "LD" && op1.str_val == "A" && op2.str_val == "R") {
+                assemble(0xED, 0x5F);
                 return true;
             }
             uint8_t prefix = 0;
