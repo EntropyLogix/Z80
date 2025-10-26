@@ -99,7 +99,6 @@ public:
                 uint16_t m_length = 0;
                 std::string m_name;
             };
-
             Block* start_block(std::string label = "") {
                 Block* block = nullptr;
                 if (m_context.m_phase == ParsePhase::CodeGeneration) {
@@ -127,14 +126,12 @@ public:
                 m_context.m_current_block->m_length = 0;
                 return block;
             }
-
-            void update_block_address(const std::string& name, uint16_t new_address) {
+            void update_block(const std::string& name, uint16_t new_address) {
                 auto it = std::find_if(m_blocks.begin(), m_blocks.end(),
                                        [&name](const Block& b) { return b.m_name == name; });
                 if (it != m_blocks.end())
                     it->m_start_address = new_address;
             }
-
             const std::vector<Block>& get_blocks() const {
                 return m_blocks;
             }
@@ -219,7 +216,7 @@ public:
                         evaluated = evaluator.evaluate(it->second.m_expression, value);
                     }
                     if (evaluated) {
-                        m_context.m_blocks.update_block_address(it->first, value);
+                        m_context.m_blocks.update_block(it->first, value);
                         typename Symbols::Symbol::Type type = it->second.m_type;
                         std::string name = it->first;
                         it = m_symbols.erase(it);
@@ -231,7 +228,6 @@ public:
             }
             return !still_unresolved;
         }
-
     private:
         CompilationContext& m_context;
         std::map<std::string, Symbol> m_symbols;
@@ -349,9 +345,10 @@ private:
                     size_t j = i;
                     if (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X")
                         j += 2;
-                    while (j < expr.length() && isxdigit(expr[j]))
+                    while (j < expr.length() && isalnum(expr[j]))
                         j++;
-                    if (j < expr.length() && (expr[j] == 'h' || expr[j] == 'H'))
+                    char last_char = toupper(expr[j-1]);
+                    if (j < expr.length() && (last_char != 'B' && last_char != 'H') && (expr[j] == 'h' || expr[j] == 'H' || expr[j] == 'b' || expr[j] == 'B'))
                         j++;
                     uint16_t val;
                     if (StringHelper::is_number(expr.substr(i, j - i), val)) {
