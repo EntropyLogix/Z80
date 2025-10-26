@@ -50,46 +50,43 @@ public:
         std::string line;
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
-        
-        m_context.m_current_address = default_org;
-        m_context.m_blocks.start_block();
 
-        int pass_count = 0;
+        m_context.m_pass_count = 0;
         const int max_passes = 10;
-        while (pass_count < max_passes) {
-            pass_count++;
-            std::cout << "\n--- Starting Pass " << pass_count << ": Symbols Gathering ---" << std::endl;
+        while (m_context.m_pass_count < max_passes) {
+            m_context.m_pass_count++;
+            std::cout << "\n--- Starting Pass " << m_context.m_pass_count << ": Symbols Gathering ---" << std::endl;
             try {
                 m_context.m_phase = ParsePhase::SymbolsGathering;
                 m_context.m_current_address = default_org;
+                m_context.m_blocks.start_block();
                 m_context.m_current_line_number = 0;
                 LineProcessor line_processor(m_context);
                 for (size_t i = 0; i < source_lines.size(); ++i) {
                     m_context.m_current_line_number = i + 1;
                     line_processor.process(source_lines[i]);
                 }
-                if (m_context.m_symbols.resolve()) {
-                    std::cout << "\n--- Starting Final Pass: Code Generation ---" << std::endl;
-                    m_context.m_phase = ParsePhase::CodeGeneration;
-                    m_context.m_current_address = default_org;
-                    m_context.m_current_line_number = 0;
-                    for (size_t i = 0; i < source_lines.size(); ++i) {
-                        m_context.m_current_line_number = i + 1;
-                        LineProcessor(m_context).process(source_lines[i]);
-                    }
-                    for(const auto& block : m_context.m_blocks.get_blocks()) {
-                        std::cout << "  [Debug] Block '" << block.m_name << "' at 0x" << std::hex << block.m_start_address
-                                  << " has length " << std::dec << block.m_length << " bytes." << std::endl;
-                    }
-                    return true;
-                } else {
-                    std::cout << "  [Debug] Symbol resolution failed. Skipping code generation." << std::endl;
-                }
+                m_context.m_symbols.resolve();
             } catch (const std::runtime_error& e) {
                 throw std::runtime_error(std::string(e.what()) + " on line " + std::to_string(m_context.m_current_line_number));
             }
         }
-        throw std::runtime_error("Failed to resolve all symbols after " + std::to_string(max_passes) + " passes.");
+        std::cout << "\n--- Starting Final Pass: Code Generation ---" << std::endl;
+        m_context.m_phase = ParsePhase::CodeGeneration;
+        m_context.m_current_address = default_org;
+        m_context.m_blocks.start_block();
+        m_context.m_current_line_number = 0;
+
+        for (size_t i = 0; i < source_lines.size(); ++i) {
+            m_context.m_current_line_number = i + 1;
+            LineProcessor(m_context).process(source_lines[i]);
+        }
+        for(const auto& block : m_context.m_blocks.get_blocks()) {
+            std::cout << "  [Debug] Block '" << block.m_name << "' at 0x" << std::hex << block.m_start_address
+                        << " has length " << std::dec << block.m_length << " bytes." << std::endl;
+        }
+        //throw std::runtime_error("Failed to resolve all symbols after " + std::to_string(max_passes) + " passes.");
+        return true;
     }
 
     struct CompilationContext;
@@ -102,31 +99,42 @@ public:
                 std::string m_name;
             };
 
-            Block* start_block() {
-                std::cout << "  [Block] Starting new code block at 0x" << std::hex << m_context.m_current_address << std::dec << std::endl;
+            Block* start_block(std::string label = "") {
                 Block* block = nullptr;
-                auto it = std::find_if(m_blocks.begin(), m_blocks.end(),
-                                        [this](const Block& b) { return b.m_start_address == m_context.m_current_address; });
-                if (it == m_blocks.end()) {
-                    m_blocks.push_back({m_context.m_current_address, 0});
-                    block = &m_blocks.back();
-                } else 
-                    block = &(*it);
-                if (block)
-                    block->m_start_address = m_context.m_current_address;
+                std::cout << "  [Block] Starting new code block at 0x" << std::hex << m_context.m_current_address << std::dec << std::endl;
+
+                if (m_context.m_phase == ParsePhase::CodeGeneration) {
+                    auto it = std::find_if(m_blocks.begin(), m_blocks.end(),
+                                    [this](const Block& b) { return b.m_start_address == m_context.m_current_address; });
+                    if (it == m_blocks.end())
+                        throw "Internal error: memory blocks mismatch.";
+                    else 
+                        block = &(*it);
+                } else {
+                    auto it = std::find_if(m_blocks.begin(), m_blocks.end(),
+                                            [this, label](const Block& b) { return (!label.empty() && b.m_name == label); });
+                    if (it == m_blocks.end())
+                        it = std::find_if(m_blocks.begin(), m_blocks.end(),
+                                            [this](const Block& b) { return b.m_start_address == m_context.m_current_address; });
+                    if (it == m_blocks.end()) {
+                        m_blocks.push_back({m_context.m_current_address, 0, label});
+                        block = &m_blocks.back();
+                    } else 
+                        block = &(*it);
+                    if (block)
+                        block->m_start_address = m_context.m_current_address;
+                }
                 m_context.m_current_block = block;
                 m_context.m_current_block->m_length = 0;
                 return block;
             }
 
             void update_block_address(const std::string& name, uint16_t new_address) {
-                std::cout << "  [Block] Checking block '" << name << "'" << std::endl;
                 auto it = std::find_if(m_blocks.begin(), m_blocks.end(),
                                        [&name](const Block& b) { return b.m_name == name; });
                 if (it != m_blocks.end()) {
                     std::cout << "  [Block] Updating block '" << name << "' to new address 0x" << std::hex << new_address << std::dec << std::endl;
                     it->m_start_address = new_address;
-                    it->m_name.clear(); // Clear the name as it's now resolved
                 }
                 else {
                     std::cout << "  [Block] Block '" << name << "' not found." << std::endl;
@@ -148,79 +156,95 @@ public:
     class Symbols {
     public:
         struct Symbol {
+            enum class Type {LABEL, EQU};
+            Type m_type;
             typename CodeBlocks::Block* m_block;
-            uint16_t m_offset;
+            uint16_t m_value;
+
+            std::string m_expression = "";
+            bool m_unresolved = false;
         };
 
         Symbols(CompilationContext& context) : m_context(context) {}
 
-        void add(const std::string& name, uint16_t value) {
-            if (exists(name))
-                throw std::runtime_error("Duplicate symbol definition: " + name);
+        void add(typename Symbol::Type type, const std::string& name, uint16_t value) {
+            if (m_symbols.count(name)) {
+                if (m_context.m_phase == ParsePhase::SymbolsGathering && m_context.m_pass_count == 1)
+                    throw std::runtime_error("Duplicate symbol definition: " + name);
+            }
             typename CodeBlocks::Block* block = m_context.m_current_block;
-            if (block)
+            if (type == Symbol::Type::LABEL && block)
                 value -= block->m_start_address;
-            m_symbols[name] = { block, value };
-            std::cout << "  [Symbol] Defined " << std::setw(20) << std::left << name << " = 0x" << std::hex
-                      << std::setw(4) << std::setfill('0') << value << std::dec << std::setfill(' ') << std::endl;
+            m_symbols[name] = { type, block, value };
+            std::cout << "  [Symbol] Defined " << std::setw(20) << std::left << name << value << std::endl;
+            resolve();
         }
-        void add(const std::string& name) {
-            add(name, m_context.m_current_address);
-        }
-        bool exists(const std::string& name) const {
+        bool evaluated(const std::string& name) const {
             if (name == "$" || name == "_")
                 return true;
-            return m_symbols.count(name);
+            if (m_symbols.count(name))
+                return !m_symbols.at(name).m_unresolved;
+            return false;
         }
-        uint16_t get_address(const std::string& name) const {
+        uint16_t get_value(const std::string& name) const {
             if (name == "$" || name == "_")
                 return m_context.m_current_address;
             if (m_symbols.count(name)) {
                 Symbol symbol = m_symbols.at(name);
-                uint16_t address = symbol.m_offset;
-                if (symbol.m_block)
+                uint16_t address = symbol.m_value;
+                if (symbol.m_type == Symbol::Type::LABEL && symbol.m_block)
                     address += symbol.m_block->m_start_address;
                 return address;
             }
-                
-            throw std::runtime_error("Undefined symbol: " + name);
+            if (m_context.m_phase == ParsePhase::CodeGeneration) {
+                throw std::runtime_error("Undefined symbol: " + name);
+            }
+            return 0;
         }
         void clear() {
             m_symbols.clear();
-            m_unresolved_symbols.clear();
         }
-        void add_unresolved(const std::string& name, const std::string& expression) {
-            if (exists(name) || m_unresolved_symbols.count(name))
-                throw std::runtime_error("Duplicate symbol definition: " + name);
-            m_unresolved_symbols[name] = expression;
-            std::cout << "  [Symbol] Unresolved " << std::setw(16) << std::left << name << " = " << expression
-                      << std::endl;
+        void add_unresolved(typename Symbol::Type type, const std::string& name, const std::string& expression) {
+            if (m_symbols.count(name)) {
+                if (m_context.m_phase == ParsePhase::SymbolsGathering && m_context.m_pass_count == 1)
+                    throw std::runtime_error("Duplicate symbol definition: " + name);
+                return;
+            }
+            m_symbols[name] = { type, m_context.m_current_block, 0, expression, true };
+            std::cout << "  [Symbol] Unresolved " << std::setw(16) << std::left << name << " = " << expression << std::endl;
+            resolve();
         }
         bool resolve() {
-            auto it = m_unresolved_symbols.begin();
-            while (it != m_unresolved_symbols.end()) {
+            bool still_unresolved = false;
+            auto it = m_symbols.begin();
+            while (it != m_symbols.end()) {
                 uint16_t value;
-                if (StringHelper::is_number(it->second, value)) {
-                    std::cout << "  [Symbol] Resolved " << it->first << " = " << it->second << std::endl;
-                    m_context.m_blocks.update_block_address(it->first, value);
-                    add(it->first, value);
-                    it = m_unresolved_symbols.erase(it);
-                } else {
-                    ++it;
+                bool evaluated = false;
+                if (it->second.m_unresolved) {
+                    if (StringHelper::is_number(it->second.m_expression, value))
+                        evaluated = true;
+                    else {
+                        ExpressionEvaluator evaluator(m_context);
+                        evaluated = evaluator.evaluate(it->second.m_expression, value);
+                    }
+                    if (evaluated) {
+                        std::cout << "  [Symbol] Resolved " << it->first << " = " << value << std::endl;
+                        m_context.m_blocks.update_block_address(it->first, value);
+                        typename Symbols::Symbol::Type type = it->second.m_type;
+                        std::string name = it->first;
+                        it = m_symbols.erase(it);
+                        add(type, name, value);    
+                    } else
+                        still_unresolved = true;
                 }
+                ++it;
             }
-            if (!m_unresolved_symbols.empty()) {
-                for (const auto& pair : m_unresolved_symbols) {
-                    std::cout << "  [Symbol] Still unresolved: " << pair.first << " = " << pair.second << std::endl;
-                }
-            }
-            return m_unresolved_symbols.empty();
+            return !still_unresolved;
         }
 
     private:
         CompilationContext& m_context;
         std::map<std::string, Symbol> m_symbols;
-        std::map<std::string, std::string> m_unresolved_symbols;
     };
     struct CompilationContext {
         CompilationContext() : m_symbols(*this), m_blocks(*this) {}
@@ -233,7 +257,7 @@ public:
         uint16_t m_current_address = 0;
         size_t m_current_line_number = 0;
         ParsePhase m_phase = ParsePhase::CodeGeneration;
-        int pass = 0;
+        int m_pass_count = 0;
         typename CodeBlocks::Block* m_current_block = nullptr;
     };
 
@@ -302,22 +326,12 @@ private:
     };
     class ExpressionEvaluator {
     public:
-        ExpressionEvaluator(const Symbols& symbols, const uint16_t& current_address)
-            : m_symbols(symbols), m_current_address(current_address) {}
+        ExpressionEvaluator(CompilationContext& context) : m_context(context) {}
 
         bool evaluate(const std::string& s, uint16_t& out_value) const {
-            try {
-                auto tokens = tokenize_expression(s);
-                auto rpn = shunting_yard(tokens);
-                out_value = evaluate_rpn(rpn);
-                return true;
-            } catch (const std::exception&) {
-                if (m_symbols.exists(s)) {
-                    out_value = m_symbols.get_value(s, m_current_address);
-                    return true;
-                }
-                return false;
-            }
+            auto tokens = tokenize_expression(s);
+            auto rpn = shunting_yard(tokens);
+            return evaluate_rpn(rpn, out_value);
         }
     private:
         struct ExpressionToken {
@@ -410,38 +424,40 @@ private:
             return postfix;
         }
 
-        uint16_t evaluate_rpn(const std::vector<ExpressionToken>& rpn) const {
+        bool evaluate_rpn(const std::vector<ExpressionToken>& rpn, uint16_t& out_value) const {
             std::vector<uint16_t> val_stack;
             for (const auto& token : rpn) {
                 if (token.type == ExpressionToken::Type::NUMBER) {
                     val_stack.push_back(token.n_val);
                 } else if (token.type == ExpressionToken::Type::SYMBOL) {
-                    val_stack.push_back(m_symbols.get_value(token.s_val, m_current_address));
+                    if (!m_context.m_symbols.evaluated(token.s_val))
+                        return false;
+                    val_stack.push_back(m_context.m_symbols.get_value(token.s_val));
                 } else if (token.type == ExpressionToken::Type::OPERATOR) {
                     if (val_stack.size() < 2)
                         throw std::runtime_error("Invalid expression syntax.");
-                    uint16_t v2 = val_stack.back();
-                    val_stack.pop_back();
                     uint16_t v1 = val_stack.back();
+                    val_stack.pop_back();
+                    uint16_t v2 = val_stack.back();
                     val_stack.pop_back();
                     if (token.s_val == "+")
                         val_stack.push_back(v1 + v2);
                     else if (token.s_val == "-")
-                        val_stack.push_back(v1 - v2);
+                        val_stack.push_back(v2 - v1);
                     else if (token.s_val == "*")
                         val_stack.push_back(v1 * v2);
                     else if (token.s_val == "/") {
-                        if (v2 == 0) throw std::runtime_error("Division by zero in expression.");
-                        val_stack.push_back(v1 / v2);
+                        if (v1 == 0) throw std::runtime_error("Division by zero in expression.");
+                        val_stack.push_back(v2 / v1); // v2 is dividend, v1 is divisor
                     }
                 }
             }
             if (val_stack.size() != 1)
                 throw std::runtime_error("Invalid expression syntax.");
-            return val_stack.back();
+            out_value = val_stack.back();
+            return true;
         }
-        const Symbols& m_symbols;
-        const uint16_t& m_current_address;
+        CompilationContext& m_context;
     };
     class OperandParser {
     public:
@@ -500,13 +516,13 @@ private:
                 inner.erase(inner.find_last_not_of(" \t") + 1);
                 return parse_mem_ptr(inner);
             }
-            if (m_context.m_phase == ParsePhase::SymbolsGathering && !m_context.m_symbols.exists(upper_opperand_string)) {
+            if (m_context.m_phase == ParsePhase::SymbolsGathering && !m_context.m_symbols.evaluated(operand_string)) {
                 operand.type = OperandType::EXPRESSION;
                 operand.str_val = operand_string;
                 return operand;
             }
-            if (m_context.m_symbols.exists(operand_string)) {
-                operand.num_val = m_context.m_symbols.get_address(operand_string);
+            if (m_context.m_symbols.evaluated(operand_string)) {
+                operand.num_val = m_context.m_symbols.get_value(operand_string);
                 operand.type = OperandType::IMMEDIATE;
                 return operand;
             }
@@ -590,10 +606,9 @@ private:
         bool encode_pseudo_instruction(const std::string& mnemonic, const std::vector<Operand>& ops) {
             if (mnemonic == "ORG") {
                 if (ops.size() == 1 && match(ops[0], OperandType::IMMEDIATE)) {
-                    m_context.m_current_address = ops[0].num_val;
-                    typename CodeBlocks::Block *pBlock = m_context.m_blocks.start_block();
-                    if (pBlock && ops[0].type == OperandType::EXPRESSION)
-                        pBlock->m_name = ops[0].str_val;
+                    typename CodeBlocks::Block* block = m_context.m_blocks.start_block(ops[0].str_val);
+                    if (block->m_name.empty())
+                        m_context.m_current_address = ops[0].num_val;
                     return true;
                 } else
                     throw std::runtime_error("Invalid operand for ORG directive");
@@ -1358,7 +1373,7 @@ private:
                 std::string equ_value = line.substr(equ_pos + 5);
                 StringHelper::trim_whitespace(equ_value);
                 if (add_symbol)
-                    m_context.m_symbols.add_unresolved(equ_label, equ_value);
+                    m_context.m_symbols.add_unresolved(Symbols::Symbol::Type::EQU, equ_label, equ_value);
                 return true;
             }
             return false;
@@ -1373,7 +1388,7 @@ private:
                     StringHelper::trim_whitespace(label);
                     line.erase(0, colon_pos + 1);
                     if (add_symbol)
-                        m_context.m_symbols.add(label);
+                        m_context.m_symbols.add(Symbols::Symbol::Type::LABEL, label, m_context.m_current_address);
                     return true;
                 }
             }
