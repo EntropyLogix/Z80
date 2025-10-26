@@ -350,8 +350,30 @@ private:
                     } else
                          throw std::runtime_error("Invalid number in expression: " + expr.substr(i, j - i));
                     i = j - 1;
-                } else if (c == '+' || c == '-' || c == '*' || c == '/') {
-                    int precedence = (c == '+' || c == '-') ? 1 : 2;
+                } else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '|' || c == '^' || c == '<' || c == '>') {
+                    std::string op_str(1, c);
+                    int precedence = 0;
+                    if (c == '<' && i + 1 < expr.length() && expr[i+1] == '<') {
+                        op_str = "<<";
+                        i++;
+                    } else if (c == '>' && i + 1 < expr.length() && expr[i+1] == '>') {
+                        op_str = ">>";
+                        i++;
+                    }
+
+                    if (op_str == "*" || op_str == "/" || op_str == "%")
+                        precedence = 5;
+                    else if (op_str == "+" || op_str == "-")
+                        precedence = 4;
+                    else if (op_str == "<<" || op_str == ">>")
+                        precedence = 3;
+                    else if (op_str == "&")
+                        precedence = 2;
+                    else if (op_str == "^")
+                        precedence = 1;
+                    else if (op_str == "|")
+                        precedence = 0;
+
                     tokens.push_back({ExpressionToken::Type::OPERATOR, std::string(1, c), 0, precedence, true});
                 } else if (c == '(') {
                     tokens.push_back({ExpressionToken::Type::LPAREN, "("});
@@ -430,6 +452,19 @@ private:
                     else if (token.s_val == "/") {
                         if (v1 == 0) throw std::runtime_error("Division by zero in expression.");
                         val_stack.push_back(v2 / v1); // v2 is dividend, v1 is divisor
+                    } else if (token.s_val == "%") {
+                        if (v1 == 0) throw std::runtime_error("Division by zero in expression.");
+                        val_stack.push_back(v2 % v1);
+                    } else if (token.s_val == "&") {
+                        val_stack.push_back(v2 & v1);
+                    } else if (token.s_val == "|") {
+                        val_stack.push_back(v2 | v1);
+                    } else if (token.s_val == "^") {
+                        val_stack.push_back(v2 ^ v1);
+                    } else if (token.s_val == "<<") {
+                        val_stack.push_back(v2 << v1);
+                    } else if (token.s_val == ">>") {
+                        val_stack.push_back(v2 >> v1);
                     }
                 }
             }
