@@ -25,10 +25,10 @@
 void print_usage() {
     std::cerr << "Usage: Z80Asm <input_file> [options]\n"
               << "Options:\n"
-              << "  -o <output_bin_file>   Specify the output binary file path.\n"
-              << "                         Default: <input_file_base>.bin\n"
-              << "  -m <output_map_file>   Specify the output map file path.\n"
-              << "                         Default: <input_file_base>.map\n";
+              << "  --bin <output_bin_file>  Specify the output binary file path.\n"
+              << "  --hex <output_hex_file>  Specify the output Intel HEX file path.\n"
+              << "  --map <output_map_file>  Specify the output map file path.\n"
+              << "If no output options are provided, the result is printed to the screen only.\n";
 }
 
 std::string read_source_file(const std::string& file_path) {
@@ -51,6 +51,44 @@ void write_map_file(const std::string& file_path, const std::map<std::string, in
              << " EQU $" << std::hex << std::uppercase << std::setw(4) << std::setfill('0')
              << static_cast<uint16_t>(symbol.second) << std::endl;
     }
+}
+
+void write_hex_file(const std::string& file_path, const Z80DefaultBus& bus, const std::vector<std::pair<uint16_t, uint16_t>>& blocks) {
+    std::ofstream file(file_path);
+    if (!file) {
+        throw std::runtime_error("Cannot open hex file for writing: " + file_path);
+    }
+
+    const size_t bytes_per_line = 16;
+
+    for (const auto& block : blocks) {
+        uint16_t current_addr = block.first;
+        uint16_t remaining_len = block.second;
+
+        while (remaining_len > 0) {
+            uint8_t line_len = std::min((size_t)remaining_len, bytes_per_line);
+            uint8_t checksum = 0;
+
+            file << ":" << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)line_len;
+            checksum += line_len;
+
+            file << std::setw(4) << std::setfill('0') << current_addr;
+            checksum += (current_addr >> 8) & 0xFF;
+            checksum += current_addr & 0xFF;
+
+            file << "00"; // Record type 00 (Data)
+
+            for (uint8_t i = 0; i < line_len; ++i) {
+                uint8_t byte = bus.peek(current_addr + i);
+                file << std::setw(2) << std::setfill('0') << (int)byte;
+                checksum += byte;
+            }
+            file << std::setw(2) << std::setfill('0') << (int)((-checksum) & 0xFF) << std::endl;
+            current_addr += line_len;
+            remaining_len -= line_len;
+        }
+    }
+    file << ":00000001FF" << std::endl; // End of File record
 }
 
 void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, const std::vector<std::pair<uint16_t, uint16_t>>& blocks) {
@@ -96,21 +134,18 @@ int main(int argc, char* argv[]) {
     }
 
     std::string input_file;
-    std::string output_bin_file;
+    std::string output_bin_file, output_hex_file;
     std::string output_map_file;
 
     input_file = argv[1];
-    size_t dot_pos = input_file.rfind('.');
-    std::string base_name = (dot_pos == std::string::npos) ? input_file : input_file.substr(0, dot_pos);
-
-    output_bin_file = base_name + ".bin";
-    output_map_file = base_name + ".map";
 
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "-o" && i + 1 < argc) {
+        if (arg == "--bin" && i + 1 < argc) {
             output_bin_file = argv[++i];
-        } else if (arg == "-m" && i + 1 < argc) {
+        } else if (arg == "--hex" && i + 1 < argc) {
+            output_hex_file = argv[++i];
+        } else if (arg == "--map" && i + 1 < argc) {
             output_map_file = argv[++i];
         } else {
             std::cerr << "Unknown or incomplete argument: " << arg << std::endl;
@@ -127,7 +162,7 @@ int main(int argc, char* argv[]) {
         std::string source_code = read_source_file(input_file);
         std::cout << "Assembling source code from: " << input_file << std::endl;
 
-        if (assembler.compile(source_code)) {
+        if (assembler.compile(source_code, 0x0000)) {
             std::cout << "\n--- Assembly Successful ---\n" << std::endl;
 
             // Print symbols
@@ -168,11 +203,18 @@ int main(int argc, char* argv[]) {
             }
 
             // Write output files
-            write_bin_file(output_bin_file, bus, blocks);
-            std::cout << "Binary code written to " << output_bin_file << std::endl;
-
-            write_map_file(output_map_file, symbols);
-            std::cout << "Symbols written to " << output_map_file << std::endl;
+            if (!output_bin_file.empty()) {
+                write_bin_file(output_bin_file, bus, blocks);
+                std::cout << "Binary code written to " << output_bin_file << std::endl;
+            }
+            if (!output_hex_file.empty()) {
+                write_hex_file(output_hex_file, bus, blocks);
+                std::cout << "Intel HEX code written to " << output_hex_file << std::endl;
+            }
+            if (!output_map_file.empty()) {
+                write_map_file(output_map_file, symbols);
+                std::cout << "Symbols written to " << output_map_file << std::endl;
+            }
 
         }
     } catch (const std::exception& e) {
