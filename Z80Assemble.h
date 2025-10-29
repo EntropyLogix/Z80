@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Verson: 1.0.4
+// Verson: 1.0.5
 //
 // This file contains the Z80Assembler class,
 // which provides functionality for assembling Z80 assembly instructions
@@ -13,7 +13,6 @@
 //
 // Copyright (c) 2025 Adam Szulc
 // MIT License
-
 #ifndef __Z80ASSEMBLE_H__
 #define __Z80ASSEMBLE_H__
 
@@ -39,41 +38,44 @@
 
 template <typename TMemory> class Z80Assembler {
 public:
-
     Z80Assembler(TMemory* memory) {m_context.m_memory = memory;}
 
-    bool compile(const std::string& source_code, uint16_t default_org = 0x0000) {
+    bool compile(const std::string& source_code, uint16_t start_addr = 0x0000) {
         std::stringstream source_stream(source_code);
         std::vector<std::string> source_lines;
         std::string line;
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
-
-        SymbolsBuildingPolicy phase(m_context);
-        
-        if (!phase.on_begin())
-            return false;
-        bool end_phase = false;
-        m_context.m_current_pass = 1;
-        do {
-            m_context.m_current_address = default_org;
-            m_context.m_current_line_number = 0;
-            LineProcessor line_processor(phase);
-            for (size_t i = 0; i < source_lines.size(); ++i) {
-                m_context.m_current_line_number = i + 1;
-                line_processor.process(source_lines[i]);
-            }
-            if (phase.on_end())
-                end_phase = true;
-            else {
-                ++m_context.m_current_pass;
-                if (!phase.on_next_pass())
-                    return false;
-            }
-        } while (!end_phase);
-        phase.dump_symbols();
+        SymbolsBuilding symbols_building(m_context, 10);
+        CodeGeneration code_generation(m_context, start_addr);
+        std::vector<IAssemblyPolicy*>  m_phases = {&symbols_building, &code_generation};
+        for (auto& phase : m_phases) {
+            if (!phase)
+                continue;
+            phase->on_pass_begin();
+            bool end_phase = false;
+            m_context.m_current_pass = 1;
+            do {
+                m_context.m_current_address = start_addr;
+                m_context.m_current_line_number = 0;
+                LineProcessor line_processor(*phase);
+                for (size_t i = 0; i < source_lines.size(); ++i) {
+                    m_context.m_current_line_number = i + 1;
+                    line_processor.process(source_lines[i]);
+                }
+                if (phase->on_pass_end())
+                    end_phase = true;
+                else {
+                    ++m_context.m_current_pass;
+                    phase->on_next_pass();
+                }
+            } while (!end_phase);
+        }
         return true;
     }
+    std::map<std::string, int32_t> get_symbols() const { return m_context.m_symbols; }
+    std::vector<std::pair<uint16_t, uint16_t>> get_blocks() const { return m_context.m_blocks; }
+
 private:
     class IAssemblyPolicy;
     //Operands
@@ -92,38 +94,46 @@ private:
         Operand parse(const std::string& operand_string) {
             Operand operand;
             operand.str_val = operand_string;
-            std::string upper_opperand_string = operand_string;
-            StringHelper::to_upper(upper_opperand_string);
-            int32_t num_val = 0;
-
             if (is_string_literal(operand_string)) {
                 if (operand_string.length() == 3) {
                     operand.num_val = (uint8_t)(operand_string[1]);
                     operand.type = OperandType::CHAR_LITERAL;
                 } else
                     operand.type = OperandType::STRING_LITERAL;
+                return operand;
             }
-            else if (is_char_literal(operand_string)) {
+            if (is_char_literal(operand_string)) {
                 operand.num_val = (uint16_t)(operand_string[1]);
                 operand.type = OperandType::CHAR_LITERAL;
+                return operand;
             }
-            else if (is_reg8(upper_opperand_string))
+            std::string upper_opperand_string = operand_string;
+            StringHelper::to_upper(upper_opperand_string);
+            if (is_reg8(upper_opperand_string)) {
                 operand.type = OperandType::REG8;
-            else if (is_reg16(upper_opperand_string))
+                return operand;
+            }
+            if (is_reg16(upper_opperand_string)) {
                 operand.type = OperandType::REG16;
-            if (is_condition(upper_opperand_string))
+                return operand;
+            }
+            if (is_condition(upper_opperand_string)) {
                 operand.type = OperandType::CONDITION;
-            else if (m_policy.on_expression(operand_string, num_val)) {
+                return operand;
+            }
+            Expressions expression(m_policy);
+            int32_t num_val = 0;
+            if (expression.evaluate(operand_string, num_val)) {
                 operand.num_val = num_val;
                 operand.type = OperandType::IMMEDIATE;
+                return operand;
             }
-            else if (is_mem_ptr(operand_string)) {
+            if (is_mem_ptr(operand_string)) {
                 std::string inner = operand_string.substr(1, operand_string.length() - 2);
                 inner.erase(0, inner.find_first_not_of(" \t"));
                 inner.erase(inner.find_last_not_of(" \t") + 1);
                 std::string upper_inner = inner;
                 StringHelper::to_upper(upper_inner);
-                // Handle (IX/IY +/- d)
                 size_t plus_pos = upper_inner.find('+');
                 size_t minus_pos = upper_inner.find('-');
                 size_t operator_pos = (plus_pos != std::string::npos) ? plus_pos : minus_pos;
@@ -132,8 +142,9 @@ private:
                     base_reg_str.erase(base_reg_str.find_last_not_of(" \t") + 1);
                     if (base_reg_str == "IX" || base_reg_str == "IY") {
                         std::string offset_str = inner.substr(operator_pos); 
-                        int32_t offset_val;
+                        int32_t offset_val; 
                         if (StringHelper::is_number(offset_str, offset_val)) {
+                            // Handle (IX/IY +/- d)
                             operand.type = OperandType::MEM_INDEXED;
                             operand.base_reg = base_reg_str;
                             operand.offset = (int16_t)(offset_val);
@@ -141,17 +152,23 @@ private:
                         }
                     }
                 }
-                int32_t inner_num_val;
-                if (is_reg16(upper_inner)) { // Handle (REG16)
+                if (is_reg16(upper_inner)) {
+                    // Handle (REG16)
                     operand.type = OperandType::MEM_REG16;
                     operand.str_val = upper_inner;
-                } else if (m_policy.on_expression(inner, inner_num_val)) { // Handle (number) or (LABEL)
+                    return operand;
+                }
+                Expressions expression(m_policy);
+                int32_t inner_num_val = 0;
+                if (expression.evaluate(inner, inner_num_val)) {
+                    // Handle (number) or (LABEL)
                     operand.type = OperandType::MEM_IMMEDIATE;
                     operand.num_val = inner_num_val;
+                    return operand;
                 }
             }
+            m_policy.on_unknown_operand(operand_string);
             return operand;
-            //throw std::runtime_error("Unknown operand or undefined symbol: " + operand_string);
         }
 
     private:
@@ -349,6 +366,8 @@ private:
         uint16_t m_current_address = 0;
         size_t m_current_line_number = 0;
         size_t m_current_pass = 0;
+        std::map<std::string, int32_t> m_symbols;
+        std::vector<std::pair<uint16_t, uint16_t>> m_blocks;
     };
     class IAssemblyPolicy {
     public:
@@ -359,22 +378,19 @@ private:
         virtual ~IAssemblyPolicy() = default;
 
         //Source
-        virtual bool on_begin() = 0;
-        virtual bool on_end() = 0;
-        virtual bool on_next_pass() = 0;
+        virtual void on_pass_begin() {};
+        virtual bool on_pass_end() {return true;};
+        virtual void on_next_pass() {};
         //Lines
-        virtual bool on_source_line(const std::string& line) = 0;
-        virtual bool on_symbol(const std::string symbol, int32_t& out_value) = 0;
-        virtual bool on_comment(const std::string& label) = 0;
-        virtual bool on_label(const std::string& label) = 0;
-        virtual bool on_const(const std::string& label, const std::string& value) = 0;
-        virtual bool on_code_block(const std::string& label) = 0;
-        virtual bool on_expression(const std::string& label, int32_t& out_value) = 0;
+        virtual bool on_symbol(const std::string symbol, int32_t& out_value) {return false;};
+        virtual void on_label(const std::string& label) {};
+        virtual void on_const(const std::string& label, const std::string& value) {};
+        virtual void on_code_block(const std::string& label) {};
+        virtual void on_unknown_operand(const std::string& operand) {}
         //Instructions
-        virtual bool on_instruction(const std::string& mnemonic, const std::vector<Operand>& operands) {return true;};
-        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
-        virtual bool on_relative_jump_out_of_range() = 0;
-        virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
+        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) {return false;};
+        virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) {};
+        virtual void on_assemble(std::vector<uint8_t> bytes) {};
 
         virtual CompilationContext& get_compilation_context() {return m_context;}
     protected:
@@ -388,11 +404,9 @@ private:
             s.erase(0, s.find_first_not_of(whitespace));
             s.erase(s.find_last_not_of(whitespace) + 1);
         }
-
         static void to_upper(std::string& s) {
             std::transform(s.begin(), s.end(), s.begin(), ::toupper);
         }
-
         static bool is_number(const std::string& s, int32_t& out_value) {
             std::string str = s;
             trim_whitespace(str);
@@ -438,57 +452,65 @@ private:
             return result.ec == std::errc() && result.ptr == end;
         }
     };
-
-    class SymbolsBuildingPolicy : public IAssemblyPolicy {
+    class SymbolsBuilding : public IAssemblyPolicy {
     public:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
 
-        SymbolsBuildingPolicy(CompilationContext& context) : IAssemblyPolicy(context){}
-
+        SymbolsBuilding(CompilationContext& context, int max_pass) : IAssemblyPolicy(context), m_max_pass(max_pass) {}
+        virtual ~SymbolsBuilding() = default;
         //Source
-        virtual bool on_begin() override {return true;};
-        virtual bool on_end() override {
+        virtual bool on_pass_end() override {
+            if (!m_undefined_symbols.empty())
+                m_symbols_stable = false;
             if (m_final_pass_scheduled) {
-                if (m_symbols_stable) {
-                    return true; // Final pass was stable, end compilation.
-                } else {
-                    m_final_pass_scheduled = false; // Something changed, restart stabilization.
+                if (m_symbols_stable)
+                    return true;
+                else {
+                    m_final_pass_scheduled = false;
                     return false;
                 }
             }
-            if (m_symbols_stable) {
-                m_final_pass_scheduled = true; // Symbols are stable, schedule one final pass.
-            }
-            return false; // Continue passes.
+            if (m_symbols_stable)
+                m_final_pass_scheduled = true;
+            return false;
         };
-        virtual bool on_next_pass() override {
+        virtual void on_next_pass() override {
+            if (this->m_context.m_current_pass > m_max_pass) {
+                std::string error_msg = "Failed to resolve all symbols after " + std::to_string(m_max_pass) + " passes.";
+                if (m_undefined_symbols.empty()) {
+                    error_msg += " Symbols are defined but their values did not stabilize. Need more passes.";
+                } else {
+                    error_msg += " Undefined symbol(s): ";
+                    bool first = true;
+                    for (const auto& symbol : m_undefined_symbols) {
+                        error_msg += (first ? "" : ", ") + symbol;
+                        first = false;
+                    }
+                    error_msg += ". This may be due to circular dependencies or not enough passes.";
+                }
+                throw std::runtime_error(error_msg);
+            }
             m_symbols_stable = true;
-            return true;
+            m_undefined_symbols.clear();
         }
-        //Lines
         virtual bool on_symbol(const std::string symbol, int32_t& out_value) override {
-            auto it = m_symbols.find(symbol);
-            if (it != m_symbols.end()) {
+            auto it = this->m_context.m_symbols.find(symbol);
+            if (it != this->m_context.m_symbols.end()) {
                 out_value = it->second;
                 return true;
             }
+            m_undefined_symbols.insert(symbol);
             return false;
         }
-        virtual bool on_source_line(const std::string& line) override {return true;};
-        virtual bool on_comment(const std::string& label) override {return true;};
-        virtual bool on_label(const std::string& label) override {
-            update_symbol(label, this->m_context.m_current_address);
-            return true;
-        };
-        virtual bool on_const(const std::string& label, const std::string& value) {
+        virtual void on_label(const std::string& label) override { update_symbol(label, this->m_context.m_current_address); };
+        virtual void on_const(const std::string& label, const std::string& value) {
             Expressions expression(*this);
             int32_t num_val;
             if (expression.evaluate(value, num_val))
                 update_symbol(label, num_val);
-            return true;
         };
-        virtual bool on_code_block(const std::string& label) override {
+        virtual void on_code_block(const std::string& label) override {
             int32_t num_val;
             if (StringHelper::is_number(label, num_val))
                 this->m_context.m_current_address = num_val;
@@ -497,15 +519,7 @@ private:
                 if (expression.evaluate(label, num_val))
                     this->m_context.m_current_address = num_val;
             }
-            return true;
         };
-        virtual bool on_expression(const std::string& label, int32_t& out_value) override {
-            Expressions expression(*this);
-            return expression.evaluate(label, out_value);
-        }
-        //Instructions
-        virtual bool on_instruction(const std::string& mnemonic, const std::vector<Operand>& operands) override {return true;}
-        virtual bool on_relative_jump_out_of_range() override {return true;}
         virtual bool on_operand_not_matching(const Operand& operand, typename OperandParser::OperandType expected) override {
             if (operand.type == OperandType::UNKNOWN)
                 return expected == OperandType::IMMEDIATE || expected == OperandType::MEM_IMMEDIATE;
@@ -517,9 +531,9 @@ private:
         }
     private:
         void update_symbol(const std::string& name, int32_t value) {
-            auto it = m_symbols.find(name);
-            if (it == m_symbols.end()) {
-                m_symbols.insert({name, value});
+            auto it = this->m_context.m_symbols.find(name);
+            if (it == this->m_context.m_symbols.end()) {
+                this->m_context.m_symbols.insert({name, value});
                 m_symbols_stable = false;
             } else {
                 if (this->m_context.m_current_pass == 1)
@@ -532,30 +546,63 @@ private:
                 }
             }
         }
-
-        std::map<std::string, int32_t> m_symbols;
         bool m_symbols_stable = false;
         bool m_final_pass_scheduled = false;
-
+        std::set<std::string> m_undefined_symbols;
+        int m_max_pass = 0;
+    };
+    class CodeGeneration : public IAssemblyPolicy {
     public:
-        void dump_symbols() const {
-            std::cout << "--- Resolved Symbols ---" << std::endl;
-            for (const auto& pair : m_symbols) {
-                std::cout << std::left << std::setw(20) << pair.first << "= "
-                          << std::right << std::setw(10) << std::dec << pair.second
-                          << " (0x" << std::hex << std::uppercase << std::setw(8) << std::setfill('0') << pair.second << ")" << std::setfill(' ')
-                          << std::endl;
-            }
-            std::cout << "------------------------" << std::endl;
+        using Operand = typename OperandParser::Operand;
+        using OperandType = typename OperandParser::OperandType;
+        
+        CodeGeneration(CompilationContext& context, uint16_t start_addr) : IAssemblyPolicy(context), m_start_addr(start_addr) {}
+        virtual ~CodeGeneration() = default;
+
+        virtual void on_pass_begin() override {
+            this->m_context.m_blocks.push_back({m_start_addr, 0});
         }
+        virtual bool on_pass_end() override {
+            this->m_context.m_blocks.erase(
+            std::remove_if(this->m_context.m_blocks.begin(), this->m_context.m_blocks.end(), [](const auto& block) { return block.second == 0; }), this->m_context.m_blocks.end());
+            return true;
+        }
+        virtual bool on_symbol(const std::string symbol, int32_t& out_value) override {
+            auto it = this->m_context.m_symbols.find(symbol);
+            if (it == this->m_context.m_symbols.end())
+                throw std::runtime_error("Undefined symbol: " + symbol);
+            out_value = it->second;
+            return true;
+        }
+        virtual void on_code_block(const std::string& label) override {
+            int32_t addr;
+            Expressions expression(*this);
+            if (expression.evaluate(label, addr)) {
+                this->m_context.m_current_address = addr;
+                this->m_context.m_blocks.push_back({addr, 0});
+            }
+            else
+                throw std::runtime_error("Invalid code block label: " + label);
+        }
+        virtual void on_unknown_operand(const std::string& operand) { throw std::runtime_error("Unknown operand or undefined symbol: " + operand); }
+        virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
+            throw std::runtime_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
+        }
+        virtual void on_assemble(std::vector<uint8_t> bytes) override {
+            for (auto& byte : bytes)
+                this->m_context.m_memory->poke(this->m_context.m_current_address++, byte);
+            if (this->m_context.m_blocks.empty())
+                throw std::runtime_error("Invalid code block.");
+            this->m_context.m_blocks.back().second += bytes.size();
+        }
+    private:
+        uint16_t m_start_addr;
     };
     class InstructionEncoder {
     public:
         InstructionEncoder(IAssemblyPolicy& policy) : m_policy(policy) {}
 
         bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
-            if (!m_policy.on_instruction(mnemonic, operands))
-                return true;
             if (encode_data_block(mnemonic, operands))
                 return true;
             switch (operands.size()) {
@@ -610,9 +657,8 @@ private:
                         assemble({(uint8_t)(op.num_val)});
                     } else if (match_string(op)) {
                         std::string str_content = op.str_val.substr(1, op.str_val.length() - 2);
-                        for (char c : str_content) {
+                        for (char c : str_content)
                             assemble({(uint8_t)(c)});
-                        }
                     } else
                         throw std::runtime_error("Unsupported operand for DB: " + op.str_val);
                 }
@@ -862,7 +908,7 @@ private:
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (m_policy.get_compilation_context().m_current_address + instruction_size);
                 if (offset < -128 || offset > 127)
-                    m_policy.on_relative_jump_out_of_range();
+                    m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x18, (uint8_t)(offset)});
                 return true;
             }
@@ -879,7 +925,7 @@ private:
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (m_policy.get_compilation_context().m_current_address + instruction_size);
                 if (offset < -128 || offset > 127)
-                    m_policy.on_relative_jump_out_of_range();
+                    m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x10, (uint8_t)(offset)});
                 return true;
             }
@@ -1189,7 +1235,7 @@ private:
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.get_compilation_context().m_current_address + instruction_size);
                     if (offset < -128 || offset > 127)
-                        m_policy.on_relative_jump_out_of_range();
+                        m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
                     assemble({relative_jump_condition_map.at(op1.str_val), (uint8_t)(offset)});
                     return true;
                 }
@@ -1279,8 +1325,6 @@ private:
     
         bool process(const std::string& source_line) {
             std::string line = source_line;
-            if (!m_policy.on_source_line(line))
-                return true;
             process_comments(line);
             if (process_directives(line))
                 return true;
@@ -1296,7 +1340,7 @@ private:
             if (comment_pos != std::string::npos) {
                 std::string comment = line.substr(comment_pos + 1);
                 line.erase(comment_pos);
-                return m_policy.on_comment(comment);
+                return true;
             }
             return false;
         }
@@ -1309,13 +1353,15 @@ private:
                 StringHelper::trim_whitespace(equ_label);
                 std::string equ_value = line.substr(equ_pos + 5);
                 StringHelper::trim_whitespace(equ_value);
-                return m_policy.on_const(equ_label, equ_value);
+                m_policy.on_const(equ_label, equ_value);
+                return true;
             }
             size_t org_pos = line_upper.find("ORG ");
             if (org_pos != std::string::npos && line_upper.substr(0, org_pos).find_first_not_of(" \t") == std::string::npos) {
                 std::string org_value_str = line.substr(org_pos + 4);
                 StringHelper::trim_whitespace(org_value_str);
-                return m_policy.on_code_block(org_value_str);
+                m_policy.on_code_block(org_value_str);
+                return true;
             }
             return false;
         }
