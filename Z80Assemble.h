@@ -598,11 +598,40 @@ private:
     private:
         uint16_t m_start_addr;
     };
+    class Keywords {
+    public:
+        static bool is_mnemonic(const std::string& s) {
+            std::string upper_s = s;
+            StringHelper::to_upper(upper_s);
+            return s_mnemonics.count(upper_s);
+        }
+        static bool is_register(const std::string& s) {
+            std::string upper_s = s;
+            StringHelper::to_upper(upper_s);
+            return s_registers.count(upper_s);
+        }
+        static bool is_reserved(const std::string& s) {
+            return is_mnemonic(s) || is_register(s);
+        }
+    private:
+        inline static const std::set<std::string> s_mnemonics = {
+            "ADC", "ADD", "AND", "BIT", "CALL", "CCF", "CP", "CPD", "CPDR", "CPI", "CPIR", "CPL", "DAA",
+            "DB", "DEFB", "DEC", "DEFS", "DEFW", "DI", "DJNZ", "DW", "DS", "EI", "EX", "EXX", "HALT",
+            "IM", "IN", "INC", "IND", "INDR", "INI", "INIR", "JP", "JR", "LD", "LDD", "LDDR", "LDI",
+            "LDIR", "NEG", "NOP", "OR", "OTDR", "OTIR", "OUT", "OUTD", "OUTI", "POP", "PUSH", "RES",
+            "RET", "RETI", "RETN", "RL", "RLA", "RLC", "RLCA", "RLD", "RR", "RRA", "RRC", "RRCA", "RRD",
+            "RST", "SBC", "SCF", "SET", "SLA", "SLI", "SLL", "SRA", "SRL", "SUB", "XOR", "EQU", "ORG"
+        };
+        inline static const std::set<std::string> s_registers = {"B", "C", "D", "E", "H", "L", "A", "I", "R", "IXH", "IXL", "IYH", "IYL", "BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
+    };
     class InstructionEncoder {
     public:
         InstructionEncoder(IAssemblyPolicy& policy) : m_policy(policy) {}
 
         bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
+            if (!Keywords::is_mnemonic(mnemonic)) {
+                throw std::runtime_error("Unknown mnemonic: " + mnemonic);
+            }
             if (encode_data_block(mnemonic, operands))
                 return true;
             switch (operands.size()) {
@@ -1353,6 +1382,8 @@ private:
                 StringHelper::trim_whitespace(equ_label);
                 std::string equ_value = line.substr(equ_pos + 5);
                 StringHelper::trim_whitespace(equ_value);
+                if (Keywords::is_reserved(equ_label))
+                    throw std::runtime_error("Label name is a reserved keyword: " + equ_label);
                 m_policy.on_const(equ_label, equ_value);
                 return true;
             }
@@ -1377,7 +1408,22 @@ private:
                     return true;
                 }
             }
-            return false;
+            std::string trimmed_line = line;
+            StringHelper::trim_whitespace(trimmed_line);
+            if (trimmed_line.empty() || !isalpha(trimmed_line[0]))
+                return false;
+            size_t first_space = trimmed_line.find_first_of(" \t");
+            std::string potential_label = (first_space == std::string::npos) ? trimmed_line : trimmed_line.substr(0, first_space);
+            if (Keywords::is_mnemonic(potential_label))
+                return false;
+            if (Keywords::is_register(potential_label))
+                throw std::runtime_error("Label name cannot be a reserved keyword: " + potential_label);
+            m_policy.on_label(potential_label);
+            if (first_space == std::string::npos)
+                line.clear();
+            else
+                line = line.substr(line.find(potential_label) + potential_label.length());
+            return true;
         }
         bool process_instruction(std::string& line) {
             StringHelper::trim_whitespace(line);

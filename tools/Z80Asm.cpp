@@ -5,149 +5,128 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Asm.cpp
-// Verson: 1.0.4
+// Verson: 1.0.5
 //
 // This file contains a command-line utility for assembling Z80 code.
 // It serves as an example of how to use the Z80Assembler class.
 //
 // Copyright (c) 2025 Adam Szulc
 // MIT License
-
 #include "Z80Assemble.h"
 #include "Z80Analyze.h"
 #include <cstdint>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <string>
+#include <vector>
 
-int main() {
+void print_usage() {
+    std::cerr << "Usage: Z80Asm <input_file> [options]\n"
+              << "Options:\n"
+              << "  -o <output_bin_file>   Specify the output binary file path.\n"
+              << "                         Default: <input_file_base>.bin\n"
+              << "  -m <output_map_file>   Specify the output map file path.\n"
+              << "                         Default: <input_file_base>.map\n";
+}
+
+std::string read_source_file(const std::string& file_path) {
+    std::ifstream file(file_path);
+    if (!file) {
+        throw std::runtime_error("Cannot open source file: " + file_path);
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+void write_map_file(const std::string& file_path, const std::map<std::string, int32_t>& symbols) {
+    std::ofstream file(file_path);
+    if (!file) {
+        throw std::runtime_error("Cannot open map file for writing: " + file_path);
+    }
+    for (const auto& symbol : symbols) {
+        file << std::setw(20) << std::left << std::setfill(' ') << symbol.first
+             << " EQU $" << std::hex << std::uppercase << std::setw(4) << std::setfill('0')
+             << static_cast<uint16_t>(symbol.second) << std::endl;
+    }
+}
+
+void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, const std::vector<std::pair<uint16_t, uint16_t>>& blocks) {
+    if (blocks.empty()) {
+        return;
+    }
+
+    // Find the overall memory range
+    uint16_t min_addr = blocks[0].first;
+    uint16_t max_addr = blocks[0].first + blocks[0].second -1;
+
+    for (const auto& block : blocks) {
+        if (block.first < min_addr) {
+            min_addr = block.first;
+        }
+        uint16_t block_end_addr = block.first + block.second -1;
+        if (block_end_addr > max_addr) {
+            max_addr = block_end_addr;
+        }
+    }
+
+    size_t total_size = max_addr - min_addr + 1;
+    std::vector<uint8_t> image(total_size, 0x00); // Fill with 0x00 by default
+
+    // Copy the data from each block into the image
+    for (const auto& block : blocks) {
+        for (uint16_t i = 0; i < block.second; ++i) {
+            image[block.first - min_addr + i] = bus.peek(block.first + i);
+        }
+    }
+
+    std::ofstream file(file_path, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Cannot open binary file for writing: " + file_path);
+    }
+    file.write(reinterpret_cast<const char*>(image.data()), image.size());
+}
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        print_usage();
+        return 1;
+    }
+
+    std::string input_file;
+    std::string output_bin_file;
+    std::string output_map_file;
+
+    input_file = argv[1];
+    size_t dot_pos = input_file.rfind('.');
+    std::string base_name = (dot_pos == std::string::npos) ? input_file : input_file.substr(0, dot_pos);
+
+    output_bin_file = base_name + ".bin";
+    output_map_file = base_name + ".map";
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-o" && i + 1 < argc) {
+            output_bin_file = argv[++i];
+        } else if (arg == "-m" && i + 1 < argc) {
+            output_map_file = argv[++i];
+        } else {
+            std::cerr << "Unknown or incomplete argument: " << arg << std::endl;
+            print_usage();
+            return 1;
+        }
+    }
+
     Z80<> cpu;
     Z80DefaultBus bus;
     Z80Assembler<Z80DefaultBus> assembler(&bus);
 
-
-    std::string source_code_complex_resolve = R"(
-; This example demonstrates forward reference resolution,
-; where symbols like STACK_TOP and COUNT are used before they are defined.
-; The assembler must perform multiple passes to resolve these.
-                ORG 0x9000
-
-STACK_SIZE      EQU 256
-STACK_BASE      EQU STACK_TOP - STACK_SIZE
-
-START:
-        DI                      ; F3
-        LD SP, STACK_TOP        ; 31 00 91
-        LD A, 10101010b         ; 3E AA
-        LD A, 2*8+1             ; 3E 11
-        DS COUNT                ; DS 100 -> 100 bytes of 00
-
-; --- Stack definition ---
-        DS 10                   ; 10 bytes of 00
-        ORG STACK_BASE
-        DS STACK_SIZE, 0xFF      ; 256 bytes of FF
-STACK_TOP:                      
-COUNT           EQU 100
-    )";
-
-    std::string source_code_instructions = R"(
-; Z80 Assembler Test Suite
-; This code demonstrates various features of the Z80 assembler.
-
-        ORG 0x8010
-; --- Start of the program ---
-START:
-        DI                      ; 0xF3
-        LD SP, 0xFFFF           ; 0x31, 0xFF, 0xFF
-        LD HL, MSG_HELLO        ; 0x21, 0x02, 0x80
-        LD A, VALUE1 * VALUE2   ; 0x3E, 20 (10 * 2)
-        LD B, 'Z'               ; 0x06, 'Z'
-
-; --- Control Flow ---
-        CALL SUBROUTINE         ; 0xCD, 0x30, 0x80
-        JP MAIN_LOOP            ; 0xC3, 0x1A, 0x80
-
-; --- Constants and Data ---
-VALUE1          EQU 10
-VALUE2          EQU 2
-MSG_HELLO:      ; Should be at 0x8010 after the JP instruction
-        DB "Hello, Z80!", 0
-
-; --- Data Block ---
-        ORG 0x8010
-DATA_BLOCK:
-        DB 0xDE, 0xAD, 0xBE, 0xEF ; 0xDE, 0xAD, 0xBE, 0xEF
-        DW 0x1234, 0x5678       ; 0x34, 0x12, 0x78, 0x56
-        DS 4, 0xAA              ; 0xAA, 0xAA, 0xAA, 0xAA
-
-; --- Main Program Loop ---
-MAIN_LOOP:      ; 0x801A
-        LD A, (DATA_BLOCK)      ; 0x3A, 0x10, 0x80
-        INC A                   ; 0x3C
-        DEC B                   ; 0x05
-        JR NZ, MAIN_LOOP        ; 0x20, 0xFB (-5)
-        HALT                    ; 0x76
-
-; --- Subroutine Example ---
-SUBROUTINE:     ; 0x8030
-        PUSH AF                 ; 0xF5
-        PUSH HL                 ; 0xE5
-        LD A, 0                 ; 3E 00
-LOOP:
-        ADD HL, DE              ; 0x19
-        DJNZ LOOP               ; 0x10, 0xFC (-4)
-        POP HL                  ; 0xE1
-        POP AF                  ; 0xF1
-        RET                     ; 0xC9
-
-; --- Indexed Addressing (IX) ---
-        ORG 0x8040
-IX_TEST:
-        LD IX, 0x9000           ; 0xDD, 0x21, 0x00, 0x90
-        LD (IX+5), 123          ; 0xDD, 0x36, 0x05, 123
-        LD B, (IX+5)            ; 0xDD, 0x46, 0x05
-        INC (IX-10)             ; 0xDD, 0x34, 0xF6
-
-; --- Indexed Addressing (IY) ---
-        ORG 0x8050
-IY_TEST:
-        LD IY, 0xA000           ; 0xFD, 0x21, 0x00, 0xA0
-        LD A, (IY+0)            ; 0xFD, 0x7E, 0x00
-        SET 7, (IY+1)           ; 0xFD, 0xCB, 0x01, 0xFE
-        RES 0, (IY+2)           ; 0xFD, 0xCB, 0x02, 0x86
-
-; --- ED-prefixed instructions ---
-        ORG 0x8060
-ED_TEST:
-        IM 1                    ; 0xED, 0x56
-        LD I, A                 ; 0xED, 0x47
-        LD R, A                 ; 0xED, 0x4F
-        LD A, I                 ; 0xED, 0x57
-        LD A, R                 ; 0xED, 0x5F
-        LDI                     ; 0xED, 0xA0
-        CPI                     ; 0xED, 0xA1
-        INI                     ; 0xED, 0xA2
-        OUTI                    ; 0xED, 0xA3
-        NEG                     ; 0xED, 0x44
-
-; --- CB-prefixed instructions ---
-        ORG 0x8070
-CB_TEST:
-        RLC B                   ; 0xCB, 0x00
-        RRC C                   ; 0xCB, 0x09
-        RL D                    ; 0xCB, 0x12
-        RR E                    ; 0xCB, 0x1B
-        SLA H                   ; 0xCB, 0x24
-        SRA L                   ; 0xCB, 0x2D
-        SLL A                   ; 0xCB, 0x37 (undocumented)
-        SRL (HL)                ; 0xCB, 0x3E
-        BIT 7, A                ; 0xCB, 0x7F
-        SET 0, B                ; 0xCB, 0xC0
-        RES 4, C                ; 0xCB, 0xA1
-    )";
     try {
-        std::cout << "Assembling source code:" << std::endl;
-        std::cout << source_code_complex_resolve << std::endl;
-        if (assembler.compile(source_code_complex_resolve, 0x8000)) {
+        std::string source_code = read_source_file(input_file);
+        std::cout << "Assembling source code from: " << input_file << std::endl;
+
+        if (assembler.compile(source_code)) {
             std::cout << "\n--- Assembly Successful ---\n" << std::endl;
 
             // Print symbols
@@ -155,12 +134,9 @@ CB_TEST:
             std::cout << "--- Calculated Symbols ---" << std::endl;
             for (const auto& symbol : symbols) {
                 std::stringstream hex_val;
-                hex_val << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0')
-                        << static_cast<uint16_t>(symbol.second);
+                hex_val << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<uint16_t>(symbol.second);
 
-                std::cout << std::setw(20) << std::left << std::setfill(' ') << symbol.first
-                          << " = " << hex_val.str()
-                          << " (" << std::dec << symbol.second << ")" << std::endl;
+                std::cout << std::setw(20) << std::left << std::setfill(' ') << symbol.first << " = " << hex_val.str() << " (" << std::dec << symbol.second << ")" << std::endl;
             }
             std::cout << std::endl;
 
@@ -173,9 +149,7 @@ CB_TEST:
                 uint16_t start_addr = block.first;
                 uint16_t len = block.second;
 
-                std::cout << "--- Block #" << i 
-                          << ": Address=0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << start_addr
-                          << ", Size=" << std::dec << len << " bytes ---\n";
+                std::cout << "--- Block #" << i << ": Address=0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << start_addr << ", Size=" << std::dec << len << " bytes ---\n";
 
                 if (len > 0) {
                     uint16_t dump_addr = start_addr;
@@ -191,6 +165,14 @@ CB_TEST:
                 }
                 std::cout << std::endl;
             }
+
+            // Write output files
+            write_bin_file(output_bin_file, bus, blocks);
+            std::cout << "Binary code written to " << output_bin_file << std::endl;
+
+            write_map_file(output_map_file, symbols);
+            std::cout << "Symbols written to " << output_map_file << std::endl;
+
         }
     } catch (const std::exception& e) {
         std::cerr << "Assembly error: " << e.what() << std::endl;
