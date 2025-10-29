@@ -5,14 +5,13 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.0.4
+// Verson: 1.0.5
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
 //
 // Copyright (c) 2025 Adam Szulc
 // MIT License
-
 #ifndef __Z80ANALYZE_H__
 #define __Z80ANALYZE_H__
 
@@ -130,10 +129,12 @@ public:
 
         // Check for a label at the current address to print it on a separate line.
         std::string label_prefix;
-        if (m_labels) {
-            std::string labels_str = m_labels->get_labels_str(initial_address);
-            if (!labels_str.empty()) {
-                label_prefix = labels_str + ":\n";
+        if constexpr (!std::is_same_v<TLabels, void>) {
+            if (m_labels) {
+                std::string labels_str = m_labels->get_labels_str(initial_address);
+                if (!labels_str.empty()) {
+                    label_prefix = labels_str + ":\n";
+                }
             }
         }
         parse_instruction(address);
@@ -1771,10 +1772,12 @@ private:
     }
 
     std::string format_address_label(uint16_t address, int width = -1, bool hex = true) {
-        if (m_labels) {
-            std::string labels_str = m_labels->get_labels_str(address);
-            if (!labels_str.empty()) {
-                return labels_str;
+        if constexpr (!std::is_same_v<TLabels, void>) {
+            if (m_labels) {
+                std::string labels_str = m_labels->get_labels_str(address);
+                if (!labels_str.empty()) {
+                    return labels_str;
+                }
             }
         }
         return hex ? format_hex(address, width) : format_dec(address);

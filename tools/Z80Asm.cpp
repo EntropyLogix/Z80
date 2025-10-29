@@ -29,7 +29,7 @@ int main() {
 ; This example demonstrates forward reference resolution,
 ; where symbols like STACK_TOP and COUNT are used before they are defined.
 ; The assembler must perform multiple passes to resolve these.
-        ORG 0x0000
+                ORG 0x9000
 
 STACK_SIZE      EQU 256
 STACK_BASE      EQU STACK_TOP - STACK_SIZE
@@ -44,7 +44,7 @@ START:
 ; --- Stack definition ---
         DS 10                   ; 10 bytes of 00
         ORG STACK_BASE
-        DS STACK_SIZE, 0xFF     ; DS 256, 0xFF -> this will overwrite START code
+        DS STACK_SIZE, 0xFF      ; 256 bytes of FF
 STACK_TOP:                      
 COUNT           EQU 100
     )";
@@ -147,7 +147,51 @@ CB_TEST:
     try {
         std::cout << "Assembling source code:" << std::endl;
         std::cout << source_code_complex_resolve << std::endl;
-        assembler.compile(source_code_complex_resolve, 0x8000);        
+        if (assembler.compile(source_code_complex_resolve, 0x8000)) {
+            std::cout << "\n--- Assembly Successful ---\n" << std::endl;
+
+            // Print symbols
+            auto symbols = assembler.get_symbols();
+            std::cout << "--- Calculated Symbols ---" << std::endl;
+            for (const auto& symbol : symbols) {
+                std::stringstream hex_val;
+                hex_val << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0')
+                        << static_cast<uint16_t>(symbol.second);
+
+                std::cout << std::setw(20) << std::left << std::setfill(' ') << symbol.first
+                          << " = " << hex_val.str()
+                          << " (" << std::dec << symbol.second << ")" << std::endl;
+            }
+            std::cout << std::endl;
+
+            // Print memory map of code blocks
+            Z80Analyzer<Z80DefaultBus, Z80<>, void> analyzer(&bus, &cpu, nullptr);
+            auto blocks = assembler.get_blocks();
+            std::cout << "--- Code Blocks ---" << std::endl;
+            for (size_t i = 0; i < blocks.size(); ++i) {
+                const auto& block = blocks[i];
+                uint16_t start_addr = block.first;
+                uint16_t len = block.second;
+
+                std::cout << "--- Block #" << i 
+                          << ": Address=0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << start_addr
+                          << ", Size=" << std::dec << len << " bytes ---\n";
+
+                if (len > 0) {
+                    uint16_t dump_addr = start_addr;
+                    auto dump = analyzer.dump_memory(dump_addr, (len + 15) / 16, 16);
+                    for (const auto& line : dump) {
+                        std::cout << line << std::endl;
+                    }
+                    std::cout << "\n--- Disassembly for Block #" << i << " ---\n";
+                    uint16_t disasm_addr = start_addr;
+                    while (disasm_addr < start_addr + len) {
+                        std::cout << analyzer.disassemble(disasm_addr, "%a: %-12b %-15m") << std::endl;
+                    }
+                }
+                std::cout << std::endl;
+            }
+        }
     } catch (const std::exception& e) {
         std::cerr << "Assembly error: " << e.what() << std::endl;
     }
