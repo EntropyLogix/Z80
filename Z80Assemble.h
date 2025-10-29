@@ -121,13 +121,6 @@ private:
                 operand.type = OperandType::CONDITION;
                 return operand;
             }
-            Expressions expression(m_policy);
-            int32_t num_val = 0;
-            if (expression.evaluate(operand_string, num_val)) {
-                operand.num_val = num_val;
-                operand.type = OperandType::IMMEDIATE;
-                return operand;
-            }
             if (is_mem_ptr(operand_string)) {
                 std::string inner = operand_string.substr(1, operand_string.length() - 2);
                 inner.erase(0, inner.find_first_not_of(" \t"));
@@ -166,6 +159,13 @@ private:
                     operand.num_val = inner_num_val;
                     return operand;
                 }
+            }
+            Expressions expression(m_policy);
+            int32_t num_val = 0;
+            if (expression.evaluate(operand_string, num_val)) {
+                operand.num_val = num_val;
+                operand.type = OperandType::IMMEDIATE;
+                return operand;
             }
             m_policy.on_unknown_operand(operand_string);
             return operand;
