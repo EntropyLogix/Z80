@@ -12,6 +12,7 @@
 //
 // Copyright (c) 2025 Adam Szulc
 // MIT License
+
 #ifndef __Z80ANALYZE_H__
 #define __Z80ANALYZE_H__
 

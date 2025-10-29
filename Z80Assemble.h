@@ -13,6 +13,7 @@
 //
 // Copyright (c) 2025 Adam Szulc
 // MIT License
+
 #ifndef __Z80ASSEMBLE_H__
 #define __Z80ASSEMBLE_H__
 
