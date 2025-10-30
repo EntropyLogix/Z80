@@ -173,22 +173,22 @@ private:
         }
 
     private:
-        inline bool is_reg8(const std::string& s) const { return get_reg8_names().count(s);}
-        inline bool is_reg16(const std::string& s) const { return get_reg16_names().count(s); }
+        inline bool is_reg8(const std::string& s) const { return reg8_names().count(s);}
+        inline bool is_reg16(const std::string& s) const { return reg16_names().count(s); }
         inline bool is_mem_ptr(const std::string& s) const { return !s.empty() && s.front() == '(' && s.back() == ')'; }
         inline bool is_char_literal(const std::string& s) const { return s.length() == 3 && s.front() == '\'' && s.back() == '\''; }
         inline bool is_string_literal(const std::string& s) const { return s.length() > 1 && s.front() == '"' && s.back() == '"'; }
-        inline bool is_condition(const std::string& s) const { return get_condition_names().count(s); }
+        inline bool is_condition(const std::string& s) const { return condition_names().count(s); }
 
-        static const std::set<std::string>& get_reg8_names() {
+        static const std::set<std::string>& reg8_names() {
             static const std::set<std::string> s_reg8_names = {"B", "C", "D", "E", "H", "L", "(HL)", "A", "I", "R", "IXH", "IXL", "IYH", "IYL"};
             return s_reg8_names;
         }
-        static const std::set<std::string>& get_reg16_names() {
+        static const std::set<std::string>& reg16_names() {
             static const std::set<std::string> s_reg16_names = {"BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
             return s_reg16_names;
         }
-        static const std::set<std::string>& get_condition_names() {
+        static const std::set<std::string>& condition_names() {
             static const std::set<std::string> s_condition_names = {"NZ", "Z", "NC", "C", "PO", "PE", "P", "M"};
             return s_condition_names;
         }
@@ -613,12 +613,12 @@ private:
         static bool is_mnemonic(const std::string& s) {
             std::string upper_s = s;
             StringHelper::to_upper(upper_s);
-            return get_mnemonics().count(upper_s);
+            return mnemonics().count(upper_s);
         }
         static bool is_register(const std::string& s) {
             std::string upper_s = s;
             StringHelper::to_upper(upper_s);
-            return get_registers().count(upper_s);
+            return registers().count(upper_s);
         }
         static bool is_reserved(const std::string& s) {
             return is_mnemonic(s) || is_register(s);
@@ -635,7 +635,7 @@ private:
             return true;
         }
     private:
-        static const std::set<std::string>& get_mnemonics() {
+        static const std::set<std::string>& mnemonics() {
             static const std::set<std::string> mnemonics = {
                 "ADC", "ADD", "AND", "BIT", "CALL", "CCF", "CP", "CPD", "CPDR", "CPI", "CPIR", "CPL", "DAA",
                 "DB", "DEFB", "DEC", "DEFS", "DEFW", "DI", "DJNZ", "DW", "DS", "EI", "EX", "EXX", "HALT",
@@ -646,7 +646,7 @@ private:
             };
             return mnemonics;
         }
-        static const std::set<std::string>& get_registers() {
+        static const std::set<std::string>& registers() {
             static const std::set<std::string> registers = {"B", "C", "D", "E", "H", "L", "A", "I", "R", "IXH", "IXL", "IYH", "IYL", "BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
             return registers;
         }
@@ -672,12 +672,27 @@ private:
             return false;
         }
     private:
-        inline static const std::map<std::string, uint8_t> reg8_map = { {"B", 0},   {"C", 1},   {"D", 2},    {"E", 3}, {"H", 4},   {"L", 5},   {"(HL)", 6}, {"A", 7}, {"IXH", 4}, {"IXL", 5}, {"IYH", 4},  {"IYL", 5} };
-        inline static const std::map<std::string, uint8_t> reg16_map = { {"BC", 0}, {"DE", 1}, {"HL", 2}, {"SP", 3} };
-        inline static const std::map<std::string, uint8_t> reg16_af_map = { {"BC", 0}, {"DE", 1}, {"HL", 2}, {"AF", 3} };
-        inline static const std::map<std::string, uint8_t> condition_map = { {"NZ", 0}, {"Z", 1},  {"NC", 2}, {"C", 3}, {"PO", 4}, {"PE", 5}, {"P", 6},  {"M", 7}};
-        inline static const std::map<std::string, uint8_t> relative_jump_condition_map = { {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}};
-
+        static const std::map<std::string, uint8_t>& reg8_map() {
+            static const std::map<std::string, uint8_t> map = { {"B", 0},   {"C", 1},   {"D", 2},    {"E", 3}, {"H", 4},   {"L", 5},   {"(HL)", 6}, {"A", 7}, {"IXH", 4}, {"IXL", 5}, {"IYH", 4},  {"IYL", 5} };
+            return map;
+        }
+        static const std::map<std::string, uint8_t>& reg16_map() {
+            static const std::map<std::string, uint8_t> map = { {"BC", 0}, {"DE", 1}, {"HL", 2}, {"SP", 3} };
+            return map;
+        }
+        static const std::map<std::string, uint8_t>& reg16_af_map() {
+            static const std::map<std::string, uint8_t> map = { {"BC", 0}, {"DE", 1}, {"HL", 2}, {"AF", 3} };
+            return map;
+        }
+        static const std::map<std::string, uint8_t>& condition_map() {
+            static const std::map<std::string, uint8_t> map = { {"NZ", 0}, {"Z", 1},  {"NC", 2}, {"C", 3}, {"PO", 4}, {"PE", 5}, {"P", 6},  {"M", 7}};
+            return map;
+        }
+        static const std::map<std::string, uint8_t>& relative_jump_condition_map() {
+            static const std::map<std::string, uint8_t> map = { {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}};
+            return map;
+        }
+        
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
 
@@ -878,8 +893,8 @@ private:
         }
         bool encode_one_operand(const std::string& mnemonic, const Operand& op) {
             if (mnemonic == "PUSH" && match_reg16(op)) {
-                if (reg16_af_map.count(op.str_val)) {
-                    assemble({(uint8_t)(0xC5 | (reg16_af_map.at(op.str_val) << 4))});
+                if (reg16_af_map().count(op.str_val)) {
+                    assemble({(uint8_t)(0xC5 | (reg16_af_map().at(op.str_val) << 4))});
                     return true;
                 }
                 if (op.str_val == "IX") {
@@ -892,8 +907,8 @@ private:
                 }
             }
             if (mnemonic == "POP" && match_reg16(op)) {
-                if (reg16_af_map.count(op.str_val)) {
-                    assemble({(uint8_t)(0xC1 | (reg16_af_map.at(op.str_val) << 4))});
+                if (reg16_af_map().count(op.str_val)) {
+                    assemble({(uint8_t)(0xC1 | (reg16_af_map().at(op.str_val) << 4))});
                     return true;
                 }
                 if (op.str_val == "IX") {
@@ -906,8 +921,8 @@ private:
                 }
             }
             if (mnemonic == "INC" && match_reg16(op)) {
-                if (reg16_map.count(op.str_val)) {
-                    assemble({(uint8_t)(0x03 | (reg16_map.at(op.str_val) << 4))});
+                if (reg16_map().count(op.str_val)) {
+                    assemble({(uint8_t)(0x03 | (reg16_map().at(op.str_val) << 4))});
                     return true;
                 }
                 if (op.str_val == "IX") {
@@ -920,8 +935,8 @@ private:
                 }
             }
             if (mnemonic == "DEC" && match_reg16(op)) {
-                if (reg16_map.count(op.str_val)) {
-                    assemble({(uint8_t)(0x0B | (reg16_map.at(op.str_val) << 4))});
+                if (reg16_map().count(op.str_val)) {
+                    assemble({(uint8_t)(0x0B | (reg16_map().at(op.str_val) << 4))});
                     return true;
                 }
                 if (op.str_val == "IX") {
@@ -934,11 +949,11 @@ private:
                 }
             }
             if (mnemonic == "INC" && match_reg8(op)) {
-                assemble({(uint8_t)(0x04 | (reg8_map.at(op.str_val) << 3))});
+                assemble({(uint8_t)(0x04 | (reg8_map().at(op.str_val) << 3))});
                 return true;
             }
             if (mnemonic == "DEC" && match_reg8(op)) {
-                assemble({(uint8_t)(0x05 | (reg8_map.at(op.str_val) << 3))});
+                assemble({(uint8_t)(0x05 | (reg8_map().at(op.str_val) << 3))});
                 return true;
             }
             if (mnemonic == "JP" && match_imm16(op)) {
@@ -973,7 +988,7 @@ private:
                 return true;
             }
             if (mnemonic == "ADD" && match_reg8(op)) {
-                assemble({(uint8_t)(0x80 | reg8_map.at(op.str_val))});
+                assemble({(uint8_t)(0x80 | reg8_map().at(op.str_val))});
                 return true;
             }
             if (mnemonic == "DJNZ" && match_imm16(op)) {
@@ -1053,13 +1068,13 @@ private:
                     base_opcode = 0xB0;
                 else if (mnemonic == "CP")
                     base_opcode = 0xB8;
-                uint8_t reg_code = reg8_map.at(op.str_val);
+                uint8_t reg_code = reg8_map().at(op.str_val);
                 assemble({(uint8_t)(base_opcode | reg_code)});
                 return true;
             }
             if (mnemonic == "RET" && match_condition(op)) {
-                if (condition_map.count(op.str_val)) {
-                    uint8_t cond_code = condition_map.at(op.str_val);
+                if (condition_map().count(op.str_val)) {
+                    uint8_t cond_code = condition_map().at(op.str_val);
                     assemble({(uint8_t)(0xC0 | (cond_code << 3))});
                     return true;
                 }
@@ -1097,8 +1112,8 @@ private:
             else if (op1.base_reg == "IY" || op2.base_reg == "IY" || op1.str_val.find("IY") != std::string::npos || op2.str_val.find("IY") != std::string::npos)
                 prefix = 0xFD;
             if (mnemonic == "LD" && match_reg8(op1) && match_reg8(op2)) {
-                uint8_t dest_code = reg8_map.at(op1.str_val);
-                uint8_t src_code = reg8_map.at(op2.str_val);
+                uint8_t dest_code = reg8_map().at(op1.str_val);
+                uint8_t src_code = reg8_map().at(op2.str_val);
                 if (prefix) {
                     if ((op1.str_val.find("IX") != std::string::npos && op2.str_val.find("IY") != std::string::npos) ||
                         (op1.str_val.find("IY") != std::string::npos && op2.str_val.find("IX") != std::string::npos))
@@ -1110,18 +1125,18 @@ private:
                 return true;
             }
             if (mnemonic == "LD" && match_reg8(op1) && match_imm8(op2)) {
-                uint8_t dest_code = reg8_map.at(op1.str_val);
+                uint8_t dest_code = reg8_map().at(op1.str_val);
                 assemble({(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "LD" &&
                 (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && match_imm8(op2)) {
-                assemble({prefix, (uint8_t)(0x06 | (reg8_map.at(op1.str_val) << 3)), (uint8_t)op2.num_val});
+                assemble({prefix, (uint8_t)(0x06 | (reg8_map().at(op1.str_val) << 3)), (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "LD" && match_reg16(op1) && match_imm16(op2)) {
-                if (reg16_map.count(op1.str_val)) {
-                    assemble({(uint8_t)(0x01 | (reg16_map.at(op1.str_val) << 4)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                if (reg16_map().count(op1.str_val)) {
+                    assemble({(uint8_t)(0x01 | (reg16_map().at(op1.str_val) << 4)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
                     return true;
                 }
                 if (op1.str_val == "IX") {
@@ -1171,7 +1186,7 @@ private:
             }
             if (mnemonic == "LD" && match_mem_reg16(op1) && match_imm8(op2)) {
                 if (op1.str_val == "HL") {
-                    uint8_t reg_code = reg8_map.at("(HL)");
+                    uint8_t reg_code = reg8_map().at("(HL)");
                     assemble({(uint8_t)(0x06 | (reg_code << 3)), (uint8_t)op2.num_val});
                     return true;
                 }
@@ -1215,12 +1230,12 @@ private:
                 return true;
             }
             if (mnemonic == "LD" && match_reg8(op1) && match_mem_indexed(op2)) {
-                uint8_t reg_code = reg8_map.at(op1.str_val);
+                uint8_t reg_code = reg8_map().at(op1.str_val);
                 assemble({prefix, (uint8_t)(0x46 | (reg_code << 3)), (uint8_t)((int8_t)op2.offset)});
                 return true;
             }
             if (mnemonic == "LD" && match_mem_indexed(op1) && match_reg8(op2)) {
-                uint8_t reg_code = reg8_map.at(op2.str_val);
+                uint8_t reg_code = reg8_map().at(op2.str_val);
                 assemble({prefix, (uint8_t)(0x70 | reg_code), (uint8_t)((int8_t)op1.offset)});
                 return true;
             }
@@ -1247,7 +1262,7 @@ private:
                     base_opcode = 0xB0;
                 else if (mnemonic == "CP")
                     base_opcode = 0xB8;
-                uint8_t reg_code = reg8_map.at(op2.str_val);
+                uint8_t reg_code = reg8_map().at(op2.str_val);
                 if (prefix)
                     assemble({prefix, (uint8_t)(base_opcode | reg_code)});
                 else
@@ -1281,28 +1296,28 @@ private:
                 return true;
             }
             if (mnemonic == "JP" && match_condition(op1) && match_imm16(op2)) {
-                uint8_t cond_code = condition_map.at(op1.str_val);
+                uint8_t cond_code = condition_map().at(op1.str_val);
                 assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
                 return true;
             }
             if (mnemonic == "JR" && match_condition(op1) && match_imm16(op2)) {
-                if (relative_jump_condition_map.count(op1.str_val)) {
+                if (relative_jump_condition_map().count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.get_compilation_context().m_current_address + instruction_size);
                     if (offset < -128 || offset > 127)
                         m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
-                    assemble({relative_jump_condition_map.at(op1.str_val), (uint8_t)(offset)});
+                    assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
                     return true;
                 }
             }
             if (mnemonic == "CALL" && match_condition(op1) && match_imm16(op2)) {
-                uint8_t cond_code = condition_map.at(op1.str_val);
+                uint8_t cond_code = condition_map().at(op1.str_val);
                 assemble({(uint8_t)(0xC4 | (cond_code << 3)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
                 return true;
             }
-            if (mnemonic == "IN" && match_reg8(op1) && op2.str_val == "(C)") {
-                uint8_t reg_code = reg8_map.at(op1.str_val);
+            if (mnemonic == "IN" && match_reg8(op1) && op2.str_val == "(C)") { // TODO: fix this
+                uint8_t reg_code = reg8_map().at(op1.str_val);
                 if (reg_code == 6) {
                     assemble({0xED, 0x70});
                     return true;
@@ -1311,7 +1326,7 @@ private:
                 return true;
             }
             if (mnemonic == "OUT" && op1.str_val == "(C)" && match_reg8(op2)) {
-                uint8_t reg_code = reg8_map.at(op2.str_val);
+                uint8_t reg_code = reg8_map().at(op2.str_val);
                 if (reg_code == 6)
                     throw std::runtime_error("OUT (C), (HL) is not a valid instruction");
                 assemble({0xED, (uint8_t)(0x41 | (reg_code << 3))});
@@ -1321,7 +1336,7 @@ private:
                 if (op1.num_val > 7)
                     throw std::runtime_error("BIT index must be 0-7");
                 uint8_t bit = op1.num_val;
-                uint8_t reg_code = reg8_map.at(op2.str_val);
+                uint8_t reg_code = reg8_map().at(op2.str_val);
                 assemble({0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code)});
                 return true;
             }
@@ -1329,7 +1344,7 @@ private:
                 if (op1.num_val > 7)
                     throw std::runtime_error("SET index must be 0-7");
                 uint8_t bit = op1.num_val;
-                uint8_t reg_code = reg8_map.at(op2.str_val);
+                uint8_t reg_code = reg8_map().at(op2.str_val);
                 assemble({0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code)});
                 return true;
             }
@@ -1337,7 +1352,7 @@ private:
                 if (op1.num_val > 7)
                     throw std::runtime_error("RES index must be 0-7");
                 uint8_t bit = op1.num_val;
-                uint8_t reg_code = reg8_map.at(op2.str_val);
+                uint8_t reg_code = reg8_map().at(op2.str_val);
                 assemble({0xCB, (uint8_t)(0x80 | (bit << 3) | reg_code)});
                 return true;
             }
@@ -1345,7 +1360,7 @@ private:
                 if (op1.num_val > 7) {
                     throw std::runtime_error("SLL bit index must be 0-7");
                 }
-                uint8_t reg_code = reg8_map.at(op1.str_val);
+                uint8_t reg_code = reg8_map().at(op1.str_val);
                 assemble({0xCB, (uint8_t)(0x30 | reg_code)});
                 return true;
             }
