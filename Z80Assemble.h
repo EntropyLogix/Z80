@@ -1313,6 +1313,36 @@ private:
                     assemble({0xFD, 0x22, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
                     return true;
                 }
+                if (op2.str_val == "HL") {
+                    assemble({0x22, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    return true;
+                }
+                if (op2.str_val == "BC") {
+                    assemble({0xED, 0x43, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    return true;
+                }
+                if (op2.str_val == "DE") {
+                    assemble({0xED, 0x53, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    return true;
+                }
+                if (op2.str_val == "SP") {
+                    assemble({0xED, 0x73, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    return true;
+                }
+            }
+            if (mnemonic == "LD" && op1.str_val == "SP" && match_reg16(op2)) {
+                if (op2.str_val == "HL") {
+                    assemble({0xF9});
+                    return true;
+                }
+                if (op2.str_val == "IX") {
+                    assemble({0xDD, 0xF9});
+                    return true;
+                }
+                if (op2.str_val == "IY") {
+                    assemble({0xFD, 0xF9});
+                    return true;
+                }
             }
             if (mnemonic == "LD" && op1.str_val == "A" && match_mem_imm16(op2)) {
                 assemble({0x3A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
