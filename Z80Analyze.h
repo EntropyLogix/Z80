@@ -1892,8 +1892,7 @@ private:
 
 template <typename TMemory, typename TRegisters> class Z80DefaultFiles {
 public:
-    Z80DefaultFiles(TMemory* memory, TRegisters* registers) : m_memory(memory), m_registers(registers) {
-    }
+    Z80DefaultFiles(TMemory* memory, TRegisters* registers) : m_memory(memory), m_registers(registers) {}
 
     bool load_bin_file(const std::vector<uint8_t>& data, uint16_t load_addr) {
         for (size_t i = 0; i < data.size(); ++i) {
