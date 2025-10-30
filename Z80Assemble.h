@@ -1288,6 +1288,14 @@ private:
                 assemble({0xC6, (uint8_t)op2.num_val});
                 return true;
             }
+            if (mnemonic == "ADC" && op1.str_val == "A" && match_imm8(op2)) {
+                assemble({0xCE, (uint8_t)op2.num_val});
+                return true;
+            }
+            if (mnemonic == "SBC" && op1.str_val == "A" && match_imm8(op2)) {
+                assemble({0xDE, (uint8_t)op2.num_val});
+                return true;
+            }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
                  mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && op1.str_val == "A" && match_reg8(op2)) {
                 uint8_t base_opcode = 0;
