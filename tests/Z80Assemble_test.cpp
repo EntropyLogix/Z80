@@ -759,6 +759,34 @@ TEST_CASE(CyclicDependency) {
     )");
 }
 
+TEST_CASE(ErrorHandling) {
+    // --- Invalid Labels ---
+    // Using a mnemonic as a label should fail
+    ASSERT_COMPILE_FAILS("LD: NOP");
+    // Using a register name as a label should fail
+    ASSERT_COMPILE_FAILS("A: NOP");
+
+    // --- Out-of-Range Jumps ---
+    // JR forward jump too far (> +127)
+    ASSERT_COMPILE_FAILS("ORG 0x100\nJR 0x182"); // Target 0x182, from 0x100. Offset = 0x182 - (0x100+2) = 0x80 (128)
+    // JR backward jump too far (< -128)
+    ASSERT_COMPILE_FAILS("ORG 0x182\nJR 0x100"); // Target 0x100, from 0x182. Offset = 0x100 - (0x182+2) = -0x84 (-132)
+    // DJNZ forward jump too far
+    ASSERT_COMPILE_FAILS("ORG 0x00\nDJNZ 0x100");
+
+    // --- Invalid Operands ---
+    // LD A, (SP) is not a valid Z80 instruction
+    ASSERT_COMPILE_FAILS("LD A, (SP)");
+    // Cannot add an 8-bit register to a 16-bit register
+    ASSERT_COMPILE_FAILS("ADD HL, A");
+    // OUT (C), r where r cannot be (HL)
+    ASSERT_COMPILE_FAILS("OUT (C), (HL)");
+
+    // --- Undefined Symbols ---
+    ASSERT_COMPILE_FAILS("LD A, UNDEFINED_SYMBOL");
+    ASSERT_COMPILE_FAILS("JP UNDEFINED_LABEL");
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";

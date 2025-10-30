@@ -669,14 +669,20 @@ private:
             if (encode_data_block(mnemonic, operands))
                 return true;
             switch (operands.size()) {
-                case 0:
-                    return encode_no_operand(mnemonic);
-                case 1:
-                    return encode_one_operand(mnemonic, operands[0]);
-                case 2:
-                    return encode_two_operands(mnemonic, operands[0], operands[1]);
+            case 0:
+                if (encode_no_operand(mnemonic))
+                    return true;
+                break;
+            case 1:
+                if (encode_one_operand(mnemonic, operands[0]))
+                    return true;
+                break;
+            case 2:
+                if (encode_two_operands(mnemonic, operands[0], operands[1]))
+                    return true;
+                break;
             }
-            return false;
+            throw std::runtime_error("Invalid instruction or operands for mnemonic: " + mnemonic);
         }
     private:
         static const std::map<std::string, uint8_t>& reg8_map() {
@@ -1222,6 +1228,10 @@ private:
                     prefix = 0xFD;
                 else if (target_reg_str != "HL")
                     return false;
+                if (source_reg_str != "BC" && source_reg_str != "DE" && source_reg_str != "HL" && source_reg_str != "SP" &&
+                    (prefix == 0 || (source_reg_str != (prefix == 0xDD ? "IX" : "IY")))) {
+                    return false;
+                }
                 std::string effective_source_reg_for_opcode = source_reg_str;
                 if (source_reg_str == "IX" || source_reg_str == "IY")
                     effective_source_reg_for_opcode = "HL";
@@ -1318,6 +1328,8 @@ private:
                     assemble({0x12});
                     return true;
                 }
+                if (op1.str_val == "SP")
+                    return false;
             }
             if (mnemonic == "LD" && match_reg8(op1) && match_mem_reg16(op2) && op2.str_val == "HL") {
                 uint8_t dest_code = reg8_map().at(op1.str_val);
@@ -1342,6 +1354,8 @@ private:
                     assemble({0x1A});
                     return true;
                 }
+                if (op2.str_val == "SP")
+                    return false;
             }
             if (mnemonic == "LD" && match_mem_imm16(op1) && op2.str_val == "A") {
                 assemble({0x32, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
@@ -1529,7 +1543,7 @@ private:
             }
             if (mnemonic == "OUT" && match_mem_reg16(op1) && op1.str_val == "C" && match_reg8(op2)) {
                 uint8_t reg_code = reg8_map().at(op2.str_val);
-                if (reg_code == 6)
+                if (op2.str_val == "(HL)")
                     throw std::runtime_error("OUT (C), (HL) is not a valid instruction");
                 assemble({0xED, (uint8_t)(0x41 | (reg_code << 3))});
                 return true;
