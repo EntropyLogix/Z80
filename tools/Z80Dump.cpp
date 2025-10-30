@@ -87,180 +87,6 @@ std::vector<uint8_t> read_file(const std::string& path) {
     return buffer;
 }
 
-bool load_bin_file(Z80DefaultBus& bus, const std::vector<uint8_t>& data, uint16_t load_addr) {
-    for (size_t i = 0; i < data.size(); ++i) {
-        if (load_addr + i > 0xFFFF) {
-            std::cerr << "Warning: Binary file too large, truncated at 0xFFFF." << std::endl;
-            break;
-        }
-        bus.write(load_addr + i, data[i]);
-    }
-    return true;
-}
-
-enum class IntelHexRecordType : uint8_t {
-    Data = 0x00,
-    EndOfFile = 0x01,
-    ExtendedLinearAddress = 0x04,
-};
-
-bool load_hex_file(Z80DefaultBus& bus, const std::string& content) {
-    std::stringstream file_stream(content);
-    std::string line;
-    uint32_t extended_linear_address = 0;
-    while (std::getline(file_stream, line)) {
-        if (line.empty() || line[0] != ':')
-            continue;
-        try {
-            uint8_t byte_count = std::stoul(line.substr(1, 2), nullptr, 16);
-            uint16_t address = std::stoul(line.substr(3, 4), nullptr, 16);
-            uint8_t record_type = std::stoul(line.substr(7, 2), nullptr, 16);
-            if (line.length() < 11 + (size_t)byte_count * 2) {
-                std::cerr << "Warning: Malformed HEX line (too short): " << line << std::endl;
-                continue;
-            }
-            uint8_t checksum = byte_count + (address >> 8) + (address & 0xFF) + record_type;
-            std::vector<uint8_t> data_bytes;
-            data_bytes.reserve(byte_count);
-            for (int i = 0; i < byte_count; ++i) {
-                uint8_t byte = std::stoul(line.substr(9 + i * 2, 2), nullptr, 16);
-                data_bytes.push_back(byte);
-                checksum += byte;
-            }
-            uint8_t file_checksum = std::stoul(line.substr(9 + byte_count * 2, 2), nullptr, 16);
-            if (((checksum + file_checksum) & 0xFF) != 0) {
-                std::cerr << "Warning: Checksum error in HEX line: " << line << std::endl;
-                continue;
-            }
-            switch (static_cast<IntelHexRecordType>(record_type)) {
-            case IntelHexRecordType::Data: {
-                uint32_t full_address = extended_linear_address + address;
-                for (size_t i = 0; i < data_bytes.size(); ++i) {
-                    if (full_address + i <= 0xFFFF)
-                        bus.write(full_address + i, data_bytes[i]);
-                }
-                break;
-            }
-            case IntelHexRecordType::EndOfFile:
-                return true;
-            case IntelHexRecordType::ExtendedLinearAddress:
-                if (byte_count == 2) 
-                    extended_linear_address = (data_bytes[0] << 24) | (data_bytes[1] << 16);
-                break;
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "Warning: Could not parse HEX line: " << line << " (" << e.what() << ")" << std::endl;
-        }
-    }
-    return true;
-}
-
-bool load_sna_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
-    if (data.size() != 49179) {
-        std::cerr << "Error: Invalid 48K SNA file size." << std::endl;
-        return false;
-    }
-    Z80<>::State state;
-    state.m_I = data[0];
-    state.m_HLp.w = (data[2] << 8) | data[1];
-    state.m_DEp.w = (data[4] << 8) | data[3];
-    state.m_BCp.w = (data[6] << 8) | data[5];
-    state.m_AFp.w = (data[8] << 8) | data[7];
-    state.m_HL.w = (data[10] << 8) | data[9];
-    state.m_DE.w = (data[12] << 8) | data[11];
-    state.m_BC.w = (data[14] << 8) | data[13];
-    state.m_IY.w = (data[16] << 8) | data[15];
-    state.m_IX.w = (data[18] << 8) | data[17];
-    state.m_IFF2 = (data[19] & 0x04) != 0;
-    state.m_IFF1 = state.m_IFF2;
-    state.m_R = data[20];
-    state.m_AF.w = (data[22] << 8) | data[21];
-    state.m_SP.w = (data[24] << 8) | data[23];
-    state.m_IRQ_mode = data[25];
-    for (size_t i = 0; i < 49152; ++i)
-        cpu.get_bus()->write(0x4000 + i, data[27 + i]);
-    state.m_PC.w = cpu.get_bus()->peek(state.m_SP.w) | (cpu.get_bus()->peek(state.m_SP.w + 1) << 8);
-    state.m_SP.w += 2;
-    cpu.restore_state(state);
-    return true;
-}
-
-bool load_z80_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
-    if (data.size() < 30) {
-        std::cerr << "Error: Z80 file is too small." << std::endl;
-        return false;
-    }
-    Z80<>::State state;
-    memset(&state, 0, sizeof(state));
-    state.m_AF.h = data[0];
-    state.m_AF.l = data[1];
-    state.m_BC.w = (data[3] << 8) | data[2];
-    state.m_HL.w = (data[5] << 8) | data[4];
-    state.m_PC.w = (data[7] << 8) | data[6];
-    state.m_SP.w = (data[9] << 8) | data[8];
-    state.m_I = data[10];
-    state.m_R = data[11];
-    uint8_t byte12 = data[12];
-    if (byte12 == 0xFF)
-        byte12 = 1;
-    state.m_R = (state.m_R & 0x7F) | ((byte12 & 0x01) ? 0x80 : 0);
-    bool compressed = (byte12 & 0x20) != 0;
-    state.m_DE.w = (data[14] << 8) | data[13];
-    state.m_BCp.w = (data[16] << 8) | data[15];
-    state.m_DEp.w = (data[18] << 8) | data[17];
-    state.m_HLp.w = (data[20] << 8) | data[19];
-    state.m_AFp.h = data[21];
-    state.m_AFp.l = data[22];
-    state.m_IY.w = (data[24] << 8) | data[23];
-    state.m_IX.w = (data[26] << 8) | data[25];
-    state.m_IFF1 = data[27] != 0;
-    state.m_IFF2 = data[28] != 0;
-    state.m_IRQ_mode = data[29] & 0x03;
-    cpu.restore_state(state);
-    if (state.m_PC.w == 0) {
-        std::cerr << "Error: Z80 v2/v3 files are not supported yet." << std::endl;
-        return false;
-    }
-    size_t data_ptr = 30;
-    if (compressed) {
-        uint16_t mem_addr = 0x4000;
-        while (data_ptr < data.size() && mem_addr < 0xFFFF) {
-            if (data_ptr + 1 < data.size() && data[data_ptr] == 0xED && data[data_ptr + 1] == 0xED) {
-                if (data_ptr + 3 >= data.size())
-                    break; // Corrupted sequence
-                uint8_t count = data[data_ptr + 2];
-                uint8_t value = data[data_ptr + 2];
-                data_ptr += 3;
-                for (int i = 0; i < count && mem_addr < 0xFFFF; ++i)
-                    cpu.get_bus()->write(mem_addr++, value);
-            } else
-                cpu.get_bus()->write(mem_addr++, data[data_ptr++]);
-        }
-    } else {
-        if (data.size() - 30 != 49152) {
-            std::cerr << "Error: Invalid uncompressed 48K Z80 file size." << std::endl;
-            return false;
-        }
-        for (int i = 0; i < 3; ++i) {
-            uint16_t mem_addr;
-            switch (i) {
-            case 0:
-                mem_addr = 0x4000;
-                break;
-            case 1:
-                mem_addr = 0x8000;
-                break;
-            case 2:
-                mem_addr = 0xC000;
-                break;
-            }
-            for (int j = 0; j < 16384; ++j)
-                cpu.get_bus()->write(mem_addr + j, data[data_ptr++]);
-        }
-    }
-    return true;
-}
-
 uint16_t resolve_address(const std::string& addr_str, const Z80<>& cpu) {
     if (addr_str.empty())
         throw std::runtime_error("Address argument is empty.");
@@ -389,8 +215,9 @@ int main(int argc, char* argv[]) {
     }
     Z80<> cpu;
     Z80DefaultLabels label_handler;
-    Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(cpu.get_bus(), &cpu, &label_handler);
+    Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(cpu.get_bus(), &cpu, &label_handler);    
     try {
+        Z80DefaultFiles<Z80DefaultBus, Z80<>> file_loader(cpu.get_bus(), &cpu);
         for (const auto& map_file : map_files) {
             std::ifstream file(map_file);
             if (!file) throw std::runtime_error("Cannot open map file: " + map_file);
@@ -419,22 +246,28 @@ int main(int argc, char* argv[]) {
             return 1;
         }
     }
-    if (ext == "hex")
-        loaded = load_hex_file(*cpu.get_bus(), file_data_str);
-    else if (ext == "sna")
-        loaded = load_sna_file(cpu, file_data_bytes);
-    else if (ext == "z80")
-        loaded = load_z80_file(cpu, file_data_bytes);
-    else if (ext == "bin" || ext.empty()) {
-        uint16_t load_addr = resolve_address(load_addr_str, cpu);
-        loaded = load_bin_file(*cpu.get_bus(), file_data_bytes, load_addr);
-        cpu.set_PC(load_addr);
-    } else {
-        std::cerr << "Error: Unsupported file extension '" << ext << "'." << std::endl;
+    Z80DefaultFiles<Z80DefaultBus, Z80<>> file_loader(cpu.get_bus(), &cpu);
+    try {
+        if (ext == "hex")
+            loaded = file_loader.load_hex_file(file_data_str);
+        else if (ext == "sna")
+            loaded = file_loader.load_sna_file(file_data_bytes);
+        else if (ext == "z80")
+            loaded = file_loader.load_z80_file(file_data_bytes);
+        else if (ext == "bin" || ext.empty()) {
+            uint16_t load_addr = resolve_address(load_addr_str, cpu);
+            loaded = file_loader.load_bin_file(file_data_bytes, load_addr);
+            cpu.set_PC(load_addr);
+        } else {
+            std::cerr << "Error: Unsupported file extension '" << ext << "'." << std::endl;
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading file: " << e.what() << std::endl;
         return 1;
     }
     if (!loaded) {
-        std::cerr << "Error: Failed to load file content into emulator." << std::endl;
+        std::cerr << "Error: Failed to load file content into emulator for an unknown reason." << std::endl;
         return 1;
     }
     std::cout << "File loaded successfully.\n" << std::endl;

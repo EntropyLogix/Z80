@@ -25,6 +25,24 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <iostream>
+
+#if defined(__GNUC__) || defined(__clang__)
+#define Z80_PACKED_STRUCT __attribute__((packed))
+#else
+#define Z80_PACKED_STRUCT
+#endif
+
+#if defined(_MSC_VER)
+#define Z80_PUSH_PACK(n) __pragma(pack(push, n))
+#define Z80_POP_PACK() __pragma(pack(pop))
+#elif defined(__GNUC__) || defined(__clang__)
+#define Z80_PUSH_PACK(n) _Pragma("pack(push, n)")
+#define Z80_POP_PACK() _Pragma("pack(pop)")
+#else
+#define Z80_PUSH_PACK(n)
+#define Z80_POP_PACK()
+#endif
 
 template <typename, typename, typename> class Z80;
 
@@ -189,11 +207,8 @@ public:
         }
         return label_prefix + ss.str();
     }
-    std::string disassemble(uint16_t& address) {
-        return disassemble(address, "%a: %-12b %m %t");
-    }
-    std::vector<std::string> disassemble(uint16_t& address, size_t lines, 
-                                         const std::string& format = "%a: %-12b %-15m %t") {
+    std::string disassemble(uint16_t& address) { return disassemble(address, "%a: %-12b %m %t"); }
+    std::vector<std::string> disassemble(uint16_t& address, size_t lines, const std::string& format = "%a: %-12b %-15m %t") {
         std::vector<std::string> result;
         result.reserve(lines);
         for (size_t i = 0; i < lines; ++i)
@@ -202,7 +217,7 @@ public:
     }
 private:
     enum class IndexMode { HL, IX, IY };
-    
+
     std::string format_register_segment(const std::string& specifier) {
         std::string s_lower = specifier;
         std::transform(s_lower.begin(), s_lower.end(), s_lower.begin(), ::tolower);
@@ -1873,6 +1888,185 @@ private:
         }
     }
     std::multimap<uint16_t, std::string> m_labels;
+};
+
+template <typename TMemory, typename TRegisters> class Z80DefaultFiles {
+public:
+    Z80DefaultFiles(TMemory* memory, TRegisters* registers) : m_memory(memory), m_registers(registers) {
+    }
+
+    bool load_bin_file(const std::vector<uint8_t>& data, uint16_t load_addr) {
+        for (size_t i = 0; i < data.size(); ++i) {
+            if (load_addr + i > MAX_ADDRESS)
+                throw std::runtime_error("Binary file too large.");
+            m_memory->poke(load_addr + i, data[i]);
+        }
+        return true;
+    }
+
+    bool load_hex_file(const std::string& content) {
+        enum class IntelHexRecordType : uint8_t {
+            Data = 0x00,
+            EndOfFile = 0x01,
+            ExtendedLinearAddress = 0x04,
+        };
+        std::stringstream file_stream(content);
+        std::string line;
+        uint32_t extended_linear_address = 0;
+        while (std::getline(file_stream, line)) {
+            if (line.empty() || line[0] != ':')
+                continue;
+            try {
+                uint8_t byte_count = std::stoul(line.substr(1, 2), nullptr, 16);
+                uint16_t address = std::stoul(line.substr(3, 4), nullptr, 16);
+                uint8_t record_type = std::stoul(line.substr(7, 2), nullptr, 16);
+                if (line.length() < 11 + (size_t)byte_count * 2)
+                    throw std::runtime_error("Malformed HEX line (too short): " + line);
+                uint8_t checksum = byte_count + (address >> 8) + (address & 0xFF) + record_type;
+                std::vector<uint8_t> data_bytes;
+                data_bytes.reserve(byte_count);
+                for (int i = 0; i < byte_count; ++i) {
+                    uint8_t byte = std::stoul(line.substr(9 + i * 2, 2), nullptr, 16);
+                    data_bytes.push_back(byte);
+                    checksum += byte;
+                }
+                uint8_t file_checksum = std::stoul(line.substr(9 + byte_count * 2, 2), nullptr, 16);
+                if (((checksum + file_checksum) & 0xFF) != 0)
+                    throw std::runtime_error("Checksum error in HEX line: " + line);
+                switch (static_cast<IntelHexRecordType>(record_type)) {
+                case IntelHexRecordType::Data: {
+                    uint32_t full_address = extended_linear_address + address;
+                    for (size_t i = 0; i < data_bytes.size(); ++i) {
+                        if (full_address + i <= MAX_ADDRESS)
+                            m_memory->poke(full_address + i, data_bytes[i]);
+                    }
+                    break;
+                }
+                case IntelHexRecordType::EndOfFile:
+                    return true;
+                case IntelHexRecordType::ExtendedLinearAddress:
+                    if (byte_count == 2)
+                        extended_linear_address = (data_bytes[0] << 24) | (data_bytes[1] << 16);
+                    break;
+                }
+            } catch (const std::exception& e) {
+                throw std::runtime_error("Could not parse HEX line: " + line + " (" + e.what() + ")");
+            }
+        }
+        return true;
+    }
+
+    bool load_sna_file(const std::vector<uint8_t>& data) {
+        if (data.size() != SNA_48K_SIZE)
+            throw std::runtime_error("Invalid 48K SNA file size. Expected " + std::to_string(SNA_48K_SIZE) + " bytes, got " + std::to_string(data.size()));
+        const SNAHeader* header = reinterpret_cast<const SNAHeader*>(data.data());
+        typename TRegisters::State state;
+        state.m_I = header->I;
+        state.m_HLp.w = header->HL_prime;
+        state.m_DEp.w = header->DE_prime;
+        state.m_BCp.w = header->BC_prime;
+        state.m_AFp.w = header->AF_prime;
+        state.m_HL.w = header->HL;
+        state.m_DE.w = header->DE;
+        state.m_BC.w = header->BC;
+        state.m_IY.w = header->IY;
+        state.m_IX.w = header->IX;
+        state.m_IFF2 = (header->IFF2 & 0x04) != 0;
+        state.m_IFF1 = state.m_IFF2;
+        state.m_R = header->R;
+        state.m_AF.w = header->AF;
+        state.m_SP.w = header->SP;
+        state.m_IRQ_mode = header->InterruptMode;
+        for (size_t i = 0; i < ZX48K_RAM_SIZE; ++i)
+            m_memory->poke(ZX48K_RAM_START + i, data[sizeof(SNAHeader) + i]);
+        state.m_PC.w = m_memory->peek(state.m_SP.w) | (m_memory->peek(state.m_SP.w + 1) << 8);
+        state.m_SP.w += 2;
+        m_registers->restore_state(state);
+        return true;
+    }
+
+    bool load_z80_file(const std::vector<uint8_t>& data) {
+        if (data.size() < sizeof(Z80HeaderV1))
+            throw std::runtime_error("Z80 file is too small.");
+        const Z80HeaderV1* header = reinterpret_cast<const Z80HeaderV1*>(data.data());
+        typename TRegisters::State state;
+        memset(&state, 0, sizeof(state));
+        state.m_AF.h = header->A; state.m_AF.l = header->F;
+        state.m_BC.w = header->BC;
+        state.m_HL.w = header->HL;
+        state.m_PC.w = header->PC;
+        state.m_SP.w = header->SP;
+        state.m_I = header->I; state.m_R = header->R;
+        uint8_t byte12 = header->Flags1;
+        if (byte12 == 0xFF)
+            byte12 = 1;
+        state.m_R = (state.m_R & 0x7F) | ((byte12 & 0x01) ? 0x80 : 0);
+        bool compressed = (byte12 & 0x20) != 0;
+        state.m_DE.w = header->DE;
+        state.m_BCp.w = header->BC_prime;
+        state.m_DEp.w = header->DE_prime;
+        state.m_HLp.w = header->HL_prime;
+        state.m_AFp.h = header->A_prime; state.m_AFp.l = header->F_prime;
+        state.m_IY.w = header->IY;
+        state.m_IX.w = header->IX;
+        state.m_IFF1 = header->IFF1 != 0; state.m_IFF2 = header->IFF2 != 0;
+        state.m_IRQ_mode = header->Flags2 & 0x03;
+        m_registers->restore_state(state);
+        if (state.m_PC.w == 0)
+            throw std::runtime_error("Z80 v2/v3 files are not supported.");
+        size_t data_ptr = sizeof(Z80HeaderV1);
+        if (compressed) {
+            for (uint16_t mem_addr = ZX48K_RAM_START; data_ptr < data.size() && mem_addr < 0xFFFF;) {
+                if (data_ptr + 3 < data.size() && data[data_ptr] == 0xED && data[data_ptr + 1] == 0xED) {
+                    uint8_t count = data[data_ptr + 2], value = data[data_ptr + 3];
+                    data_ptr += 4;
+                    for (int i = 0; i < count && mem_addr < 0xFFFF; ++i)
+                        m_memory->poke(mem_addr++, value);
+                } else
+                    m_memory->poke(mem_addr++, data[data_ptr++]);
+            }
+        } else {
+            for (size_t i = data_ptr; i < data.size(); ++i)
+                m_memory->poke(ZX48K_RAM_START + (i - data_ptr), data[i]);
+        }
+        return true;
+    }
+
+private:
+    Z80_PUSH_PACK(1)
+    struct SNAHeader {
+        uint8_t I;
+        uint16_t HL_prime, DE_prime, BC_prime, AF_prime;
+        uint16_t HL, DE, BC, IY, IX;
+        uint8_t IFF2;
+        uint8_t R;
+        uint16_t AF, SP;
+        uint8_t InterruptMode;
+        uint8_t BorderColor;
+    } Z80_PACKED_STRUCT;
+
+    struct Z80HeaderV1 {
+        uint8_t A, F;
+        uint16_t BC, HL;
+        uint16_t PC, SP;
+        uint8_t I, R;
+        uint8_t Flags1;
+        uint16_t DE, BC_prime, DE_prime, HL_prime;
+        uint8_t A_prime, F_prime;
+        uint16_t IY, IX;
+        uint8_t IFF1, IFF2;
+        uint8_t Flags2;
+    } Z80_PACKED_STRUCT;
+    Z80_POP_PACK()
+
+    TMemory* m_memory;
+    TRegisters* m_registers;
+
+public:
+    static constexpr size_t ZX48K_RAM_SIZE = 49152;
+    static constexpr uint16_t ZX48K_RAM_START = 0x4000;
+    static constexpr uint16_t MAX_ADDRESS = 0xFFFF;
+    static constexpr size_t SNA_48K_SIZE = sizeof(SNAHeader) + ZX48K_RAM_SIZE;
 };
 
 #endif //__Z80ANALYZE_H__
