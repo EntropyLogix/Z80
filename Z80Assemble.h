@@ -1616,10 +1616,9 @@ private:
         bool process_label(std::string& line) {
             size_t colon_pos = line.find(':');
             if (colon_pos != std::string::npos) {
-                std::string potential_label = line.substr(0, colon_pos);
-                if (potential_label.find_first_of(" \t") == std::string::npos) {
-                    std::string label = potential_label;
-                    StringHelper::trim_whitespace(label);
+                std::string label = line.substr(0, colon_pos);
+                StringHelper::trim_whitespace(label);
+                if (!label.empty() && label.find_first_of(" \t") == std::string::npos) {
                     if (!Keywords::is_valid_label_name(label))
                         throw std::runtime_error("Invalid label name: '" + label + "'");
                     line.erase(0, colon_pos + 1);
