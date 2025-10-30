@@ -1445,27 +1445,39 @@ private:
                 assemble({0xED, (uint8_t)(0x41 | (reg_code << 3))});
                 return true;
             }
-            if (mnemonic == "BIT" && match_imm8(op1) && match_reg8(op2)) {
+            if (mnemonic == "BIT" && match_imm8(op1) && (match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL"))) {
                 if (op1.num_val > 7)
                     throw std::runtime_error("BIT index must be 0-7");
                 uint8_t bit = op1.num_val;
-                uint8_t reg_code = reg8_map().at(op2.str_val);
+                uint8_t reg_code;
+                if (op2.type == OperandType::MEM_REG16)
+                    reg_code = reg8_map().at("(HL)");
+                else
+                    reg_code = reg8_map().at(op2.str_val);
                 assemble({0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code)});
                 return true;
             }
-            if (mnemonic == "SET" && match_imm8(op1) && match_reg8(op2)) {
+            if (mnemonic == "SET" && match_imm8(op1) && (match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL"))) {
                 if (op1.num_val > 7)
                     throw std::runtime_error("SET index must be 0-7");
                 uint8_t bit = op1.num_val;
-                uint8_t reg_code = reg8_map().at(op2.str_val);
+                uint8_t reg_code;
+                if (op2.type == OperandType::MEM_REG16)
+                    reg_code = reg8_map().at("(HL)");
+                else
+                    reg_code = reg8_map().at(op2.str_val);
                 assemble({0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code)});
                 return true;
             }
-            if (mnemonic == "RES" && match_imm8(op1) && match_reg8(op2)) {
+            if (mnemonic == "RES" && match_imm8(op1) && (match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL"))) {
                 if (op1.num_val > 7)
                     throw std::runtime_error("RES index must be 0-7");
                 uint8_t bit = op1.num_val;
-                uint8_t reg_code = reg8_map().at(op2.str_val);
+                uint8_t reg_code;
+                if (op2.type == OperandType::MEM_REG16)
+                    reg_code = reg8_map().at("(HL)");
+                else
+                    reg_code = reg8_map().at(op2.str_val);
                 assemble({0xCB, (uint8_t)(0x80 | (bit << 3) | reg_code)});
                 return true;
             }
@@ -1493,9 +1505,8 @@ private:
                     assemble({0xDD, 0xCB, (uint8_t)((int8_t)op2.offset), final_opcode});
                 } else if (op2.base_reg == "IY") {
                     assemble({0xFD, 0xCB, (uint8_t)((int8_t)op2.offset), final_opcode});
-                } else {
+                } else
                     return false;
-                }
                 return true;
             }
             return false;
