@@ -275,7 +275,7 @@ private:
                         precedence = 1;
                     else if (op_str == "|")
                         precedence = 0;
-                    tokens.push_back({Token::Type::OPERATOR, std::string(1, c), 0, precedence, true});
+                    tokens.push_back({Token::Type::OPERATOR, op_str, 0, precedence, true});
                 } else if (c == '(') {
                     tokens.push_back({Token::Type::LPAREN, "("});
                 } else if (c == ')') {
@@ -449,6 +449,9 @@ private:
             if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'x' || *(start + 1) == 'X'))) {
                 start += 2;
                 base = 16;
+            } else if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'b' || *(start + 1) == 'B'))) {
+                start += 2;
+                base = 2;
             } else if ((end - start) > 0) {
                 char last_char = *(end - 1);
                 if (last_char == 'H' || last_char == 'h') {
