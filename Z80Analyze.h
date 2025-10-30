@@ -33,7 +33,6 @@ public:
     Z80Analyzer(TMemory* memory, TRegisters* registers, TLabels* labels)
         : m_memory(memory), m_registers(registers), m_labels(labels) {
     }
-
     // Dumps a region of memory into a vector of formatted strings.
     // - address: Starting memory address (will be updated).
     // - rows: Number of rows to dump.
@@ -72,7 +71,6 @@ public:
         }
         return result;
     }
-
     // Dumps the current state of CPU registers into a formatted string.
     //
     // Format specifiers for dump_registers:
@@ -116,7 +114,6 @@ public:
         }
         return ss.str();
     }
-
     // Format specifiers:
     //  - `%a`: Address (hex)
     //  - `%A`: Address (dec)
@@ -192,11 +189,9 @@ public:
         }
         return label_prefix + ss.str();
     }
-
     std::string disassemble(uint16_t& address) {
         return disassemble(address, "%a: %-12b %m %t");
     }
-
     std::vector<std::string> disassemble(uint16_t& address, size_t lines, 
                                          const std::string& format = "%a: %-12b %-15m %t") {
         std::vector<std::string> result;
@@ -205,8 +200,9 @@ public:
             result.push_back(disassemble(address, format));
         return result;
     }
-
 private:
+    enum class IndexMode { HL, IX, IY };
+    
     std::string format_register_segment(const std::string& specifier) {
         std::string s_lower = specifier;
         std::transform(s_lower.begin(), s_lower.end(), s_lower.begin(), ::tolower);
@@ -259,7 +255,6 @@ private:
             return format_flags_string();
         return "%" + specifier;
     }
-
     std::string format_flags_string() {
         std::stringstream ss;
         auto f = m_registers->get_F();
@@ -274,7 +269,6 @@ private:
         ss << (f.is_set(Flags::C) ? 'C' : '-');
         return ss.str();
     }
-
     std::string format_dump_segment(char specifier, uint16_t row_address, const std::vector<uint8_t>& bytes) {
         std::stringstream ss;
         switch (specifier) {
@@ -1172,13 +1166,10 @@ private:
                 const char* registers[] = {"B", "C", "D", "E", "H", "L", "(HL)", "A"};
                 const char* operations[] = {"RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SRL"};
                 const char* bit_ops[] = {"BIT", "RES", "SET"};
-
                 uint8_t operation_group = cb_opcode >> 6;
                 uint8_t bit = (cb_opcode >> 3) & 0x07;
                 uint8_t reg_code = cb_opcode & 0x07;
-
                 std::string reg_str = registers[reg_code];
-
                 if (operation_group == 0) { // Rotates/Shifts
                     m_mnemonic = std::string(operations[bit]) + " " + reg_str;
                     m_ticks = (reg_code == 6) ? 15 : 8;
@@ -1194,16 +1185,13 @@ private:
                 const char* operations[] = {"RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SRL"};
                 const char* bit_ops[] = {"BIT", "RES", "SET"};
                 const char* registers[] = {"B", "C", "D", "E", "H", "L", "", "A"};
-
                 std::string index_reg_str = (get_index_mode() == IndexMode::IX) ? "IX" : "IY";
                 std::stringstream address_ss;
                 address_ss << "(" << index_reg_str << (offset >= 0 ? "+" : "") << static_cast<int>(offset) << ")";
                 std::string address_str = address_ss.str();
-
                 uint8_t operation_group = cb_opcode >> 6;
                 uint8_t bit = (cb_opcode >> 3) & 0x07;
                 uint8_t reg_code = cb_opcode & 0x07;
-
                 std::stringstream ss;
                 if (operation_group == 0) { // Rotates/Shifts
                     ss << operations[bit] << " " << address_str;
@@ -1212,8 +1200,7 @@ private:
                     ss << bit_ops[operation_group - 1] << " " << (int)bit << ", " << address_str;
                     m_ticks = (operation_group == 1) ? 20 : 23;
                 }
-
-                if (reg_code != 6) // For undocumented instructions
+                if (reg_code != 6)
                     ss << ", " << registers[reg_code];
                 m_mnemonic = ss.str();
             }
@@ -1706,19 +1693,7 @@ private:
         }
         address = m_address;
     }
-    uint16_t m_address;
-    std::string m_mnemonic;
-    std::vector<uint8_t> m_bytes;
-    int m_ticks;
-    int m_ticks_alt;
-
-    TLabels* m_labels;
-    enum class IndexMode { HL, IX, IY };
-    IndexMode m_index_mode;
-
-    IndexMode get_index_mode() const {
-        return m_index_mode;
-    }
+    IndexMode get_index_mode() const { return m_index_mode; }
     std::string get_indexed_reg_str() {
         if (get_index_mode() == IndexMode::IX)
             return "IX";
@@ -1726,11 +1701,7 @@ private:
             return "IY";
         return "HL";
     }
-
-    void set_index_mode(IndexMode mode) {
-        m_index_mode = mode;
-    }
-
+    void set_index_mode(IndexMode mode) { m_index_mode = mode; }
     std::string get_indexed_h_str() {
         if (get_index_mode() == IndexMode::IX)
             return "IXH";
@@ -1738,7 +1709,6 @@ private:
             return "IYH";
         return "H";
     }
-
     std::string get_indexed_l_str() {
         if (get_index_mode() == IndexMode::IX)
             return "IXL";
@@ -1746,7 +1716,6 @@ private:
             return "IYL";
         return "L";
     }
-
     std::string get_indexed_addr_str() {
         if (get_index_mode() == IndexMode::HL)
             return "(HL)";
@@ -1756,7 +1725,6 @@ private:
         ss << "(" << index_reg_str << (offset >= 0 ? "+" : "") << static_cast<int>(offset) << ")";
         return ss.str();
     }
-
     std::string get_bytes_str(bool hex_format = true) const {
         std::stringstream ss;
         for (size_t i = 0; i < m_bytes.size(); ++i) {
@@ -1769,7 +1737,6 @@ private:
         }
         return ss.str();
     }
-
     std::string format_address_label(uint16_t address, int width = -1, bool hex = true) {
         if constexpr (!std::is_same_v<TLabels, void>) {
             if (m_labels) {
@@ -1781,7 +1748,6 @@ private:
         }
         return hex ? format_hex(address, width) : format_dec(address);
     }
-
     uint8_t peek_next_byte() {
         uint8_t value = m_memory->peek(m_address++);
         m_bytes.push_back(value);
@@ -1795,7 +1761,6 @@ private:
     uint8_t peek_next_opcode() {
         return peek_next_byte();
     }
-
     template <typename T> std::string format_hex(T value, int width = -1) {
         std::stringstream ss;
         ss << "0x" << std::hex << std::uppercase;
@@ -1804,15 +1769,19 @@ private:
         ss << static_cast<int>(value);
         return ss.str();
     }
-
     template <typename T> std::string format_dec(T value) {
         std::stringstream ss;
         ss << std::dec << static_cast<int>(value);
         return ss.str();
     }
-
     TRegisters* m_registers;
     TMemory* m_memory;
+    IndexMode m_index_mode;
+    uint16_t m_address;
+    std::string m_mnemonic;
+    std::vector<uint8_t> m_bytes;
+    int m_ticks, m_ticks_alt;
+    TLabels* m_labels;
 };
 
 class Z80DefaultLabels {
