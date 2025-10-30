@@ -1902,7 +1902,6 @@ public:
         }
         return true;
     }
-
     bool load_hex_file(const std::string& content) {
         enum class IntelHexRecordType : uint8_t {
             Data = 0x00,
@@ -1954,7 +1953,6 @@ public:
         }
         return true;
     }
-
     bool load_sna_file(const std::vector<uint8_t>& data) {
         if (data.size() != SNA_48K_SIZE)
             throw std::runtime_error("Invalid 48K SNA file size. Expected " + std::to_string(SNA_48K_SIZE) + " bytes, got " + std::to_string(data.size()));
@@ -1983,7 +1981,6 @@ public:
         m_registers->restore_state(state);
         return true;
     }
-
     bool load_z80_file(const std::vector<uint8_t>& data) {
         if (data.size() < sizeof(Z80HeaderV1))
             throw std::runtime_error("Z80 file is too small.");
@@ -2030,7 +2027,6 @@ public:
         }
         return true;
     }
-
 private:
     Z80_PUSH_PACK(1)
     struct SNAHeader {
@@ -2043,7 +2039,6 @@ private:
         uint8_t InterruptMode;
         uint8_t BorderColor;
     } Z80_PACKED_STRUCT;
-
     struct Z80HeaderV1 {
         uint8_t A, F;
         uint16_t BC, HL;
@@ -2060,7 +2055,6 @@ private:
 
     TMemory* m_memory;
     TRegisters* m_registers;
-
 public:
     static constexpr size_t ZX48K_RAM_SIZE = 49152;
     static constexpr uint16_t ZX48K_RAM_START = 0x4000;
