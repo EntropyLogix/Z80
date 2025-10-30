@@ -429,37 +429,23 @@ private:
             const char* start = str.data();
             const char* end = str.data() + str.size();
             if (start < end && *start == '+')
-                start += 1;
-            bool has_h_suffix = false;
-            bool has_b_suffix = false;
-            bool has_0x_prefix = false;
+                start++;
+
             int base = 10;
-            if ((end - start) > 0) {
+
+            if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'x' || *(start + 1) == 'X'))) {
+                start += 2;
+                base = 16;
+            } else if ((end - start) > 0) {
                 char last_char = *(end - 1);
                 if (last_char == 'H' || last_char == 'h') {
                     end -= 1;
-                    has_h_suffix = true;
+                    base = 16;
                 } else if (last_char == 'B' || last_char == 'b') {
                     end -= 1;
-                    has_b_suffix = true;
+                    base = 2;
                 }
             }
-            if ((end - start) > 2 && *start == '0' && (*(start + 1) == 'x' || *(start + 1) == 'X')) {
-                start += 2;
-                has_0x_prefix = true;
-            }
-            if (has_0x_prefix) {
-                if (has_h_suffix)
-                    return false;
-                if (has_b_suffix)
-                    return false;
-                base = 16;
-            } else if (has_h_suffix)
-                base = 16;
-            else if (has_b_suffix)
-                base = 2;
-            else
-                base = 10;
             if (start == end)
                 return false;
             auto result = std::from_chars(start, end, out_value, base);
