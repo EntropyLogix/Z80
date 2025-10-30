@@ -242,6 +242,18 @@ TEST_CASE(OneOperandInstructions) {
     ASSERT_CODE("IM 2", {0xED, 0x5E});
 }
 
+TEST_CASE(OneOperandInstructions_Indexed) {
+    // INC (IX+d)
+    ASSERT_CODE("INC (IX+5)", {0xDD, 0x34, 0x05});
+    ASSERT_CODE("INC (IX-10)", {0xDD, 0x34, 0xF6});
+    // DEC (IX+d)
+    ASSERT_CODE("DEC (IX+127)", {0xDD, 0x35, 0x7F});
+    ASSERT_CODE("DEC (IX-128)", {0xDD, 0x35, 0x80});
+    // INC (IY+d)
+    ASSERT_CODE("INC (IY+0)", {0xFD, 0x34, 0x00});
+    ASSERT_CODE("DEC (IY-30)", {0xFD, 0x35, 0xE2});
+}
+
 TEST_CASE(TwoOperandInstructions_LD) {
     // LD r, r'
     ASSERT_CODE("LD A, B", {0x78});

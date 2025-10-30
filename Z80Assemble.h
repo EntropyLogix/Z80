@@ -955,6 +955,18 @@ private:
                 assemble({0x35});
                 return true;
             }
+            if ((mnemonic == "INC" || mnemonic == "DEC") && match_mem_indexed(op)) {
+                uint8_t prefix = 0;
+                if (op.base_reg == "IX")
+                    prefix = 0xDD;
+                else if (op.base_reg == "IY")
+                    prefix = 0xFD;
+                else
+                    return false;
+                uint8_t opcode = (mnemonic == "INC") ? 0x34 : 0x35;
+                assemble({prefix, opcode, (uint8_t)((int8_t)op.offset)});
+                return true;
+            }
             if (mnemonic == "INC" && match_reg8(op)) {
                 assemble({(uint8_t)(0x04 | (reg8_map().at(op.str_val) << 3))});
                 return true;
