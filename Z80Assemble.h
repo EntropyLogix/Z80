@@ -861,6 +861,10 @@ private:
                 assemble({0xED, 0xB0});
                 return true;
             }
+            if (mnemonic == "NEG") {
+                assemble({0xED, 0x44});
+                return true;
+            }
             if (mnemonic == "CPIR") {
                 assemble({0xED, 0xB1});
                 return true;
