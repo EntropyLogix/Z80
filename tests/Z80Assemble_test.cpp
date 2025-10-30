@@ -817,6 +817,94 @@ TEST_CASE(EQUAndSETDirectives) {
     )");
 }
 
+TEST_CASE(IndexedRegisterParts) {
+    const char* regs[] = {"B", "C", "D", "E", "A"}; // H and L are special
+
+    // LD r, IXH/L and LD r, IYH/L
+    for (int i = 0; i < 5; ++i) { // B, C, D, E, A
+        uint8_t reg_code = (i < 4) ? i : 7; // B=0, C=1, D=2, E=3, A=7
+        // LD r, IXH is like LD r, H
+        ASSERT_CODE("LD " + std::string(regs[i]) + ", IXH", {0xDD, (uint8_t)(0x40 | (reg_code << 3) | 4)});
+        // LD r, IXL is like LD r, L
+        ASSERT_CODE("LD " + std::string(regs[i]) + ", IXL", {0xDD, (uint8_t)(0x40 | (reg_code << 3) | 5)});
+        // LD r, IYH is like LD r, H
+        ASSERT_CODE("LD " + std::string(regs[i]) + ", IYH", {0xFD, (uint8_t)(0x40 | (reg_code << 3) | 4)});
+        // LD r, IYL is like LD r, L
+        ASSERT_CODE("LD " + std::string(regs[i]) + ", IYL", {0xFD, (uint8_t)(0x40 | (reg_code << 3) | 5)});
+    }
+
+    // LD IXH/L, r and LD IYH/L, r
+    for (int i = 0; i < 5; ++i) { // B, C, D, E, A
+        uint8_t reg_code = (i < 4) ? i : 7; // B=0, C=1, D=2, E=3, A=7
+        // LD IXH, r is like LD H, r
+        ASSERT_CODE("LD IXH, " + std::string(regs[i]), {0xDD, (uint8_t)(0x60 | reg_code)});
+        // LD IXL, r is like LD L, r
+        ASSERT_CODE("LD IXL, " + std::string(regs[i]), {0xDD, (uint8_t)(0x68 | reg_code)});
+        // LD IYH, r is like LD H, r
+        ASSERT_CODE("LD IYH, " + std::string(regs[i]), {0xFD, (uint8_t)(0x60 | reg_code)});
+        // LD IYL, r is like LD L, r
+        ASSERT_CODE("LD IYL, " + std::string(regs[i]), {0xFD, (uint8_t)(0x68 | reg_code)});
+    }
+
+    // LD IXH/L, n and LD IYH/L, n
+    TEST_IMMEDIATE_8BIT("LD IXH, {}", {0xDD, 0x26});
+    TEST_IMMEDIATE_8BIT("LD IXL, {}", {0xDD, 0x2E});
+    TEST_IMMEDIATE_8BIT("LD IYH, {}", {0xFD, 0x26});
+    TEST_IMMEDIATE_8BIT("LD IYL, {}", {0xFD, 0x2E});
+
+    // INC/DEC IXH/L/IYH/L
+    ASSERT_CODE("INC IXH", {0xDD, 0x24});
+    ASSERT_CODE("DEC IXH", {0xDD, 0x25});
+    ASSERT_CODE("INC IXL", {0xDD, 0x2C});
+    ASSERT_CODE("DEC IXL", {0xDD, 0x2D});
+    ASSERT_CODE("INC IYH", {0xFD, 0x24});
+    ASSERT_CODE("DEC IYH", {0xFD, 0x25});
+    ASSERT_CODE("INC IYL", {0xFD, 0x2C});
+    ASSERT_CODE("DEC IYL", {0xFD, 0x2D});
+
+    // Arithmetic and Logic
+    const char* alu_mnemonics[] = {"ADD", "ADC", "SUB", "SBC", "AND", "XOR", "OR", "CP"};
+    for (int i = 0; i < 8; ++i) {
+        uint8_t base_opcode = 0x80 + (i * 8);
+        std::string mnemonic = alu_mnemonics[i];
+        // vs IX parts
+        ASSERT_CODE(mnemonic + " A, IXH", {0xDD, (uint8_t)(base_opcode + 4)});
+        ASSERT_CODE(mnemonic + " A, IXL", {0xDD, (uint8_t)(base_opcode + 5)});
+        // vs IY parts
+        ASSERT_CODE(mnemonic + " A, IYH", {0xFD, (uint8_t)(base_opcode + 4)});
+        ASSERT_CODE(mnemonic + " A, IYL", {0xFD, (uint8_t)(base_opcode + 5)});
+    }
+}
+
+TEST_CASE(RelativeJumpBoundaries) {
+    // JR tests
+    // Helper to test code with ORG directive
+    auto assert_org_code = [](const std::string& asm_code, uint16_t org_addr, const std::vector<uint8_t>& expected_bytes) {
+        Z80DefaultBus bus;
+        Z80Assembler<Z80DefaultBus> assembler(&bus);
+        assembler.compile(asm_code);
+        bool mismatch = false;
+        for (size_t i = 0; i < expected_bytes.size(); ++i) {
+            if (bus.peek(org_addr + i) != expected_bytes[i]) {
+                mismatch = true;
+                break;
+            }
+        }
+        assert(!mismatch && "Byte mismatch in assert_org_code");
+    };
+    assert_org_code("ORG 0x100\nJR 0x181", 0x100, {0x18, 0x7F}); // Max positive jump: 0x181 - (0x100 + 2) = 127
+    assert_org_code("ORG 0x100\nJR 0x100", 0x100, {0x18, 0xFE}); // Jump to self: 0x100 - (0x100 + 2) = -2
+    assert_org_code("ORG 0x180\nJR 0x102", 0x180, {0x18, 0x80}); // Max negative jump: 0x102 - (0x180 + 2) = -128
+
+    // DJNZ tests
+    assert_org_code("ORG 0x100\nDJNZ 0x181", 0x100, {0x10, 0x7F}); // Max positive jump
+    assert_org_code("ORG 0x180\nDJNZ 0x102", 0x180, {0x10, 0x80}); // Max negative jump
+
+    // Out of range tests
+    ASSERT_COMPILE_FAILS("ORG 0x100\nJR 0x182"); // offset = 128, out of range
+    ASSERT_COMPILE_FAILS("ORG 0x180\nJR 0x101"); // offset = -129, out of range
+}
+
 TEST_CASE(ExpressionEvaluation) {
     std::string code = R"(
         VAL1 EQU 10
