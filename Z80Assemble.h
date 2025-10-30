@@ -604,12 +604,12 @@ private:
         static bool is_mnemonic(const std::string& s) {
             std::string upper_s = s;
             StringHelper::to_upper(upper_s);
-            return s_mnemonics.count(upper_s);
+            return get_mnemonics().count(upper_s);
         }
         static bool is_register(const std::string& s) {
             std::string upper_s = s;
             StringHelper::to_upper(upper_s);
-            return s_registers.count(upper_s);
+            return get_registers().count(upper_s);
         }
         static bool is_reserved(const std::string& s) {
             return is_mnemonic(s) || is_register(s);
@@ -626,15 +626,21 @@ private:
             return true;
         }
     private:
-        inline static const std::set<std::string> s_mnemonics = {
-            "ADC", "ADD", "AND", "BIT", "CALL", "CCF", "CP", "CPD", "CPDR", "CPI", "CPIR", "CPL", "DAA",
-            "DB", "DEFB", "DEC", "DEFS", "DEFW", "DI", "DJNZ", "DW", "DS", "EI", "EX", "EXX", "HALT",
-            "IM", "IN", "INC", "IND", "INDR", "INI", "INIR", "JP", "JR", "LD", "LDD", "LDDR", "LDI",
-            "LDIR", "NEG", "NOP", "OR", "OTDR", "OTIR", "OUT", "OUTD", "OUTI", "POP", "PUSH", "RES",
-            "RET", "RETI", "RETN", "RL", "RLA", "RLC", "RLCA", "RLD", "RR", "RRA", "RRC", "RRCA", "RRD",
-            "RST", "SBC", "SCF", "SET", "SLA", "SLI", "SLL", "SRA", "SRL", "SUB", "XOR", "EQU", "ORG"
-        };
-        inline static const std::set<std::string> s_registers = {"B", "C", "D", "E", "H", "L", "A", "I", "R", "IXH", "IXL", "IYH", "IYL", "BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
+        static const std::set<std::string>& get_mnemonics() {
+            static const std::set<std::string> mnemonics = {
+                "ADC", "ADD", "AND", "BIT", "CALL", "CCF", "CP", "CPD", "CPDR", "CPI", "CPIR", "CPL", "DAA",
+                "DB", "DEFB", "DEC", "DEFS", "DEFW", "DI", "DJNZ", "DW", "DS", "EI", "EX", "EXX", "HALT",
+                "IM", "IN", "INC", "IND", "INDR", "INI", "INIR", "JP", "JR", "LD", "LDD", "LDDR", "LDI",
+                "LDIR", "NEG", "NOP", "OR", "OTDR", "OTIR", "OUT", "OUTD", "OUTI", "POP", "PUSH", "RES",
+                "RET", "RETI", "RETN", "RL", "RLA", "RLC", "RLCA", "RLD", "RR", "RRA", "RRC", "RRCA", "RRD",
+                "RST", "SBC", "SCF", "SET", "SLA", "SLI", "SLL", "SRA", "SRL", "SUB", "XOR", "EQU", "ORG"
+            };
+            return mnemonics;
+        }
+        static const std::set<std::string>& get_registers() {
+            static const std::set<std::string> registers = {"B", "C", "D", "E", "H", "L", "A", "I", "R", "IXH", "IXL", "IYH", "IYL", "BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
+            return registers;
+        }
     };
     class InstructionEncoder {
     public:
@@ -1428,7 +1434,7 @@ private:
                 return false;
             size_t first_space = trimmed_line.find_first_of(" \t");
             std::string potential_label = (first_space == std::string::npos) ? trimmed_line : trimmed_line.substr(0, first_space);
-            if (Keywords::is_mnemonic(potential_label))
+            if (Keywords::is_reserved(potential_label))
                 return false;
             if (!Keywords::is_valid_label_name(potential_label))
                 throw std::runtime_error("Invalid label name: '" + potential_label + "'");
