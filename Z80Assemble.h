@@ -614,6 +614,17 @@ private:
         static bool is_reserved(const std::string& s) {
             return is_mnemonic(s) || is_register(s);
         }
+        static bool is_valid_label_name(const std::string& s) {
+            if (s.empty() || is_reserved(s))
+                return false;
+            if (!std::isalpha(s[0]) && s[0] != '_')
+                return false;
+            for (char c : s) {
+                if (!std::isalnum(c) && c != '_')
+                    return false;
+            }
+            return true;
+        }
     private:
         inline static const std::set<std::string> s_mnemonics = {
             "ADC", "ADD", "AND", "BIT", "CALL", "CCF", "CP", "CPD", "CPDR", "CPI", "CPIR", "CPL", "DAA",
@@ -1383,8 +1394,8 @@ private:
                 StringHelper::trim_whitespace(equ_label);
                 std::string equ_value = line.substr(equ_pos + 5);
                 StringHelper::trim_whitespace(equ_value);
-                if (Keywords::is_reserved(equ_label))
-                    throw std::runtime_error("Label name is a reserved keyword: " + equ_label);
+                if (!Keywords::is_valid_label_name(equ_label))
+                    throw std::runtime_error("Invalid label name: '" + equ_label + "'");
                 m_policy.on_const(equ_label, equ_value);
                 return true;
             }
@@ -1404,6 +1415,8 @@ private:
                 if (potential_label.find_first_of(" \t") == std::string::npos) {
                     std::string label = potential_label;
                     StringHelper::trim_whitespace(label);
+                    if (!Keywords::is_valid_label_name(label))
+                        throw std::runtime_error("Invalid label name: '" + label + "'");
                     line.erase(0, colon_pos + 1);
                     m_policy.on_label(label);
                     return true;
@@ -1417,8 +1430,8 @@ private:
             std::string potential_label = (first_space == std::string::npos) ? trimmed_line : trimmed_line.substr(0, first_space);
             if (Keywords::is_mnemonic(potential_label))
                 return false;
-            if (Keywords::is_register(potential_label))
-                throw std::runtime_error("Label name cannot be a reserved keyword: " + potential_label);
+            if (!Keywords::is_valid_label_name(potential_label))
+                throw std::runtime_error("Invalid label name: '" + potential_label + "'");
             m_policy.on_label(potential_label);
             if (first_space == std::string::npos)
                 line.clear();
