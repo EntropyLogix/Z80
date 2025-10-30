@@ -1083,6 +1083,19 @@ private:
                     return true;
                 }
             }
+            if (mnemonic == "IM" && match_imm8(op)) {
+                switch (op.num_val) {
+                case 0:
+                    assemble({0xED, 0x46});
+                    return true;
+                case 1:
+                    assemble({0xED, 0x56});
+                    return true;
+                case 2:
+                    assemble({0xED, 0x5E});
+                    return true;
+                }
+            }
             return false;
         }
         bool encode_two_operands(const std::string& mnemonic, const Operand& op1, const Operand& op2) {
