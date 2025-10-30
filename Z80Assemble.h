@@ -92,9 +92,11 @@ private:
             int16_t offset = 0;
             std::string base_reg;
         };
-        Operand parse(const std::string& operand_string) {
+        Operand parse(const std::string& operand_string, const std::string& mnemonic = "") {
             Operand operand;
             operand.str_val = operand_string;
+            std::string upper_operand_string = operand_string;
+            StringHelper::to_upper(upper_operand_string);
             if (is_string_literal(operand_string)) {
                 if (operand_string.length() == 3) {
                     operand.num_val = (uint8_t)(operand_string[1]);
@@ -108,17 +110,19 @@ private:
                 operand.type = OperandType::CHAR_LITERAL;
                 return operand;
             }
-            std::string upper_opperand_string = operand_string;
-            StringHelper::to_upper(upper_opperand_string);
-            if (is_reg8(upper_opperand_string)) {
+            if ((mnemonic == "RET" || mnemonic == "JP" || mnemonic == "CALL" || mnemonic == "JR") && is_condition(upper_operand_string)) {
+                operand.type = OperandType::CONDITION;
+                return operand;
+            }
+            if (is_reg8(upper_operand_string)) {
                 operand.type = OperandType::REG8;
                 return operand;
             }
-            if (is_reg16(upper_opperand_string)) {
+            if (is_reg16(upper_operand_string)) {
                 operand.type = OperandType::REG16;
                 return operand;
             }
-            if (is_condition(upper_opperand_string)) {
+            if (is_condition(upper_operand_string)) {
                 operand.type = OperandType::CONDITION;
                 return operand;
             }
@@ -1546,14 +1550,14 @@ private:
                             if (c == ',' && !in_string) {
                                 StringHelper::trim_whitespace(current_operand);
                                 if (!current_operand.empty())
-                                    operands.push_back(operand_parser.parse(current_operand));
+                                    operands.push_back(operand_parser.parse(current_operand, mnemonic));
                                 current_operand.clear();
                             } else 
                                 current_operand += c;
                         }
                         StringHelper::trim_whitespace(current_operand);
                         if (!current_operand.empty()) {
-                            operands.push_back(operand_parser.parse(current_operand));
+                            operands.push_back(operand_parser.parse(current_operand, mnemonic));
                         }
                     }
                 }
