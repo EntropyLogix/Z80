@@ -1136,6 +1136,22 @@ private:
                         return true;
                 }
             }
+            const std::map<std::string, uint8_t> rotate_shift_map = {
+                {"RLC", 0x00}, {"RRC", 0x08}, {"RL", 0x10}, {"RR", 0x18},
+                {"SLA", 0x20}, {"SRA", 0x28}, {"SLL", 0x30}, {"SLI", 0x30}, {"SRL", 0x38}
+            };
+            if (rotate_shift_map.count(mnemonic)) {
+                if (match_reg8(op) || (match_mem_reg16(op) && op.str_val == "HL")) {
+                    uint8_t base_opcode = rotate_shift_map.at(mnemonic);
+                    uint8_t reg_code;
+                    if (op.type == OperandType::MEM_REG16)
+                        reg_code = reg8_map().at("(HL)");
+                    else
+                        reg_code = reg8_map().at(op.str_val);
+                    assemble({0xCB, (uint8_t)(base_opcode | reg_code)});
+                    return true;
+                }
+            }
             return false;
         }
         bool encode_two_operands(const std::string& mnemonic, const Operand& op1, const Operand& op2) {
