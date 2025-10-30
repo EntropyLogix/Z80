@@ -55,20 +55,22 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
         return;
     }
 
+    uint16_t start_addr = blocks.empty() ? 0 : blocks[0].first;
+
     bool mismatch = false;
     for (size_t i = 0; i < expected_bytes.size(); ++i) {
-        if (bus.peek(i) != expected_bytes[i]) {
+        if (bus.peek(start_addr + i) != expected_bytes[i]) {
             mismatch = true;
             break;
         }
     }
 
     if (mismatch) {
-        std::cerr << "Assertion failed: Byte mismatch for '" << asm_code << "'\n";
+        std::cerr << "Assertion failed: Byte mismatch for '" << asm_code << "' at address 0x" << std::hex << start_addr << std::dec << "\n";
         std::cerr << "  Expected: ";
         for (uint8_t byte : expected_bytes) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
         std::cerr << "\n  Got:      ";
-        for (size_t i = 0; i < expected_bytes.size(); ++i) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)bus.peek(i) << " ";
+        for (size_t i = 0; i < expected_bytes.size(); ++i) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)bus.peek(start_addr + i) << " ";
         std::cerr << std::dec << "\n";
         tests_failed++;
     } else {
@@ -664,6 +666,67 @@ TEST_CASE(ExpressionEvaluation) {
         0x0E, 8   // LD C, 8
     };
     ASSERT_CODE(code, expected);
+}
+
+TEST_CASE(EQUWithExpressions) {
+    // EQU with simple arithmetic
+    ASSERT_CODE(R"(
+        VAL EQU 10 + 5
+        LD A, VAL
+    )", {0x3E, 15});
+
+    // Chained EQU
+    ASSERT_CODE(R"(
+        BASE EQU 0x1000
+        OFFSET EQU 0x20
+        ADDR EQU BASE + OFFSET
+        LD HL, ADDR
+    )", {0x21, 0x20, 0x10});
+
+    // EQU with a label and current address ($)
+    ASSERT_CODE(R"(
+        MY_DATA: DB 1, 2, 3
+        DATA_LEN EQU $ - MY_DATA
+        LD A, DATA_LEN
+    )", {0x01, 0x02, 0x03, 0x3E, 0x03});
+}
+
+TEST_CASE(CurrentAddressSymbol) {
+    // Direct use of $ in an 8-bit instruction operand
+    ASSERT_CODE(R"(
+        ORG 0x0005
+        LD A, $
+    )", {0x3E, 0x05}); // LD A, 0x05
+
+    // $ with arithmetic in a 16-bit instruction operand
+    ASSERT_CODE(R"(
+        ORG 0x0100
+        LD HL, $ + 10
+    )", {0x21, 0x0A, 0x01}); // LD HL, 0x010A (0x0100 + 10 = 0x010A)
+
+    // $ in DB directive
+    ASSERT_CODE(R"(
+        ORG 0x0010
+        DB $
+    )", {0x10}); // DB 0x10
+
+    // $ in DW directive
+    ASSERT_CODE(R"(
+        ORG 0x0020
+        DW $
+    )", {0x20, 0x00}); // DW 0x0020 (little-endian)
+
+    // $ in JR instruction (relative jump forward)
+    ASSERT_CODE(R"(
+        ORG 0x0000
+        JR $ + 5
+    )", {0x18, 0x03}); // JR 0x0005 (offset 0x0005 - (0x0000 + 2) = 0x0003)
+
+    // $ in JR instruction (relative jump backward)
+    ASSERT_CODE(R"(
+        ORG 0x0005
+        JR $ - 5
+    )", {0x18, 0xF9}); // JR 0x0000 (offset 0x0000 - (0x0005 + 2) = -7 = 0xF9)
 }
 
 TEST_CASE(ForwardReferences) {

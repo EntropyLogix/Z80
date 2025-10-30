@@ -229,13 +229,15 @@ private:
                 char c = expr[i];
                 if (isspace(c))
                     continue;
-                if (isalpha(c) || c == '_' || c == '$') { // Symbol or register
+                if (isalpha(c) || c == '_') {
                     size_t j = i;
                     while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_')) {
                         j++;
                     }
                     tokens.push_back({Token::Type::SYMBOL, expr.substr(i, j - i)});
                     i = j - 1;
+                } else if (c == '$') {
+                    tokens.push_back({Token::Type::SYMBOL, "$"});
                 } else if (isdigit(c) || (c == '0' && (expr[i+1] == 'x' || expr[i+1] == 'X'))) { // Number
                     size_t j = i;
                     if (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X")
@@ -401,7 +403,13 @@ private:
         virtual bool on_pass_end() {return true;};
         virtual void on_next_pass() {};
         //Lines
-        virtual bool on_symbol(const std::string symbol, int32_t& out_value) {return false;};
+        virtual bool on_symbol(const std::string symbol, int32_t& out_value) {
+            if (symbol == "$") {
+                out_value = this->m_context.m_current_address;
+                return true;
+            }
+            return false;
+        };
         virtual void on_label(const std::string& label) {};
         virtual void on_const(const std::string& label, const std::string& value) {};
         virtual void on_code_block(const std::string& label) {};
@@ -500,6 +508,8 @@ private:
             m_undefined_symbols.clear();
         }
         virtual bool on_symbol(const std::string symbol, int32_t& out_value) override {
+            if (IAssemblyPolicy::on_symbol(symbol, out_value))
+                return true;
             auto it = this->m_context.m_symbols.find(symbol);
             if (it != this->m_context.m_symbols.end()) {
                 out_value = it->second;
@@ -573,6 +583,8 @@ private:
             return true;
         }
         virtual bool on_symbol(const std::string symbol, int32_t& out_value) override {
+            if (IAssemblyPolicy::on_symbol(symbol, out_value))
+                return true;
             auto it = this->m_context.m_symbols.find(symbol);
             if (it == this->m_context.m_symbols.end())
                 throw std::runtime_error("Undefined symbol: " + symbol);
