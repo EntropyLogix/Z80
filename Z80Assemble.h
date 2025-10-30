@@ -972,6 +972,10 @@ private:
                 assemble({0x34});
                 return true;
             }
+            if (mnemonic == "SUB" && match_imm8(op)) {
+                assemble({0xD6, (uint8_t)op.num_val});
+                return true;
+            }
             if (mnemonic == "DEC" && match_mem_reg16(op) && op.str_val == "HL") {
                 assemble({0x35});
                 return true;
@@ -1023,12 +1027,32 @@ private:
                 assemble({0x18, (uint8_t)(offset)});
                 return true;
             }
-            if (mnemonic == "SUB" && match_imm8(op)) {
-                assemble({0xD6, (uint8_t)op.num_val});
+            if (mnemonic == "ADD" && match_imm8(op)) {
+                assemble({0xC6, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "ADD" && match_reg8(op)) {
-                assemble({(uint8_t)(0x80 | reg8_map().at(op.str_val))});
+            if (mnemonic == "ADC" && match_imm8(op)) {
+                assemble({0xCE, (uint8_t)op.num_val});
+                return true;
+            }
+            if (mnemonic == "SBC" && match_imm8(op)) {
+                assemble({0xDE, (uint8_t)op.num_val});
+                return true;
+            }
+            if (mnemonic == "AND" && match_imm8(op)) {
+                assemble({0xE6, (uint8_t)op.num_val});
+                return true;
+            }
+            if (mnemonic == "XOR" && match_imm8(op)) {
+                assemble({0xEE, (uint8_t)op.num_val});
+                return true;
+            }
+            if (mnemonic == "OR" && match_imm8(op)) {
+                assemble({0xF6, (uint8_t)op.num_val});
+                return true;
+            }
+            if (mnemonic == "CP" && match_imm8(op)) {
+                assemble({0xFE, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "DJNZ" && match_imm16(op)) {
@@ -1059,30 +1083,10 @@ private:
                     base_opcode = 0xB6;
                 else if (mnemonic == "CP")
                     base_opcode = 0xBE;
-                if (op.base_reg == "IX") {
+                if (op.base_reg == "IX")
                     assemble({0xDD, base_opcode, (uint8_t)((int8_t)op.offset)});
-                } else if (op.base_reg == "IY")
+                else if (op.base_reg == "IY")
                     assemble({0xFD, base_opcode, (uint8_t)((int8_t)op.offset)});
-                return true;
-            }
-            if (mnemonic == "CP" && match_imm8(op)) {
-                assemble({0xFE, (uint8_t)op.num_val});
-                return true;
-            }
-            if (mnemonic == "AND" && match_imm8(op)) {
-                assemble({0xE6, (uint8_t)op.num_val});
-                return true;
-            }
-            if (mnemonic == "OR" && match_imm8(op)) {
-                assemble({0xF6, (uint8_t)op.num_val});
-                return true;
-            }
-            if (mnemonic == "XOR" && match_imm8(op)) {
-                assemble({0xEE, (uint8_t)op.num_val});
-                return true;
-            }
-            if (mnemonic == "SUB" && match_imm8(op)) {
-                assemble({0xD6, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "CALL" && match_imm16(op)) {
@@ -1090,7 +1094,7 @@ private:
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
-                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && match_reg8(op)) {
+                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && (match_reg8(op) || (match_mem_reg16(op) && op.str_val == "HL"))) {
                 uint8_t base_opcode = 0;
                 if (mnemonic == "ADD")
                     base_opcode = 0x80;
@@ -1108,8 +1112,20 @@ private:
                     base_opcode = 0xB0;
                 else if (mnemonic == "CP")
                     base_opcode = 0xB8;
-                uint8_t reg_code = reg8_map().at(op.str_val);
-                assemble({(uint8_t)(base_opcode | reg_code)});
+                uint8_t reg_code;
+                if (op.str_val == "HL")
+                    reg_code = reg8_map().at("(HL)");
+                else
+                    reg_code = reg8_map().at(op.str_val);
+                uint8_t prefix = 0;
+                if (op.str_val.find("IX") != std::string::npos)
+                    prefix = 0xDD;
+                else if (op.str_val.find("IY") != std::string::npos)
+                    prefix = 0xFD;
+                if (prefix)
+                    assemble({prefix, (uint8_t)(base_opcode | reg_code)});
+                else
+                    assemble({(uint8_t)(base_opcode | reg_code)});
                 return true;
             }
             if (mnemonic == "RET" && match_condition(op)) {
@@ -1455,6 +1471,26 @@ private:
             }
             if (mnemonic == "SBC" && op1.str_val == "A" && match_imm8(op2)) {
                 assemble({0xDE, (uint8_t)op2.num_val});
+                return true;
+            }
+            if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2)) {
+                assemble({0xD6, (uint8_t)op2.num_val});
+                return true;
+            }
+            if (mnemonic == "AND" && op1.str_val == "A" && match_imm8(op2)) {
+                assemble({0xE6, (uint8_t)op2.num_val});
+                return true;
+            }
+            if (mnemonic == "XOR" && op1.str_val == "A" && match_imm8(op2)) {
+                assemble({0xEE, (uint8_t)op2.num_val});
+                return true;
+            }
+            if (mnemonic == "OR" && op1.str_val == "A" && match_imm8(op2)) {
+                assemble({0xF6, (uint8_t)op2.num_val});
+                return true;
+            }
+            if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2)) {
+                assemble({0xFE, (uint8_t)op2.num_val});
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||

@@ -203,13 +203,21 @@ TEST_CASE(OneOperandInstructions) {
 
     // Arithmetic/Logic with immediate
     ASSERT_CODE("ADD A, 0x42", {0xC6, 0x42});
+    ASSERT_CODE("ADD 0x42", {0xC6, 0x42}); // Implicit A
     ASSERT_CODE("ADC A, 0x42", {0xCE, 0x42});
+    ASSERT_CODE("ADC 0x42", {0xCE, 0x42}); // Implicit A
+    ASSERT_CODE("SUB A, 0x42", {0xD6, 0x42}); // Explicit A
     ASSERT_CODE("SUB 0x42", {0xD6, 0x42});
     ASSERT_CODE("SBC A, 0x42", {0xDE, 0x42});
+    ASSERT_CODE("SBC 0x42", {0xDE, 0x42}); // Implicit A
     ASSERT_CODE("AND 0x42", {0xE6, 0x42});
+    ASSERT_CODE("AND A, 0x42", {0xE6, 0x42}); // Explicit A
     ASSERT_CODE("XOR 0x42", {0xEE, 0x42});
+    ASSERT_CODE("XOR A, 0x42", {0xEE, 0x42}); // Explicit A
     ASSERT_CODE("OR 0x42", {0xF6, 0x42});
+    ASSERT_CODE("OR A, 0x42", {0xF6, 0x42}); // Explicit A
     ASSERT_CODE("CP 0x42", {0xFE, 0x42});
+    ASSERT_CODE("CP A, 0x42", {0xFE, 0x42}); // Explicit A
 
     // Arithmetic/Logic with register
     ASSERT_CODE("ADD A, B", {0x80});
@@ -219,12 +227,60 @@ TEST_CASE(OneOperandInstructions) {
     ASSERT_CODE("ADD A, H", {0x84});
     ASSERT_CODE("ADD A, L", {0x85});
     ASSERT_CODE("ADD A, (HL)", {0x86});
-    ASSERT_CODE("ADD A, A", {0x87});
-    ASSERT_CODE("SUB B", {0x90});
+    ASSERT_CODE("ADD A, A", {0x87});    
+    ASSERT_CODE("ADD B", {0x80}); // Implicit A
+    ASSERT_CODE("SUB A, B", {0x90});
+    ASSERT_CODE("SUB C", {0x91});
+    ASSERT_CODE("SUB D", {0x92});
+    ASSERT_CODE("SUB E", {0x93});
+    ASSERT_CODE("SUB H", {0x94});
+    ASSERT_CODE("SUB L", {0x95});
+    ASSERT_CODE("SUB (HL)", {0x96});    
+    ASSERT_CODE("SUB A, A", {0x97});
+    ASSERT_CODE("ADC A, B", {0x88});
+    ASSERT_CODE("ADC B", {0x88});
+    ASSERT_CODE("ADC C", {0x89});
+    ASSERT_CODE("ADC D", {0x8A});
+    ASSERT_CODE("ADC E", {0x8B});
+    ASSERT_CODE("ADC H", {0x8C});
+    ASSERT_CODE("ADC L", {0x8D});
+    ASSERT_CODE("ADC (HL)", {0x8E});    
+    ASSERT_CODE("ADC A, A", {0x8F});
+    ASSERT_CODE("SBC A, B", {0x98});
+    ASSERT_CODE("SBC B", {0x98});
+    ASSERT_CODE("SBC (HL)", {0x9E});    
+    ASSERT_CODE("SBC A, A", {0x9F});
+    ASSERT_CODE("AND A, B", {0xA0});
     ASSERT_CODE("AND C", {0xA1});
+    ASSERT_CODE("AND (HL)", {0xA6});    
+    ASSERT_CODE("AND A", {0xA7});
     ASSERT_CODE("OR D", {0xB2});
+    ASSERT_CODE("OR (HL)", {0xB6});    
+    ASSERT_CODE("OR A", {0xB7});
     ASSERT_CODE("XOR E", {0xAB});
+    ASSERT_CODE("XOR (HL)", {0xAE});    
+    ASSERT_CODE("XOR A", {0xAF});
     ASSERT_CODE("CP H", {0xBC});
+    ASSERT_CODE("CP (HL)", {0xBE});
+    ASSERT_CODE("CP A", {0xBF});
+
+    // Arithmetic/Logic with IX/IY parts
+    ASSERT_CODE("ADD A, IXH", {0xDD, 0x84});
+    ASSERT_CODE("ADD A, IXL", {0xDD, 0x85});
+    ASSERT_CODE("ADD A, IYH", {0xFD, 0x84});
+    ASSERT_CODE("ADD A, IYL", {0xFD, 0x85});
+    ASSERT_CODE("ADC A, IXH", {0xDD, 0x8C});
+    ASSERT_CODE("SUB IXL", {0xDD, 0x95});
+    ASSERT_CODE("SBC A, IYH", {0xFD, 0x9C});
+    ASSERT_CODE("AND IXH", {0xDD, 0xA4});
+    ASSERT_CODE("XOR IXL", {0xDD, 0xAD});
+    ASSERT_CODE("OR IYH", {0xFD, 0xB4});
+    ASSERT_CODE("CP IYL", {0xFD, 0xBD});
+    // Test mixed explicit/implicit 'A'
+    ASSERT_CODE("SUB A, IXH", {0xDD, 0x94});
+    ASSERT_CODE("AND A, IYL", {0xFD, 0xA5});
+    ASSERT_CODE("OR A, IXH", {0xDD, 0xB4});
+    ASSERT_CODE("CP A, IXL", {0xDD, 0xBD});
 
     // Conditional RET
     ASSERT_CODE("RET NZ", {0xC0});
@@ -353,13 +409,19 @@ TEST_CASE(TwoOperandInstructions_LD_Indexed) {
     ASSERT_CODE("LD A, (IX+10)", {0xDD, 0x7E, 0x0A});
     ASSERT_CODE("LD B, (IX-20)", {0xDD, 0x46, 0xEC}); // -20 = 0xEC
     ASSERT_CODE("LD C, (IY+0)", {0xFD, 0x4E, 0x00});
-    ASSERT_CODE("LD D, (IY+127)", {0xFD, 0x56, 0x7F});
+    ASSERT_CODE("LD D, (IY+127)", {0xFD, 0x56, 0x7F});    
+    ASSERT_CODE("LD E, (IX+1)", {0xDD, 0x5E, 0x01});
+    ASSERT_CODE("LD H, (IY+2)", {0xFD, 0x66, 0x02});
+    ASSERT_CODE("LD L, (IX+3)", {0xDD, 0x6E, 0x03});
 
     // LD (IX/IY+d), r
     ASSERT_CODE("LD (IX+5), A", {0xDD, 0x77, 0x05});
     ASSERT_CODE("LD (IX-8), B", {0xDD, 0x70, 0xF8});
     ASSERT_CODE("LD (IY+0), C", {0xFD, 0x71, 0x00});
-    ASSERT_CODE("LD (IY+127), D", {0xFD, 0x72, 0x7F});
+    ASSERT_CODE("LD (IY+127), D", {0xFD, 0x72, 0x7F});    
+    ASSERT_CODE("LD (IX+1), E", {0xDD, 0x73, 0x01});
+    ASSERT_CODE("LD (IY+2), H", {0xFD, 0x74, 0x02});
+    ASSERT_CODE("LD (IX+3), L", {0xDD, 0x75, 0x03});
 
     // LD (IX/IY+d), n
     ASSERT_CODE("LD (IX+1), 0xAB", {0xDD, 0x36, 0x01, 0xAB});
@@ -501,16 +563,21 @@ TEST_CASE(TwoOperandInstructions_IO) {
 TEST_CASE(BitInstructions) {
     // BIT b, r
     ASSERT_CODE("BIT 0, A", {0xCB, 0x47});
+    ASSERT_CODE("BIT 7, A", {0xCB, 0x7F});
     ASSERT_CODE("BIT 7, B", {0xCB, 0x78});
     ASSERT_CODE("BIT 3, (HL)", {0xCB, 0x5E});
+    ASSERT_CODE("BIT 0, (HL)", {0xCB, 0x46});
 
     // SET b, r
     ASSERT_CODE("SET 1, C", {0xCB, 0xC9});
+    ASSERT_CODE("SET 0, A", {0xCB, 0xC7});
     ASSERT_CODE("SET 6, D", {0xCB, 0xF2});
     ASSERT_CODE("SET 2, (HL)", {0xCB, 0xD6});
+    ASSERT_CODE("SET 7, (HL)", {0xCB, 0xFE});
 
     // RES b, r
     ASSERT_CODE("RES 2, E", {0xCB, 0x93});
+    ASSERT_CODE("RES 7, A", {0xCB, 0xBF});
     ASSERT_CODE("RES 5, H", {0xCB, 0xAC});
     ASSERT_CODE("RES 0, (HL)", {0xCB, 0x86});
 
