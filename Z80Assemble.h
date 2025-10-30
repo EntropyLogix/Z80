@@ -1007,10 +1007,22 @@ private:
                 return true;
             }
             if (mnemonic == "INC" && match_reg8(op)) {
+                if (op.str_val.find("IX") != std::string::npos || op.str_val.find("IY") != std::string::npos) {
+                    uint8_t prefix = (op.str_val.find("IX") != std::string::npos) ? 0xDD : 0xFD;
+                    uint8_t opcode = (op.str_val.back() == 'H') ? 0x24 : 0x2C; // INC H or INC L
+                    assemble({prefix, opcode});
+                    return true;
+                }
                 assemble({(uint8_t)(0x04 | (reg8_map().at(op.str_val) << 3))});
                 return true;
             }
             if (mnemonic == "DEC" && match_reg8(op)) {
+                if (op.str_val.find("IX") != std::string::npos || op.str_val.find("IY") != std::string::npos) {
+                    uint8_t prefix = (op.str_val.find("IX") != std::string::npos) ? 0xDD : 0xFD;
+                    uint8_t opcode = (op.str_val.back() == 'H') ? 0x25 : 0x2D; // DEC H or DEC L
+                    assemble({prefix, opcode});
+                    return true;
+                }
                 assemble({(uint8_t)(0x05 | (reg8_map().at(op.str_val) << 3))});
                 return true;
             }
@@ -1302,14 +1314,20 @@ private:
                 assemble({(uint8_t)(0x40 | (dest_code << 3) | src_code)});
                 return true;
             }
+            if (mnemonic == "LD" &&
+                (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && match_imm8(op2)) 
+            {
+                uint8_t opcode = 0;
+                if (op1.str_val == "IXH" || op1.str_val == "IYH")
+                    opcode = 0x26; // LD H, n
+                else // IXL or IYL
+                    opcode = 0x2E; // LD L, n
+                assemble({prefix, opcode, (uint8_t)op2.num_val});
+                return true;    
+            }
             if (mnemonic == "LD" && match_reg8(op1) && match_imm8(op2)) {
                 uint8_t dest_code = reg8_map().at(op1.str_val);
                 assemble({(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val});
-                return true;
-            }
-            if (mnemonic == "LD" &&
-                (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && match_imm8(op2)) {
-                assemble({prefix, (uint8_t)(0x06 | (reg8_map().at(op1.str_val) << 3)), (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "LD" && match_reg16(op1) && match_imm16(op2)) {
