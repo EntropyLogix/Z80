@@ -76,7 +76,26 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
     }
 }
 
-// --- Testy jednostkowe ---
+void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
+    Z80DefaultBus bus;
+    Z80Assembler<Z80DefaultBus> assembler(&bus);
+    try {
+        bool success = assembler.compile(asm_code, 0x0000);
+        if (success) {
+            std::cerr << "Assertion failed: Compilation succeeded for '" << asm_code << "' but was expected to fail.\n";
+            tests_failed++;
+        } else {
+            // This case might occur if compile() returns false without an exception.
+            tests_passed++;
+        }
+    } catch (const std::runtime_error& e) {
+        // Exception was expected, so this is a pass.
+        tests_passed++;
+    } catch (...) {
+        std::cerr << "Assertion failed: An unexpected exception was thrown for '" << asm_code << "'.\n";
+        tests_failed++;
+    }
+}
 
 TEST_CASE(NoOperandInstructions) {
     ASSERT_CODE("NOP", {0x00});
@@ -625,6 +644,19 @@ TEST_CASE(ForwardReferences) {
         0x3E, 0x01
     };
     ASSERT_CODE(code, expected);
+}
+
+TEST_CASE(CyclicDependency) {
+    ASSERT_COMPILE_FAILS(R"(
+        VAL1 EQU VAL2
+        VAL2 EQU VAL1
+        LD A, VAL1
+    )");
+    ASSERT_COMPILE_FAILS(R"(
+        VAL1 EQU VAL2 + 1
+        VAL2 EQU VAL1 - 1
+        LD A, VAL1
+    )");
 }
 
 int main() {
