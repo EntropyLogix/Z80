@@ -32,7 +32,7 @@ template <typename T> std::string format_hex(T value, int width) {
 
 void print_usage() {
     std::cerr << "Usage: Z80Dump <file_path> [options]\n"
-              << "File formats supported: .bin, .sna, .z80\n\n"
+              << "File formats supported: .bin, .sna, .z80, .hex\n\n"
               << "Options:\n"
               << "  --mem-dump <address> <bytes_hex>\n"
               << "    Dumps memory. <address> can be a hex value, a register "
@@ -98,8 +98,65 @@ bool load_bin_file(Z80DefaultBus& bus, const std::vector<uint8_t>& data, uint16_
     return true;
 }
 
+enum class IntelHexRecordType : uint8_t {
+    Data = 0x00,
+    EndOfFile = 0x01,
+    ExtendedLinearAddress = 0x04,
+};
+
+bool load_hex_file(Z80DefaultBus& bus, const std::string& content) {
+    std::stringstream file_stream(content);
+    std::string line;
+    uint32_t extended_linear_address = 0;
+    while (std::getline(file_stream, line)) {
+        if (line.empty() || line[0] != ':')
+            continue;
+        try {
+            uint8_t byte_count = std::stoul(line.substr(1, 2), nullptr, 16);
+            uint16_t address = std::stoul(line.substr(3, 4), nullptr, 16);
+            uint8_t record_type = std::stoul(line.substr(7, 2), nullptr, 16);
+            if (line.length() < 11 + (size_t)byte_count * 2) {
+                std::cerr << "Warning: Malformed HEX line (too short): " << line << std::endl;
+                continue;
+            }
+            uint8_t checksum = byte_count + (address >> 8) + (address & 0xFF) + record_type;
+            std::vector<uint8_t> data_bytes;
+            data_bytes.reserve(byte_count);
+            for (int i = 0; i < byte_count; ++i) {
+                uint8_t byte = std::stoul(line.substr(9 + i * 2, 2), nullptr, 16);
+                data_bytes.push_back(byte);
+                checksum += byte;
+            }
+            uint8_t file_checksum = std::stoul(line.substr(9 + byte_count * 2, 2), nullptr, 16);
+            if (((checksum + file_checksum) & 0xFF) != 0) {
+                std::cerr << "Warning: Checksum error in HEX line: " << line << std::endl;
+                continue;
+            }
+            switch (static_cast<IntelHexRecordType>(record_type)) {
+            case IntelHexRecordType::Data: {
+                uint32_t full_address = extended_linear_address + address;
+                for (size_t i = 0; i < data_bytes.size(); ++i) {
+                    if (full_address + i <= 0xFFFF)
+                        bus.write(full_address + i, data_bytes[i]);
+                }
+                break;
+            }
+            case IntelHexRecordType::EndOfFile:
+                return true;
+            case IntelHexRecordType::ExtendedLinearAddress:
+                if (byte_count == 2) 
+                    extended_linear_address = (data_bytes[0] << 24) | (data_bytes[1] << 16);
+                break;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: Could not parse HEX line: " << line << " (" << e.what() << ")" << std::endl;
+        }
+    }
+    return true;
+}
+
 bool load_sna_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
-    if (data.size() != 49179) { // 27-byte header + 48KB RAM
+    if (data.size() != 49179) {
         std::cerr << "Error: Invalid 48K SNA file size." << std::endl;
         return false;
     }
@@ -120,9 +177,8 @@ bool load_sna_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
     state.m_AF.w = (data[22] << 8) | data[21];
     state.m_SP.w = (data[24] << 8) | data[23];
     state.m_IRQ_mode = data[25];
-    for (size_t i = 0; i < 49152; ++i) {
+    for (size_t i = 0; i < 49152; ++i)
         cpu.get_bus()->write(0x4000 + i, data[27 + i]);
-    }
     state.m_PC.w = cpu.get_bus()->peek(state.m_SP.w) | (cpu.get_bus()->peek(state.m_SP.w + 1) << 8);
     state.m_SP.w += 2;
     cpu.restore_state(state);
@@ -190,13 +246,13 @@ bool load_z80_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
             switch (i) {
             case 0:
                 mem_addr = 0x4000;
-                break; // Page 8
+                break;
             case 1:
                 mem_addr = 0x8000;
-                break; // Page 4
+                break;
             case 2:
                 mem_addr = 0xC000;
-                break; // Page 5
+                break;
             }
             for (int j = 0; j < 16384; ++j)
                 cpu.get_bus()->write(mem_addr + j, data[data_ptr++]);
@@ -206,9 +262,8 @@ bool load_z80_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
 }
 
 uint16_t resolve_address(const std::string& addr_str, const Z80<>& cpu) {
-    if (addr_str.empty()) {
+    if (addr_str.empty())
         throw std::runtime_error("Address argument is empty.");
-    }
     size_t plus_pos = addr_str.find('+');
     size_t minus_pos = addr_str.find('-');
     size_t operator_pos = (plus_pos != std::string::npos) ? plus_pos : minus_pos;
@@ -216,12 +271,10 @@ uint16_t resolve_address(const std::string& addr_str, const Z80<>& cpu) {
         std::string reg_str = addr_str.substr(0, operator_pos);
         std::string offset_str = addr_str.substr(operator_pos + 1);
         char op = addr_str[operator_pos];
-
         reg_str.erase(0, reg_str.find_first_not_of(" \t"));
         reg_str.erase(reg_str.find_last_not_of(" \t") + 1);
         offset_str.erase(0, offset_str.find_first_not_of(" \t"));
         offset_str.erase(offset_str.find_last_not_of(" \t") + 1);
-
         uint16_t base_addr = resolve_address(reg_str, cpu);
         int offset = 0;
         try {
@@ -234,9 +287,8 @@ uint16_t resolve_address(const std::string& addr_str, const Z80<>& cpu) {
             } else if (upper_offset_str.back() == 'H') {
                 offset = std::stoi(offset_str.substr(0, offset_str.length() - 1), &pos, 16);
                 pos += 1;
-            } else {
+            } else 
                 offset = std::stoi(offset_str, &pos, 10);
-            }
             if (pos != offset_str.length()) {
                 throw std::invalid_argument("Invalid characters in offset");
             }
@@ -301,40 +353,39 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--disassemble" && i + 2 < argc) {
             disasm_addr_str = argv[++i];
             disasm_lines = std::stoul(argv[++i], nullptr, 10);
-        } else if (arg == "--load-addr" && i + 1 < argc) {
+        } else if (arg == "--load-addr" && i + 1 < argc)
             load_addr_str = argv[++i];
-        } else if (arg == "--map" && i + 1 < argc) {
+        else if (arg == "--map" && i + 1 < argc)
             map_files.push_back(argv[++i]);
-        } else if (arg == "--ctl" && i + 1 < argc) {
+        else if (arg == "--ctl" && i + 1 < argc)
             ctl_files.push_back(argv[++i]);
-        } else if (arg == "--reg-dump") {
+        else if (arg == "--reg-dump") {
             reg_dump_action = true;
             if (i + 1 < argc && argv[i + 1][0] != '-')
                 reg_dump_format = argv[++i];
-        } else if (arg == "--run-ticks" && i + 1 < argc) {
+        } else if (arg == "--run-ticks" && i + 1 < argc)
             run_ticks = std::stoll(argv[++i], nullptr, 10);
-        } else if (arg == "--run-steps" && i + 1 < argc) {
+        else if (arg == "--run-steps" && i + 1 < argc)
             run_steps = std::stoll(argv[++i], nullptr, 10);
-        } else {
-            // Check for incomplete arguments to provide a better error message
-            if ((arg == "--mem-dump" || arg == "--disassemble") && i + 2 >= argc) {
+        else {
+            bool is_known_arg_with_missing_value =
+                ((arg == "--mem-dump" || arg == "--disassemble") && i + 2 >= argc) ||
+                ((arg == "--load-addr" || arg == "--map" || arg == "--ctl" || arg == "--run-ticks" || arg == "--run-steps") && i + 1 >= argc);
+            if (is_known_arg_with_missing_value)
                 std::cerr << "Error: Incomplete argument for '" << arg << "'. Expected two values." << std::endl;
-            } else if ((arg == "--load-addr" || arg == "--map" || arg == "--ctl" || arg == "--run-ticks" || arg == "--run-steps") && i + 1 >= argc) {
-                std::cerr << "Error: Incomplete argument for '" << arg << "'. Expected one value." << std::endl;
-            } else if (arg == "--reg-dump" && (i + 1 >= argc || argv[i+1][0] == '-')) {
-                // This is fine, it means no format string was provided
-            }
-            else {
+            else
                 std::cerr << "Error: Unknown or incomplete argument '" << arg << "'." << std::endl;
-            }
             print_usage();
             return 1;
         }
-    }
-    auto file_data = read_file(file_path);
-    if (file_data.empty()) {
-        std::cerr << "Error: Could not read file '" << file_path << "'." << std::endl;
-        return 1;
+    }    
+    std::string ext = get_file_extension(file_path);
+    std::vector<uint8_t> file_data_bytes;
+    std::string file_data_str;
+    if (ext == "hex") {
+        std::ifstream file(file_path);
+        if (!file) { std::cerr << "Error: Could not read file '" << file_path << "'." << std::endl; return 1; }
+        file_data_str.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
     Z80<> cpu;
     Z80DefaultLabels label_handler;
@@ -359,16 +410,24 @@ int main(int argc, char* argv[]) {
     } catch (const std::exception& e) {
         std::cerr << "Error loading label file: " << e.what() << std::endl;
     }
-    std::string ext = get_file_extension(file_path);
     bool loaded = false;
     std::cout << "Loading file: " << file_path << " (type: " << (ext.empty() ? "bin" : ext) << ")" << std::endl;
-    if (ext == "sna") {
-        loaded = load_sna_file(cpu, file_data);
-    } else if (ext == "z80") {
-        loaded = load_z80_file(cpu, file_data);
-    } else if (ext == "bin" || ext.empty()) {
+    if (ext != "hex") {
+        file_data_bytes = read_file(file_path);
+        if (file_data_bytes.empty()) {
+            std::cerr << "Error: Could not read file or file is empty '" << file_path << "'." << std::endl;
+            return 1;
+        }
+    }
+    if (ext == "hex")
+        loaded = load_hex_file(*cpu.get_bus(), file_data_str);
+    else if (ext == "sna")
+        loaded = load_sna_file(cpu, file_data_bytes);
+    else if (ext == "z80")
+        loaded = load_z80_file(cpu, file_data_bytes);
+    else if (ext == "bin" || ext.empty()) {
         uint16_t load_addr = resolve_address(load_addr_str, cpu);
-        loaded = load_bin_file(*cpu.get_bus(), file_data, load_addr);
+        loaded = load_bin_file(*cpu.get_bus(), file_data_bytes, load_addr);
         cpu.set_PC(load_addr);
     } else {
         std::cerr << "Error: Unsupported file extension '" << ext << "'." << std::endl;
@@ -382,22 +441,19 @@ int main(int argc, char* argv[]) {
     if (run_ticks > 0) {
         std::cout << "--- Running emulation for " << run_ticks << " T-states ---\n";
         long long executed_ticks = cpu.run(cpu.get_ticks() + run_ticks);
-        std::cout << "Executed " << executed_ticks << " T-states. CPU is now at tick " << cpu.get_ticks() << ".\n"
-                  << std::endl;
+        std::cout << "Executed " << executed_ticks << " T-states. CPU is now at tick " << cpu.get_ticks() << ".\n" << std::endl;
     }
     if (run_steps > 0) {
         std::cout << "--- Running emulation for " << run_steps << " instructions (steps) ---\n";
         long long total_ticks_for_steps = 0;
-        for (long long i = 0; i < run_steps; ++i) {
+        for (long long i = 0; i < run_steps; ++i)
             total_ticks_for_steps += cpu.step();
-        }
         std::cout << "Executed " << run_steps << " instructions (" << total_ticks_for_steps
                   << " T-states). CPU is now at tick " << cpu.get_ticks() << ".\n"
                   << std::endl;
     }
-    if (mem_dump_size == 0 && disasm_lines == 0 && !reg_dump_action) {
+    if (mem_dump_size == 0 && disasm_lines == 0 && !reg_dump_action)
         reg_dump_action = true;
-    }
     if (reg_dump_action) {
         std::string format = reg_dump_format.empty() ? "AF=%af BC=%bc DE=%de HL=%hl IX=%ix IY=%iy "
                                                        "PC=%pc SP=%sp | %flags"
