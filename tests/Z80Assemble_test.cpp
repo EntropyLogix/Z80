@@ -97,6 +97,87 @@ void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
     }
 }
 
+template<typename T>
+std::string to_binary_string(T n) {
+    if (n == 0) return "0";
+    std::string binary;
+    constexpr size_t bits = sizeof(T) * 8;
+    for (size_t i = 0; i < bits; ++i) {
+        if ((n >> (bits - 1 - i)) & 1) {
+            binary += '1';
+        } else if (!binary.empty()) {
+            binary += '0';
+        }
+    }
+    return binary.empty() ? "0" : binary;
+}
+
+void TEST_IMMEDIATE_8BIT(const std::string& instruction_format, const std::vector<uint8_t>& opcode_prefix) {
+    auto test_value = [&](int value) {
+        std::vector<std::string> formats;
+        // Decimal
+        formats.push_back(std::to_string(value));
+        // Hex
+        std::stringstream ss_hex;
+        if (value < 0) ss_hex << "-";
+        ss_hex << "0x" << std::hex << (value < 0 ? -value : value);
+        formats.push_back(ss_hex.str());
+        // Binary
+        std::string bin_str = "0b" + to_binary_string(value < 0 ? -value : value);
+        if (value < 0) bin_str.insert(0, "-");
+        formats.push_back(bin_str);
+
+        for (const auto& value_str : formats) {
+            std::string code = instruction_format;
+            size_t pos = code.find("{}");
+            if (pos != std::string::npos) {
+                code.replace(pos, 2, value_str);
+            }
+            std::vector<uint8_t> expected_bytes = opcode_prefix;
+            expected_bytes.push_back(static_cast<uint8_t>(value));
+            ASSERT_CODE(code, expected_bytes);
+        }
+    };
+
+    for (int i = 0; i <= 255; ++i) {
+        test_value(i);
+    }
+    for (int i = -128; i < 0; ++i) {
+        test_value(i);
+    }
+}
+
+void TEST_IMMEDIATE_16BIT(const std::string& instruction_format, const std::vector<uint8_t>& opcode_prefix) {
+    // WARNING: This is a very long-running test, iterating through all 65536 values.
+    auto test_value = [&](long value) {
+        std::vector<std::string> formats;
+        formats.push_back(std::to_string(value));
+        std::stringstream ss_hex;
+        if (value < 0) ss_hex << "-";
+        ss_hex << "0x" << std::hex << (value < 0 ? -value : value);
+        formats.push_back(ss_hex.str());
+        std::string bin_str = "0b" + to_binary_string(value < 0 ? -value : value);
+        if (value < 0) bin_str.insert(0, "-");
+        formats.push_back(bin_str);
+
+        for (const auto& value_str : formats) {
+            std::string code = instruction_format;
+            size_t pos = code.find("{}");
+            if (pos != std::string::npos) code.replace(pos, 2, value_str);
+            std::vector<uint8_t> expected_bytes = opcode_prefix;
+            expected_bytes.push_back(static_cast<uint8_t>(value & 0xFF));
+            expected_bytes.push_back(static_cast<uint8_t>((value >> 8) & 0xFF));
+            ASSERT_CODE(code, expected_bytes);
+        }
+    };
+    for (long i = 0; i <= 65535; ++i) {
+        test_value(i);
+    }
+    for (long i = -32768; i < 0; ++i) {
+        test_value(i);
+    }
+}
+
 TEST_CASE(NoOperandInstructions) {
     ASSERT_CODE("NOP", {0x00});
     ASSERT_CODE("HALT", {0x76});
@@ -163,25 +244,15 @@ TEST_CASE(OneOperandInstructions) {
     ASSERT_CODE("DEC IY", {0xFD, 0x2B});
 
     // INC/DEC 8-bit
-    ASSERT_CODE("INC A", {0x3C});
-    ASSERT_CODE("INC B", {0x04});
-    ASSERT_CODE("INC C", {0x0C});
-    ASSERT_CODE("INC D", {0x14});
-    ASSERT_CODE("INC E", {0x1C});
-    ASSERT_CODE("INC H", {0x24});
-    ASSERT_CODE("INC L", {0x2C});
+    const char* registers[] = {"B", "C", "D", "E", "H", "L", "(HL)", "A"};
+    for (int i = 0; i < 8; ++i) {
+        ASSERT_CODE("INC " + std::string(registers[i]), { (uint8_t)(0x04 | (i << 3)) });
+        ASSERT_CODE("DEC " + std::string(registers[i]), { (uint8_t)(0x05 | (i << 3)) });
+    }
     ASSERT_CODE("INC (HL)", {0x34});
-    ASSERT_CODE("DEC A", {0x3D});
-    ASSERT_CODE("DEC B", {0x05});
-    ASSERT_CODE("DEC C", {0x0D});
-    ASSERT_CODE("DEC D", {0x15});
-    ASSERT_CODE("DEC E", {0x1D});
-    ASSERT_CODE("DEC H", {0x25});
-    ASSERT_CODE("DEC L", {0x2D});
     ASSERT_CODE("DEC (HL)", {0x35});
 
     // Jumps
-    ASSERT_CODE("JP 0x1234", {0xC3, 0x34, 0x12});
     ASSERT_CODE("JP (HL)", {0xE9});
     ASSERT_CODE("JP (IX)", {0xDD, 0xE9});
     ASSERT_CODE("JP (IY)", {0xFD, 0xE9});
@@ -189,8 +260,6 @@ TEST_CASE(OneOperandInstructions) {
     ASSERT_CODE("JR 0x0000", {0x18, 0xFE}); // 0 - (0+2) = -2
 
     // Calls
-    ASSERT_CODE("CALL 0xABCD", {0xCD, 0xCD, 0xAB});
-
     // RST
     ASSERT_CODE("RST 0x00", {0xC7});
     ASSERT_CODE("RST 0x08", {0xCF});
@@ -200,24 +269,6 @@ TEST_CASE(OneOperandInstructions) {
     ASSERT_CODE("RST 0x28", {0xEF});
     ASSERT_CODE("RST 0x30", {0xF7});
     ASSERT_CODE("RST 0x38", {0xFF});
-
-    // Arithmetic/Logic with immediate
-    ASSERT_CODE("ADD A, 0x42", {0xC6, 0x42});
-    ASSERT_CODE("ADD 0x42", {0xC6, 0x42}); // Implicit A
-    ASSERT_CODE("ADC A, 0x42", {0xCE, 0x42});
-    ASSERT_CODE("ADC 0x42", {0xCE, 0x42}); // Implicit A
-    ASSERT_CODE("SUB A, 0x42", {0xD6, 0x42}); // Explicit A
-    ASSERT_CODE("SUB 0x42", {0xD6, 0x42});
-    ASSERT_CODE("SBC A, 0x42", {0xDE, 0x42});
-    ASSERT_CODE("SBC 0x42", {0xDE, 0x42}); // Implicit A
-    ASSERT_CODE("AND 0x42", {0xE6, 0x42});
-    ASSERT_CODE("AND A, 0x42", {0xE6, 0x42}); // Explicit A
-    ASSERT_CODE("XOR 0x42", {0xEE, 0x42});
-    ASSERT_CODE("XOR A, 0x42", {0xEE, 0x42}); // Explicit A
-    ASSERT_CODE("OR 0x42", {0xF6, 0x42});
-    ASSERT_CODE("OR A, 0x42", {0xF6, 0x42}); // Explicit A
-    ASSERT_CODE("CP 0x42", {0xFE, 0x42});
-    ASSERT_CODE("CP A, 0x42", {0xFE, 0x42}); // Explicit A
 
     // Arithmetic/Logic with register
     ASSERT_CODE("ADD A, B", {0x80});
@@ -297,6 +348,26 @@ TEST_CASE(OneOperandInstructions) {
     ASSERT_CODE("IM 1", {0xED, 0x56});
     ASSERT_CODE("IM 2", {0xED, 0x5E});
 }
+TEST_CASE(OneOperandInstructions_Immediate) {
+    // Arithmetic/Logic with immediate
+    TEST_IMMEDIATE_8BIT("ADD A, {}", {0xC6});
+    TEST_IMMEDIATE_8BIT("ADD {}", {0xC6}); // Implicit A
+    TEST_IMMEDIATE_8BIT("ADC A, {}", {0xCE});
+    TEST_IMMEDIATE_8BIT("ADC {}", {0xCE}); // Implicit A
+    TEST_IMMEDIATE_8BIT("SUB A, {}", {0xD6});
+    TEST_IMMEDIATE_8BIT("SUB {}", {0xD6});
+    TEST_IMMEDIATE_8BIT("SBC A, {}", {0xDE});
+    TEST_IMMEDIATE_8BIT("SBC {}", {0xDE}); // Implicit A
+    TEST_IMMEDIATE_8BIT("AND {}", {0xE6});
+    TEST_IMMEDIATE_8BIT("AND A, {}", {0xE6}); // Explicit A
+    TEST_IMMEDIATE_8BIT("XOR {}", {0xEE});
+    TEST_IMMEDIATE_8BIT("XOR A, {}", {0xEE}); // Explicit A
+    TEST_IMMEDIATE_8BIT("OR {}", {0xF6});
+    TEST_IMMEDIATE_8BIT("OR A, {}", {0xF6}); // Explicit A
+    TEST_IMMEDIATE_8BIT("CP {}", {0xFE});
+    TEST_IMMEDIATE_8BIT("CP A, {}", {0xFE}); // Explicit A
+}
+
 
 TEST_CASE(OneOperandInstructions_Indexed) {
     // INC (IX+d)
@@ -317,13 +388,13 @@ TEST_CASE(TwoOperandInstructions_LD) {
     ASSERT_CODE("LD B, B", {0x40});
 
     // LD r, n
-    ASSERT_CODE("LD A, 0x12", {0x3E, 0x12});
-    ASSERT_CODE("LD B, 0x34", {0x06, 0x34});
-    ASSERT_CODE("LD C, 0x56", {0x0E, 0x56});
-    ASSERT_CODE("LD D, 0x78", {0x16, 0x78});
-    ASSERT_CODE("LD E, 0x9A", {0x1E, 0x9A});
-    ASSERT_CODE("LD H, 0xBC", {0x26, 0xBC});
-    ASSERT_CODE("LD L, 0xDE", {0x2E, 0xDE});
+    TEST_IMMEDIATE_8BIT("LD A, {}", {0x3E});
+    TEST_IMMEDIATE_8BIT("LD B, {}", {0x06});
+    TEST_IMMEDIATE_8BIT("LD C, {}", {0x0E});
+    TEST_IMMEDIATE_8BIT("LD D, {}", {0x16});
+    TEST_IMMEDIATE_8BIT("LD E, {}", {0x1E});
+    TEST_IMMEDIATE_8BIT("LD H, {}", {0x26});
+    TEST_IMMEDIATE_8BIT("LD L, {}", {0x2E});
 
     // LD r, (HL)
     ASSERT_CODE("LD A, (HL)", {0x7E});
@@ -344,7 +415,7 @@ TEST_CASE(TwoOperandInstructions_LD) {
     ASSERT_CODE("LD (HL), L", {0x75});
 
     // LD (HL), n
-    ASSERT_CODE("LD (HL), 0xAB", {0x36, 0xAB});
+    TEST_IMMEDIATE_8BIT("LD (HL), {}", {0x36});
 
     // LD A, (rr)
     ASSERT_CODE("LD A, (BC)", {0x0A});
@@ -355,28 +426,13 @@ TEST_CASE(TwoOperandInstructions_LD) {
     ASSERT_CODE("LD (DE), A", {0x12});
 
     // LD A, (nn)
-    ASSERT_CODE("LD A, (0x1234)", {0x3A, 0x34, 0x12});
-
     // LD (nn), A
-    ASSERT_CODE("LD (0x1234), A", {0x32, 0x34, 0x12});
 
     // LD rr, nn
-    ASSERT_CODE("LD BC, 0x1234", {0x01, 0x34, 0x12});
-    ASSERT_CODE("LD DE, 0x5678", {0x11, 0x78, 0x56});
-    ASSERT_CODE("LD HL, 0x9ABC", {0x21, 0xBC, 0x9A});
-    ASSERT_CODE("LD SP, 0xDEF0", {0x31, 0xF0, 0xDE});
 
     // LD rr, (nn)
-    ASSERT_CODE("LD HL, (0x1234)", {0x2A, 0x34, 0x12});
-    ASSERT_CODE("LD BC, (0x1234)", {0xED, 0x4B, 0x34, 0x12});
-    ASSERT_CODE("LD DE, (0x1234)", {0xED, 0x5B, 0x34, 0x12});
-    ASSERT_CODE("LD SP, (0x1234)", {0xED, 0x7B, 0x34, 0x12});
 
     // LD (nn), rr
-    ASSERT_CODE("LD (0x1234), HL", {0x22, 0x34, 0x12});
-    ASSERT_CODE("LD (0x1234), BC", {0xED, 0x43, 0x34, 0x12});
-    ASSERT_CODE("LD (0x1234), DE", {0xED, 0x53, 0x34, 0x12});
-    ASSERT_CODE("LD (0x1234), SP", {0xED, 0x73, 0x34, 0x12});
 
     // LD SP, HL/IX/IY
     ASSERT_CODE("LD SP, HL", {0xF9});
@@ -392,18 +448,42 @@ TEST_CASE(TwoOperandInstructions_LD) {
     ASSERT_CODE("LD A, R", {0xED, 0x5F});
 }
 
+TEST_CASE(TwoOperandInstructions_LD_Immediate16) {
+    // LD rr, nn
+    TEST_IMMEDIATE_16BIT("LD BC, {}", {0x01});
+    TEST_IMMEDIATE_16BIT("LD DE, {}", {0x11});
+    TEST_IMMEDIATE_16BIT("LD HL, {}", {0x21});
+    TEST_IMMEDIATE_16BIT("LD SP, {}", {0x31});
+
+    // LD A, (nn) and LD (nn), A
+    TEST_IMMEDIATE_16BIT("LD A, ({})", {0x3A});
+    TEST_IMMEDIATE_16BIT("LD ({}), A", {0x32});
+
+    // LD rr, (nn)
+    TEST_IMMEDIATE_16BIT("LD HL, ({})", {0x2A});
+    TEST_IMMEDIATE_16BIT("LD BC, ({})", {0xED, 0x4B});
+    TEST_IMMEDIATE_16BIT("LD DE, ({})", {0xED, 0x5B});
+    TEST_IMMEDIATE_16BIT("LD SP, ({})", {0xED, 0x7B});
+
+    // LD (nn), rr
+    TEST_IMMEDIATE_16BIT("LD ({}), HL", {0x22});
+    TEST_IMMEDIATE_16BIT("LD ({}), BC", {0xED, 0x43});
+    TEST_IMMEDIATE_16BIT("LD ({}), DE", {0xED, 0x53});
+    TEST_IMMEDIATE_16BIT("LD ({}), SP", {0xED, 0x73});
+}
+
 TEST_CASE(TwoOperandInstructions_LD_Indexed) {
     // LD IX/IY, nn
-    ASSERT_CODE("LD IX, 0x1234", {0xDD, 0x21, 0x34, 0x12});
-    ASSERT_CODE("LD IY, 0x5678", {0xFD, 0x21, 0x78, 0x56});
+    TEST_IMMEDIATE_16BIT("LD IX, {}", {0xDD, 0x21});
+    TEST_IMMEDIATE_16BIT("LD IY, {}", {0xFD, 0x21});
 
     // LD IX/IY, (nn)
-    ASSERT_CODE("LD IX, (0x1234)", {0xDD, 0x2A, 0x34, 0x12});
-    ASSERT_CODE("LD IY, (0x5678)", {0xFD, 0x2A, 0x78, 0x56});
+    TEST_IMMEDIATE_16BIT("LD IX, ({})", {0xDD, 0x2A});
+    TEST_IMMEDIATE_16BIT("LD IY, ({})", {0xFD, 0x2A});
 
     // LD (nn), IX/IY
-    ASSERT_CODE("LD (0x1234), IX", {0xDD, 0x22, 0x34, 0x12});
-    ASSERT_CODE("LD (0x5678), IY", {0xFD, 0x22, 0x78, 0x56});
+    TEST_IMMEDIATE_16BIT("LD ({}), IX", {0xDD, 0x22});
+    TEST_IMMEDIATE_16BIT("LD ({}), IY", {0xFD, 0x22});
 
     // LD r, (IX/IY+d)
     ASSERT_CODE("LD A, (IX+10)", {0xDD, 0x7E, 0x0A});
@@ -507,30 +587,21 @@ TEST_CASE(TwoOperandInstructions_Arithmetic_Indexed) {
 
 TEST_CASE(TwoOperandInstructions_JumpsAndCalls) {
     // JP cc, nn
-    ASSERT_CODE("JP NZ, 0x1234", {0xC2, 0x34, 0x12});
-    ASSERT_CODE("JP Z, 0x1234", {0xCA, 0x34, 0x12});
-    ASSERT_CODE("JP NC, 0x1234", {0xD2, 0x34, 0x12});
-    ASSERT_CODE("JP C, 0x1234", {0xDA, 0x34, 0x12});
-    ASSERT_CODE("JP PO, 0x1234", {0xE2, 0x34, 0x12});
-    ASSERT_CODE("JP PE, 0x1234", {0xEA, 0x34, 0x12});
-    ASSERT_CODE("JP P, 0x1234", {0xF2, 0x34, 0x12});
-    ASSERT_CODE("JP M, 0x1234", {0xFA, 0x34, 0x12});
+    TEST_IMMEDIATE_16BIT("JP {}", {0xC3});
+    TEST_IMMEDIATE_16BIT("JP NZ, {}", {0xC2});
+    TEST_IMMEDIATE_16BIT("JP Z, {}", {0xCA});
+    TEST_IMMEDIATE_16BIT("JP NC, {}", {0xD2});
+    TEST_IMMEDIATE_16BIT("JP C, {}", {0xDA});
+    TEST_IMMEDIATE_16BIT("JP PO, {}", {0xE2});
+    TEST_IMMEDIATE_16BIT("JP PE, {}", {0xEA});
+    TEST_IMMEDIATE_16BIT("JP P, {}", {0xF2});
+    TEST_IMMEDIATE_16BIT("JP M, {}", {0xFA});
 
     // JR cc, d
     ASSERT_CODE("JR NZ, 0x0010", {0x20, 0x0E}); // 16 - (0+2) = 14
     ASSERT_CODE("JR Z, 0x0010", {0x28, 0x0E});
     ASSERT_CODE("JR NC, 0x0010", {0x30, 0x0E});
     ASSERT_CODE("JR C, 0x0010", {0x38, 0x0E});
-
-    // CALL cc, nn
-    ASSERT_CODE("CALL NZ, 0x1234", {0xC4, 0x34, 0x12});
-    ASSERT_CODE("CALL Z, 0x1234", {0xCC, 0x34, 0x12});
-    ASSERT_CODE("CALL NC, 0x1234", {0xD4, 0x34, 0x12});
-    ASSERT_CODE("CALL C, 0x1234", {0xDC, 0x34, 0x12});
-    ASSERT_CODE("CALL PO, 0x1234", {0xE4, 0x34, 0x12});
-    ASSERT_CODE("CALL PE, 0x1234", {0xEC, 0x34, 0x12});
-    ASSERT_CODE("CALL P, 0x1234", {0xF4, 0x34, 0x12});
-    ASSERT_CODE("CALL M, 0x1234", {0xFC, 0x34, 0x12});
 }
 
 TEST_CASE(TwoOperandInstructions_IO) {
@@ -558,6 +629,21 @@ TEST_CASE(TwoOperandInstructions_IO) {
     ASSERT_CODE("OUT (C), E", {0xED, 0x59});
     ASSERT_CODE("OUT (C), H", {0xED, 0x61});
     ASSERT_CODE("OUT (C), L", {0xED, 0x69});
+}
+
+TEST_CASE(TwoOperandInstructions_Calls) {
+    // CALL nn
+    TEST_IMMEDIATE_16BIT("CALL {}", {0xCD});
+
+    // CALL cc, nn
+    TEST_IMMEDIATE_16BIT("CALL NZ, {}", {0xC4});
+    TEST_IMMEDIATE_16BIT("CALL Z, {}", {0xCC});
+    TEST_IMMEDIATE_16BIT("CALL NC, {}", {0xD4});
+    TEST_IMMEDIATE_16BIT("CALL C, {}", {0xDC});
+    TEST_IMMEDIATE_16BIT("CALL PO, {}", {0xE4});
+    TEST_IMMEDIATE_16BIT("CALL PE, {}", {0xEC});
+    TEST_IMMEDIATE_16BIT("CALL P, {}", {0xF4});
+    TEST_IMMEDIATE_16BIT("CALL M, {}", {0xFC});
 }
 
 TEST_CASE(BitInstructions) {
@@ -714,17 +800,21 @@ TEST_CASE(LabelsAndExpressions) {
 }
 
 TEST_CASE(EQUAndSETDirectives) {
-    std::string code = R"(
+    ASSERT_CODE(R"(
         PORTA EQU 0x10
         VAL EQU 5
         LD A, VAL
         OUT (PORTA), A
-    )";
-    std::vector<uint8_t> expected = {
+    )", {
         0x3E, 0x05, // LD A, 5
         0xD3, 0x10  // OUT (0x10), A
-    };
-    ASSERT_CODE(code, expected);
+    });
+
+    // Test redefinition with EQU should fail
+    ASSERT_COMPILE_FAILS(R"(
+        VALUE EQU 10
+        VALUE EQU 20
+    )");
 }
 
 TEST_CASE(ExpressionEvaluation) {
