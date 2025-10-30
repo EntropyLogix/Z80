@@ -294,20 +294,16 @@ private:
             ss << std::dec << std::setw(5) << std::setfill('0') << row_address;
             break;
         case 'h':
-            for (size_t i = 0; i < bytes.size(); ++i) {
-                ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i])
-                   << " ";
-            }
+            for (size_t i = 0; i < bytes.size(); ++i)
+                ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i]) << " ";
             break;
         case 'd':
-            for (size_t i = 0; i < bytes.size(); ++i) {
+            for (size_t i = 0; i < bytes.size(); ++i)
                 ss << std::dec << std::setw(3) << std::setfill('0') << static_cast<int>(bytes[i]) << " ";
-            }
             break;
         case 'c':
-            for (uint8_t byte : bytes) {
+            for (uint8_t byte : bytes)
                 ss << (isprint(byte) ? static_cast<char>(byte) : '.');
-            }
             break;
         default:
             ss << '%' << specifier;
