@@ -173,16 +173,25 @@ private:
         }
 
     private:
-        inline bool is_reg8(const std::string& s) const { return s_reg8_names.count(s);}
-        inline bool is_reg16(const std::string& s) const { return s_reg16_names.count(s); }
+        inline bool is_reg8(const std::string& s) const { return get_reg8_names().count(s);}
+        inline bool is_reg16(const std::string& s) const { return get_reg16_names().count(s); }
         inline bool is_mem_ptr(const std::string& s) const { return !s.empty() && s.front() == '(' && s.back() == ')'; }
         inline bool is_char_literal(const std::string& s) const { return s.length() == 3 && s.front() == '\'' && s.back() == '\''; }
         inline bool is_string_literal(const std::string& s) const { return s.length() > 1 && s.front() == '"' && s.back() == '"'; }
-        inline bool is_condition(const std::string& s) const { return s_condition_names.count(s); }
+        inline bool is_condition(const std::string& s) const { return get_condition_names().count(s); }
 
-        inline static const std::set<std::string> s_reg8_names = {"B", "C", "D", "E", "H", "L", "(HL)", "A", "I", "R", "IXH", "IXL", "IYH", "IYL"};
-        inline static const std::set<std::string> s_reg16_names = {"BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
-        inline static const std::set<std::string> s_condition_names = {"NZ", "Z", "NC", "C", "PO", "PE", "P", "M"};
+        static const std::set<std::string>& get_reg8_names() {
+            static const std::set<std::string> s_reg8_names = {"B", "C", "D", "E", "H", "L", "(HL)", "A", "I", "R", "IXH", "IXL", "IYH", "IYL"};
+            return s_reg8_names;
+        }
+        static const std::set<std::string>& get_reg16_names() {
+            static const std::set<std::string> s_reg16_names = {"BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
+            return s_reg16_names;
+        }
+        static const std::set<std::string>& get_condition_names() {
+            static const std::set<std::string> s_condition_names = {"NZ", "Z", "NC", "C", "PO", "PE", "P", "M"};
+            return s_condition_names;
+        }
 
         IAssemblyPolicy& m_policy;
     };
