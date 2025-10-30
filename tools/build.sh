@@ -13,3 +13,8 @@ cmake --build "$BUILD_DIR" --config Release
 
 echo "--- Build complete ---"
 echo "Tools are located in: $BUILD_DIR"
+
+echo ""
+echo "--- Running tests ---"
+cd "$SCRIPT_DIR/../tests"
+./run-tests.sh

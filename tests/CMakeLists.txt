@@ -36,6 +36,12 @@ set_target_properties(zex-tests PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED
 target_link_libraries(zex-tests PRIVATE nlohmann_json::nlohmann_json)
 target_include_directories(zex-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
+add_executable(Z80Assemble_test Z80Assemble_test.cpp)
+set_target_properties(Z80Assemble_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_include_directories(Z80Assemble_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+
+add_test(NAME AssembleTest COMMAND Z80Assemble_test)
+
 option(ENABLE_PGO "Enable Profile-Guided Optimization (PGO)" OFF)
 if(ENABLE_PGO)
     if(NOT PGO_MODE)
