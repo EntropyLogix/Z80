@@ -1241,6 +1241,20 @@ private:
                     return true;
                 }
             }
+            if (mnemonic == "LD" && match_reg8(op1) && match_mem_reg16(op2) && op2.str_val == "HL") {
+                uint8_t dest_code = reg8_map().at(op1.str_val);
+                assemble({(uint8_t)(0x40 | (dest_code << 3) | 6)}); // 6 is code for (HL)
+                return true;
+            }
+            if (mnemonic == "LD" && match_mem_reg16(op1) && op1.str_val == "HL" && match_reg8(op2)) {
+                uint8_t src_code = reg8_map().at(op2.str_val);
+                assemble({(uint8_t)(0x70 | src_code)});
+                return true;
+            }
+            if (mnemonic == "LD" && match_mem_reg16(op1) && op1.str_val == "HL" && match_imm8(op2)) {
+                assemble({0x36, (uint8_t)op2.num_val});
+                return true;
+            }
             if (mnemonic == "LD" && op1.str_val == "A" && match_mem_reg16(op2)) {
                 if (op2.str_val == "BC") {
                     assemble({0x0A});
