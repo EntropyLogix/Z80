@@ -630,6 +630,16 @@ TEST_CASE(RotateAndShiftInstructions) {
     ASSERT_CODE("SRL (HL)", {0xCB, 0x3E});
 }
 
+TEST_CASE(UndocumentedInstructions) {
+    // SLI is an alias for SLL
+    ASSERT_CODE("SLI A", {0xCB, 0x37});
+    ASSERT_CODE("SLI (HL)", {0xCB, 0x36});
+
+    // IN F,(C) can be written as IN (C)
+    ASSERT_CODE("IN (C)", {0xED, 0x70});
+    ASSERT_CODE("OUT (C), 0", {0xED, 0x71});
+}
+
 TEST_CASE(Directives) {
     // DB
     ASSERT_CODE("DB 0x12", {0x12});

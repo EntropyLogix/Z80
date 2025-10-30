@@ -649,7 +649,7 @@ private:
             static const std::set<std::string> mnemonics = {
                 "ADC", "ADD", "AND", "BIT", "CALL", "CCF", "CP", "CPD", "CPDR", "CPI", "CPIR", "CPL", "DAA",
                 "DB", "DEFB", "DEC", "DEFS", "DEFW", "DI", "DJNZ", "DW", "DS", "EI", "EX", "EXX", "HALT",
-                "IM", "IN", "INC", "IND", "INDR", "INI", "INIR", "JP", "JR", "LD", "LDD", "LDDR", "LDI",
+                "IM", "IN", "INC", "IND", "INDR", "INI", "INIR", "JP", "JR", "LD", "LDD", "LDDR", "LDI", "SLI",
                 "LDIR", "NEG", "NOP", "OR", "OTDR", "OTIR", "OUT", "OUTD", "OUTI", "POP", "PUSH", "RES",
                 "RET", "RETI", "RETN", "RL", "RLA", "RLC", "RLCA", "RLD", "RR", "RRA", "RRC", "RRCA", "RRD",
                 "RST", "SBC", "SCF", "SET", "SLA", "SLI", "SLL", "SRA", "SRL", "SUB", "XOR", "EQU", "ORG"
@@ -1580,7 +1580,11 @@ private:
                 assemble({0xED, (uint8_t)(0x40 | (reg_code << 3))});
                 return true;
             }
-            if (mnemonic == "OUT" && match_mem_reg16(op1) && op1.str_val == "C" && match_reg8(op2)) {
+            if (mnemonic == "OUT" && match_mem_reg16(op1) && op1.str_val == "C" && (match_reg8(op2) || (op2.type == OperandType::IMMEDIATE && op2.num_val == 0))) {
+                if (op2.type == OperandType::IMMEDIATE && op2.num_val == 0) {
+                    assemble({0xED, 0x71});
+                    return true;
+                }
                 uint8_t reg_code = reg8_map().at(op2.str_val);
                 if (op2.str_val == "(HL)")
                     throw std::runtime_error("OUT (C), (HL) is not a valid instruction");
