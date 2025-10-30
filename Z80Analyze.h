@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <map>
@@ -45,8 +46,7 @@ public:
     // - %h: Byte values in hexadecimal, separated by spaces.
     // - %d: Byte values in decimal, separated by spaces.
     // - %c: ASCII representation of bytes (non-printable chars are replaced with '.').
-    std::vector<std::string> dump_memory(uint16_t& address, size_t rows, size_t cols,
-                                         const std::string& format = "%a: %h  %c") {
+    std::vector<std::string> dump_memory(uint16_t& address, size_t rows, size_t cols, const std::string& format = "%a: %h  %c") {
         std::vector<std::string> result;
         result.reserve(rows);
         for (size_t i = 0; i < rows; ++i) {
@@ -127,12 +127,10 @@ public:
     //  supports width (`%10`), alignment (`%-10`), and fill character (`%-10.b` uses `.` instead of space).
     std::string disassemble(uint16_t& address, const std::string& format) {
         uint16_t initial_address = address;
-
-        // Check for a label at the current address to print it on a separate line.
         std::string label_prefix;
         if constexpr (!std::is_same_v<TLabels, void>) {
             if (m_labels) {
-                std::string labels_str = m_labels->get_labels_str(initial_address);
+                std::string labels_str = m_labels->get_label(initial_address);
                 if (!labels_str.empty()) {
                     label_prefix = labels_str + ":\n";
                 }
@@ -199,7 +197,7 @@ public:
         return disassemble(address, "%a: %-12b %m %t");
     }
 
-    std::vector<std::string> disassemble(uint16_t& address, size_t lines,
+    std::vector<std::string> disassemble(uint16_t& address, size_t lines, 
                                          const std::string& format = "%a: %-12b %-15m %t") {
         std::vector<std::string> result;
         result.reserve(lines);
@@ -1775,7 +1773,7 @@ private:
     std::string format_address_label(uint16_t address, int width = -1, bool hex = true) {
         if constexpr (!std::is_same_v<TLabels, void>) {
             if (m_labels) {
-                std::string labels_str = m_labels->get_labels_str(address);
+                std::string labels_str = m_labels->get_label(address);
                 if (!labels_str.empty()) {
                     return labels_str;
                 }
@@ -1815,6 +1813,97 @@ private:
 
     TRegisters* m_registers;
     TMemory* m_memory;
+};
+
+class Z80DefaultLabels {
+public:
+    void clear_labels() {
+        m_labels.clear();
+    }
+    void load_map(const std::string& content) {
+        std::stringstream file(content);
+        std::string line;
+        while (std::getline(file, line)) {
+            std::stringstream ss(line);
+            uint16_t address;
+            std::string label, equals;
+            ss >> std::hex >> address;
+            if (ss.fail() || ss.get() != ':') {
+                ss.clear();
+                ss.str(line);
+                if (ss >> label >> equals && (equals == "=" || equals == "EQU")) {
+                    ss >> std::ws;
+                    if (ss.peek() == '$')
+                        ss.ignore();
+                    ss >> std::hex >> address;
+                    if (!ss.fail())
+                        add_label(address, label);
+                }
+                continue;
+            }
+            ss >> label;
+            add_label(address, label);
+        }
+    }
+    void load_ctl(const std::string& content) {
+        std::stringstream file(content);
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.rfind("L ", 0) == 0) {
+                std::stringstream ss(line.substr(2));
+                uint16_t address;
+                std::string label;
+                ss >> std::hex >> address >> label;
+                if (!ss.fail() && !label.empty())
+                    add_label(address, label);
+            } else if (line.rfind("$", 0) == 0 || line.rfind("@ $", 0) == 0) {
+                std::stringstream ss(line);
+                char prefix;
+                uint16_t address;
+                std::string keyword;
+                if (line.rfind("@ $", 0) == 0)
+                    ss.ignore(3);
+                else
+                    ss.ignore(1);
+                ss >> std::hex >> address;
+                add_label_from_spectaculator_format(ss, address);
+            }
+        }
+    }
+    std::string get_label(uint16_t address) const {
+        auto range = m_labels.equal_range(address);
+        if (range.first == range.second)
+            return "";
+        std::string labels_str;
+        for (auto it = range.first; it != range.second; ++it) {
+            if (!labels_str.empty())
+                labels_str += "/";
+            labels_str += it->second;
+        }
+        return labels_str;
+    }
+private:
+    void add_label(uint16_t address, const std::string& label) {
+        auto range = m_labels.equal_range(address);
+        for (auto it = range.first; it != range.second; ++it)
+            if (it->second == label)
+                return;
+        m_labels.insert({address, label});
+    }
+    void add_label_from_spectaculator_format(std::stringstream& ss, uint16_t address) {
+        std::string remaining;
+        std::getline(ss, remaining);
+        constexpr const char* label_keyword = "label=";
+        size_t label_pos = remaining.find(label_keyword);
+        if (label_pos != std::string::npos) {
+            std::string label = remaining.substr(label_pos + strlen(label_keyword));
+            label.erase(0, label.find_first_not_of(" \t"));
+            label.erase(label.find_last_not_of(" \t") + 1);
+            if (!label.empty())
+                add_label(address, label);
+        }
+    }
+    std::multimap<uint16_t, std::string> m_labels;
 };
 
 #endif //__Z80ANALYZE_H__

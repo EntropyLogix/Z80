@@ -24,90 +24,6 @@
 #include <sstream>
 #include <string>
 
-class LabelFileHandler {
-public:
-    void clear_labels() {
-        m_labels.clear();
-    }
-
-    void load_map_file(const std::string& filename) {
-        std::ifstream file(filename);
-        if (!file) {
-            throw std::runtime_error("Cannot open map file: " + filename);
-        }
-        std::string line;
-        while (std::getline(file, line)) {
-            std::stringstream ss(line);
-            uint16_t address;
-            std::string label, equals;
-            ss >> std::hex >> address;
-            if (ss.fail() || ss.get() != ':') {
-                ss.clear();
-                ss.str(line);
-                if (ss >> label >> equals && (equals == "=" || equals == "EQU") &&
-                    (ss.peek() == ' ' || ss.peek() == '$')) {
-                    if (ss.peek() == '$')
-                        ss.ignore();
-                    ss >> std::hex >> address;
-                    if (!ss.fail()) {
-                        add_label(address, label);
-                    }
-                }
-                continue;
-            }
-            ss >> label;
-            add_label(address, label);
-        }
-    }
-
-    void load_ctl_file(const std::string& filename) {
-        std::ifstream file(filename);
-        if (!file) {
-            throw std::runtime_error("Cannot open ctl file: " + filename);
-        }
-        std::string line;
-        while (std::getline(file, line)) {
-            if (line.rfind("L ", 0) == 0) { // Starts with "L "
-                std::stringstream ss(line.substr(2));
-                uint16_t address;
-                std::string label;
-                ss >> std::hex >> address >> label;
-                if (!ss.fail() && !label.empty()) {
-                    add_label(address, label);
-                }
-            }
-        }
-    }
-
-    std::string get_labels_str(uint16_t address) const {
-        auto range = m_labels.equal_range(address);
-        if (range.first == range.second) {
-            return "";
-        }
-        std::string labels_str;
-        for (auto it = range.first; it != range.second; ++it) {
-            if (!labels_str.empty()) {
-                labels_str += "/";
-            }
-            labels_str += it->second;
-        }
-        return labels_str;
-    }
-
-private:
-    void add_label(uint16_t address, const std::string& label) {
-        auto range = m_labels.equal_range(address);
-        for (auto it = range.first; it != range.second; ++it) {
-            if (it->second == label) {
-                return;
-            }
-        }
-        m_labels.insert({address, label});
-    }
-
-    std::multimap<uint16_t, std::string> m_labels;
-};
-
 template <typename T> std::string format_hex(T value, int width) {
     std::stringstream ss;
     ss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(width) << value;
@@ -379,28 +295,38 @@ int main(int argc, char* argv[]) {
     std::string reg_dump_format;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--mem-dump") {
+        if (arg == "--mem-dump" && i + 2 < argc) {
             mem_dump_addr_str = argv[++i];
             mem_dump_size = std::stoul(argv[++i], nullptr, 16);
-        } else if (arg == "--disassemble") {
+        } else if (arg == "--disassemble" && i + 2 < argc) {
             disasm_addr_str = argv[++i];
             disasm_lines = std::stoul(argv[++i], nullptr, 10);
-        } else if (arg == "--load-addr") {
+        } else if (arg == "--load-addr" && i + 1 < argc) {
             load_addr_str = argv[++i];
-        } else if (arg == "--map") {
+        } else if (arg == "--map" && i + 1 < argc) {
             map_files.push_back(argv[++i]);
-        } else if (arg == "--ctl") {
+        } else if (arg == "--ctl" && i + 1 < argc) {
             ctl_files.push_back(argv[++i]);
         } else if (arg == "--reg-dump") {
             reg_dump_action = true;
             if (i + 1 < argc && argv[i + 1][0] != '-')
                 reg_dump_format = argv[++i];
-        } else if (arg == "--run-ticks") {
+        } else if (arg == "--run-ticks" && i + 1 < argc) {
             run_ticks = std::stoll(argv[++i], nullptr, 10);
-        } else if (arg == "--run-steps") {
+        } else if (arg == "--run-steps" && i + 1 < argc) {
             run_steps = std::stoll(argv[++i], nullptr, 10);
         } else {
-            std::cerr << "Error: Unknown or incomplete argument '" << arg << "'." << std::endl;
+            // Check for incomplete arguments to provide a better error message
+            if ((arg == "--mem-dump" || arg == "--disassemble") && i + 2 >= argc) {
+                std::cerr << "Error: Incomplete argument for '" << arg << "'. Expected two values." << std::endl;
+            } else if ((arg == "--load-addr" || arg == "--map" || arg == "--ctl" || arg == "--run-ticks" || arg == "--run-steps") && i + 1 >= argc) {
+                std::cerr << "Error: Incomplete argument for '" << arg << "'. Expected one value." << std::endl;
+            } else if (arg == "--reg-dump" && (i + 1 >= argc || argv[i+1][0] == '-')) {
+                // This is fine, it means no format string was provided
+            }
+            else {
+                std::cerr << "Error: Unknown or incomplete argument '" << arg << "'." << std::endl;
+            }
             print_usage();
             return 1;
         }
@@ -411,15 +337,23 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     Z80<> cpu;
-    LabelFileHandler label_handler;
-    Z80Analyzer<Z80DefaultBus, Z80<>, LabelFileHandler> analyzer(cpu.get_bus(), &cpu, &label_handler);
+    Z80DefaultLabels label_handler;
+    Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(cpu.get_bus(), &cpu, &label_handler);
     try {
         for (const auto& map_file : map_files) {
-            label_handler.load_map_file(map_file);
+            std::ifstream file(map_file);
+            if (!file) throw std::runtime_error("Cannot open map file: " + map_file);
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            label_handler.load_map(buffer.str());
             std::cout << "Loaded labels from " << map_file << std::endl;
         }
         for (const auto& ctl_file : ctl_files) {
-            label_handler.load_ctl_file(ctl_file);
+            std::ifstream file(ctl_file);
+            if (!file) throw std::runtime_error("Cannot open ctl file: " + ctl_file);
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            label_handler.load_ctl(buffer.str());
             std::cout << "Loaded labels from " << ctl_file << std::endl;
         }
     } catch (const std::exception& e) {
