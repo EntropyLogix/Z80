@@ -110,6 +110,11 @@ private:
                 operand.type = OperandType::CHAR_LITERAL;
                 return operand;
             }
+            if (upper_operand_string == "(C)") {
+                 operand.type = OperandType::MEM_REG16;
+                 operand.str_val = "C";
+                 return operand;
+            }
             if ((mnemonic == "RET" || mnemonic == "JP" || mnemonic == "CALL" || mnemonic == "JR") && is_condition(upper_operand_string)) {
                 operand.type = OperandType::CONDITION;
                 return operand;
@@ -1138,6 +1143,10 @@ private:
                     return true;
                 }
             }
+            if (mnemonic == "IN" && op.type == OperandType::MEM_REG16 && op.str_val == "C") {
+                assemble({0xED, 0x70});
+                return true;
+            }
             return false;
         }
         bool encode_two_operands(const std::string& mnemonic, const Operand& op1, const Operand& op2) {
@@ -1471,16 +1480,16 @@ private:
                 assemble({(uint8_t)(0xC4 | (cond_code << 3)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
                 return true;
             }
-            if (mnemonic == "IN" && match_reg8(op1) && op2.str_val == "(C)") { // TODO: fix this
-                uint8_t reg_code = reg8_map().at(op1.str_val);
-                if (reg_code == 6) {
+            if (mnemonic == "IN" && match_reg8(op1) && match_mem_reg16(op2) && op2.str_val == "C") {
+                if (op1.str_val == "F") {
                     assemble({0xED, 0x70});
                     return true;
                 }
+                uint8_t reg_code = reg8_map().at(op1.str_val);
                 assemble({0xED, (uint8_t)(0x40 | (reg_code << 3))});
                 return true;
             }
-            if (mnemonic == "OUT" && op1.str_val == "(C)" && match_reg8(op2)) {
+            if (mnemonic == "OUT" && match_mem_reg16(op1) && op1.str_val == "C" && match_reg8(op2)) {
                 uint8_t reg_code = reg8_map().at(op2.str_val);
                 if (reg_code == 6)
                     throw std::runtime_error("OUT (C), (HL) is not a valid instruction");
@@ -1492,7 +1501,7 @@ private:
                     throw std::runtime_error("BIT index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code;
-                if (op2.type == OperandType::MEM_REG16)
+                if (match_mem_reg16(op2))
                     reg_code = reg8_map().at("(HL)");
                 else
                     reg_code = reg8_map().at(op2.str_val);
@@ -1504,7 +1513,7 @@ private:
                     throw std::runtime_error("SET index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code;
-                if (op2.type == OperandType::MEM_REG16)
+                if (match_mem_reg16(op2))
                     reg_code = reg8_map().at("(HL)");
                 else
                     reg_code = reg8_map().at(op2.str_val);
@@ -1516,7 +1525,7 @@ private:
                     throw std::runtime_error("RES index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code;
-                if (op2.type == OperandType::MEM_REG16)
+                if (match_mem_reg16(op2))
                     reg_code = reg8_map().at("(HL)");
                 else
                     reg_code = reg8_map().at(op2.str_val);
