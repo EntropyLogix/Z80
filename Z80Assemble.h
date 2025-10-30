@@ -455,7 +455,11 @@ private:
                 return false;
             const char* start = str.data();
             const char* end = str.data() + str.size();
-            if (start < end && *start == '+')
+            bool is_negative = false;
+            if (start < end && *start == '-') {
+                is_negative = true;
+                start++;
+            } else if (start < end && *start == '+')
                 start++;
 
             int base = 10;
@@ -479,7 +483,10 @@ private:
             if (start == end)
                 return false;
             auto result = std::from_chars(start, end, out_value, base);
-            return result.ec == std::errc() && result.ptr == end;
+            bool success = (result.ec == std::errc() && result.ptr == end);
+            if (success && is_negative)
+                out_value = -out_value;
+            return success;
         }
     };
     class SymbolsBuilding : public IAssemblyPolicy {
