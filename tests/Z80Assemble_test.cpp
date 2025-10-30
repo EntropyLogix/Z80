@@ -406,6 +406,26 @@ TEST_CASE(TwoOperandInstructions_Arithmetic) {
     ASSERT_CODE("EX AF, AF'", {0x08});
 }
 
+TEST_CASE(TwoOperandInstructions_Arithmetic_Indexed) {
+    // ADD A, (IX/IY+d)
+    ASSERT_CODE("ADD A, (IX+10)", {0xDD, 0x86, 0x0A});
+    ASSERT_CODE("ADD A, (IY-5)", {0xFD, 0x86, 0xFB});
+    // ADC A, (IX/IY+d)
+    ASSERT_CODE("ADC A, (IX+1)", {0xDD, 0x8E, 0x01});
+    ASSERT_CODE("ADC A, (IY-2)", {0xFD, 0x8E, 0xFE});
+    // SUB (IX/IY+d)
+    ASSERT_CODE("SUB (IX+15)", {0xDD, 0x96, 0x0F});
+    ASSERT_CODE("SUB (IY-128)", {0xFD, 0x96, 0x80});
+    // SBC A, (IX/IY+d)
+    ASSERT_CODE("SBC A, (IX+0)", {0xDD, 0x9E, 0x00});
+    ASSERT_CODE("SBC A, (IY+127)", {0xFD, 0x9E, 0x7F});
+    // AND/XOR/OR/CP (IX/IY+d)
+    ASSERT_CODE("AND (IX+20)", {0xDD, 0xA6, 0x14});
+    ASSERT_CODE("XOR (IY-30)", {0xFD, 0xAE, 0xE2});
+    ASSERT_CODE("OR (IX+7)", {0xDD, 0xB6, 0x07});
+    ASSERT_CODE("CP (IY-1)", {0xFD, 0xBE, 0xFF});
+}
+
 TEST_CASE(TwoOperandInstructions_JumpsAndCalls) {
     // JP cc, nn
     ASSERT_CODE("JP NZ, 0x1234", {0xC2, 0x34, 0x12});
