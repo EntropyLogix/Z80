@@ -1163,6 +1163,35 @@ private:
                 assemble({0xED, 0x5F});
                 return true;
             }
+            if (mnemonic == "ADD" && match_reg16(op1) && match_reg16(op2)) {
+                uint8_t prefix = 0;
+                std::string target_reg_str = op1.str_val;
+                std::string source_reg_str = op2.str_val;
+                if (target_reg_str == "IX")
+                    prefix = 0xDD;
+                else if (target_reg_str == "IY")
+                    prefix = 0xFD;
+                else if (target_reg_str != "HL")
+                    return false;
+                std::string effective_source_reg_for_opcode = source_reg_str;
+                if (source_reg_str == "IX" || source_reg_str == "IY")
+                    effective_source_reg_for_opcode = "HL";
+                if (reg16_map().count(effective_source_reg_for_opcode)) {
+                    uint8_t opcode_suffix = (uint8_t)(0x09 | (reg16_map().at(effective_source_reg_for_opcode) << 4));
+                    if (prefix)
+                        assemble({prefix, opcode_suffix});
+                    else
+                        assemble({opcode_suffix});
+                    return true;
+                }
+            }
+            if ((mnemonic == "ADC" || mnemonic == "SBC") && op1.str_val == "HL" && match_reg16(op2)) {
+                uint8_t base_opcode = (mnemonic == "ADC") ? 0x4A : 0x42;
+                if (reg16_map().count(op2.str_val)) {
+                    assemble({0xED, (uint8_t)(base_opcode | (reg16_map().at(op2.str_val) << 4))});
+                    return true;
+                }
+            }
             uint8_t prefix = 0;
             if (op1.base_reg == "IX" || op2.base_reg == "IX" || op1.str_val.find("IX") != std::string::npos || op2.str_val.find("IX") != std::string::npos)
                 prefix = 0xDD;
