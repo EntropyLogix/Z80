@@ -1170,6 +1170,20 @@ private:
                 assemble({0xEB});
                 return true;
             }
+            if (mnemonic == "EX" && match_mem_reg16(op1) && op1.str_val == "SP" && match_reg16(op2)) {
+                if (op2.str_val == "HL") {
+                    assemble({0xE3});
+                    return true;
+                }
+                if (op2.str_val == "IX") {
+                    assemble({0xDD, 0xE3});
+                    return true;
+                }
+                if (op2.str_val == "IY") {
+                    assemble({0xFD, 0xE3});
+                    return true;
+                }
+            }
             if (mnemonic == "LD" && op1.str_val == "I" && op2.str_val == "A") {
                 assemble({0xED, 0x47});
                 return true;

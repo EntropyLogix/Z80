@@ -416,6 +416,11 @@ TEST_CASE(TwoOperandInstructions_Arithmetic) {
 
     // EX AF, AF'
     ASSERT_CODE("EX AF, AF'", {0x08});
+
+    // EX (SP), HL/IX/IY
+    ASSERT_CODE("EX (SP), HL", {0xE3});
+    ASSERT_CODE("EX (SP), IX", {0xDD, 0xE3});
+    ASSERT_CODE("EX (SP), IY", {0xFD, 0xE3});
 }
 
 TEST_CASE(TwoOperandInstructions_Arithmetic_Indexed) {
