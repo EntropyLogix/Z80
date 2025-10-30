@@ -178,6 +178,61 @@ void TEST_IMMEDIATE_16BIT(const std::string& instruction_format, const std::vect
     }
 }
 
+void TEST_INDEXED_IMMEDIATE_8BIT(const std::string& instruction_format, uint8_t prefix, uint8_t opcode, bool full_test = false) {
+    auto test_displacement = [&](int d) {
+        auto test_value_n = [&](int n) {
+            std::vector<std::string> d_formats;
+            d_formats.push_back((d >= 0 ? "+" : "") + std::to_string(d));
+            
+            std::stringstream ss_hex_d;
+            ss_hex_d << (d >= 0 ? "+" : "-") << "0x" << std::hex << (d < 0 ? -d : d);
+            d_formats.push_back(ss_hex_d.str());
+
+            std::vector<std::string> n_formats;
+            n_formats.push_back(std::to_string(n));
+            std::stringstream ss_hex_n;
+            ss_hex_n << "0x" << std::hex << n;
+            n_formats.push_back(ss_hex_n.str());
+            n_formats.push_back("0b" + to_binary_string(static_cast<uint8_t>(n)));
+
+            for (const auto& d_str : d_formats) {
+                for (const auto& n_str : n_formats) {
+                    std::string code = instruction_format;
+                    size_t pos_d = code.find("{d}");
+                    if (pos_d != std::string::npos) code.replace(pos_d, 3, d_str);
+                    size_t pos_n = code.find("{n}");
+                    if (pos_n != std::string::npos) code.replace(pos_n, 3, n_str);
+                    
+                    std::vector<uint8_t> expected_bytes;
+                    if (prefix) expected_bytes.push_back(prefix);
+                    expected_bytes.push_back(opcode);
+                    expected_bytes.push_back(static_cast<uint8_t>(d));
+                    expected_bytes.push_back(static_cast<uint8_t>(n));
+                    ASSERT_CODE(code, expected_bytes);
+                }
+            }
+        };
+
+        // Test all 256 possible values for the immediate operand 'n'
+        for (int i = 0; i <= 255; ++i) {
+            test_value_n(i);
+        }
+    };
+
+    if (full_test) {
+        // Test all 256 possible displacement values. This is slow.
+        for (int d = -128; d <= 127; ++d) {
+            test_displacement(d);
+        }
+    } else {
+        // Test a few representative displacement values for a quick check.
+        int representative_displacements[] = {0, 1, -1, 10, -20, 127, -128};
+        for (int d : representative_displacements) {
+            test_displacement(d);
+        }
+    }
+}
+
 TEST_CASE(NoOperandInstructions) {
     ASSERT_CODE("NOP", {0x00});
     ASSERT_CODE("HALT", {0x76});
@@ -501,11 +556,9 @@ TEST_CASE(TwoOperandInstructions_LD_Indexed) {
     ASSERT_CODE("LD (IY+127), D", {0xFD, 0x72, 0x7F});    
     ASSERT_CODE("LD (IX+1), E", {0xDD, 0x73, 0x01});
     ASSERT_CODE("LD (IY+2), H", {0xFD, 0x74, 0x02});
-    ASSERT_CODE("LD (IX+3), L", {0xDD, 0x75, 0x03});
-
-    // LD (IX/IY+d), n
-    ASSERT_CODE("LD (IX+1), 0xAB", {0xDD, 0x36, 0x01, 0xAB});
-    ASSERT_CODE("LD (IY-2), 0xCD", {0xFD, 0x36, 0xFE, 0xCD});
+    ASSERT_CODE("LD (IX+3), L", {0xDD, 0x75, 0x03});    
+    TEST_INDEXED_IMMEDIATE_8BIT("LD (IX{d}), {n}", 0xDD, 0x36);
+    TEST_INDEXED_IMMEDIATE_8BIT("LD (IY{d}), {n}", 0xFD, 0x36);
 
     // LD r, IXH/IXL/IYH/IYL
     ASSERT_CODE("LD A, IXH", {0xDD, 0x7C});
