@@ -132,6 +132,12 @@ private:
                 inner.erase(inner.find_last_not_of(" \t") + 1);
                 std::string upper_inner = inner;
                 StringHelper::to_upper(upper_inner);
+                if (is_reg16(upper_inner)) {
+                    // Handle (REG16)
+                    operand.type = OperandType::MEM_REG16;
+                    operand.str_val = upper_inner;
+                    return operand;
+                }
                 size_t plus_pos = upper_inner.find('+');
                 size_t minus_pos = upper_inner.find('-');
                 size_t operator_pos = (plus_pos != std::string::npos) ? plus_pos : minus_pos;
@@ -139,8 +145,8 @@ private:
                     std::string base_reg_str = upper_inner.substr(0, operator_pos);
                     base_reg_str.erase(base_reg_str.find_last_not_of(" \t") + 1);
                     if (base_reg_str == "IX" || base_reg_str == "IY") {
-                        std::string offset_str = inner.substr(operator_pos); 
-                        int32_t offset_val; 
+                        std::string offset_str = inner.substr(operator_pos);
+                        int32_t offset_val;
                         if (StringHelper::is_number(offset_str, offset_val)) {
                             // Handle (IX/IY +/- d)
                             operand.type = OperandType::MEM_INDEXED;
@@ -149,12 +155,6 @@ private:
                             return operand;
                         }
                     }
-                }
-                if (is_reg16(upper_inner)) {
-                    // Handle (REG16)
-                    operand.type = OperandType::MEM_REG16;
-                    operand.str_val = upper_inner;
-                    return operand;
                 }
                 Expressions expression(m_policy);
                 int32_t inner_num_val = 0;
@@ -185,7 +185,7 @@ private:
         inline bool is_condition(const std::string& s) const { return condition_names().count(s); }
 
         static const std::set<std::string>& reg8_names() {
-            static const std::set<std::string> s_reg8_names = {"B", "C", "D", "E", "H", "L", "(HL)", "A", "I", "R", "IXH", "IXL", "IYH", "IYL"};
+            static const std::set<std::string> s_reg8_names = {"B", "C", "D", "E", "H", "L", "A", "I", "R", "IXH", "IXL", "IYH", "IYL"};
             return s_reg8_names;
         }
         static const std::set<std::string>& reg16_names() {
@@ -956,6 +956,14 @@ private:
                     return true;
                 }
             }
+            if (mnemonic == "INC" && match_mem_reg16(op) && op.str_val == "HL") {
+                assemble({0x34});
+                return true;
+            }
+            if (mnemonic == "DEC" && match_mem_reg16(op) && op.str_val == "HL") {
+                assemble({0x35});
+                return true;
+            }
             if (mnemonic == "INC" && match_reg8(op)) {
                 assemble({(uint8_t)(0x04 | (reg8_map().at(op.str_val) << 3))});
                 return true;
@@ -1233,13 +1241,6 @@ private:
                     return true;
                 }
             }
-            if (mnemonic == "LD" && match_mem_reg16(op1) && match_imm8(op2)) {
-                if (op1.str_val == "HL") {
-                    uint8_t reg_code = reg8_map().at("(HL)");
-                    assemble({(uint8_t)(0x06 | (reg_code << 3)), (uint8_t)op2.num_val});
-                    return true;
-                }
-            }
             if (mnemonic == "LD" && op1.str_val == "A" && match_mem_reg16(op2)) {
                 if (op2.str_val == "BC") {
                     assemble({0x0A});
@@ -1274,6 +1275,13 @@ private:
                 assemble({0xD3, (uint8_t)op1.num_val});
                 return true;
             }
+            if (mnemonic == "LD" && match_mem_reg16(op1) && match_imm8(op2)) {
+                if (op1.str_val == "HL") {
+                    uint8_t reg_code = reg8_map().at("(HL)");
+                    assemble({(uint8_t)(0x06 | (reg_code << 3)), (uint8_t)op2.num_val});
+                    return true;
+                }
+            }
             if (mnemonic == "LD" && match_mem_indexed(op1) && match_imm8(op2)) {
                 assemble({prefix, 0x36, (uint8_t)((int8_t)op1.offset), (uint8_t)op2.num_val});
                 return true;
@@ -1301,7 +1309,8 @@ private:
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
-                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && op1.str_val == "A" && match_reg8(op2)) {
+                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") &&
+                 op1.str_val == "A" && ((match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL")))) {
                 uint8_t base_opcode = 0;
                 if (mnemonic == "ADD")
                     base_opcode = 0x80;
@@ -1319,7 +1328,11 @@ private:
                     base_opcode = 0xB0;
                 else if (mnemonic == "CP")
                     base_opcode = 0xB8;
-                uint8_t reg_code = reg8_map().at(op2.str_val);
+                uint8_t reg_code;
+                if (op2.str_val == "HL")
+                    reg_code = reg8_map().at("(HL)");
+                else 
+                    reg_code = reg8_map().at(op2.str_val);
                 if (prefix)
                     assemble({prefix, (uint8_t)(base_opcode | reg_code)});
                 else
