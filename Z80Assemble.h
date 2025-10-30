@@ -1096,6 +1096,34 @@ private:
                     return true;
                 }
             }
+            if (mnemonic == "RST" && match_imm8(op)) {
+                switch (op.num_val) {
+                    case 0x00:
+                        assemble({0xC7});
+                        return true;
+                    case 0x08:
+                        assemble({0xCF});
+                        return true;
+                    case 0x10:
+                        assemble({0xD7});
+                        return true;
+                    case 0x18:
+                        assemble({0xDF});
+                        return true;
+                    case 0x20:
+                        assemble({0xE7});
+                        return true;
+                    case 0x28:
+                        assemble({0xEF});
+                        return true;
+                    case 0x30:
+                        assemble({0xF7});
+                        return true;
+                    case 0x38:
+                        assemble({0xFF});
+                        return true;
+                }
+            }
             return false;
         }
         bool encode_two_operands(const std::string& mnemonic, const Operand& op1, const Operand& op2) {
