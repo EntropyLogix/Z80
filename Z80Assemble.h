@@ -255,6 +255,14 @@ private:
                     i = j - 1;
                 } else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '|' || c == '^' || c == '<' || c == '>') {
                     std::string op_str(1, c);
+                    if (c == '-') {
+                        bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
+                        if (is_unary) {
+                            op_str = "_"; // Use "_" to represent unary minus
+                            tokens.push_back({Token::Type::OPERATOR, op_str, 0, 10, false}); // High precedence, right-associative
+                            continue;
+                        }
+                    }
                     int precedence = 0;
                     if (c == '<' && i + 1 < expr.length() && expr[i+1] == '<') {
                         op_str = "<<";
@@ -338,6 +346,12 @@ private:
                         return false;
                     val_stack.push_back(sum_val);
                 } else if (token.type == Token::Type::OPERATOR) {
+                    if (token.s_val == "_") { // Unary minus
+                        if (val_stack.size() < 1) throw std::runtime_error("Invalid expression syntax for unary minus.");
+                        val_stack.back() = -val_stack.back();
+                        continue;
+                    }
+
                     if (val_stack.size() < 2)
                         throw std::runtime_error("Invalid expression syntax.");
                     int32_t v1 = val_stack.back();
