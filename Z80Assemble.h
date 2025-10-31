@@ -294,6 +294,13 @@ private:
                 char c = expr[i];
                 if (isspace(c))
                     continue;
+                if (c == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
+                    tokens.push_back({Token::Type::NUMBER, "", (int32_t)expr[i+1]});
+                    i += 2;
+                    continue;
+                }
+                if (isspace(c))
+                    continue;
                 if (isalpha(c) || c == '_') {
                     size_t j = i;
                     while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_')) {
