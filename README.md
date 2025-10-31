@@ -420,7 +420,7 @@ include(FetchContent)
 FetchContent_Declare(
   Z80
   GIT_REPOSITORY https://github.com/EntropyLogix/Z80
-  GIT_TAG        v1.0.3 # You can use a tag, branch, or a specific commit
+  GIT_TAG        v1.0.5 # You can use a tag, branch, or a specific commit
 )
 
 # Download and make the library available
@@ -612,6 +612,29 @@ std::cout << analyzer.disassemble(pc, "%m") << std::endl;
 JR 0x0000
 ```
 
+### Z80DefaultFiles Class (`Z80Analyze.h`)
+The `Z80DefaultFiles` class is a utility for loading various common Z80 file formats into the emulator's memory and setting the CPU state accordingly. It is particularly useful for quickly loading programs, ROMs, or snapshot files for analysis or execution.
+
+#### Supported Formats and Methods
+
+| Method | Description |
+| :--- | :--- |
+| `load_bin_file(data, load_addr)` | Loads a raw binary file (`.bin`) into memory at the specified `load_addr`. |
+| `load_hex_file(content)` | Parses and loads an Intel HEX format file (`.hex`). |
+| `load_sna_file(data)` | Loads a 48K ZX Spectrum snapshot file (`.sna`), restoring both memory and the complete CPU register state. |
+| `load_z80_file(data)` | Loads a Z80 snapshot file (`.z80`), supporting both uncompressed and compressed (v1) formats. It restores memory and CPU state. |
+
+**Example:**
+```cpp
+#include "Z80.h"
+#include "Z80Analyze.h" // Contains Z80DefaultFiles
+
+Z80<> cpu;
+Z80DefaultFiles<Z80DefaultBus, Z80<>> files(cpu.get_bus(), &cpu);
+// std::vector<uint8_t> file_data = ... read from file ...
+// files.load_sna_file(file_data);
+```
+
 ---
 
 ### **Assembler (`Z80Assemble`)**
@@ -801,8 +824,8 @@ The command-line tools (Z80Asm and Z80Dump) are built using CMake. A convenience
 3.  **Run the tools:**
     The compiled binaries will be located in the `tools/build` directory.
     ```bash
-    ./tools/build/Z80Asm --help
-    ./tools/build/Z80Dump --help
+    ./tools/build/Z80Asm
+    ./tools/build/Z80Dump
     ```
 
 #### Building Manually (All Platforms)
