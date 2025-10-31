@@ -53,7 +53,7 @@ public:
     bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
         std::set<std::string> included_files;
         std::string flat_source;
-        if (!flatten_source(main_file_path, flat_source, included_files))
+        if (!preprocess_source(main_file_path, flat_source, included_files))
             throw std::runtime_error("Could not open main source file: " + main_file_path);
         std::stringstream source_stream(flat_source);
         std::vector<std::string> source_lines;
@@ -91,7 +91,7 @@ public:
     std::vector<std::pair<uint16_t, uint16_t>> get_blocks() const { return m_context.m_blocks; }
 
 private:
-    bool flatten_source(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
+    bool preprocess_source(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
         if (included_files.count(identifier))
             throw std::runtime_error("Circular or duplicate include detected: " + identifier);
         included_files.insert(identifier);
@@ -114,7 +114,7 @@ private:
                 if (first_quote == std::string::npos || last_quote == std::string::npos)
                     throw std::runtime_error("Malformed INCLUDE directive in " + identifier + " at line " + std::to_string(line_number));
                 std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
-                flatten_source(include_filename, output_source, included_files);
+                preprocess_source(include_filename, output_source, included_files);
             } else
                 output_source.append(line).append("\n");
         }
