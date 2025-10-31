@@ -1030,6 +1030,14 @@ TEST_CASE(ComprehensiveExpressionEvaluation) {
         LD A, VAL3
     )", {0x3E, 6});
 
+    // Test HIGH() and LOW() functions
+    ASSERT_CODE("ADDR EQU 0x1234\nLD A, HIGH(ADDR)", {0x3E, 0x12});
+    ASSERT_CODE("ADDR EQU 0x1234\nLD A, LOW(ADDR)", {0x3E, 0x34});
+    ASSERT_CODE("LD A, HIGH(0xABCD)", {0x3E, 0xAB});
+    ASSERT_CODE("LD A, LOW(0xABCD)", {0x3E, 0xCD});
+    ASSERT_CODE("ADDR EQU 0x1234\nLD A, HIGH(ADDR+1)", {0x3E, 0x12});
+    ASSERT_CODE("ADDR EQU 0x1234\nLD A, LOW(ADDR+1)", {0x3E, 0x35});
+
     // Test negative numbers (as 0 - n)
     ASSERT_CODE("LD A, 0-5", {0x3E, (uint8_t)-5}); // 0xFB
 

@@ -258,8 +258,8 @@ private:
         }
     private:
         struct Token {
-            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, LPAREN, RPAREN };
-            Type type = Type::UNKNOWN;
+            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN };
+            Type type = Type::FUNCTION;
             std::string s_val;
             int32_t n_val = 0;
             int precedence = 0;
@@ -275,12 +275,18 @@ private:
                     size_t j = i;
                     while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_')) {
                         j++;
-                    }
-                    tokens.push_back({Token::Type::SYMBOL, expr.substr(i, j - i)});
+                    }                    
+                    std::string symbol_str = expr.substr(i, j - i);
+                    std::string upper_symbol = symbol_str;
+                    StringHelper::to_upper(upper_symbol);
+                    if (upper_symbol == "HIGH" || upper_symbol == "LOW")
+                        tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0, 12, false});
+                    else
+                        tokens.push_back({Token::Type::SYMBOL, symbol_str});
                     i = j - 1;
-                } else if (c == '$') {
+                } else if (c == '$')
                     tokens.push_back({Token::Type::SYMBOL, "$"});
-                } else if (isdigit(c) || (c == '0' && (expr[i+1] == 'x' || expr[i+1] == 'X'))) { // Number
+                else if (isdigit(c) || (c == '0' && (expr[i+1] == 'x' || expr[i+1] == 'X'))) { // Number
                     size_t j = i;
                     if (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X")
                         j += 2;
@@ -350,6 +356,9 @@ private:
                     case Token::Type::SYMBOL:
                         postfix.push_back(token);
                         break;
+                    case Token::Type::FUNCTION:
+                        op_stack.push_back(token);
+                        break;
                     case Token::Type::OPERATOR:
                         while (!op_stack.empty() && op_stack.back().type == Token::Type::OPERATOR &&
                                ((op_stack.back().precedence > token.precedence) ||
@@ -370,12 +379,16 @@ private:
                         if (op_stack.empty())
                             throw std::runtime_error("Mismatched parentheses in expression.");
                         op_stack.pop_back();
+                        if (!op_stack.empty() && op_stack.back().type == Token::Type::FUNCTION) {
+                            postfix.push_back(op_stack.back());
+                            op_stack.pop_back();
+                        }
                         break;
                     default: break;
                 }
             }
             while (!op_stack.empty()) {
-                if (op_stack.back().type == Token::Type::LPAREN)
+                if (op_stack.back().type == Token::Type::LPAREN || op_stack.back().type == Token::Type::RPAREN)
                     throw std::runtime_error("Mismatched parentheses in expression.");
                 postfix.push_back(op_stack.back());
                 op_stack.pop_back();
@@ -392,6 +405,16 @@ private:
                     if (!m_policy.on_symbol(token.s_val, sum_val))
                         return false;
                     val_stack.push_back(sum_val);
+                } else if (token.type == Token::Type::FUNCTION) {
+                    if (val_stack.empty())
+                        throw std::runtime_error("Invalid expression: function " + token.s_val + " requires an argument.");
+                    int32_t arg = val_stack.back();
+                    val_stack.pop_back();
+                    if (token.s_val == "HIGH")
+                        val_stack.push_back((arg >> 8) & 0xFF);
+                    else // LOW
+                        val_stack.push_back(arg & 0xFF);
+
                 } else if (token.type == Token::Type::OPERATOR) {
                     if (token.s_val == "_" || token.s_val == "~") { // Unary operators
                         if (val_stack.size() < 1) throw std::runtime_error("Invalid expression syntax for unary minus.");
