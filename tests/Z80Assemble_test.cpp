@@ -894,6 +894,22 @@ TEST_CASE(EQUAndSETDirectives) {
     )");
 }
 
+TEST_CASE(Comments) {
+    // Test single-line semicolon comments
+    ASSERT_CODE("LD A, 5 ; This is a comment", {0x3E, 0x05});
+    ASSERT_CODE("; ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A});
+
+    // Test multi-line block comments
+    ASSERT_CODE(R"(
+        LD A, 1       /* Start comment
+        LD B, 2       This is all commented out
+        LD C, 3       */ LD D, 4
+    )", {0x3E, 0x01, 0x16, 0x04});
+
+    // Test unterminated block comment
+    ASSERT_COMPILE_FAILS("LD A, 1 /* This comment is not closed");
+}
+
 TEST_CASE(IndexedRegisterParts) {
     const char* regs[] = {"B", "C", "D", "E", "A"}; // H and L are special
 

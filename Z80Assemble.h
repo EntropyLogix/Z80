@@ -98,6 +98,15 @@ private:
         std::string source_content;
         if (!m_context.m_source_provider->get_source(identifier, source_content))
             return false;
+        size_t start_pos = source_content.find("/*");
+        while (start_pos != std::string::npos) {
+            size_t end_pos = source_content.find("*/", start_pos + 2);
+            if (end_pos == std::string::npos)
+                throw std::runtime_error("Unterminated block comment in " + identifier);
+            source_content.replace(start_pos, end_pos - start_pos + 2, "\n");
+            start_pos = source_content.find("/*");
+        }
+
         std::stringstream source_stream(source_content);
         std::stringstream buffer;
         std::string line;
