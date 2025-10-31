@@ -43,6 +43,58 @@ public:
 	virtual bool get_source(const std::string& identifier, std::string& source) = 0;
 };
 
+class Preprocessor {
+public:
+    Preprocessor(ISourceProvider* source_provider) : m_source_provider(source_provider) {}
+
+    bool process(const std::string& main_file_path, std::string& output_source) {
+        std::set<std::string> included_files;
+        return process_file(main_file_path, output_source, included_files);
+    }
+
+private:
+    void remove_block_comments(std::string& source_content, const std::string& identifier) {
+        size_t start_pos = source_content.find("/*");
+        while (start_pos != std::string::npos) {
+            size_t end_pos = source_content.find("*/", start_pos + 2);
+            if (end_pos == std::string::npos)
+                throw std::runtime_error("Unterminated block comment in " + identifier);
+            source_content.replace(start_pos, end_pos - start_pos + 2, "\n");
+            start_pos = source_content.find("/*");
+        }
+    }
+    bool process_file(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
+        if (included_files.count(identifier))
+            throw std::runtime_error("Circular or duplicate include detected: " + identifier);
+        included_files.insert(identifier);
+        std::string source_content;
+        if (!m_source_provider->get_source(identifier, source_content))
+            return false;
+        remove_block_comments(source_content, identifier);
+        std::stringstream source_stream(source_content);
+        std::string line;
+        size_t line_number = 0;
+        while (std::getline(source_stream, line)) {
+            line_number++;
+            std::string trimmed_line = line;
+            trimmed_line.erase(0, trimmed_line.find_first_not_of(" \t"));
+            std::string upper_line = trimmed_line;
+            std::transform(upper_line.begin(), upper_line.end(), upper_line.begin(), ::toupper);
+            if (upper_line.rfind("INCLUDE ", 0) == 0) {
+                size_t first_quote = trimmed_line.find('"');
+                size_t last_quote = trimmed_line.find('"', first_quote + 1);
+                if (first_quote == std::string::npos || last_quote == std::string::npos)
+                    throw std::runtime_error("Malformed INCLUDE directive in " + identifier + " at line " + std::to_string(line_number));
+                std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
+                process_file(include_filename, output_source, included_files);
+            } else
+                output_source.append(line).append("\n");
+        }
+        return true;
+    }
+    ISourceProvider* m_source_provider;
+};
+
 template <typename TMemory> class Z80Assembler {
 public:
     Z80Assembler(TMemory* memory, ISourceProvider* source_provider) {
@@ -51,9 +103,9 @@ public:
     }
 
     bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
-        std::set<std::string> included_files;
+        Preprocessor preprocessor(m_context.m_source_provider);
         std::string flat_source;
-        if (!preprocess_source(main_file_path, flat_source, included_files))
+        if (!preprocessor.process(main_file_path, flat_source))
             throw std::runtime_error("Could not open main source file: " + main_file_path);
         std::stringstream source_stream(flat_source);
         std::vector<std::string> source_lines;
@@ -91,44 +143,6 @@ public:
     std::vector<std::pair<uint16_t, uint16_t>> get_blocks() const { return m_context.m_blocks; }
 
 private:
-    bool preprocess_source(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
-        if (included_files.count(identifier))
-            throw std::runtime_error("Circular or duplicate include detected: " + identifier);
-        included_files.insert(identifier);
-        std::string source_content;
-        if (!m_context.m_source_provider->get_source(identifier, source_content))
-            return false;
-        size_t start_pos = source_content.find("/*");
-        while (start_pos != std::string::npos) {
-            size_t end_pos = source_content.find("*/", start_pos + 2);
-            if (end_pos == std::string::npos)
-                throw std::runtime_error("Unterminated block comment in " + identifier);
-            source_content.replace(start_pos, end_pos - start_pos + 2, "\n");
-            start_pos = source_content.find("/*");
-        }
-
-        std::stringstream source_stream(source_content);
-        std::stringstream buffer;
-        std::string line;
-        size_t line_number = 0;
-        while (std::getline(source_stream, line)) {
-            line_number++;
-            std::string trimmed_line = line;
-            trimmed_line.erase(0, trimmed_line.find_first_not_of(" \t"));
-            std::string upper_line = trimmed_line;
-            std::transform(upper_line.begin(), upper_line.end(), upper_line.begin(), ::toupper);
-            if (upper_line.rfind("INCLUDE ", 0) == 0) {
-                size_t first_quote = trimmed_line.find('"');
-                size_t last_quote = trimmed_line.find('"', first_quote + 1);
-                if (first_quote == std::string::npos || last_quote == std::string::npos)
-                    throw std::runtime_error("Malformed INCLUDE directive in " + identifier + " at line " + std::to_string(line_number));
-                std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
-                preprocess_source(include_filename, output_source, included_files);
-            } else
-                output_source.append(line).append("\n");
-        }
-        return true;
-    }
     class IAssemblyPolicy;
     //Operands
     class OperandParser {
