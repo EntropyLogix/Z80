@@ -13,6 +13,7 @@
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 
+#include "Z80Asm.h"
 #include "Z80Assemble.h"
 #include "Z80Analyze.h"
 #include <cstdint>
@@ -21,6 +22,9 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <filesystem>
+#include <set>
+
 
 void print_usage() {
     std::cerr << "Usage: Z80Asm <input_file> [options]\n"
@@ -31,21 +35,55 @@ void print_usage() {
               << "If no output options are provided, the result is printed to the screen only.\n";
 }
 
-std::string read_source_file(const std::string& file_path) {
+std::string preprocess_source(const std::filesystem::path& file_path, std::set<std::filesystem::path>& included_files) {
+    if (included_files.count(file_path))
+        throw std::runtime_error("Circular or duplicate include detected: " + file_path.string());
+    included_files.insert(file_path);
+
     std::ifstream file(file_path);
     if (!file) {
-        throw std::runtime_error("Cannot open source file: " + file_path);
+        throw std::runtime_error("Cannot open source file: " + file_path.string());
     }
+
     std::stringstream buffer;
-    buffer << file.rdbuf();
+    std::string line;
+    size_t line_number = 0;
+    while (std::getline(file, line)) {
+        line_number++;
+        std::string trimmed_line = line;
+        trimmed_line.erase(0, trimmed_line.find_first_not_of(" \t"));
+        
+        std::string upper_line = trimmed_line;
+        std::transform(upper_line.begin(), upper_line.end(), upper_line.begin(), ::toupper);
+
+        if (upper_line.rfind("INCLUDE ", 0) == 0) {
+            size_t first_quote = trimmed_line.find('"');
+            size_t last_quote = trimmed_line.find('"', first_quote + 1);
+            if (first_quote == std::string::npos || last_quote == std::string::npos) {
+                throw std::runtime_error("Malformed INCLUDE directive in " + file_path.string() + " at line " + std::to_string(line_number));
+            }
+            std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
+            
+            std::filesystem::path parent_path = file_path.parent_path();
+            std::filesystem::path included_file_path = std::filesystem::canonical(parent_path / include_filename);
+
+            buffer << preprocess_source(included_file_path, included_files);
+        } else
+            buffer << line << '\n';
+    }
     return buffer.str();
+}
+
+std::string read_source_file(const std::string& file_path) {
+    std::set<std::filesystem::path> included_files;
+    std::filesystem::path canonical_path = std::filesystem::canonical(file_path);
+    return preprocess_source(canonical_path, included_files);
 }
 
 void write_map_file(const std::string& file_path, const std::map<std::string, int32_t>& symbols) {
     std::ofstream file(file_path);
-    if (!file) {
+    if (!file)
         throw std::runtime_error("Cannot open map file for writing: " + file_path);
-    }
     for (const auto& symbol : symbols) {
         file << std::setw(20) << std::left << std::setfill(' ') << symbol.first
              << " EQU $" << std::hex << std::uppercase << std::setw(4) << std::setfill('0')
@@ -55,12 +93,9 @@ void write_map_file(const std::string& file_path, const std::map<std::string, in
 
 void write_hex_file(const std::string& file_path, const Z80DefaultBus& bus, const std::vector<std::pair<uint16_t, uint16_t>>& blocks) {
     std::ofstream file(file_path);
-    if (!file) {
+    if (!file)
         throw std::runtime_error("Cannot open hex file for writing: " + file_path);
-    }
-
     const size_t bytes_per_line = 16;
-
     for (const auto& block : blocks) {
         uint16_t current_addr = block.first;
         uint16_t remaining_len = block.second;
@@ -92,22 +127,18 @@ void write_hex_file(const std::string& file_path, const Z80DefaultBus& bus, cons
 }
 
 void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, const std::vector<std::pair<uint16_t, uint16_t>>& blocks) {
-    if (blocks.empty()) {
+    if (blocks.empty())
         return;
-    }
-
     // Find the overall memory range
     uint16_t min_addr = blocks[0].first;
     uint16_t max_addr = blocks[0].first + blocks[0].second -1;
 
     for (const auto& block : blocks) {
-        if (block.first < min_addr) {
+        if (block.first < min_addr)
             min_addr = block.first;
-        }
         uint16_t block_end_addr = block.first + block.second -1;
-        if (block_end_addr > max_addr) {
+        if (block_end_addr > max_addr)
             max_addr = block_end_addr;
-        }
     }
 
     size_t total_size = max_addr - min_addr + 1;
@@ -115,18 +146,17 @@ void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, cons
 
     // Copy the data from each block into the image
     for (const auto& block : blocks) {
-        for (uint16_t i = 0; i < block.second; ++i) {
+        for (uint16_t i = 0; i < block.second; ++i)
             image[block.first - min_addr + i] = bus.peek(block.first + i);
-        }
     }
 
     std::ofstream file(file_path, std::ios::binary);
-    if (!file) {
+    if (!file)
         throw std::runtime_error("Cannot open binary file for writing: " + file_path);
-    }
     file.write(reinterpret_cast<const char*>(image.data()), image.size());
 }
 
+#ifndef Z80ASM_TEST_BUILD
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         print_usage();
@@ -223,3 +253,4 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+#endif

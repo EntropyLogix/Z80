@@ -1062,12 +1062,16 @@ TEST_CASE(CyclicDependency) {
     )");
 }
 
+void run_asm_tests(); // Declaration for tests from Z80Asm_test.cpp
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
     std::cout << "=============================\n";
 
     // The test cases are automatically registered and run here.
+
+    run_asm_tests();
 
     std::cout << "\n=============================\n";
     std::cout << "Test summary:\n";
