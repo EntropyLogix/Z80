@@ -318,7 +318,7 @@ private:
                    c == '=' || c == '!';
         }
         bool is_unary_operator_char(char c) const {
-            return c == '+' || c == '-' || c == '~';
+            return c == '+' || c == '-' || c == '~' || c == '!';
         }
         std::string get_multichar_operator(const std::string& expr, size_t& i) const {
             if (i + 1 < expr.length()) {
@@ -337,6 +337,8 @@ private:
                 tokens.push_back({Token::Type::OPERATOR, "_", 0, 10, false}); // unary minus
             else if (c == '~')
                 tokens.push_back({Token::Type::OPERATOR, "~", 0, 10, false}); // bitwise NOT
+            else if (c == '!')
+                tokens.push_back({Token::Type::OPERATOR, "!", 0, 10, false}); // logical NOT
             // unary plus is a no-op, so we just skip it.
             return true;
         };
@@ -470,12 +472,14 @@ private:
                         val_stack.push_back(arg & 0xFF);
 
                 } else if (token.type == Token::Type::OPERATOR) {
-                    if (token.s_val == "_" || token.s_val == "~") { // Unary operators
+                    if (token.s_val == "_" || token.s_val == "~" || token.s_val == "!") { // Unary operators
                         if (val_stack.size() < 1) throw std::runtime_error("Invalid expression syntax for unary minus.");
                         if (token.s_val == "_") {
                             val_stack.back() = -val_stack.back();
-                        } else { // '~'
+                        } else if (token.s_val == "~") {
                             val_stack.back() = ~val_stack.back();
+                        } else { // '!'
+                            val_stack.back() = !val_stack.back();
                         }
                         continue;
                     }

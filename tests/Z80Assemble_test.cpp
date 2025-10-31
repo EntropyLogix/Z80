@@ -1122,6 +1122,19 @@ TEST_CASE(ComprehensiveExpressionEvaluation) {
     ASSERT_CODE("VAL EQU (5 > 2) && (10 < 20)\nLD A, VAL", {0x3E, 1});
 }
 
+TEST_CASE(LogicalNOTOperator) {
+    ASSERT_CODE("LD A, !1", {0x3E, 0});
+    ASSERT_CODE("LD A, !0", {0x3E, 1});
+    ASSERT_CODE("LD A, !5", {0x3E, 0});
+    ASSERT_CODE("LD A, !-1", {0x3E, 0});
+    ASSERT_CODE("LD A, !!1", {0x3E, 1});
+    ASSERT_CODE("LD A, !!0", {0x3E, 0});
+    ASSERT_CODE("LD A, !(1==1)", {0x3E, 0});
+    ASSERT_CODE("LD A, !(1==0)", {0x3E, 1});
+    ASSERT_CODE("VAL_A EQU 10\nLD A, !VAL_A", {0x3E, 0});
+    ASSERT_CODE("VAL_B EQU 0\nLD A, !VAL_B", {0x3E, 1});
+}
+
 TEST_CASE(ForwardReferences) {
     std::string code = R"(
         JP TARGET
