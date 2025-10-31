@@ -479,6 +479,16 @@ private:
         virtual void on_label(const std::string& label) {};
         virtual void on_const(const std::string& label, const std::string& value) {};
         virtual void on_code_block(const std::string& label) {};
+        virtual void on_align(const std::string& boundary) {
+            Expressions expression(*this);
+            int32_t align_val;
+            if (expression.evaluate(boundary, align_val)) {
+                uint16_t current_addr = this->m_context.m_current_address;
+                uint16_t new_addr = (current_addr + align_val - 1) & -align_val;
+                for (uint16_t i = current_addr; i < new_addr; ++i)
+                    on_assemble({0x00});
+            }
+        };
         virtual void on_unknown_operand(const std::string& operand) {}
         //Instructions
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) {return false;};
@@ -726,7 +736,7 @@ private:
             return mnemonics;
         }
         static const std::set<std::string>& directives() {
-            static const std::set<std::string> directives = {"DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "ORG"};
+            static const std::set<std::string> directives = {"DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "ORG", "INCLUDE", "ALIGN"};
             return directives;
         }
         static const std::set<std::string>& registers() {
@@ -1796,6 +1806,13 @@ private:
                 std::string org_value_str = line.substr(org_pos + 4);
                 StringHelper::trim_whitespace(org_value_str);
                 m_policy.on_code_block(org_value_str);
+                return true;
+            }
+            size_t align_pos = line_upper.find("ALIGN ");
+            if (align_pos != std::string::npos && line_upper.substr(0, align_pos).find_first_not_of(" \t") == std::string::npos) {
+                std::string align_value_str = line.substr(align_pos + 6);
+                StringHelper::trim_whitespace(align_value_str);
+                m_policy.on_align(align_value_str);
                 return true;
             }
             return false;
