@@ -928,18 +928,6 @@ TEST_CASE(Comments) {
     ASSERT_CODE("LD A, 5 ; This is a comment", {0x3E, 0x05});
     ASSERT_CODE("; ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A});
 
-    // Test single-line slash comments
-    ASSERT_CODE("LD C, 15 // This is a C++ style comment", {0x0E, 0x0F});
-    ASSERT_CODE("// ENTIRE LINE COMMENT\nLD D, 20", {0x16, 0x14});
-    ASSERT_CODE("LD E, 25//Comment with no space", {0x1E, 0x19});
-    ASSERT_CODE("LD F, 30  \t// Comment after whitespace", {0x26, 0x1E});
-
-    // Test interaction between different comment types
-    ASSERT_CODE("LD A, 1 ; comment // another comment", {0x3E, 0x01}); // ; comes first
-    ASSERT_CODE("LD B, 2 // comment ; another comment", {0x06, 0x02}); // // comes first
-    ASSERT_CODE("DB \"This is not a // comment\"", {'T', 'h', 'i', 's', ' ', 'i', 's', ' ', 'n', 'o', 't', ' ', 'a', ' ', '/', '/', ' ', 'c', 'o', 'm', 'm', 'e', 'n', 't'});
-    ASSERT_CODE("LD A, 1 /* comment */ LD B, 2 // comment", {0x3E, 0x01, 0x06, 0x02});
-
     // Test multi-line block comments
     ASSERT_CODE(R"(
         LD A, 1       /* Start comment

@@ -1872,14 +1872,9 @@ private:
 
     private:
         bool process_comments(std::string& line) {
-            size_t semicolon_pos = line.find(';');
-            size_t slash_pos = line.find("//");
-
-            size_t comment_pos = (semicolon_pos != std::string::npos && slash_pos != std::string::npos)
-                                     ? std::min(semicolon_pos, slash_pos)
-                                     : (semicolon_pos != std::string::npos ? semicolon_pos : slash_pos);
-
+            size_t comment_pos = line.find(';');
             if (comment_pos != std::string::npos) {
+                std::string comment = line.substr(comment_pos + 1);
                 line.erase(comment_pos);
                 return true;
             }
