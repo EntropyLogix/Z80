@@ -693,19 +693,11 @@ private:
     };
     class Keywords {
     public:
-        static bool is_mnemonic(const std::string& s) {
-            std::string upper_s = s;
-            StringHelper::to_upper(upper_s);
-            return mnemonics().count(upper_s);
-        }
-        static bool is_register(const std::string& s) {
-            std::string upper_s = s;
-            StringHelper::to_upper(upper_s);
-            return registers().count(upper_s);
-        }
-        static bool is_reserved(const std::string& s) {
-            return is_mnemonic(s) || is_register(s);
-        }
+        static bool is_mnemonic(const std::string& s) { return is_in_set(s, mnemonics()); }
+        static bool is_directive(const std::string& s) { return is_in_set(s, directives()); }
+        static bool is_register(const std::string& s) { return is_in_set(s, registers()); }
+        static bool is_reserved(const std::string& s) { return is_mnemonic(s) || is_directive(s) || is_register(s); }
+
         static bool is_valid_label_name(const std::string& s) {
             if (s.empty() || is_reserved(s))
                 return false;
@@ -718,16 +710,24 @@ private:
             return true;
         }
     private:
+        static bool is_in_set(const std::string& s, const std::set<std::string>& set) {
+            std::string upper_s = s;
+            StringHelper::to_upper(upper_s);
+            return set.count(upper_s);
+        }
         static const std::set<std::string>& mnemonics() {
             static const std::set<std::string> mnemonics = {
-                "ADC", "ADD", "AND", "BIT", "CALL", "CCF", "CP", "CPD", "CPDR", "CPI", "CPIR", "CPL", "DAA",
-                "DB", "DEFB", "DEC", "DEFS", "DEFW", "DI", "DJNZ", "DW", "DS", "EI", "EX", "EXX", "HALT",
-                "IM", "IN", "INC", "IND", "INDR", "INI", "INIR", "JP", "JR", "LD", "LDD", "LDDR", "LDI", "SLI",
-                "LDIR", "NEG", "NOP", "OR", "OTDR", "OTIR", "OUT", "OUTD", "OUTI", "POP", "PUSH", "RES",
-                "RET", "RETI", "RETN", "RL", "RLA", "RLC", "RLCA", "RLD", "RR", "RRA", "RRC", "RRCA", "RRD",
-                "RST", "SBC", "SCF", "SET", "SLA", "SLI", "SLL", "SRA", "SRL", "SUB", "XOR", "EQU", "ORG"
+                "ADC", "ADD", "AND", "BIT", "CALL", "CCF", "CP", "CPD", "CPDR", "CPI", "CPIR", "CPL", "DAA", "DEC", "DI",
+                "DJNZ", "EI", "EX", "EXX", "HALT", "IM", "IN", "INC", "IND", "INDR", "INI", "INIR", "JP", "JR", "LD",
+                "LDD", "LDDR", "LDI", "LDIR", "NEG", "NOP", "OR", "OTDR", "OTIR", "OUT", "OUTD", "OUTI", "POP", "PUSH",
+                "RES", "RET", "RETI", "RETN", "RL", "RLA", "RLC", "RLCA", "RLD", "RR", "RRA", "RRC", "RRCA", "RRD",
+                "RST", "SBC", "SCF", "SET", "SLA", "SLL", "SLI", "SRA", "SRL", "SUB", "XOR"
             };
             return mnemonics;
+        }
+        static const std::set<std::string>& directives() {
+            static const std::set<std::string> directives = {"DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "ORG"};
+            return directives;
         }
         static const std::set<std::string>& registers() {
             static const std::set<std::string> registers = {"B", "C", "D", "E", "H", "L", "A", "I", "R", "IXH", "IXL", "IYH", "IYL", "BC", "DE", "HL", "SP", "IX", "IY", "AF", "AF'"};
@@ -739,11 +739,12 @@ private:
         InstructionEncoder(IAssemblyPolicy& policy) : m_policy(policy) {}
 
         bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
-            if (!Keywords::is_mnemonic(mnemonic)) {
+            if (Keywords::is_directive(mnemonic)) {
+                if (encode_data_block(mnemonic, operands))
+                    return true;
+            } else if (!Keywords::is_mnemonic(mnemonic)) {
                 throw std::runtime_error("Unknown mnemonic: " + mnemonic);
             }
-            if (encode_data_block(mnemonic, operands))
-                return true;
             switch (operands.size()) {
             case 0:
                 if (encode_no_operand(mnemonic))
