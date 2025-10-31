@@ -734,87 +734,101 @@ if (assembler.compile("main.asm")) {
 }
 ```
 
-🛠️ Command-Line Tools
+## 🛠️ Command-Line Tools
+
 The repository includes two command-line tools that demonstrate the use of the Z80 core and the Z80Analyze and Z80Assembler libraries.
 
-Z80Asm Tool
+### Z80Asm Tool
+
 Z80Asm is a utility for assembling Z80 source code files. It takes a source file as input and can generate various output formats.
 
-Input File: A Z80 assembler source file (e.g., .asm).
-Output Options:
---bin <binary_file>: Generates a raw binary file.
---hex <hex_file>: Generates an Intel HEX format file.
---map <map_file>: Generates a symbol map file.
-Usage Example:
-bash
-Z80Asm my_program.asm --bin my_program.bin --hex my_program.hex --map my_program.map
+*   **Input File:** A Z80 assembler source file (e.g., `.asm`).
+*   **Output Options:**
+    *   `--bin <binary_file>`: Generates a raw binary file.
+    *   `--hex <hex_file>`: Generates an Intel HEX format file.
+    *   `--map <map_file>`: Generates a symbol map file.
+*   **Usage Example:**
+    ```bash
+    Z80Asm my_program.asm --bin my_program.bin --hex my_program.hex --map my_program.map
+    ```
+
 If no output options are provided, the assembly result (symbols, memory dump, disassembly) is printed to the console.
-Z80Dump Tool
+
+### Z80Dump Tool
+
 Z80Dump is a versatile tool for analyzing Z80 binary files and memory snapshots. It can load various file formats and perform memory dumps, disassembly, and register inspection.
 
-Supported Input Formats: .bin (raw binary), .sna (ZX Spectrum snapshot), .z80 (ZX Spectrum snapshot), and .hex (Intel HEX).
-Analysis Options:
---mem-dump <address> <bytes_hex>: Dumps a specified region of memory. The address can be a hex value, a register name (PC, SP, HL, etc.), or an expression (e.g., PC+10, HL-0x20).
---disassemble <address> <lines_dec>: Disassembles a specified number of lines starting from the given address.
---reg-dump [format]: Dumps the current state of the CPU registers. A custom output format can be provided.
---load-addr <address_hex>: Specifies the load address for .bin files (defaults to 0x0000).
---map <map_file> / --ctl <ctl_file>: Loads labels from .map or .ctl files to enrich the disassembly.
---run-ticks <ticks_dec>: Runs the Z80 emulation for a specified number of T-states before performing the analysis.
---run-steps <steps_dec>: Runs the Z80 emulation for a specified number of instructions (steps) before performing the analysis.
-Usage Examples:
-bash
-# Display registers from a .sna snapshot
-Z80Dump my_snapshot.sna --reg-dump
+*   **Supported Input Formats:** `.bin` (raw binary), `.sna` (ZX Spectrum snapshot), `.z80` (ZX Spectrum snapshot), and `.hex` (Intel HEX).
+*   **Analysis Options:**
+    *   `--mem-dump <address> <bytes_hex>`: Dumps a specified region of memory. The address can be a hex value, a register name (PC, SP, HL, etc.), or an expression (e.g., `PC+10`, `HL-0x20`).
+    *   `--disassemble <address> <lines_dec>`: Disassembles a specified number of lines starting from the given address.
+    *   `--reg-dump [format]`: Dumps the current state of the CPU registers. A custom output format can be provided.
+    *   `--load-addr <address_hex>`: Specifies the load address for `.bin` files (defaults to `0x0000`).
+    *   `--map <map_file>` / `--ctl <ctl_file>`: Loads labels from `.map` or `.ctl` files to enrich the disassembly.
+    *   `--run-ticks <ticks_dec>`: Runs the Z80 emulation for a specified number of T-states before performing the analysis.
+    *   `--run-steps <steps_dec>`: Runs the Z80 emulation for a specified number of instructions (steps) before performing the analysis.
+*   **Usage Examples:**
+    ```bash
+    # Display registers from a .sna snapshot
+    Z80Dump my_snapshot.sna --reg-dump
 
-# Load a binary file at address 8000h, then dump and disassemble it
-Z80Dump my_program.bin --load-addr 8000h --mem-dump 8000h 100 --disassemble 8000h 20
+    # Load a binary file at address 8000h, then dump and disassemble it
+    Z80Dump my_program.bin --load-addr 8000h --mem-dump 8000h 100 --disassemble 8000h 20
 
-# Load a .hex file and disassemble 50 lines from the PC, using a symbol map
-Z80Dump my_file.hex --disassemble PC 50 --map my_labels.map
+    # Load a .hex file and disassemble 50 lines from the PC, using a symbol map
+    Z80Dump my_file.hex --disassemble PC 50 --map my_labels.map
 
-# Run a game for one million T-states, then disassemble the code at the current PC
-Z80Dump game.z80 --run-ticks 1000000 --disassemble PC 30
+    # Run a game for one million T-states, then disassemble the code at the current PC
+    Z80Dump game.z80 --run-ticks 1000000 --disassemble PC 30
+    ```
 
-How to Build
+### How to Build
+
 The command-line tools (Z80Asm and Z80Dump) are built using CMake. A convenience script is provided for Linux and macOS users.
 
-Building on Linux or macOS
-Clone the repository:
+#### Building on Linux or macOS
 
-bash
-git clone https://github.com/EntropyLogix/Z80.git
-cd Z80
-Run the build script: The build script is located in the tools directory. It will create a build subdirectory inside tools and compile the executables there.
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/EntropyLogix/Z80.git
+    cd Z80
+    ```
+2.  **Run the build script:**
+    The build script is located in the `tools` directory. It will create a `build` subdirectory inside `tools` and compile the executables there.
+    ```bash
+    ./tools/build.sh
+    ```
+3.  **Run the tools:**
+    The compiled binaries will be located in the `tools/build` directory.
+    ```bash
+    ./tools/build/Z80Asm --help
+    ./tools/build/Z80Dump --help
+    ```
 
-bash
-./tools/build.sh
-Run the tools: The compiled binaries will be located in the tools/build directory.
+#### Building Manually (All Platforms)
 
-bash
-./tools/build/Z80Asm --help
-./tools/build/Z80Dump --help
-Building Manually (All Platforms)
 If you are on Windows or prefer to build manually, you can use these standard CMake commands from the root of the repository.
 
-Create a build directory:
+1.  **Create a build directory:**
+    ```bash
+    mkdir build
+    cd build
+    ```
+2.  **Configure the project:**
+    ```bash
+    # For Visual Studio, you might specify a generator
+    # cmake .. -G "Visual Studio 17 2022"
 
-bash
-mkdir build
-cd build
-Configure the project:
-
-bash
-# For Visual Studio, you might specify a generator
-# cmake .. -G "Visual Studio 17 2022"
-
-# For other compilers (like GCC/Clang)
-cmake .. -DCMAKE_BUILD_TYPE=Release
-Build the project:
-
-bash
-cmake --build . --config Release
-Run the tools: The executables will be located in build/tools/Release (on Windows) or build/tools (on other platforms).
+    # For other compilers (like GCC/Clang)
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+    ```
+3.  **Build the project:**
+    ```bash
+    cmake --build . --config Release
+    ```
+4.  **Run the tools:**
+    The executables will be located in `build/tools/Release` (on Windows) or `build/tools` (on other platforms).
 
 ## 📜 **License**
 
-This project is licensed under the MIT License. See the LICENSE file for details.
+This project is licensed under the MIT License. See the `LICENSE` file for details.
