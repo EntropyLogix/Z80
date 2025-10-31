@@ -16,6 +16,7 @@
 #include <cassert>
 #include <iostream>
 #include <vector>
+#include <map>
 #include <iomanip>
 
 int tests_passed = 0;
@@ -36,11 +37,35 @@ int tests_failed = 0;
     } test_registerer_##name;                                     \
     void test_##name()
 
+class MockSourceProvider : public ISourceProvider {
+public:
+    std::string get_source(const std::string& identifier) override {
+        if (m_sources.count(identifier)) {
+            return m_sources[identifier];
+        }
+        throw std::runtime_error("Mock source not found: " + identifier);
+    }
+    void add_source(const std::string& identifier, const std::string& content) {
+        m_sources[identifier] = content;
+    }
+    std::string resolve(const std::string& base_identifier, const std::string& new_identifier) override {
+        // Simple mock resolution: just use the new identifier as is.
+        // This works for tests where filenames are unique.
+        if (m_sources.count(new_identifier)) {
+            return new_identifier;
+        }
+        return "unresolved/" + new_identifier;
+    }
+private:
+    std::map<std::string, std::string> m_sources;
+};
+
 void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes) {
     Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus);
-
-    bool success = assembler.compile(asm_code, 0x0000);
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    bool success = assembler.compile("main.asm", 0x0000);
     if (!success) {
         std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
         tests_failed++;
@@ -78,9 +103,11 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
 
 void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
     Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus);
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
     try {
-        bool success = assembler.compile(asm_code, 0x0000);
+        bool success = assembler.compile("main.asm", 0x0000);
         if (success) {
             std::cerr << "Assertion failed: Compilation succeeded for '" << asm_code << "' but was expected to fail.\n";
             tests_failed++;
@@ -822,8 +849,10 @@ TEST_CASE(LabelsAndExpressions) {
     };
 
     Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus);
-    bool success = assembler.compile(code);
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    bool success = assembler.compile("main.asm");
     assert(success && "Compilation with labels failed");
 
     auto blocks = assembler.get_blocks();
@@ -934,8 +963,10 @@ TEST_CASE(RelativeJumpBoundaries) {
     // Helper to test code with ORG directive
     auto assert_org_code = [](const std::string& asm_code, uint16_t org_addr, const std::vector<uint8_t>& expected_bytes) {
         Z80DefaultBus bus;
-        Z80Assembler<Z80DefaultBus> assembler(&bus);
-        assembler.compile(asm_code);
+        MockSourceProvider source_provider;
+        source_provider.add_source("main.asm", asm_code);
+        Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+        assembler.compile("main.asm");
         bool mismatch = false;
         for (size_t i = 0; i < expected_bytes.size(); ++i) {
             if (bus.peek(org_addr + i) != expected_bytes[i]) {
@@ -1062,7 +1093,61 @@ TEST_CASE(CyclicDependency) {
     )");
 }
 
-void run_asm_tests(); // Declaration for tests from Z80Asm_test.cpp
+TEST_CASE(IncludeDirective_Basic) {
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", "LD A, 5\nINCLUDE \"included.asm\"\nADD A, B");
+    source_provider.add_source("included.asm", "LD B, 10\n");
+
+    Z80DefaultBus bus;
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    assembler.compile("main.asm");
+
+    std::vector<uint8_t> expected = {0x3E, 0x05, 0x06, 0x0A, 0x80};
+    auto blocks = assembler.get_blocks();
+    assert(blocks.size() == 1 && blocks[0].second == expected.size());
+    bool mismatch = false;
+    for(size_t i = 0; i < expected.size(); ++i) {
+        if (bus.peek(i) != expected[i]) mismatch = true;
+    }
+    assert(!mismatch && "Basic include failed");
+    tests_passed++;
+}
+
+TEST_CASE(IncludeDirective_Nested) {
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", "INCLUDE \"level1.asm\"");
+    source_provider.add_source("level1.asm", "LD A, 1\nINCLUDE \"level2.asm\"");
+    source_provider.add_source("level2.asm", "LD B, 2\n");
+
+    Z80DefaultBus bus;
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    assembler.compile("main.asm");
+
+    std::vector<uint8_t> expected = {0x3E, 0x01, 0x06, 0x02};
+    auto blocks = assembler.get_blocks();
+    assert(blocks.size() == 1 && blocks[0].second == expected.size());
+    bool mismatch = false;
+    for(size_t i = 0; i < expected.size(); ++i) {
+        if (bus.peek(i) != expected[i]) mismatch = true;
+    }
+    assert(!mismatch && "Nested include failed");
+    tests_passed++;
+}
+
+TEST_CASE(IncludeDirective_CircularDependency) {
+    MockSourceProvider source_provider;
+    source_provider.add_source("a.asm", "INCLUDE \"b.asm\"");
+    source_provider.add_source("b.asm", "INCLUDE \"a.asm\"");
+    Z80DefaultBus bus;
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    try {
+        assembler.compile("a.asm");
+        tests_failed++;
+        std::cerr << "Assertion failed: Circular dependency did not throw an exception.\n";
+    } catch (const std::runtime_error&) {
+        tests_passed++;
+    }
+}
 
 int main() {
     std::cout << "=============================\n";
@@ -1070,8 +1155,6 @@ int main() {
     std::cout << "=============================\n";
 
     // The test cases are automatically registered and run here.
-
-    run_asm_tests();
 
     std::cout << "\n=============================\n";
     std::cout << "Test summary:\n";

@@ -13,7 +13,6 @@
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 
-#include "Z80Asm.h"
 #include "Z80Assemble.h"
 #include "Z80Analyze.h"
 #include <cstdint>
@@ -25,7 +24,6 @@
 #include <filesystem>
 #include <set>
 
-
 void print_usage() {
     std::cerr << "Usage: Z80Asm <input_file> [options]\n"
               << "Options:\n"
@@ -35,50 +33,24 @@ void print_usage() {
               << "If no output options are provided, the result is printed to the screen only.\n";
 }
 
-std::string preprocess_source(const std::filesystem::path& file_path, std::set<std::filesystem::path>& included_files) {
-    if (included_files.count(file_path))
-        throw std::runtime_error("Circular or duplicate include detected: " + file_path.string());
-    included_files.insert(file_path);
-
-    std::ifstream file(file_path);
-    if (!file) {
-        throw std::runtime_error("Cannot open source file: " + file_path.string());
+class FileSystemSourceProvider : public ISourceProvider {
+public:
+    std::string get_source(const std::string& identifier) override {
+        std::ifstream file(identifier);
+        if (!file) {
+            throw std::runtime_error("Cannot open source file: " + identifier);
+        }
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        return buffer.str();
     }
 
-    std::stringstream buffer;
-    std::string line;
-    size_t line_number = 0;
-    while (std::getline(file, line)) {
-        line_number++;
-        std::string trimmed_line = line;
-        trimmed_line.erase(0, trimmed_line.find_first_not_of(" \t"));
-        
-        std::string upper_line = trimmed_line;
-        std::transform(upper_line.begin(), upper_line.end(), upper_line.begin(), ::toupper);
-
-        if (upper_line.rfind("INCLUDE ", 0) == 0) {
-            size_t first_quote = trimmed_line.find('"');
-            size_t last_quote = trimmed_line.find('"', first_quote + 1);
-            if (first_quote == std::string::npos || last_quote == std::string::npos) {
-                throw std::runtime_error("Malformed INCLUDE directive in " + file_path.string() + " at line " + std::to_string(line_number));
-            }
-            std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
-            
-            std::filesystem::path parent_path = file_path.parent_path();
-            std::filesystem::path included_file_path = std::filesystem::canonical(parent_path / include_filename);
-
-            buffer << preprocess_source(included_file_path, included_files);
-        } else
-            buffer << line << '\n';
+    std::string resolve(const std::string& base_identifier, const std::string& new_identifier) override {
+        std::filesystem::path base_path(base_identifier);
+        std::filesystem::path new_path = base_path.parent_path() / new_identifier;
+        return std::filesystem::canonical(new_path).string();
     }
-    return buffer.str();
-}
-
-std::string read_source_file(const std::string& file_path) {
-    std::set<std::filesystem::path> included_files;
-    std::filesystem::path canonical_path = std::filesystem::canonical(file_path);
-    return preprocess_source(canonical_path, included_files);
-}
+};
 
 void write_map_file(const std::string& file_path, const std::map<std::string, int32_t>& symbols) {
     std::ofstream file(file_path);
@@ -93,8 +65,6 @@ void write_map_file(const std::string& file_path, const std::map<std::string, in
 
 void write_hex_file(const std::string& file_path, const Z80DefaultBus& bus, const std::vector<std::pair<uint16_t, uint16_t>>& blocks) {
     std::ofstream file(file_path);
-    if (!file)
-        throw std::runtime_error("Cannot open hex file for writing: " + file_path);
     const size_t bytes_per_line = 16;
     for (const auto& block : blocks) {
         uint16_t current_addr = block.first;
@@ -151,8 +121,6 @@ void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, cons
     }
 
     std::ofstream file(file_path, std::ios::binary);
-    if (!file)
-        throw std::runtime_error("Cannot open binary file for writing: " + file_path);
     file.write(reinterpret_cast<const char*>(image.data()), image.size());
 }
 
@@ -186,13 +154,13 @@ int main(int argc, char* argv[]) {
 
     Z80<> cpu;
     Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus);
+    FileSystemSourceProvider source_provider;
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
 
     try {
-        std::string source_code = read_source_file(input_file);
         std::cout << "Assembling source code from: " << input_file << std::endl;
 
-        if (assembler.compile(source_code, 0x0000)) {
+        if (assembler.compile(input_file, 0x0000)) {
             std::cout << "\n--- Assembly Successful ---\n" << std::endl;
 
             // Print symbols
