@@ -253,12 +253,15 @@ private:
                     } else
                          throw std::runtime_error("Invalid number in expression: " + expr.substr(i, j - i));
                     i = j - 1;
-                } else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '|' || c == '^' || c == '<' || c == '>') {
+                } else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '|' || c == '^' || c == '<' || c == '>' || c == '~') {
                     std::string op_str(1, c);
                     bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
                     if (is_unary) {
                         if (c == '-') {
                             op_str = "_"; // Use "_" to represent unary minus
+                            tokens.push_back({Token::Type::OPERATOR, op_str, 0, 10, false}); // High precedence, right-associative
+                        } else if (c == '~') {
+                            op_str = "~"; // Use "~" to represent unary negation
                             tokens.push_back({Token::Type::OPERATOR, op_str, 0, 10, false}); // High precedence, right-associative
                         } else if (c == '+') {
                             // Unary plus is a no-op, so we just skip it.
@@ -348,9 +351,13 @@ private:
                         return false;
                     val_stack.push_back(sum_val);
                 } else if (token.type == Token::Type::OPERATOR) {
-                    if (token.s_val == "_") { // Unary minus
+                    if (token.s_val == "_" || token.s_val == "~") { // Unary operators
                         if (val_stack.size() < 1) throw std::runtime_error("Invalid expression syntax for unary minus.");
-                        val_stack.back() = -val_stack.back();
+                        if (token.s_val == "_") {
+                            val_stack.back() = -val_stack.back();
+                        } else { // '~'
+                            val_stack.back() = ~val_stack.back();
+                        }
                         continue;
                     }
 

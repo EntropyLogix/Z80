@@ -1025,6 +1025,11 @@ TEST_CASE(ComprehensiveExpressionEvaluation) {
     ASSERT_CODE("VAL EQU 10 * +2\nLD A, VAL", {0x3E, 20});
     ASSERT_CODE("VAL EQU +(2+3)\nLD A, VAL", {0x3E, 5});
     ASSERT_CODE("VAL EQU -+5\nLD A, VAL", {0x3E, (uint8_t)-5});
+
+    // Test bitwise NOT
+    ASSERT_CODE("VAL EQU ~0\nLD A, VAL", {0x3E, (uint8_t)-1});
+    ASSERT_CODE("VAL EQU ~0b01010101\nLD A, VAL", {0x3E, 0b10101010});
+    ASSERT_CODE("VAL EQU 5 + ~2\nLD A, VAL", {0x3E, (uint8_t)(5 + ~2)});
 }
 
 TEST_CASE(ForwardReferences) {
