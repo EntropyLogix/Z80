@@ -39,23 +39,18 @@ int tests_failed = 0;
 
 class MockSourceProvider : public ISourceProvider {
 public:
-    std::string get_source(const std::string& identifier) override {
+    bool get_source(const std::string& identifier, std::string& source) override {
         if (m_sources.count(identifier)) {
-            return m_sources[identifier];
+            source = m_sources[identifier];
+            return true;
         }
-        throw std::runtime_error("Mock source not found: " + identifier);
+        return false;
     }
+
     void add_source(const std::string& identifier, const std::string& content) {
         m_sources[identifier] = content;
     }
-    std::string resolve(const std::string& base_identifier, const std::string& new_identifier) override {
-        // Simple mock resolution: just use the new identifier as is.
-        // This works for tests where filenames are unique.
-        if (m_sources.count(new_identifier)) {
-            return new_identifier;
-        }
-        return "unresolved/" + new_identifier;
-    }
+
 private:
     std::map<std::string, std::string> m_sources;
 };

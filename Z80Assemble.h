@@ -39,9 +39,8 @@
 
 class ISourceProvider {
 public:
-    virtual ~ISourceProvider() = default;
-    virtual std::string get_source(const std::string& identifier) = 0;
-    virtual std::string resolve(const std::string& base_identifier, const std::string& new_identifier) = 0;
+	virtual ~ISourceProvider() = default;
+	virtual bool get_source(const std::string& identifier, std::string& source) = 0;
 };
 
 template <typename TMemory> class Z80Assembler {
@@ -53,8 +52,9 @@ public:
 
     bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
         std::set<std::string> included_files;
-        std::string flat_source = preprocess(main_file_path, main_file_path, included_files);
-
+        std::string flat_source;
+        if (!flatten_source(main_file_path, flat_source, included_files))
+            throw std::runtime_error("Could not open main source file: " + main_file_path);
         std::stringstream source_stream(flat_source);
         std::vector<std::string> source_lines;
         std::string line;
@@ -91,39 +91,34 @@ public:
     std::vector<std::pair<uint16_t, uint16_t>> get_blocks() const { return m_context.m_blocks; }
 
 private:
-    std::string preprocess(const std::string& identifier, const std::string& canonical_identifier, std::set<std::string>& included_files) {
-        if (included_files.count(canonical_identifier)) {
-            throw std::runtime_error("Circular or duplicate include detected: " + canonical_identifier);
-        }
-        included_files.insert(canonical_identifier);
-
-        std::string source = m_context.m_source_provider->get_source(identifier);
-        std::stringstream source_stream(source);
+    bool flatten_source(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
+        if (included_files.count(identifier))
+            throw std::runtime_error("Circular or duplicate include detected: " + identifier);
+        included_files.insert(identifier);
+        std::string source_content;
+        if (!m_context.m_source_provider->get_source(identifier, source_content))
+            return false;
+        std::stringstream source_stream(source_content);
         std::stringstream buffer;
         std::string line;
         size_t line_number = 0;
-
         while (std::getline(source_stream, line)) {
             line_number++;
             std::string trimmed_line = line;
             trimmed_line.erase(0, trimmed_line.find_first_not_of(" \t"));
-            
             std::string upper_line = trimmed_line;
             std::transform(upper_line.begin(), upper_line.end(), upper_line.begin(), ::toupper);
-
             if (upper_line.rfind("INCLUDE ", 0) == 0) {
                 size_t first_quote = trimmed_line.find('"');
                 size_t last_quote = trimmed_line.find('"', first_quote + 1);
-                if (first_quote == std::string::npos || last_quote == std::string::npos) {
+                if (first_quote == std::string::npos || last_quote == std::string::npos)
                     throw std::runtime_error("Malformed INCLUDE directive in " + identifier + " at line " + std::to_string(line_number));
-                }
                 std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
-                std::string resolved_identifier = m_context.m_source_provider->resolve(identifier, include_filename);
-                buffer << preprocess(resolved_identifier, resolved_identifier, included_files);
+                flatten_source(include_filename, output_source, included_files);
             } else
-                buffer << line << '\n';
+                output_source.append(line).append("\n");
         }
-        return buffer.str();
+        return true;
     }
     class IAssemblyPolicy;
     //Operands

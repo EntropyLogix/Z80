@@ -35,21 +35,26 @@ void print_usage() {
 
 class FileSystemSourceProvider : public ISourceProvider {
 public:
-    std::string get_source(const std::string& identifier) override {
-        std::ifstream file(identifier);
+    bool get_source(const std::string& identifier, std::string& source) override {
+        std::filesystem::path file_path;
+        if (m_current_path_stack.empty())
+            file_path = std::filesystem::canonical(identifier);
+        else
+            file_path = std::filesystem::canonical(m_current_path_stack.back().parent_path() / identifier);
+        m_current_path_stack.push_back(file_path);
+        std::ifstream file(file_path);
         if (!file) {
-            throw std::runtime_error("Cannot open source file: " + identifier);
+            m_current_path_stack.pop_back();
+            return false;
         }
         std::stringstream buffer;
         buffer << file.rdbuf();
-        return buffer.str();
+        source = buffer.str();
+        m_current_path_stack.pop_back();
+        return true;
     }
-
-    std::string resolve(const std::string& base_identifier, const std::string& new_identifier) override {
-        std::filesystem::path base_path(base_identifier);
-        std::filesystem::path new_path = base_path.parent_path() / new_identifier;
-        return std::filesystem::canonical(new_path).string();
-    }
+private:
+    std::vector<std::filesystem::path> m_current_path_stack;
 };
 
 void write_map_file(const std::string& file_path, const std::map<std::string, int32_t>& symbols) {
