@@ -330,8 +330,7 @@ private:
                         tokens.push_back({Token::Type::NUMBER, "", val});
                     } else
                          throw std::runtime_error("Invalid number in expression: " + expr.substr(i, j - i));
-                    i = j - 1;
-                } else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '|' || c == '^' || c == '<' || c == '>' || c == '~') {
+                    i = j - 1;                } else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '|' || c == '^' || c == '<' || c == '>' || c == '~' || c == '=' || c == '!') {
                     std::string op_str(1, c);
                     bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
                     if (is_unary) {
@@ -346,27 +345,40 @@ private:
                         }
                         continue;
                     }
-                    int precedence = 0;
-                    if (c == '<' && i + 1 < expr.length() && expr[i+1] == '<') {
-                        op_str = "<<";
-                        i++;
-                    } else if (c == '>' && i + 1 < expr.length() && expr[i+1] == '>') {
-                        op_str = ">>";
-                        i++;
+                    if (i + 1 < expr.length()) {
+                        std::string two_char_op = expr.substr(i, 2);
+                        if (two_char_op == "<<" || two_char_op == ">>" || two_char_op == "==" || two_char_op == "!=" || two_char_op == ">=" || two_char_op == "<=" || two_char_op == "&&" || two_char_op == "||") {
+                            op_str = two_char_op;
+                            i++;
+                        }
                     }
+                    int precedence = -1;
                     if (op_str == "*" || op_str == "/" || op_str == "%")
-                        precedence = 5;
+                        precedence = 9;
                     else if (op_str == "+" || op_str == "-")
-                        precedence = 4;
+                        precedence = 8;
                     else if (op_str == "<<" || op_str == ">>")
-                        precedence = 3;
+                        precedence = 7;
+                    else if (op_str == "<" || op_str == "<=" || op_str == ">" || op_str == ">=")
+                        precedence = 6;
+                    else if (op_str == "==" || op_str == "!=")
+                        precedence = 5;
                     else if (op_str == "&")
-                        precedence = 2;
+                        precedence = 4;
                     else if (op_str == "^")
-                        precedence = 1;
+                        precedence = 3;
                     else if (op_str == "|")
-                        precedence = 0;
-                    tokens.push_back({Token::Type::OPERATOR, op_str, 0, precedence, true});
+                        precedence = 2;
+                    else if (op_str == "&&")
+                        precedence = 1;
+                    else if (op_str == "||")
+                        precedence = 0; // Lowest precedence
+
+                    if (precedence != -1) {
+                        tokens.push_back({Token::Type::OPERATOR, op_str, 0, precedence, true});
+                    } else {
+                        throw std::runtime_error("Unknown operator: " + op_str);
+                    }
                 } else if (c == '(') {
                     tokens.push_back({Token::Type::LPAREN, "("});
                 } else if (c == ')') {
@@ -484,6 +496,22 @@ private:
                         val_stack.push_back(v2 << v1);
                     } else if (token.s_val == ">>") {
                         val_stack.push_back(v2 >> v1);
+                    } else if (token.s_val == ">") {
+                        val_stack.push_back(v2 > v1);
+                    } else if (token.s_val == "<") {
+                        val_stack.push_back(v2 < v1);
+                    } else if (token.s_val == ">=") {
+                        val_stack.push_back(v2 >= v1);
+                    } else if (token.s_val == "<=") {
+                        val_stack.push_back(v2 <= v1);
+                    } else if (token.s_val == "==") {
+                        val_stack.push_back(v2 == v1);
+                    } else if (token.s_val == "!=") {
+                        val_stack.push_back(v2 != v1);
+                    } else if (token.s_val == "&&") {
+                        val_stack.push_back(v2 && v1);
+                    } else if (token.s_val == "||") {
+                        val_stack.push_back(v2 || v1);
                     }
                 }
             }

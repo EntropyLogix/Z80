@@ -1109,6 +1109,17 @@ TEST_CASE(ComprehensiveExpressionEvaluation) {
     ASSERT_CODE("VAL EQU ~0\nLD A, VAL", {0x3E, (uint8_t)-1});
     ASSERT_CODE("VAL EQU ~0b01010101\nLD A, VAL", {0x3E, 0b10101010});
     ASSERT_CODE("VAL EQU 5 + ~2\nLD A, VAL", {0x3E, (uint8_t)(5 + ~2)});
+
+    // Test comparison and logical operators
+    ASSERT_CODE("VAL EQU 10 > 5\nLD A, VAL", {0x3E, 1});
+    ASSERT_CODE("VAL EQU 5 < 10\nLD A, VAL", {0x3E, 1});
+    ASSERT_CODE("VAL EQU 10 >= 10\nLD A, VAL", {0x3E, 1});
+    ASSERT_CODE("VAL EQU 5 <= 5\nLD A, VAL", {0x3E, 1});
+    ASSERT_CODE("VAL EQU 10 == 10\nLD A, VAL", {0x3E, 1});
+    ASSERT_CODE("VAL EQU 10 != 5\nLD A, VAL", {0x3E, 1});
+    ASSERT_CODE("VAL EQU (1 && 1)\nLD A, VAL", {0x3E, 1});
+    ASSERT_CODE("VAL EQU (1 || 0)\nLD A, VAL", {0x3E, 1});
+    ASSERT_CODE("VAL EQU (5 > 2) && (10 < 20)\nLD A, VAL", {0x3E, 1});
 }
 
 TEST_CASE(ForwardReferences) {
