@@ -255,13 +255,15 @@ private:
                     i = j - 1;
                 } else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '|' || c == '^' || c == '<' || c == '>') {
                     std::string op_str(1, c);
-                    if (c == '-') {
-                        bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
-                        if (is_unary) {
+                    bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
+                    if (is_unary) {
+                        if (c == '-') {
                             op_str = "_"; // Use "_" to represent unary minus
                             tokens.push_back({Token::Type::OPERATOR, op_str, 0, 10, false}); // High precedence, right-associative
-                            continue;
+                        } else if (c == '+') {
+                            // Unary plus is a no-op, so we just skip it.
                         }
+                        continue;
                     }
                     int precedence = 0;
                     if (c == '<' && i + 1 < expr.length() && expr[i+1] == '<') {

@@ -1019,6 +1019,12 @@ TEST_CASE(ComprehensiveExpressionEvaluation) {
         COMPLEX_VAL EQU (((V1 << 2) + (V2 * 3)) & 0x7F) | (V3 - (20 / 2))
         LD A, COMPLEX_VAL
     )", {0x3E, 0x36});
+
+    // Test unary plus
+    ASSERT_CODE("VAL EQU +5\nLD A, VAL", {0x3E, 5});
+    ASSERT_CODE("VAL EQU 10 * +2\nLD A, VAL", {0x3E, 20});
+    ASSERT_CODE("VAL EQU +(2+3)\nLD A, VAL", {0x3E, 5});
+    ASSERT_CODE("VAL EQU -+5\nLD A, VAL", {0x3E, (uint8_t)-5});
 }
 
 TEST_CASE(ForwardReferences) {
