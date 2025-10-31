@@ -75,9 +75,14 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
         return;
     }
 
+    uint16_t start_address = 0x0000;
+    if (!blocks.empty()) {
+        start_address = blocks[0].first;
+    }
+
     bool mismatch = false;
     for (size_t i = 0; i < expected_bytes.size(); ++i) {
-        if (bus.peek(i) != expected_bytes[i]) {
+        if (bus.peek(start_address + i) != expected_bytes[i]) {
             mismatch = true;
             break;
         }
@@ -88,7 +93,7 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
         std::cerr << "  Expected: ";
         for (uint8_t byte : expected_bytes) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
         std::cerr << "\n  Got:      ";
-        for (size_t i = 0; i < expected_bytes.size(); ++i) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)bus.peek(i) << " ";
+        for (size_t i = 0; i < expected_bytes.size(); ++i) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)bus.peek(start_address + i) << " ";
         std::cerr << std::dec << "\n";
         tests_failed++;
     } else {
@@ -817,6 +822,30 @@ TEST_CASE(Directives) {
     // DS
     ASSERT_CODE("DS 5", {0x00, 0x00, 0x00, 0x00, 0x00});
     ASSERT_CODE("DS 3, 0xFF", {0xFF, 0xFF, 0xFF});
+
+    // Aliases
+    ASSERT_CODE("DEFB 0x12, 0x34", {0x12, 0x34});
+    ASSERT_CODE("DEFW 0xABCD", {0xCD, 0xAB});
+    ASSERT_CODE("DEFS 4", {0x00, 0x00, 0x00, 0x00});
+
+    // More complex cases
+    ASSERT_CODE("DB 1+2, 10-3", {0x03, 0x07});
+    ASSERT_CODE("DB 'A'+1", {0x42});
+    ASSERT_CODE(R"(
+        VALUE EQU 0x1234
+        DW VALUE, VALUE+1
+    )", {0x34, 0x12, 0x35, 0x12});
+    ASSERT_CODE(R"(
+        ORG 0x100
+        DW 0x1122, L1
+    L1: DW 0x3344
+    )", {0x22, 0x11, 0x04, 0x01, 0x44, 0x33});
+    ASSERT_CODE("DS 2+2, 5*5", {0x19, 0x19, 0x19, 0x19});
+    ASSERT_CODE(R"(
+        COUNT EQU 3
+        FILL EQU 0xEE
+        DS COUNT, FILL
+    )", {0xEE, 0xEE, 0xEE});
 }
 
 TEST_CASE(LabelsAndExpressions) {
