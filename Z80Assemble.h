@@ -288,6 +288,58 @@ private:
             int precedence = 0;
             bool left_assoc = true;
         };
+    private:
+        int get_operator_precedence(const std::string& op) const {
+            if (op == "*" || op == "/" || op == "%")
+                return 9;
+            if (op == "+" || op == "-")
+                return 8;
+            if (op == "<<" || op == ">>")
+                return 7;
+            if (op == "<" || op == "<=" || op == ">" || op == ">=")
+                return 6;
+            if (op == "==" || op == "!=")
+                return 5;
+            if (op == "&")
+                return 4;
+            if (op == "^")
+                return 3;
+            if (op == "|")
+                return 2;
+            if (op == "&&")
+                return 1;
+            if (op == "||")
+                return 0;
+            return -1; // not a valid binary operator
+        }
+        bool is_binary_operator_char(char c) const {
+            return c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || 
+                   c == '&' || c == '|' || c == '^' || c == '<' || c == '>' || 
+                   c == '=' || c == '!';
+        }
+        bool is_unary_operator_char(char c) const {
+            return c == '+' || c == '-' || c == '~';
+        }
+        std::string get_multichar_operator(const std::string& expr, size_t& i) const {
+            if (i + 1 < expr.length()) {
+                std::string two_char_op = expr.substr(i, 2);
+                if (two_char_op == "<<" || two_char_op == ">>" || two_char_op == "==" || 
+                    two_char_op == "!=" || two_char_op == ">=" || two_char_op == "<=" || 
+                    two_char_op == "&&" || two_char_op == "||") {
+                    i++;
+                    return two_char_op;
+                }
+            }
+            return std::string(1, expr[i]);
+        }
+        bool handle_unary_operator(char c, std::vector<Token>& tokens) const {
+            if (c == '-')
+                tokens.push_back({Token::Type::OPERATOR, "_", 0, 10, false}); // unary minus
+            else if (c == '~')
+                tokens.push_back({Token::Type::OPERATOR, "~", 0, 10, false}); // bitwise NOT
+            // unary plus is a no-op, so we just skip it.
+            return true;
+        };
         std::vector<Token> tokenize_expression(const std::string& expr) const {
             std::vector<Token> tokens;
             for (size_t i = 0; i < expr.length(); ++i) {
@@ -299,13 +351,10 @@ private:
                     i += 2;
                     continue;
                 }
-                if (isspace(c))
-                    continue;
                 if (isalpha(c) || c == '_') {
                     size_t j = i;
-                    while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_')) {
+                    while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_'))
                         j++;
-                    }                    
                     std::string symbol_str = expr.substr(i, j - i);
                     std::string upper_symbol = symbol_str;
                     StringHelper::to_upper(upper_symbol);
@@ -330,62 +379,25 @@ private:
                         tokens.push_back({Token::Type::NUMBER, "", val});
                     } else
                          throw std::runtime_error("Invalid number in expression: " + expr.substr(i, j - i));
-                    i = j - 1;                } else if (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '&' || c == '|' || c == '^' || c == '<' || c == '>' || c == '~' || c == '=' || c == '!') {
-                    std::string op_str(1, c);
+                    i = j - 1;
+                } else if (is_binary_operator_char(c) || is_unary_operator_char(c)) {
                     bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
-                    if (is_unary) {
-                        if (c == '-') {
-                            op_str = "_"; // Use "_" to represent unary minus
-                            tokens.push_back({Token::Type::OPERATOR, op_str, 0, 10, false}); // High precedence, right-associative
-                        } else if (c == '~') {
-                            op_str = "~"; // Use "~" to represent unary negation
-                            tokens.push_back({Token::Type::OPERATOR, op_str, 0, 10, false}); // High precedence, right-associative
-                        } else if (c == '+') {
-                            // Unary plus is a no-op, so we just skip it.
-                        }
+                    if (is_unary && is_unary_operator_char(c)) {
+                        handle_unary_operator(c, tokens);
                         continue;
                     }
-                    if (i + 1 < expr.length()) {
-                        std::string two_char_op = expr.substr(i, 2);
-                        if (two_char_op == "<<" || two_char_op == ">>" || two_char_op == "==" || two_char_op == "!=" || two_char_op == ">=" || two_char_op == "<=" || two_char_op == "&&" || two_char_op == "||") {
-                            op_str = two_char_op;
-                            i++;
-                        }
-                    }
-                    int precedence = -1;
-                    if (op_str == "*" || op_str == "/" || op_str == "%")
-                        precedence = 9;
-                    else if (op_str == "+" || op_str == "-")
-                        precedence = 8;
-                    else if (op_str == "<<" || op_str == ">>")
-                        precedence = 7;
-                    else if (op_str == "<" || op_str == "<=" || op_str == ">" || op_str == ">=")
-                        precedence = 6;
-                    else if (op_str == "==" || op_str == "!=")
-                        precedence = 5;
-                    else if (op_str == "&")
-                        precedence = 4;
-                    else if (op_str == "^")
-                        precedence = 3;
-                    else if (op_str == "|")
-                        precedence = 2;
-                    else if (op_str == "&&")
-                        precedence = 1;
-                    else if (op_str == "||")
-                        precedence = 0; // Lowest precedence
-
-                    if (precedence != -1) {
+                    std::string op_str = get_multichar_operator(expr, i);
+                    int precedence = get_operator_precedence(op_str);
+                    if (precedence != -1)
                         tokens.push_back({Token::Type::OPERATOR, op_str, 0, precedence, true});
-                    } else {
+                    else
                         throw std::runtime_error("Unknown operator: " + op_str);
-                    }
-                } else if (c == '(') {
+                } else if (c == '(')
                     tokens.push_back({Token::Type::LPAREN, "("});
-                } else if (c == ')') {
+                else if (c == ')')
                     tokens.push_back({Token::Type::RPAREN, ")"});
-                } else {
+                else
                     throw std::runtime_error("Invalid character in expression: " + std::string(1, c));
-                }
             }
             return tokens;
         }
@@ -1860,9 +1872,14 @@ private:
 
     private:
         bool process_comments(std::string& line) {
-            size_t comment_pos = line.find(';');
+            size_t semicolon_pos = line.find(';');
+            size_t slash_pos = line.find("//");
+
+            size_t comment_pos = (semicolon_pos != std::string::npos && slash_pos != std::string::npos)
+                                     ? std::min(semicolon_pos, slash_pos)
+                                     : (semicolon_pos != std::string::npos ? semicolon_pos : slash_pos);
+
             if (comment_pos != std::string::npos) {
-                std::string comment = line.substr(comment_pos + 1);
                 line.erase(comment_pos);
                 return true;
             }
