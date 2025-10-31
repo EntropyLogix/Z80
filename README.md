@@ -442,11 +442,11 @@ In your `main.cpp` file, you include the headers in the same way:
 
 ---
 
-## 🛠️ **Tools**
+## 🛠️ **Library Components**
 
 This repository also includes utility classes that can be used alongside the Z80 core for debugging and analysis.
 
-### **Disassembler (`Z80Analyzer`)**
+### **Analyzer (`Z80Analyzer`)**
 
 The `Z80Analyzer` class is a powerful, multi-purpose tool for debugging and analysis. It provides methods for disassembling machine code, dumping memory regions, and inspecting the current state of CPU registers.
 
@@ -613,6 +613,126 @@ JR 0x0000
 ```
 
 ---
+
+### **Assembler (`Z80Assemble`)**
+The Z80Assembler class is a powerful, two-pass assembler that converts Z80 assembly source code into machine code. It is designed for flexibility, with built-in support for labels, directives, expressions, and forward references.
+
+#### **Usage and Initialization**
+To use the assembler, you must initialize it by passing a pointer to a memory object (which implements peek() and poke()) and a pointer to a source code provider (ISourceProvider).
+
+`Z80Assembler(TMemory* memory, ISourceProvider* source_provider)`
+
+ISourceProvider is an interface you must implement to allow the assembler to load source files. This enables loading code from the file system, memory, or any other source.
+
+**Simple `ISourceProvider` Implementation:**
+
+```cpp
+#include <map>
+#include <string>
+
+class MemorySourceProvider : public ISourceProvider {
+public:
+    // Implement the virtual method
+    bool get_source(const std::string& identifier, std::string& source) override {
+        if (m_sources.count(identifier)) {
+            source = m_sources[identifier];
+            return true;
+        }
+        return false;
+    }
+
+    // Helper method to add source code
+    void add_source(const std::string& identifier, const std::string& content) {
+        m_sources[identifier] = content;
+    }
+
+private:
+    std::map<std::string, std::string> m_sources;
+};
+```
+
+**Example:**
+
+```cpp
+#include "Z80.h"
+#include "Z80Assemble.h"
+#include <iostream>
+
+int main() {
+    Z80DefaultBus bus;
+    MemorySourceProvider source_provider;
+
+    // Add source code to the provider
+    std::string code = R"(
+        ORG 0x8000
+    START:
+        LD A, 10
+        LD B, 20
+        ADD A, B
+        HALT
+    )";
+    source_provider.add_source("main.asm", code);
+
+    // Create an assembler instance
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+
+    try {
+        // Compile the code
+        if (assembler.compile("main.asm")) {
+            std::cout << "Assembly successful!" << std::endl;
+            // You can now inspect the bus memory
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Assembly error: " << e.what() << std::endl;
+    }
+
+    return 0;
+}
+```
+
+#### **Core Features**
+The assembler supports a wide range of standard assembly features.
+
+*   **Two-Pass Assembly:** Automatically resolves forward references (using a label before it is defined) by performing multiple passes until all symbols are stable.
+*   **Symbol Management:** Supports labels (e.g., `START:`) and constants defined with the `EQU` directive (e.g., `PORT EQU 0x10`).
+*   **Expression Evaluation:** Operands can be complex expressions that are evaluated at assembly time. It supports arithmetic (`+`, `-`, `*`, `/`, `%`), bitwise (`&`, `|`, `^`, `<<`, `>>`), and logical (`&&`, `||`, `!`, `==`, `!=`, `<`, `>`) operators, as well as `HIGH()` and `LOW()` functions.
+*   **Directives:**
+    *   `ORG`: Sets the origin address for the generated code.
+    *   `DB` / `DEFB`: Defines data bytes.
+    *   `DW` / `DEFW`: Defines data words (16-bit).
+    *   `DS` / `DEFS`: Defines a block of memory filled with a specified value (defaults to zero).
+    *   `ALIGN`: Aligns the current address to a specified boundary.
+    *   `INCLUDE`: Includes the content of another source file.
+*   **Comment Handling:** Supports single-line (starting with `;`) and block (`/* ... */`) comments.
+
+#### **Retrieving Assembly Results**
+After a successful compilation, you can retrieve information about the generated code and symbols.
+
+| Method | Description |
+| :--- | :--- |
+| `get_symbols() const` | Returns a map (`std::map<std::string, int32_t>`) of all defined symbols (labels and `EQU` constants) and their calculated values. |
+| `get_blocks() const` | Returns a vector of pairs (`std::vector<std::pair<uint16_t, uint16_t>>`), where each pair represents a block of generated code as `{start_address, size_in_bytes}`. |
+
+**Example of Retrieving Results:**
+
+```cpp
+if (assembler.compile("main.asm")) {
+    // Display symbols
+    std::cout << "--- Symbols ---" << std::endl;
+    auto symbols = assembler.get_symbols();
+    for (const auto& sym : symbols) {
+        std::cout << sym.first << " = 0x" << std::hex << sym.second << std::endl;
+    }
+
+    // Display code blocks
+    std::cout << "\n--- Code Blocks ---" << std::endl;
+    auto blocks = assembler.get_blocks();
+    for (const auto& block : blocks) {
+        std::cout << "Block @ 0x" << std::hex << block.first
+                  << " (Size: " << std::dec << block.second << " bytes)" << std::endl;
+    }
+}
+```
 
 ## 📜 **License**
 
