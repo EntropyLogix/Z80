@@ -122,12 +122,6 @@ private:
                 return false;
             }
         };
-        struct ConditionalState {
-            bool is_active;
-            bool else_seen;
-        };
-        std::vector<ConditionalState> m_conditional_stack;
-
         void remove_block_comments(std::string& source_content, const std::string& identifier) {
             size_t start_pos = source_content.find("/*");
             while (start_pos != std::string::npos) {
@@ -153,51 +147,9 @@ private:
                 line_number++;
                 std::string trimmed_line = line;
                 StringHelper::trim_whitespace(trimmed_line);
-                std::string upper_line = trimmed_line;
+                std::string upper_line = line;
                 StringHelper::to_upper(upper_line);
-
-                bool is_skipping = !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
-
-                if (upper_line.rfind("IF ", 0) == 0) {
-                    std::string expr_str = trimmed_line.substr(3);
-                    bool condition_result = false;
-                    if (!is_skipping) {
-                        PreprocessorPolicy symbol_policy(m_context);
-                        Expressions expression(symbol_policy);
-                        int32_t value;
-                        if (!expression.evaluate(expr_str, value))
-                            throw std::runtime_error("Cannot evaluate expression in IF directive at line " + std::to_string(line_number) +
-                                                     " in file " + identifier + ". Forward references are not allowed in preprocessor conditionals.");
-                        condition_result = (value != 0);
-                    }
-                    m_conditional_stack.push_back({!is_skipping && condition_result, false});
-                } else if (upper_line.rfind("IFDEF ", 0) == 0) {
-                    std::string symbol = trimmed_line.substr(6);
-                    StringHelper::trim_whitespace(symbol);
-                    bool condition_result = !is_skipping && (m_context.m_symbols.count(symbol) > 0);
-                    m_conditional_stack.push_back({condition_result, false});
-                } else if (upper_line.rfind("IFNDEF ", 0) == 0) {
-                    std::string symbol = trimmed_line.substr(7);
-                    StringHelper::trim_whitespace(symbol);
-                    bool condition_result = !is_skipping && (m_context.m_symbols.count(symbol) == 0);
-                    m_conditional_stack.push_back({condition_result, false});
-                } else if (upper_line == "ELSE") {
-                    if (m_conditional_stack.empty())
-                        throw std::runtime_error("ELSE without IF in " + identifier + " at line " + std::to_string(line_number));
-                    if (m_conditional_stack.back().else_seen)
-                        throw std::runtime_error("Multiple ELSE directives for the same IF in " + identifier + " at line " + std::to_string(line_number));
-                    m_conditional_stack.back().else_seen = true;
-                    bool parent_is_skipping = m_conditional_stack.size() > 1 && !m_conditional_stack[m_conditional_stack.size() - 2].is_active;
-                    if (!parent_is_skipping)
-                        m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
-
-                } else if (upper_line == "ENDIF") {
-                    if (m_conditional_stack.empty())
-                        throw std::runtime_error("ENDIF without IF in " + identifier + " at line " + std::to_string(line_number));
-                    m_conditional_stack.pop_back();
-                } else if (is_skipping)
-                    continue;
-                else if (upper_line.rfind("INCLUDE ", 0) == 0) {
+                if (upper_line.find("INCLUDE ") != std::string::npos) {
                     size_t first_quote = trimmed_line.find('"');
                     size_t last_quote = trimmed_line.find('"', first_quote + 1);
                     if (first_quote == std::string::npos || last_quote == std::string::npos)
@@ -207,8 +159,6 @@ private:
                 } else
                     output_source.append(line).append("\n");
             }
-            if (included_files.size() == 1 && !m_conditional_stack.empty())
-                 throw std::runtime_error("Unclosed IF/IFDEF/IFNDEF block at end of file: " + identifier);
             return true;
         }
         CompilationContext& m_context;
@@ -1935,9 +1885,14 @@ private:
         LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
     
         bool process(const std::string& source_line) {
+            bool is_skipping = !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
+
             std::string line = source_line;
             process_comments(line);
-            if (process_directives(line))
+
+            if (process_directives(line, is_skipping))
+                return true;
+            if (is_skipping)
                 return true;
             process_label(line);
             if (!line.empty())
@@ -1955,9 +1910,57 @@ private:
             }
             return false;
         }
-        bool process_directives(const std::string& line) {
+        bool process_directives(const std::string& line, bool is_skipping) {
             std::string line_upper = line;
             StringHelper::to_upper(line_upper);
+            std::string trimmed_line = line;
+            StringHelper::trim_whitespace(trimmed_line);
+            std::string upper_trimmed_line = trimmed_line;
+            StringHelper::to_upper(upper_trimmed_line);
+
+            if (upper_trimmed_line.rfind("IF ", 0) == 0) {
+                std::string expr_str = trimmed_line.substr(3);
+                bool condition_result = false;
+                if (!is_skipping) {
+                    Expressions expression(m_policy);
+                    int32_t value;
+                    if (expression.evaluate(expr_str, value))
+                        condition_result = (value != 0);
+                }
+                m_conditional_stack.push_back({!is_skipping && condition_result, false});
+                return true;
+            } else if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
+                std::string symbol = trimmed_line.substr(6);
+                StringHelper::trim_whitespace(symbol);
+                int32_t dummy;
+                bool condition_result = !is_skipping && m_policy.on_symbol(symbol, dummy);
+                m_conditional_stack.push_back({condition_result, false});
+                return true;
+            } else if (upper_trimmed_line.rfind("IFNDEF ", 0) == 0) {
+                std::string symbol = trimmed_line.substr(7);
+                StringHelper::trim_whitespace(symbol);
+                int32_t dummy;
+                bool condition_result = !is_skipping && !m_policy.on_symbol(symbol, dummy);
+                m_conditional_stack.push_back({condition_result, false});
+                return true;
+            } else if (upper_trimmed_line == "ELSE") {
+                if (m_conditional_stack.empty())
+                    throw std::runtime_error("ELSE without IF");
+                if (m_conditional_stack.back().else_seen)
+                    throw std::runtime_error("Multiple ELSE directives for the same IF");
+                m_conditional_stack.back().else_seen = true;
+                bool parent_is_skipping = m_conditional_stack.size() > 1 && !m_conditional_stack[m_conditional_stack.size() - 2].is_active;
+                if (!parent_is_skipping)
+                    m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
+                return true;
+            } else if (upper_trimmed_line == "ENDIF") {
+                if (m_conditional_stack.empty())
+                    throw std::runtime_error("ENDIF without IF");
+                m_conditional_stack.pop_back();
+                return true;
+            }
+            if (is_skipping)
+                return true;
             size_t equ_pos = line_upper.find(" EQU ");
             if (equ_pos != std::string::npos) {
                 std::string equ_label = line.substr(0, equ_pos);
@@ -2056,6 +2059,11 @@ private:
             return true;
         }
         IAssemblyPolicy& m_policy;
+        struct ConditionalState {
+            bool is_active;
+            bool else_seen;
+        };
+        std::vector<ConditionalState> m_conditional_stack;
     };
 
     CompilationContext m_context;
