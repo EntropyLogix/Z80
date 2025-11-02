@@ -1968,17 +1968,28 @@ private:
             }
             if (is_skipping)
                 return true;
-            size_t equ_pos = line_upper.find(" EQU ");
-            if (equ_pos != std::string::npos) {
-                std::string equ_label = line.substr(0, equ_pos);
-                StringHelper::trim_whitespace(equ_label);
-                std::string equ_value = line.substr(equ_pos + 5);
-                StringHelper::trim_whitespace(equ_value);
-                if (!Keywords::is_valid_label_name(equ_label))
-                    throw std::runtime_error("Invalid label name: '" + equ_label + "'");
-                m_policy.on_equ_directive(equ_label, equ_value);
-                return true;
+            
+            std::stringstream line_stream(line);
+            std::string label, directive, value;
+            line_stream >> label >> directive;
+            
+            if (!line_stream.fail()) {
+                StringHelper::to_upper(directive);
+                if (directive == "EQU" || directive == "SET" || directive == "DEFL") {
+                    if (!Keywords::is_valid_label_name(label))
+                        throw std::runtime_error("Invalid label name for directive: '" + label + "'");
+
+                    std::getline(line_stream, value);
+                    StringHelper::trim_whitespace(value);
+
+                    if (directive == "SET" || directive == "DEFL")
+                        m_policy.on_set_directive(label, value);
+                    else
+                        m_policy.on_equ_directive(label, value);
+                    return true;
+                }
             }
+
             size_t org_pos = line_upper.find("ORG ");
             if (org_pos != std::string::npos && line_upper.substr(0, org_pos).find_first_not_of(" \t") == std::string::npos) {
                 std::string org_value_str = line.substr(org_pos + 4);
