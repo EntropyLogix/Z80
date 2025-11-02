@@ -594,10 +594,11 @@ private:
             }
             return false;
         };
-        virtual void on_label(const std::string& label) {};
-        virtual void on_const(const std::string& label, const std::string& value) {};
-        virtual void on_code_block(const std::string& label) {};
-        virtual void on_align(const std::string& boundary) {
+        virtual void on_label_definition(const std::string& label) {};
+        virtual void on_equ_directive(const std::string& label, const std::string& value) {};
+        virtual void on_set_directive(const std::string& label, const std::string& value) {};
+        virtual void on_org_directive(const std::string& label) {};
+        virtual void on_align_directive(const std::string& boundary) {
             Expressions expression(*this);
             int32_t align_val;
             if (expression.evaluate(boundary, align_val)) {
@@ -684,8 +685,8 @@ private:
                 if (m_symbols_stable)
                     return true;
                 else {
-                    m_final_pass_scheduled = false;
-                    return false;
+                m_final_pass_scheduled = false;
+                return false;
                 }
             }
             if (m_symbols_stable)
@@ -722,14 +723,20 @@ private:
             m_undefined_symbols.insert(symbol);
             return false;
         }
-        virtual void on_label(const std::string& label) override { update_symbol(label, this->m_context.m_current_address); };
-        virtual void on_const(const std::string& label, const std::string& value) {
+        virtual void on_label_definition(const std::string& label) override { update_symbol(label, this->m_context.m_current_address); };
+        virtual void on_equ_directive(const std::string& label, const std::string& value) override {
             Expressions expression(*this);
             int32_t num_val;
             if (expression.evaluate(value, num_val))
                 update_symbol(label, num_val);
         };
-        virtual void on_code_block(const std::string& label) override {
+        virtual void on_set_directive(const std::string& label, const std::string& value) override {
+            Expressions expression(*this);
+            int32_t num_val;
+            if (expression.evaluate(value, num_val))
+                update_symbol(label, num_val, true);
+        };
+        virtual void on_org_directive(const std::string& label) override {
             int32_t num_val;
             if (StringHelper::is_number(label, num_val))
                 this->m_context.m_current_address = num_val;
@@ -749,7 +756,7 @@ private:
             this->m_context.m_current_address += size;
         }
     private:
-        void update_symbol(const std::string& name, int32_t value) {
+        void update_symbol(const std::string& name, int32_t value, bool is_redefinable = false) {
             auto it = this->m_context.m_symbols.find(name);
             if (it == this->m_context.m_symbols.end()) {
                 this->m_context.m_symbols.insert({name, value});
@@ -760,7 +767,7 @@ private:
                 else {
                     if (it->second != value) {
                         it->second = value;
-                        m_symbols_stable = false;
+                            m_symbols_stable = false;
                     }
                 }
             }
@@ -795,7 +802,7 @@ private:
             out_value = it->second;
             return true;
         }
-        virtual void on_code_block(const std::string& label) override {
+        virtual void on_org_directive(const std::string& label) override {
             int32_t addr;
             Expressions expression(*this);
             if (expression.evaluate(label, addr)) {
@@ -1969,21 +1976,21 @@ private:
                 StringHelper::trim_whitespace(equ_value);
                 if (!Keywords::is_valid_label_name(equ_label))
                     throw std::runtime_error("Invalid label name: '" + equ_label + "'");
-                m_policy.on_const(equ_label, equ_value);
+                m_policy.on_equ_directive(equ_label, equ_value);
                 return true;
             }
             size_t org_pos = line_upper.find("ORG ");
             if (org_pos != std::string::npos && line_upper.substr(0, org_pos).find_first_not_of(" \t") == std::string::npos) {
                 std::string org_value_str = line.substr(org_pos + 4);
                 StringHelper::trim_whitespace(org_value_str);
-                m_policy.on_code_block(org_value_str);
+                m_policy.on_org_directive(org_value_str);
                 return true;
             }
             size_t align_pos = line_upper.find("ALIGN ");
             if (align_pos != std::string::npos && line_upper.substr(0, align_pos).find_first_not_of(" \t") == std::string::npos) {
                 std::string align_value_str = line.substr(align_pos + 6);
                 StringHelper::trim_whitespace(align_value_str);
-                m_policy.on_align(align_value_str);
+                m_policy.on_align_directive(align_value_str);
                 return true;
             }
             return false;
@@ -1997,7 +2004,7 @@ private:
                     if (!Keywords::is_valid_label_name(label))
                         throw std::runtime_error("Invalid label name: '" + label + "'");
                     line.erase(0, colon_pos + 1);
-                    m_policy.on_label(label);
+                    m_policy.on_label_definition(label);
                     return true;
                 }
             }
@@ -2011,7 +2018,7 @@ private:
                 return false;
             if (!Keywords::is_valid_label_name(potential_label))
                 throw std::runtime_error("Invalid label name: '" + potential_label + "'");
-            m_policy.on_label(potential_label);
+            m_policy.on_label_definition(potential_label);
             if (first_space == std::string::npos)
                 line.clear();
             else
