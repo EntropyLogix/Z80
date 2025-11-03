@@ -693,7 +693,7 @@ private:
                 m_final_pass_scheduled = true;
             return false;
         }
-        virtual void on_next_pass() override {
+        virtual void on_pass_next() override {
             if (this->m_context.m_current_pass > m_max_pass) {
                 std::string error_msg = "Failed to resolve all symbols after " + std::to_string(m_max_pass) + " passes.";
                 if (m_undefined_symbols.empty()) {
