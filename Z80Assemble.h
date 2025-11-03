@@ -111,8 +111,8 @@ private:
         public:
             PreprocessorPolicy(CompilationContext& context) : IAssemblyPolicy(context) {}
 
-            bool on_symbol(const std::string& symbol, int32_t& out_value) override {
-                if (IAssemblyPolicy::on_symbol(symbol, out_value))
+            bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
+                if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                     return true;
                 auto it = this->m_context.m_symbols.find(symbol);
                 if (it != this->m_context.m_symbols.end()) {
@@ -479,7 +479,7 @@ private:
                     val_stack.push_back(token.n_val);
                 } else if (token.type == Token::Type::SYMBOL) {
                     int32_t sum_val;
-                    if (!m_policy.on_symbol(token.s_val, sum_val))
+                    if (!m_policy.on_symbol_resolve(token.s_val, sum_val))
                         return false;
                     val_stack.push_back(sum_val);
                 } else if (token.type == Token::Type::FUNCTION) {
@@ -587,7 +587,7 @@ private:
         virtual bool on_pass_end() {return true;};
         virtual void on_next_pass() {};
         //Lines
-        virtual bool on_symbol(const std::string& symbol, int32_t& out_value) {
+        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) {
             if (symbol == "$") {
                 out_value = this->m_context.m_current_address;
                 return true;
@@ -712,8 +712,8 @@ private:
             m_symbols_stable = true;
             m_undefined_symbols.clear();
         }
-        virtual bool on_symbol(const std::string& symbol, int32_t& out_value) override {
-            if (IAssemblyPolicy::on_symbol(symbol, out_value))
+        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
+            if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             auto it = this->m_context.m_symbols.find(symbol);
             if (it != this->m_context.m_symbols.end()) {
@@ -793,8 +793,8 @@ private:
             std::remove_if(this->m_context.m_blocks.begin(), this->m_context.m_blocks.end(), [](const auto& block) { return block.second == 0; }), this->m_context.m_blocks.end());
             return true;
         }
-        virtual bool on_symbol(const std::string& symbol, int32_t& out_value) override {
-            if (IAssemblyPolicy::on_symbol(symbol, out_value))
+        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
+            if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             auto it = this->m_context.m_symbols.find(symbol);
             if (it == this->m_context.m_symbols.end())
@@ -1940,14 +1940,14 @@ private:
                 std::string symbol = trimmed_line.substr(6);
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
-                bool condition_result = !is_skipping && m_policy.on_symbol(symbol, dummy);
+                bool condition_result = !is_skipping && m_policy.on_symbol_resolve(symbol, dummy);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             } else if (upper_trimmed_line.rfind("IFNDEF ", 0) == 0) {
                 std::string symbol = trimmed_line.substr(7);
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
-                bool condition_result = !is_skipping && !m_policy.on_symbol(symbol, dummy);
+                bool condition_result = !is_skipping && !m_policy.on_symbol_resolve(symbol, dummy);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             } else if (upper_trimmed_line == "ELSE") {
