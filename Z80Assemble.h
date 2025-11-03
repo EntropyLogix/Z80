@@ -685,8 +685,8 @@ private:
                 if (m_symbols_stable)
                     return true;
                 else {
-                m_final_pass_scheduled = false;
-                return false;
+                    m_final_pass_scheduled = false;
+                    return false;
                 }
             }
             if (m_symbols_stable)
@@ -696,9 +696,9 @@ private:
         virtual void on_pass_next() override {
             if (this->m_context.m_current_pass > m_max_pass) {
                 std::string error_msg = "Failed to resolve all symbols after " + std::to_string(m_max_pass) + " passes.";
-                if (m_undefined_symbols.empty()) {
+                if (m_undefined_symbols.empty())
                     error_msg += " Symbols are defined but their values did not stabilize. Need more passes.";
-                } else {
+                else {
                     error_msg += " Undefined symbol(s): ";
                     bool first = true;
                     for (const auto& symbol : m_undefined_symbols) {
