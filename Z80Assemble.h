@@ -81,7 +81,7 @@ public:
                     end_phase = true;
                 else {
                     ++m_context.m_current_pass;
-                    phase->on_next_pass();
+                    phase->on_pass_next();
                 }
             } while (!end_phase);
         }
@@ -585,7 +585,7 @@ private:
         //Source
         virtual void on_pass_begin() {};
         virtual bool on_pass_end() {return true;};
-        virtual void on_next_pass() {};
+        virtual void on_pass_next() {};
         //Lines
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) {
             if (symbol == "$") {
@@ -692,7 +692,7 @@ private:
             if (m_symbols_stable)
                 m_final_pass_scheduled = true;
             return false;
-        };
+        }
         virtual void on_next_pass() override {
             if (this->m_context.m_current_pass > m_max_pass) {
                 std::string error_msg = "Failed to resolve all symbols after " + std::to_string(m_max_pass) + " passes.";
