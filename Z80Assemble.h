@@ -107,21 +107,6 @@ private:
             return process_file(main_file_path, output_source, included_files);
         }
     private:
-        class PreprocessorPolicy : public IAssemblyPolicy {
-        public:
-            PreprocessorPolicy(CompilationContext& context) : IAssemblyPolicy(context) {}
-
-            bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
-                if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
-                    return true;
-                auto it = this->m_context.m_symbols.find(symbol);
-                if (it != this->m_context.m_symbols.end()) {
-                    out_value = it->second;
-                    return true;
-                }
-                return false;
-            }
-        };
         void remove_block_comments(std::string& source_content, const std::string& identifier) {
             size_t start_pos = source_content.find("/*");
             while (start_pos != std::string::npos) {
@@ -642,9 +627,7 @@ private:
                 start++;
             } else if (start < end && *start == '+')
                 start++;
-
             int base = 10;
-
             if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'x' || *(start + 1) == 'X'))) {
                 start += 2;
                 base = 16;
