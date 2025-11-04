@@ -47,7 +47,7 @@ template <typename TMemory> class Z80Assembler {
 public:
     struct SymbolInfo {
         std::string name;
-        uint32_t value;
+        int32_t value;
     };
 
     Z80Assembler(TMemory* memory, ISourceProvider* source_provider) {
