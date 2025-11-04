@@ -45,6 +45,11 @@ public:
 
 template <typename TMemory> class Z80Assembler {
 public:
+    struct SymbolInfo {
+        std::string name;
+        uint32_t value;
+    };
+
     Z80Assembler(TMemory* memory, ISourceProvider* source_provider) {
         m_context.m_memory = memory;
         m_context.m_source_provider = source_provider;
@@ -87,7 +92,7 @@ public:
         }
         return true;
     }
-    std::map<std::string, int32_t> get_symbols() const { return m_context.m_symbols; }
+    std::map<std::string, SymbolInfo> get_symbols() const { return m_context.m_symbols; }
     std::vector<std::pair<uint16_t, uint16_t>> get_blocks() const { return m_context.m_blocks; }
 
 private:
@@ -556,7 +561,7 @@ private:
         uint16_t m_current_address = 0;
         size_t m_current_line_number = 0;
         size_t m_current_pass = 0;
-        std::map<std::string, int32_t> m_symbols;
+        std::map<std::string, SymbolInfo> m_symbols;
         std::vector<std::pair<uint16_t, uint16_t>> m_blocks;
     };
     class IAssemblyPolicy {
@@ -661,12 +666,22 @@ private:
         SymbolsBuilding(CompilationContext& context, int max_pass) : IAssemblyPolicy(context), m_max_pass(max_pass) {}
         virtual ~SymbolsBuilding() = default;
         //Source
+        virtual void on_pass_begin() override {
+            m_symbols_stable = true;
+            m_symbols.clear();
+        }
         virtual bool on_pass_end() override {
-            if (!m_undefined_symbols.empty())
+            if (std::find_if(m_symbols.begin(), m_symbols.end(), [](const auto& symbol){return symbol.second.undefined;}) != m_symbols.end())
                 m_symbols_stable = false;
             if (m_final_pass_scheduled) {
-                if (m_symbols_stable)
+                if (m_symbols_stable) {
+                    this->m_context.m_symbols.clear();
+                    for (const auto& symbol_pair : m_symbols) {
+                        if (!symbol_pair.second.undefined)
+                            this->m_context.m_symbols[symbol_pair.first] = {symbol_pair.first, (uint32_t)symbol_pair.second.value};
+                    }
                     return true;
+                }
                 else {
                     m_final_pass_scheduled = false;
                     return false;
@@ -679,14 +694,16 @@ private:
         virtual void on_pass_next() override {
             if (this->m_context.m_current_pass > m_max_pass) {
                 std::string error_msg = "Failed to resolve all symbols after " + std::to_string(m_max_pass) + " passes.";
-                if (m_undefined_symbols.empty())
+                if (std::find_if(m_symbols.begin(), m_symbols.end(), [](const auto& symbol){return symbol.second.undefined && symbol.second.used;}) == m_symbols.end())
                     error_msg += " Symbols are defined but their values did not stabilize. Need more passes.";
                 else {
                     error_msg += " Undefined symbol(s): ";
                     bool first = true;
-                    for (const auto& symbol : m_undefined_symbols) {
-                        error_msg += (first ? "" : ", ") + symbol;
-                        first = false;
+                    for (const auto& symbol : m_symbols) {
+                        if (symbol.second.undefined) {
+                            error_msg += (first ? "" : ", ") + symbol.first;
+                            first = false;
+                        }
                     }
                     error_msg += ". This may be due to circular dependencies or not enough passes.";
                 }
@@ -698,26 +715,28 @@ private:
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
-            auto it = this->m_context.m_symbols.find(symbol);
-            if (it != this->m_context.m_symbols.end()) {
-                out_value = it->second;
-                return true;
+            auto it = m_symbols.find(symbol);
+            if (it != m_symbols.end()) {
+                out_value = it->second.value;
+                it->second.used = true;
+                return !it->second.undefined;
             }
-            m_undefined_symbols.insert(symbol);
             return false;
         }
-        virtual void on_label_definition(const std::string& label) override { update_symbol(label, this->m_context.m_current_address); };
+        virtual void on_label_definition(const std::string& label) override {
+            update_symbol(label, this->m_context.m_current_address, false);
+        };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
+            int32_t num_val = 0;
             Expressions expression(*this);
-            int32_t num_val;
-            if (expression.evaluate(value, num_val))
-                update_symbol(label, num_val);
+            bool evaluated = expression.evaluate(value, num_val);
+            update_symbol(label, num_val, !evaluated);
         };
         virtual void on_set_directive(const std::string& label, const std::string& value) override {
+            int32_t num_val = 0;
             Expressions expression(*this);
-            int32_t num_val;
-            if (expression.evaluate(value, num_val))
-                update_symbol(label, num_val, true);
+            bool undefined = !expression.evaluate(value, num_val);
+            update_symbol(label, num_val, undefined);
         };
         virtual void on_org_directive(const std::string& label) override {
             int32_t num_val;
@@ -739,22 +758,26 @@ private:
             this->m_context.m_current_address += size;
         }
     private:
-        void update_symbol(const std::string& name, int32_t value, bool is_redefinable = false) {
-            auto it = this->m_context.m_symbols.find(name);
-            if (it == this->m_context.m_symbols.end()) {
-                this->m_context.m_symbols.insert({name, value});
+        struct Symbol {
+            int32_t value = 0;
+            bool undefined = true;
+            bool used = false;
+        };
+
+        void update_symbol(const std::string& name, int32_t value, bool is_undefined) {
+            auto it = m_symbols.find(name);
+            if (it == m_symbols.end()) {
+                m_symbols.emplace(name, Symbol{value, is_undefined});
                 m_symbols_stable = false;
             } else {
-                if (this->m_context.m_current_pass == 1)
-                    throw std::runtime_error("Duplicate symbol definition: " + name);
-                else {
-                    if (it->second != value) {
-                        it->second = value;
-                            m_symbols_stable = false;
-                    }
+                if (it->second.value != value || it->second.undefined != is_undefined) {
+                    it->second.value = value;
+                    it->second.undefined = is_undefined;
+                    m_symbols_stable = false;
                 }
             }
         }
+        std::map<std::string, Symbol> m_symbols; 
         bool m_symbols_stable = false;
         bool m_final_pass_scheduled = false;
         std::set<std::string> m_undefined_symbols;
@@ -782,7 +805,7 @@ private:
             auto it = this->m_context.m_symbols.find(symbol);
             if (it == this->m_context.m_symbols.end())
                 throw std::runtime_error("Undefined symbol: " + symbol);
-            out_value = it->second;
+            out_value = it->second.value;
             return true;
         }
         virtual void on_org_directive(const std::string& label) override {

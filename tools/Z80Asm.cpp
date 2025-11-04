@@ -17,6 +17,7 @@
 #include "Z80Analyze.h"
 #include <cstdint>
 #include <fstream>
+#include <sstream>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -57,14 +58,14 @@ private:
     std::vector<std::filesystem::path> m_current_path_stack;
 };
 
-void write_map_file(const std::string& file_path, const std::map<std::string, int32_t>& symbols) {
+void write_map_file(const std::string& file_path, const std::map<std::string, Z80Assembler<Z80DefaultBus>::SymbolInfo>& symbols) {
     std::ofstream file(file_path);
     if (!file)
         throw std::runtime_error("Cannot open map file for writing: " + file_path);
     for (const auto& symbol : symbols) {
         file << std::setw(20) << std::left << std::setfill(' ') << symbol.first
              << " EQU $" << std::hex << std::uppercase << std::setw(4) << std::setfill('0')
-             << static_cast<uint16_t>(symbol.second) << std::endl;
+             << symbol.second.value << std::endl;
     }
 }
 
@@ -173,9 +174,9 @@ int main(int argc, char* argv[]) {
             std::cout << "--- Calculated Symbols ---" << std::endl;
             for (const auto& symbol : symbols) {
                 std::stringstream hex_val;
-                hex_val << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<uint16_t>(symbol.second);
+                hex_val << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<uint16_t>(symbol.second.value);
 
-                std::cout << std::setw(20) << std::left << std::setfill(' ') << symbol.first << " = " << hex_val.str() << " (" << std::dec << symbol.second << ")" << std::endl;
+                std::cout << std::setw(20) << std::left << std::setfill(' ') << symbol.first << " = " << hex_val.str() << " (" << std::dec << symbol.second.value << ")" << std::endl;
             }
             std::cout << std::endl;
 
