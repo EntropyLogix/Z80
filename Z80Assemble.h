@@ -667,10 +667,9 @@ private:
         virtual ~SymbolsBuilding() {
             clear_symbols();
         }
-        //Source
         virtual void on_pass_begin() override {
             m_symbols_stable = true;
-            m_symbols.clear();
+            clear_symbols();
         }
         virtual bool on_pass_end() override {
             if (!all_used_symbols_defined())
@@ -680,8 +679,11 @@ private:
                     this->m_context.m_symbols.clear();
                     for (const auto& symbol_pair : m_symbols) {
                         Symbol* symbol = symbol_pair.second;
-                        if (symbol && !symbol->undefined[0])
-                            this->m_context.m_symbols[symbol_pair.first] = {symbol_pair.first, symbol->values[0]};
+                        if (symbol) {
+                            int index = symbol->index;
+                            if (!symbol->undefined[index])
+                                this->m_context.m_symbols[symbol_pair.first] = {symbol_pair.first, symbol->value[index]};
+                        }
                     }
                     return true;
                 }
@@ -704,9 +706,12 @@ private:
                     bool first = true;
                     for (const auto& symbol_pair : m_symbols) {
                         Symbol* symbol = symbol_pair.second;
-                        if (symbol && symbol->undefined[0]) {
-                            error_msg += (first ? "" : ", ") + symbol_pair.first;
-                            first = false;
+                        if (symbol) {
+                            int index = symbol->index;
+                            if (symbol->undefined[index]) {
+                                error_msg += (first ? "" : ", ") + symbol_pair.first;
+                                first = false;
+                            }
                         }
                     }
                     error_msg += ". This may be due to circular dependencies or not enough passes.";
@@ -714,6 +719,11 @@ private:
                 throw std::runtime_error(error_msg);
             }
             m_symbols_stable = true;
+            for (auto& symbol_pair : m_symbols) {
+                Symbol* symbol = symbol_pair.second;
+                if (symbol)
+                    symbol->index = -1;
+            }
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
@@ -724,26 +734,23 @@ private:
                 Symbol *symbol = it->second;
                 if (symbol) {
                     symbol->in_use = true;
-                    out_value = symbol->values[0];
-                    resolved = !symbol->undefined[0];
+                    int index = symbol->index;
+                    if (index == -1)
+                        index = symbol->value.size() - 1;
+                    out_value = symbol->value[index];
+                    resolved = !symbol->undefined[index];
                 }
             }
             return resolved;
         }
         virtual void on_label_definition(const std::string& label) override {
-            update_symbol(label, this->m_context.m_current_address, false);
+            update_symbol(label, this->m_context.m_current_address, false, false);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
-            int32_t num_val = 0;
-            Expressions expression(*this);
-            bool evaluated = expression.evaluate(value, num_val);
-            update_symbol(label, num_val, !evaluated);
+            on_const(label, value, false);
         };
         virtual void on_set_directive(const std::string& label, const std::string& value) override {
-            int32_t num_val = 0;
-            Expressions expression(*this);
-            bool undefined = !expression.evaluate(value, num_val);
-            update_symbol(label, num_val, undefined);
+            on_const(label, value, true);
         };
         virtual void on_org_directive(const std::string& label) override {
             int32_t num_val;
@@ -766,24 +773,31 @@ private:
         }
     private:
         struct Symbol {
+            bool redefinable;
             int index;
-            std::vector<int32_t> values;
+            std::vector<int32_t> value;
             std::vector<bool> undefined;
             bool in_use;
         };
-
         void clear_symbols() {
-            for (auto& symbol_pair : m_symbols)
+            for (auto& symbol_pair : m_symbols) {
                 delete symbol_pair.second;
+                symbol_pair.second = nullptr;
+            }
             m_symbols.clear();
         }
-
+        void on_const(const std::string& label, const std::string& value, bool redefinable) {
+            int32_t num_val = 0;
+            Expressions expression(*this);
+            bool evaluated = expression.evaluate(value, num_val);
+            update_symbol(label, num_val, !evaluated, redefinable);
+        };
         bool all_used_symbols_defined() const {
             bool all_used_defined = true;
             for (const auto& symbol_pair : m_symbols) {
                 Symbol* symbol = symbol_pair.second;
                 if (symbol) {
-                    if (symbol->in_use && symbol->undefined[0]) {
+                    if (symbol->in_use && symbol->undefined[symbol->index]) {
                         all_used_defined = false;
                         break;
                     }
@@ -791,19 +805,32 @@ private:
             }
             return all_used_defined;
         }
-
-        void update_symbol(const std::string& name, int32_t value, bool is_undefined) {
+        void update_symbol(const std::string& name, int32_t value, bool is_undefined, bool redefinable) {
             auto it = m_symbols.find(name);
             if (it == m_symbols.end()) {
-                Symbol* new_symbol = new Symbol{0, {value}, {is_undefined}};
+                Symbol* new_symbol = new Symbol{redefinable, 0, {value}, {is_undefined}};
                 m_symbols[name] = new_symbol;
                 m_symbols_stable = false;
             } else {
                 Symbol *symbol = it->second;
-                if (symbol->values[0] != value || symbol->undefined[0] != is_undefined) {
-                    symbol->values[0] = value;
-                    symbol->undefined[0] = is_undefined;
-                    m_symbols_stable = false;
+                if (symbol) {
+                    if (!symbol->redefinable && redefinable)
+                        throw std::runtime_error("Cannot redefine constant symbol: " + name);
+                    int& index = symbol->index;
+                    index++;
+                    if (index >= symbol->value.size()) {
+                        if (!redefinable)
+                            throw std::runtime_error("Duplicate symbol definition: " + name);
+                        symbol->value.push_back(value);
+                        symbol->undefined.push_back(is_undefined);
+                        m_symbols_stable = false;
+                        return;
+                    }
+                    if (symbol->value[index] != value || symbol->undefined[index] != is_undefined) {
+                        symbol->value[index] = value;
+                        symbol->undefined[index] = is_undefined;
+                        m_symbols_stable = false;
+                    }
                 }
             }
         }

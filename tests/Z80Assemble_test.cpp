@@ -923,6 +923,31 @@ TEST_CASE(EQUAndSETDirectives) {
     )");
 }
 
+TEST_CASE(SETDirective) {
+    // Basic SET
+    ASSERT_CODE(R"(
+        VALUE SET 10
+        LD A, VALUE
+    )", {0x3E, 10});
+
+    // Redefinition with SET
+    ASSERT_CODE(R"(
+        VALUE SET 10
+        VALUE SET 20
+        LD A, VALUE
+    )", {0x3E, 20});
+
+    // SET with forward reference
+    ASSERT_CODE(R"(
+        VALUE_A SET VALUE_B + 1
+        LD A, VALUE_A
+        VALUE_B SET 5
+    )", {0x3E, 6});
+
+    // Mixing EQU and SET (should fail if EQU is redefined)
+    ASSERT_COMPILE_FAILS("VAL EQU 1\nVAL SET 2");
+}
+
 TEST_CASE(Comments) {
     // Test single-line semicolon comments
     ASSERT_CODE("LD A, 5 ; This is a comment", {0x3E, 0x05});
@@ -1219,6 +1244,164 @@ TEST_CASE(IncludeDirective_CircularDependency) {
     } catch (const std::runtime_error&) {
         tests_passed++;
     }
+}
+
+TEST_CASE(ConditionalCompilation) {
+    // Simple IF (true)
+    ASSERT_CODE(R"(
+        IF 1
+            LD A, 1
+        ENDIF
+    )", {0x3E, 0x01});
+
+    // Simple IF (false)
+    ASSERT_CODE(R"(
+        IF 0
+            LD A, 1
+        ENDIF
+    )", {});
+
+    // IF with expression
+    ASSERT_CODE(R"(
+        VALUE EQU 10
+        IF VALUE > 5
+            LD A, 1
+        ENDIF
+    )", {0x3E, 0x01});
+
+    // IF with ELSE (IF part taken)
+    ASSERT_CODE(R"(
+        IF 1
+            LD A, 1
+        ELSE
+            LD A, 2
+        ENDIF
+    )", {0x3E, 0x01});
+
+    // IF with ELSE (ELSE part taken)
+    ASSERT_CODE(R"(
+        IF 0
+            LD A, 1
+        ELSE
+            LD A, 2
+        ENDIF
+    )", {0x3E, 0x02});
+
+    // IFDEF (defined)
+    ASSERT_CODE(R"(
+        MY_SYMBOL EQU 1
+        IFDEF MY_SYMBOL
+            LD A, 1
+        ENDIF
+    )", {0x3E, 0x01});
+
+    // IFDEF (not defined)
+    ASSERT_CODE(R"(
+        IFDEF MY_UNDEFINED_SYMBOL
+            LD A, 1
+        ENDIF
+    )", {});
+
+    // IFNDEF (not defined)
+    ASSERT_CODE(R"(
+        IFNDEF MY_UNDEFINED_SYMBOL
+            LD A, 1
+        ENDIF
+    )", {0x3E, 0x01});
+
+    // IFNDEF (defined)
+    ASSERT_CODE(R"(
+        MY_SYMBOL EQU 1
+        IFNDEF MY_SYMBOL
+            LD A, 1
+        ENDIF
+    )", {});
+
+    // Nested IF (all true)
+    ASSERT_CODE(R"(
+        IF 1
+            LD A, 1
+            IF 1
+                LD B, 2
+            ENDIF
+            LD C, 3
+        ENDIF
+    )", {0x3E, 0x01, 0x06, 0x02, 0x0E, 0x03});
+
+    // Nested IF (inner false)
+    ASSERT_CODE(R"(
+        IF 1
+            LD A, 1
+            IF 0
+                LD B, 2
+            ENDIF
+            LD C, 3
+        ENDIF
+    )", {0x3E, 0x01, 0x0E, 0x03});
+
+    // Nested IF (outer false)
+    ASSERT_CODE(R"(
+        IF 0
+            LD A, 1
+            IF 1
+                LD B, 2
+            ENDIF
+            LD C, 3
+        ENDIF
+    )", {});
+
+    // Complex nesting with ELSE
+    ASSERT_CODE(R"(
+        VERSION EQU 2
+        IF VERSION == 1
+            LD A, 1
+        ELSE
+            IF VERSION == 2
+                LD A, 2
+            ELSE
+                LD A, 3
+            ENDIF
+        ENDIF
+    )", {0x3E, 0x02});
+
+    // Error cases
+    ASSERT_COMPILE_FAILS("IF 1\nLD A, 1"); // Missing ENDIF
+    ASSERT_COMPILE_FAILS("ENDIF"); // ENDIF without IF
+    ASSERT_COMPILE_FAILS("ELSE"); // ELSE without IF
+    ASSERT_COMPILE_FAILS(R"(
+        IF 1
+        ELSE
+        ELSE
+        ENDIF
+    )"); // Double ELSE
+}
+
+TEST_CASE(ConditionalCompilation_ForwardReference) {
+    // Forward reference in IF (true)
+    ASSERT_CODE(R"(
+        IF FORWARD_VAL == 1
+            LD A, 1
+        ENDIF
+        FORWARD_VAL EQU 1
+    )", {0x3E, 0x01});
+
+    // Forward reference in IF (false)
+    ASSERT_CODE(R"(
+        IF FORWARD_VAL == 1
+            LD A, 1
+        ENDIF
+        FORWARD_VAL EQU 0
+    )", {});
+
+    // Forward reference in IF with ELSE
+    ASSERT_CODE(R"(
+        IF FORWARD_VAL > 10
+            LD A, 1
+        ELSE
+            LD A, 2
+        ENDIF
+        FORWARD_VAL EQU 5
+    )", {0x3E, 0x02});
 }
 
 int main() {

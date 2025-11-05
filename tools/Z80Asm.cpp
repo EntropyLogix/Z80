@@ -23,7 +23,6 @@
 #include <string>
 #include <vector>
 #include <filesystem>
-#include <set>
 
 void print_usage() {
     std::cerr << "Usage: Z80Asm <input_file> [options]\n"
