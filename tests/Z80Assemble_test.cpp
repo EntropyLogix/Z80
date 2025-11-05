@@ -68,9 +68,14 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
     }
 
     auto blocks = assembler.get_blocks();
-    if (blocks.empty() || blocks[0].second != expected_bytes.size()) {
+    size_t compiled_size = 0;
+    if (!blocks.empty()) {
+        compiled_size = blocks[0].second;
+    }
+
+    if (compiled_size != expected_bytes.size()) {
         std::cerr << "Assertion failed: Incorrect compiled size for '" << asm_code << "'.\n";
-        std::cerr << "  Expected size: " << expected_bytes.size() << ", Got: " << (blocks.empty() ? 0 : blocks[0].second) << "\n";
+        std::cerr << "  Expected size: " << expected_bytes.size() << ", Got: " << compiled_size << "\n";
         tests_failed++;
         return;
     }

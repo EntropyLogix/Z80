@@ -82,6 +82,7 @@ public:
                     m_context.m_current_line_number = i + 1;
                     line_processor.process(source_lines[i]);
                 }
+                line_processor.finalize();
                 if (phase->on_pass_end())
                     end_phase = true;
                 else {
@@ -860,7 +861,7 @@ private:
                 return true;
             auto it = this->m_context.m_symbols.find(symbol);
             if (it == this->m_context.m_symbols.end())
-                throw std::runtime_error("Undefined symbol: " + symbol);
+                return false; //for IFDEF/IFNDEF
             out_value = it->second.value;
             return true;
         }
@@ -1953,6 +1954,10 @@ private:
     public:
         LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
     
+        void finalize() const {
+            if (!m_conditional_stack.empty())
+                throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
+        }
         bool process(const std::string& source_line) {
             bool is_skipping = !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
 
