@@ -664,21 +664,24 @@ private:
         using OperandType = typename OperandParser::OperandType;
 
         SymbolsBuilding(CompilationContext& context, int max_pass) : IAssemblyPolicy(context), m_max_pass(max_pass) {}
-        virtual ~SymbolsBuilding() = default;
+        virtual ~SymbolsBuilding() {
+            clear_symbols();
+        }
         //Source
         virtual void on_pass_begin() override {
             m_symbols_stable = true;
             m_symbols.clear();
         }
         virtual bool on_pass_end() override {
-            if (std::find_if(m_symbols.begin(), m_symbols.end(), [](const auto& symbol){return symbol.second.undefined;}) != m_symbols.end())
+            if (!all_used_symbols_defined())
                 m_symbols_stable = false;
             if (m_final_pass_scheduled) {
                 if (m_symbols_stable) {
                     this->m_context.m_symbols.clear();
                     for (const auto& symbol_pair : m_symbols) {
-                        if (!symbol_pair.second.undefined)
-                            this->m_context.m_symbols[symbol_pair.first] = {symbol_pair.first, (uint32_t)symbol_pair.second.value};
+                        Symbol* symbol = symbol_pair.second;
+                        if (symbol && !symbol->undefined[0])
+                            this->m_context.m_symbols[symbol_pair.first] = {symbol_pair.first, symbol->values[0]};
                     }
                     return true;
                 }
@@ -694,14 +697,15 @@ private:
         virtual void on_pass_next() override {
             if (this->m_context.m_current_pass > m_max_pass) {
                 std::string error_msg = "Failed to resolve all symbols after " + std::to_string(m_max_pass) + " passes.";
-                if (std::find_if(m_symbols.begin(), m_symbols.end(), [](const auto& symbol){return symbol.second.undefined && symbol.second.used;}) == m_symbols.end())
+                if (all_used_symbols_defined())
                     error_msg += " Symbols are defined but their values did not stabilize. Need more passes.";
                 else {
                     error_msg += " Undefined symbol(s): ";
                     bool first = true;
-                    for (const auto& symbol : m_symbols) {
-                        if (symbol.second.undefined) {
-                            error_msg += (first ? "" : ", ") + symbol.first;
+                    for (const auto& symbol_pair : m_symbols) {
+                        Symbol* symbol = symbol_pair.second;
+                        if (symbol && symbol->undefined[0]) {
+                            error_msg += (first ? "" : ", ") + symbol_pair.first;
                             first = false;
                         }
                     }
@@ -710,18 +714,21 @@ private:
                 throw std::runtime_error(error_msg);
             }
             m_symbols_stable = true;
-            m_undefined_symbols.clear();
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
+            bool resolved = false;
             auto it = m_symbols.find(symbol);
             if (it != m_symbols.end()) {
-                out_value = it->second.value;
-                it->second.used = true;
-                return !it->second.undefined;
+                Symbol *symbol = it->second;
+                if (symbol) {
+                    symbol->in_use = true;
+                    out_value = symbol->values[0];
+                    resolved = !symbol->undefined[0];
+                }
             }
-            return false;
+            return resolved;
         }
         virtual void on_label_definition(const std::string& label) override {
             update_symbol(label, this->m_context.m_current_address, false);
@@ -759,28 +766,50 @@ private:
         }
     private:
         struct Symbol {
-            int32_t value = 0;
-            bool undefined = true;
-            bool used = false;
+            int index;
+            std::vector<int32_t> values;
+            std::vector<bool> undefined;
+            bool in_use;
         };
+
+        void clear_symbols() {
+            for (auto& symbol_pair : m_symbols)
+                delete symbol_pair.second;
+            m_symbols.clear();
+        }
+
+        bool all_used_symbols_defined() const {
+            bool all_used_defined = true;
+            for (const auto& symbol_pair : m_symbols) {
+                Symbol* symbol = symbol_pair.second;
+                if (symbol) {
+                    if (symbol->in_use && symbol->undefined[0]) {
+                        all_used_defined = false;
+                        break;
+                    }
+                }
+            }
+            return all_used_defined;
+        }
 
         void update_symbol(const std::string& name, int32_t value, bool is_undefined) {
             auto it = m_symbols.find(name);
             if (it == m_symbols.end()) {
-                m_symbols.emplace(name, Symbol{value, is_undefined});
+                Symbol* new_symbol = new Symbol{0, {value}, {is_undefined}};
+                m_symbols[name] = new_symbol;
                 m_symbols_stable = false;
             } else {
-                if (it->second.value != value || it->second.undefined != is_undefined) {
-                    it->second.value = value;
-                    it->second.undefined = is_undefined;
+                Symbol *symbol = it->second;
+                if (symbol->values[0] != value || symbol->undefined[0] != is_undefined) {
+                    symbol->values[0] = value;
+                    symbol->undefined[0] = is_undefined;
                     m_symbols_stable = false;
                 }
             }
         }
-        std::map<std::string, Symbol> m_symbols; 
+        std::map<std::string, Symbol*> m_symbols; 
         bool m_symbols_stable = false;
         bool m_final_pass_scheduled = false;
-        std::set<std::string> m_undefined_symbols;
         int m_max_pass = 0;
     };
     class CodeGeneration : public IAssemblyPolicy {
