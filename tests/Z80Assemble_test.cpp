@@ -951,6 +951,7 @@ TEST_CASE(SETDirective) {
 
     // Mixing EQU and SET (should fail if EQU is redefined)
     ASSERT_COMPILE_FAILS("VAL EQU 1\nVAL SET 2");
+    ASSERT_COMPILE_FAILS("VAL SET 1\nVAL EQU 2");
 }
 
 TEST_CASE(Comments) {
@@ -1407,6 +1408,52 @@ TEST_CASE(ConditionalCompilation_ForwardReference) {
         ENDIF
         FORWARD_VAL EQU 5
     )", {0x3E, 0x02});
+}
+
+TEST_CASE(ComplexForwardReferences) {
+    std::string code = R"(
+        ORG 0x8000
+
+STACK_SIZE      SET 256
+STACK_BASE      SET STACK_TOP - STACK_SIZE
+
+START:
+                DI                      ; F3
+                LD SP, STACK_TOP        ; 31 00 90
+                LD A, 10101010b         ; 3E AA
+                LD A, 2*8+1             ; 3E 11
+                DS COUNT                ; DS 100 -> 100 bytes of 00
+
+; --- Stack definition ---
+                DS 10                   ; 10 bytes of 00
+                ORG STACK_BASE
+                DS STACK_SIZE, 0xFF     ; DS 256, 0xFF
+STACK_TOP:
+COUNT           SET 10
+                NOP
+                DS COUNT, 0xAA
+COUNT           SET 100
+    )";
+
+    Z80DefaultBus bus;
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    bool success = assembler.compile("main.asm");
+    assert(success && "Complex forward reference compilation failed");
+
+    auto symbols = assembler.get_symbols();
+    assert(symbols["STACK_TOP"].value == 0x9000);
+    assert(symbols["STACK_BASE"].value == 0x8F00);
+    assert(symbols["COUNT"].value == 100);
+
+    // Check the compiled code and data
+    assert(bus.peek(0x8001) == 0x31 && bus.peek(0x8002) == 0x00 && bus.peek(0x8003) == 0x90); // LD SP, 0x9000
+    assert(bus.peek(0x8008) == 0x00 && bus.peek(0x8008 + 99) == 0x00); // DS 100
+    assert(bus.peek(0x8F00) == 0xFF && bus.peek(0x8FFF) == 0xFF); // DS 256, 0xFF
+    assert(bus.peek(0x9000) == 0x00); // NOP
+    assert(bus.peek(0x9001) == 0xAA && bus.peek(0x900A) == 0xAA); // DS 10, 0xAA
+    tests_passed++;
 }
 
 int main() {
