@@ -45,6 +45,25 @@ public:
 
 template <typename TMemory> class Z80Assembler {
 public:
+    struct Options {
+        bool enable_labels = true;
+        bool enable_comments = true;
+        bool enable_block_comments = true;
+        bool enable_expressions = true;
+        bool enable_equ = true;
+        bool enable_set = true;
+        bool enable_org = true;
+        bool enable_align = true;
+        bool enable_conditional_compilation = true;
+        bool enable_includes = true;
+        int max_compilation_passes = 10;
+    };
+
+    static const Options& get_default_options() {
+        static const Options default_options;
+        return default_options;
+    };
+
     struct SymbolInfo {
         std::string name;
         int32_t value;
@@ -54,7 +73,9 @@ public:
         uint16_t size;
     };
 
-    Z80Assembler(TMemory* memory, ISourceProvider* source_provider) {
+    Z80Assembler(TMemory* memory, ISourceProvider* source_provider, const Options& options = get_default_options())
+        : m_context(options)
+    {
         m_context.memory = memory;
         m_context.source_provider = source_provider;
     }
@@ -69,7 +90,7 @@ public:
         std::string line;
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
-        SymbolsBuilding symbols_building(m_context, 10);
+        SymbolsBuilding symbols_building(m_context, m_context.options.max_compilation_passes);
         CodeGeneration code_generation(m_context, start_addr);
         std::vector<IAssemblyPolicy*>  m_phases = {&symbols_building, &code_generation};
         for (auto& phase : m_phases) {
@@ -101,7 +122,6 @@ public:
     std::vector<BlockInfo> get_blocks() const { return m_context.blocks; }
 
 private:
-    // Forward declare nested classes that Preprocessor depends on
     struct CompilationContext;
     class StringHelper;
     class IAssemblyPolicy;
@@ -134,13 +154,15 @@ private:
             std::string source_content;
             if (!m_context.source_provider->get_source(identifier, source_content))
                 return false;
-            remove_block_comments(source_content, identifier);
+            if (m_context.options.enable_block_comments)
+                remove_block_comments(source_content, identifier);
             std::stringstream source_stream(source_content);
             std::string line;
             size_t line_number = 0;
             while (std::getline(source_stream, line)) {
                 line_number++;
                 std::string trimmed_line = line;
+            if (m_context.options.enable_includes) {
                 StringHelper::trim_whitespace(trimmed_line);
                 std::string upper_line = line;
                 StringHelper::to_upper(upper_line);
@@ -153,6 +175,7 @@ private:
                     process_file(include_filename, output_source, included_files);
                 } else
                     output_source.append(line).append("\n");
+            } else output_source.append(line).append("\n");
             }
             return true;
         }
@@ -291,6 +314,14 @@ private:
         Expressions(IAssemblyPolicy& policy) : m_policy(policy){}
 
         bool evaluate(const std::string& s, int32_t& out_value) const {
+            if (!m_policy.get_compilation_context().options.enable_expressions) {
+                std::string trimmed_s = s;
+                StringHelper::trim_whitespace(trimmed_s);
+                if (StringHelper::is_number(trimmed_s, out_value)) {
+                    return true;
+                }
+                throw std::runtime_error("Expressions are disabled. Only numeric literals are allowed: " + s);
+            }
             auto tokens = tokenize_expression(s);
             auto rpn = shunting_yard(tokens);
             return evaluate_rpn(rpn, out_value);
@@ -556,7 +587,7 @@ private:
     };
     //Policy
     struct CompilationContext {
-        CompilationContext() = default;
+        CompilationContext(const Options& opts) : options(opts) {}
 
         CompilationContext(const CompilationContext& other) = delete;
         CompilationContext& operator=(const CompilationContext& other) = delete;
@@ -568,6 +599,8 @@ private:
         size_t current_pass = 0;
         std::map<std::string, SymbolInfo> symbols;
         std::vector<BlockInfo> blocks;
+
+        const Options& options;
     };
     class IAssemblyPolicy {
     public:
@@ -1969,14 +2002,17 @@ private:
             bool is_skipping = !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
 
             std::string line = source_line;
-            process_comments(line);
+            if (m_policy.get_compilation_context().options.enable_comments)
+                process_comments(line);
 
             if (process_directives(line, is_skipping))
                 return true;
             if (is_skipping)
+
                 return true;
-            process_label(line);
-            if (!line.empty())
+            if (m_policy.get_compilation_context().options.enable_labels)
+                process_label(line);
+            if (!line.empty()) 
                 return process_instruction(line);
             return true;
         }
@@ -2056,28 +2092,40 @@ private:
                     std::getline(line_stream, value);
                     StringHelper::trim_whitespace(value);
 
-                    if (directive == "SET" || directive == "DEFL")
+                    if ((directive == "SET" || directive == "DEFL") && m_policy.get_compilation_context().options.enable_set) {
                         m_policy.on_set_directive(label, value);
-                    else
+                    } else if (directive == "EQU" && m_policy.get_compilation_context().options.enable_equ) {
                         m_policy.on_equ_directive(label, value);
+                    } else {
+                        throw std::runtime_error("Directive '" + directive + "' is disabled or unknown.");
+                    }
                     return true;
                 }
             }
-
+        if (m_policy.get_compilation_context().options.enable_conditional_compilation){
             size_t org_pos = line_upper.find("ORG ");
             if (org_pos != std::string::npos && line_upper.substr(0, org_pos).find_first_not_of(" \t") == std::string::npos) {
-                std::string org_value_str = line.substr(org_pos + 4);
-                StringHelper::trim_whitespace(org_value_str);
-                m_policy.on_org_directive(org_value_str);
+                if (m_policy.get_compilation_context().options.enable_org) {
+                    std::string org_value_str = line.substr(org_pos + 4);
+                    StringHelper::trim_whitespace(org_value_str);
+                    m_policy.on_org_directive(org_value_str);
+                } else {
+                    throw std::runtime_error("ORG directive is disabled.");
+                }
                 return true;
             }
             size_t align_pos = line_upper.find("ALIGN ");
             if (align_pos != std::string::npos && line_upper.substr(0, align_pos).find_first_not_of(" \t") == std::string::npos) {
-                std::string align_value_str = line.substr(align_pos + 6);
-                StringHelper::trim_whitespace(align_value_str);
-                m_policy.on_align_directive(align_value_str);
+                if (m_policy.get_compilation_context().options.enable_align) {
+                    std::string align_value_str = line.substr(align_pos + 6);
+                    StringHelper::trim_whitespace(align_value_str);
+                    m_policy.on_align_directive(align_value_str);
+                } else {
+                    throw std::runtime_error("ALIGN directive is disabled.");
+                }
                 return true;
             }
+        }
             return false;
         }
         bool process_label(std::string& line) {
