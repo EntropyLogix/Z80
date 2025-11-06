@@ -55,6 +55,57 @@ private:
     std::map<std::string, std::string> m_sources;
 };
 
+void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes, const Z80Assembler<Z80DefaultBus>::Options& options) {
+    Z80DefaultBus bus;
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);
+    bool success = assembler.compile("main.asm", 0x0000);
+    if (!success) {
+        std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
+        tests_failed++;
+        return;
+    }
+
+    auto blocks = assembler.get_blocks();
+    size_t compiled_size = 0;
+    if (!blocks.empty()) {
+        compiled_size = blocks[0].size;
+    }
+
+    if (compiled_size != expected_bytes.size()) {
+        std::cerr << "Assertion failed: Incorrect compiled size for '" << asm_code << "'.\n";
+        std::cerr << "  Expected size: " << expected_bytes.size() << ", Got: " << compiled_size << "\n";
+        tests_failed++;
+        return;
+    }
+
+    uint16_t start_address = 0x0000;
+    if (!blocks.empty()) {
+        start_address = blocks[0].start_address;
+    }
+
+    bool mismatch = false;
+    for (size_t i = 0; i < expected_bytes.size(); ++i) {
+        if (bus.peek(start_address + i) != expected_bytes[i]) {
+            mismatch = true;
+            break;
+        }
+    }
+
+    if (mismatch) {
+        std::cerr << "Assertion failed: Byte mismatch for '" << asm_code << "'\n";
+        std::cerr << "  Expected: ";
+        for (uint8_t byte : expected_bytes) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
+        std::cerr << "\n  Got:      ";
+        for (size_t i = 0; i < expected_bytes.size(); ++i) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)bus.peek(start_address + i) << " ";
+        std::cerr << std::dec << "\n";
+        tests_failed++;
+    } else {
+        tests_passed++;
+    }
+}
+
 void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes) {
     Z80DefaultBus bus;
     MockSourceProvider source_provider;
@@ -1186,6 +1237,78 @@ TEST_CASE(LogicalNOTOperator) {
     ASSERT_CODE("LD A, !(1==0)", {0x3E, 1});
     ASSERT_CODE("VAL_A EQU 10\nLD A, !VAL_A", {0x3E, 0});
     ASSERT_CODE("VAL_B EQU 0\nLD A, !VAL_B", {0x3E, 1});
+}
+
+TEST_CASE(CommentOptions) {
+    Z80Assembler<Z80DefaultBus>::Options options;
+
+    // 1. Comments completely disabled
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.comments.enabled = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options); // Semicolon comment should be treated as code
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options); // Block comment should be treated as code
+    ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, options); // Regular instruction should pass
+
+    // 2. Semicolon comments disabled, block comments disabled (even if comments.enabled is true)
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.comments.allow_semicolon = false;
+    options.comments.allow_block = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options);
+    ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, options);
+
+    // 3. Only semicolon comments allowed
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.comments.allow_semicolon = true;
+    options.comments.allow_block = false;
+    ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, options); // Semicolon comment should pass
+    ASSERT_CODE_WITH_OPTS("; ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A}, options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options); // Block comment should fail
+
+    // 4. Only block comments allowed
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.comments.allow_semicolon = false;
+    options.comments.allow_block = true;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options); // Semicolon comment should fail
+    ASSERT_CODE_WITH_OPTS(R"(
+        LD A, 1 /* Start comment
+        LD B, 2       This is all commented out
+        LD C, 3       */ LD D, 4
+    )", {0x3E, 0x01, 0x16, 0x04}, options); // Block comment should pass
+    ASSERT_CODE_WITH_OPTS("LD A, 5 /* comment */", {0x3E, 0x05}, options);
+
+    // 5. Default behavior: both allowed
+    options = Z80Assembler<Z80DefaultBus>::get_default_options(); // Default has both enabled
+    ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, options);
+    ASSERT_CODE_WITH_OPTS(R"(
+        LD A, 1 /* Start comment */ LD B, 2
+    )", {0x3E, 0x01, 0x06, 0x02}, options);
+    ASSERT_CODE_WITH_OPTS(R"(
+        LD A, 1       /* Start comment
+        LD B, 2       This is all commented out
+        LD C, 3       */ LD D, 4 ; Another comment
+    )", {0x3E, 0x01, 0x16, 0x04}, options);
+
+    // 6. Test unterminated block comment (should always fail if allow_block is true)
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.comments.allow_block = true;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1 /* This comment is not closed", options);
+
+    // 7. Test block comment with no content
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.comments.allow_block = true;
+    ASSERT_CODE_WITH_OPTS("LD A, 1 /**/ LD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
+
+    // 8. Test block comment spanning multiple lines
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.comments.allow_block = true;
+    ASSERT_CODE_WITH_OPTS(R"(
+        LD A, 1
+        /*
+        This is a multi-line comment.
+        */
+        LD B, 2
+    )", {0x3E, 0x01, 0x06, 0x02}, options);
 }
 
 TEST_CASE(ForwardReferences) {

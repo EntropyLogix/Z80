@@ -51,8 +51,11 @@ public:
             bool allow_colon = true;
             bool allow_no_colon = true;
         } labels;
-        bool enable_comments = true;
-        bool enable_block_comments = true;
+        struct CommentOptions {
+            bool enabled = true;
+            bool allow_semicolon = true;
+            bool allow_block = true;
+        } comments;
         bool enable_expressions = true;
         bool enable_equ = true;
         bool enable_set = true;
@@ -158,8 +161,10 @@ private:
             std::string source_content;
             if (!m_context.source_provider->get_source(identifier, source_content))
                 return false;
-            if (m_context.options.enable_block_comments)
-                remove_block_comments(source_content, identifier);
+            if (m_context.options.comments.enabled) {
+                if (m_context.options.comments.allow_block)
+                    remove_block_comments(source_content, identifier);
+            }
             std::stringstream source_stream(source_content);
             std::string line;
             size_t line_number = 0;
@@ -2006,7 +2011,7 @@ private:
             bool is_skipping = !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
 
             std::string line = source_line;
-            if (m_policy.get_compilation_context().options.enable_comments)
+            if (m_policy.get_compilation_context().options.comments.enabled)
                 process_comments(line);
 
             if (process_directives(line, is_skipping))
@@ -2023,11 +2028,12 @@ private:
 
     private:
         bool process_comments(std::string& line) {
-            size_t comment_pos = line.find(';');
-            if (comment_pos != std::string::npos) {
-                std::string comment = line.substr(comment_pos + 1);
-                line.erase(comment_pos);
-                return true;
+            if (m_policy.get_compilation_context().options.comments.allow_semicolon) {
+                size_t comment_pos = line.find(';');
+                if (comment_pos != std::string::npos) {
+                    line.erase(comment_pos);
+                    return true;
+                }
             }
             return false;
         }
