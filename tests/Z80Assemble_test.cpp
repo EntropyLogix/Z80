@@ -1527,6 +1527,87 @@ TEST_CASE(ConditionalCompilation) {
     )"); // Double ELSE
 }
 
+TEST_CASE(DirectiveOptions) {
+    Z80Assembler<Z80DefaultBus>::Options options;
+
+    // 1. Test directives.enabled = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.enabled = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ORG 0x100", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DB 1", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nENDIF", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ALIGN 4", options);
+
+    // 2. Test directives.constants.enabled = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.constants.enabled = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 10", options);
+    ASSERT_CODE_WITH_OPTS("ORG 0x100\nNOP", {0x00}, options); // Other directives should work
+
+    // 3. Test directives.constants.allow_equ = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.constants.allow_equ = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", options);
+    ASSERT_CODE_WITH_OPTS("VALUE SET 10\nLD A, VALUE", {0x3E, 10}, options);
+
+    // 4. Test directives.constants.allow_set = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.constants.allow_set = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 10", options);
+    ASSERT_CODE_WITH_OPTS("VALUE EQU 10\nLD A, VALUE", {0x3E, 10}, options);
+
+    // 5. Test directives.allow_org = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.allow_org = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ORG 0x100", options);
+
+    // 6. Test directives.allow_align = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.allow_align = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ALIGN 4", options);
+
+    // 7. Test directives.allow_data_definitions = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.allow_data_definitions = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DB 1", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DW 1", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DS 1", options);
+
+    // 8. Test directives.allow_includes = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.allow_includes = false;
+    MockSourceProvider source_provider_no_include;
+    source_provider_no_include.add_source("main.asm", "INCLUDE \"other.asm\"");
+    source_provider_no_include.add_source("other.asm", "NOP");
+    Z80DefaultBus bus_no_include;
+    Z80Assembler<Z80DefaultBus> assembler_no_include(&bus_no_include, &source_provider_no_include, options);
+    try {
+        assembler_no_include.compile("main.asm");
+        tests_failed++;
+        std::cerr << "Assertion failed: INCLUDE should have failed but didn't.\n";
+    } catch (const std::runtime_error&) {
+        tests_passed++; // Expected to fail
+    }
+
+    // 9. Test directives.allow_conditional_compilation = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.allow_conditional_compilation = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nNOP\nENDIF", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("IFDEF SYMBOL\nNOP\nENDIF", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("IFNDEF SYMBOL\nNOP\nENDIF", options);
+
+    // 10. Test that disabling conditional compilation doesn't affect other directives
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.allow_conditional_compilation = false;
+    ASSERT_CODE_WITH_OPTS(R"(
+        VALUE EQU 10
+        LD A, VALUE
+        DB 0xFF
+    )", {0x3E, 10, 0xFF}, options);
+}
+
 TEST_CASE(ConditionalCompilation_ForwardReference) {
     // Forward reference in IF (true)
     ASSERT_CODE(R"(

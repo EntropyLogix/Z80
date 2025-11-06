@@ -57,12 +57,19 @@ public:
             bool allow_block = true;
         } comments;
         bool enable_expressions = true;
-        bool enable_equ = true;
-        bool enable_set = true;
-        bool enable_org = true;
-        bool enable_align = true;
-        bool enable_conditional_compilation = true;
-        bool enable_includes = true;
+        struct DirectiveOptions {
+            bool enabled = true;
+            struct ConstantOptions {
+                bool enabled = true;
+                bool allow_equ = true;
+                bool allow_set = true;
+            } constants;
+            bool allow_org = true;
+            bool allow_align = true;
+            bool allow_data_definitions = true;
+            bool allow_includes = true;
+            bool allow_conditional_compilation = true;
+        } directives;
         int max_compilation_passes = 10;
     };
 
@@ -171,7 +178,7 @@ private:
             while (std::getline(source_stream, line)) {
                 line_number++;
                 std::string trimmed_line = line;
-            if (m_context.options.enable_includes) {
+            if (m_context.options.directives.allow_includes) {
                 StringHelper::trim_whitespace(trimmed_line);
                 std::string upper_line = line;
                 StringHelper::to_upper(upper_line);
@@ -1057,6 +1064,9 @@ private:
         void assemble(std::vector<uint8_t> bytes) { m_policy.on_assemble(bytes);}
 
         bool encode_data_block(const std::string& mnemonic, const std::vector<Operand>& ops) {
+            const auto& directive_options = m_policy.get_compilation_context().options.directives;
+            if (!directive_options.enabled || !directive_options.allow_data_definitions)
+                throw std::runtime_error("Data definition directives (DB, DW, DS) are disabled.");
             if (mnemonic == "DB" || mnemonic == "DEFB") {
                 for (const auto& op : ops) {
                     if (match_imm16(op) || match_char(op)) {
@@ -2039,6 +2049,8 @@ private:
         }
         bool process_directives(const std::string& line, bool is_skipping) {
             std::string line_upper = line;
+            if (!m_policy.get_compilation_context().options.directives.enabled)
+                return false;
             StringHelper::to_upper(line_upper);
             std::string trimmed_line = line;
             StringHelper::trim_whitespace(trimmed_line);
@@ -2046,6 +2058,8 @@ private:
             StringHelper::to_upper(upper_trimmed_line);
 
             if (upper_trimmed_line.rfind("IF ", 0) == 0) {
+                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
+                    throw std::runtime_error("IF directive is disabled.");
                 std::string expr_str = trimmed_line.substr(3);
                 bool condition_result = false;
                 if (!is_skipping) {
@@ -2057,6 +2071,8 @@ private:
                 m_conditional_stack.push_back({!is_skipping && condition_result, false});
                 return true;
             } else if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
+                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
+                    throw std::runtime_error("IFDEF directive is disabled.");
                 std::string symbol = trimmed_line.substr(6);
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
@@ -2064,6 +2080,8 @@ private:
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             } else if (upper_trimmed_line.rfind("IFNDEF ", 0) == 0) {
+                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
+                    throw std::runtime_error("IFNDEF directive is disabled.");
                 std::string symbol = trimmed_line.substr(7);
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
@@ -2071,6 +2089,8 @@ private:
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             } else if (upper_trimmed_line == "ELSE") {
+                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
+                    throw std::runtime_error("ELSE directive is disabled.");
                 if (m_conditional_stack.empty())
                     throw std::runtime_error("ELSE without IF");
                 if (m_conditional_stack.back().else_seen)
@@ -2081,6 +2101,8 @@ private:
                     m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
                 return true;
             } else if (upper_trimmed_line == "ENDIF") {
+                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
+                    throw std::runtime_error("ENDIF directive is disabled.");
                 if (m_conditional_stack.empty())
                     throw std::runtime_error("ENDIF without IF");
                 m_conditional_stack.pop_back();
@@ -2095,47 +2117,45 @@ private:
             
             if (!line_stream.fail()) {
                 StringHelper::to_upper(directive);
-                if (directive == "EQU" || directive == "SET" || directive == "DEFL") {
+                const auto& constants_options = m_policy.get_compilation_context().options.directives.constants;
+                if (constants_options.enabled && (directive == "EQU" || directive == "SET" || directive == "DEFL")) {
                     if (!Keywords::is_valid_label_name(label))
                         throw std::runtime_error("Invalid label name for directive: '" + label + "'");
 
                     std::getline(line_stream, value);
                     StringHelper::trim_whitespace(value);
 
-                    if ((directive == "SET" || directive == "DEFL") && m_policy.get_compilation_context().options.enable_set) {
+                    if ((directive == "SET" || directive == "DEFL") && constants_options.allow_set)
                         m_policy.on_set_directive(label, value);
-                    } else if (directive == "EQU" && m_policy.get_compilation_context().options.enable_equ) {
+                    else if (directive == "EQU" && constants_options.allow_equ) 
                         m_policy.on_equ_directive(label, value);
-                    } else {
+                    else
                         throw std::runtime_error("Directive '" + directive + "' is disabled or unknown.");
-                    }
                     return true;
                 }
             }
-        if (m_policy.get_compilation_context().options.enable_conditional_compilation){
+        
             size_t org_pos = line_upper.find("ORG ");
             if (org_pos != std::string::npos && line_upper.substr(0, org_pos).find_first_not_of(" \t") == std::string::npos) {
-                if (m_policy.get_compilation_context().options.enable_org) {
+                if (m_policy.get_compilation_context().options.directives.allow_org) {
                     std::string org_value_str = line.substr(org_pos + 4);
                     StringHelper::trim_whitespace(org_value_str);
                     m_policy.on_org_directive(org_value_str);
-                } else {
+                } else
                     throw std::runtime_error("ORG directive is disabled.");
-                }
                 return true;
             }
             size_t align_pos = line_upper.find("ALIGN ");
             if (align_pos != std::string::npos && line_upper.substr(0, align_pos).find_first_not_of(" \t") == std::string::npos) {
-                if (m_policy.get_compilation_context().options.enable_align) {
+                if (m_policy.get_compilation_context().options.directives.allow_align) {
                     std::string align_value_str = line.substr(align_pos + 6);
                     StringHelper::trim_whitespace(align_value_str);
                     m_policy.on_align_directive(align_value_str);
-                } else {
+                } else
                     throw std::runtime_error("ALIGN directive is disabled.");
-                }
                 return true;
             }
-        }
+        
             return false;
         }
         bool process_label(std::string& line) {
