@@ -49,10 +49,14 @@ public:
         std::string name;
         int32_t value;
     };
+    struct BlockInfo {
+        uint16_t start_address;
+        uint16_t size;
+    };
 
     Z80Assembler(TMemory* memory, ISourceProvider* source_provider) {
-        m_context.m_memory = memory;
-        m_context.m_source_provider = source_provider;
+        m_context.memory = memory;
+        m_context.source_provider = source_provider;
     }
 
     bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
@@ -73,28 +77,28 @@ public:
                 continue;
             phase->on_pass_begin();
             bool end_phase = false;
-            m_context.m_current_pass = 1;
+            m_context.current_pass = 1;
             do {
-                m_context.m_current_address = start_addr;
-                m_context.m_current_line_number = 0;
+                m_context.current_address = start_addr;
+                m_context.current_line_number = 0;
                 LineProcessor line_processor(*phase);
                 for (size_t i = 0; i < source_lines.size(); ++i) {
-                    m_context.m_current_line_number = i + 1;
+                    m_context.current_line_number = i + 1;
                     line_processor.process(source_lines[i]);
                 }
                 line_processor.finalize();
                 if (phase->on_pass_end())
                     end_phase = true;
                 else {
-                    ++m_context.m_current_pass;
+                    ++m_context.current_pass;
                     phase->on_pass_next();
                 }
             } while (!end_phase);
         }
         return true;
     }
-    std::map<std::string, SymbolInfo> get_symbols() const { return m_context.m_symbols; }
-    std::vector<std::pair<uint16_t, uint16_t>> get_blocks() const { return m_context.m_blocks; }
+    std::map<std::string, SymbolInfo> get_symbols() const { return m_context.symbols; }
+    std::vector<BlockInfo> get_blocks() const { return m_context.blocks; }
 
 private:
     // Forward declare nested classes that Preprocessor depends on
@@ -128,7 +132,7 @@ private:
                 throw std::runtime_error("Circular or duplicate include detected: " + identifier);
             included_files.insert(identifier);
             std::string source_content;
-            if (!m_context.m_source_provider->get_source(identifier, source_content))
+            if (!m_context.source_provider->get_source(identifier, source_content))
                 return false;
             remove_block_comments(source_content, identifier);
             std::stringstream source_stream(source_content);
@@ -557,13 +561,13 @@ private:
         CompilationContext(const CompilationContext& other) = delete;
         CompilationContext& operator=(const CompilationContext& other) = delete;
 
-        TMemory* m_memory = nullptr;
-        ISourceProvider* m_source_provider = nullptr;
-        uint16_t m_current_address = 0;
-        size_t m_current_line_number = 0;
-        size_t m_current_pass = 0;
-        std::map<std::string, SymbolInfo> m_symbols;
-        std::vector<std::pair<uint16_t, uint16_t>> m_blocks;
+        TMemory* memory = nullptr;
+        ISourceProvider* source_provider = nullptr;
+        uint16_t current_address = 0;
+        size_t current_line_number = 0;
+        size_t current_pass = 0;
+        std::map<std::string, SymbolInfo> symbols;
+        std::vector<BlockInfo> blocks;
     };
     class IAssemblyPolicy {
     public:
@@ -580,7 +584,7 @@ private:
         //Lines
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) {
             if (symbol == "$") {
-                out_value = this->m_context.m_current_address;
+                out_value = this->m_context.current_address;
                 return true;
             }
             return false;
@@ -593,7 +597,7 @@ private:
             Expressions expression(*this);
             int32_t align_val;
             if (expression.evaluate(boundary, align_val)) {
-                uint16_t current_addr = this->m_context.m_current_address;
+                uint16_t current_addr = this->m_context.current_address;
                 uint16_t new_addr = (current_addr + align_val - 1) & -align_val;
                 for (uint16_t i = current_addr; i < new_addr; ++i)
                     on_assemble({0x00});
@@ -677,13 +681,13 @@ private:
                 m_symbols_stable = false;
             if (m_final_pass_scheduled) {
                 if (m_symbols_stable) {
-                    this->m_context.m_symbols.clear();
+                    this->m_context.symbols.clear();
                     for (const auto& symbol_pair : m_symbols) {
                         Symbol* symbol = symbol_pair.second;
                         if (symbol) {
                             int index = symbol->index;
                             if (!symbol->undefined[index])
-                                this->m_context.m_symbols[symbol_pair.first] = {symbol_pair.first, symbol->value[index]};
+                                this->m_context.symbols[symbol_pair.first] = {symbol_pair.first, symbol->value[index]};
                         }
                     }
                     return true;
@@ -698,7 +702,7 @@ private:
             return false;
         }
         virtual void on_pass_next() override {
-            if (this->m_context.m_current_pass > m_max_pass) {
+            if (this->m_context.current_pass > m_max_pass) {
                 std::string error_msg = "Failed to resolve all symbols after " + std::to_string(m_max_pass) + " passes.";
                 if (all_used_symbols_defined())
                     error_msg += " Symbols are defined but their values did not stabilize. Need more passes.";
@@ -745,7 +749,7 @@ private:
             return resolved;
         }
         virtual void on_label_definition(const std::string& label) override {
-            update_symbol(label, this->m_context.m_current_address, false, false);
+            update_symbol(label, this->m_context.current_address, false, false);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
             on_const(label, value, false);
@@ -756,11 +760,11 @@ private:
         virtual void on_org_directive(const std::string& label) override {
             int32_t num_val;
             if (StringHelper::is_number(label, num_val))
-                this->m_context.m_current_address = num_val;
+                this->m_context.current_address = num_val;
             else if (m_symbols_stable) {
                 Expressions expression(*this);
                 if (expression.evaluate(label, num_val))
-                    this->m_context.m_current_address = num_val;
+                    this->m_context.current_address = num_val;
             }
         };
         virtual bool on_operand_not_matching(const Operand& operand, typename OperandParser::OperandType expected) override {
@@ -770,7 +774,7 @@ private:
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
             size_t size = bytes.size();
-            this->m_context.m_current_address += size;
+            this->m_context.current_address += size;
         }
     private:
         struct Symbol {
@@ -849,18 +853,20 @@ private:
         virtual ~CodeGeneration() = default;
 
         virtual void on_pass_begin() override {
-            this->m_context.m_blocks.push_back({m_start_addr, 0});
+            m_blocks.push_back({m_start_addr, 0});
         }
         virtual bool on_pass_end() override {
-            this->m_context.m_blocks.erase(
-            std::remove_if(this->m_context.m_blocks.begin(), this->m_context.m_blocks.end(), [](const auto& block) { return block.second == 0; }), this->m_context.m_blocks.end());
+            for (auto& block : m_blocks) {
+                if (block.second != 0)
+                    this->m_context.blocks.push_back({block.first, block.second});
+            }
             return true;
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
-            auto it = this->m_context.m_symbols.find(symbol);
-            if (it == this->m_context.m_symbols.end())
+            auto it = this->m_context.symbols.find(symbol);
+            if (it == this->m_context.symbols.end())
                 return false; //for IFDEF/IFNDEF
             out_value = it->second.value;
             return true;
@@ -869,8 +875,8 @@ private:
             int32_t addr;
             Expressions expression(*this);
             if (expression.evaluate(label, addr)) {
-                this->m_context.m_current_address = addr;
-                this->m_context.m_blocks.push_back({addr, 0});
+                this->m_context.current_address = addr;
+                this->m_blocks.push_back({addr, 0});
             }
             else
                 throw std::runtime_error("Invalid code block label: " + label);
@@ -881,13 +887,14 @@ private:
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
             for (auto& byte : bytes)
-                this->m_context.m_memory->poke(this->m_context.m_current_address++, byte);
-            if (this->m_context.m_blocks.empty())
+                this->m_context.memory->poke(this->m_context.current_address++, byte);
+            if (this->m_blocks.empty())
                 throw std::runtime_error("Invalid code block.");
-            this->m_context.m_blocks.back().second += bytes.size();
+            this->m_blocks.back().second += bytes.size();
         }
     private:
         uint16_t m_start_addr;
+        std::vector<std::pair<uint16_t, uint16_t>> m_blocks;
     };
     class Keywords {
     public:
@@ -1305,7 +1312,7 @@ private:
             if (mnemonic == "JR" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.get_compilation_context().m_current_address + instruction_size);
+                int32_t offset = target_addr - (m_policy.get_compilation_context().current_address + instruction_size);
                 if (offset < -128 || offset > 127)
                     m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x18, (uint8_t)(offset)});
@@ -1342,7 +1349,7 @@ private:
             if (mnemonic == "DJNZ" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.get_compilation_context().m_current_address + instruction_size);
+                int32_t offset = target_addr - (m_policy.get_compilation_context().current_address + instruction_size);
                 if (offset < -128 || offset > 127)
                     m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x10, (uint8_t)(offset)});
@@ -1849,7 +1856,7 @@ private:
                 if (relative_jump_condition_map().count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (m_policy.get_compilation_context().m_current_address + instruction_size);
+                    int32_t offset = target_addr - (m_policy.get_compilation_context().current_address + instruction_size);
                     if (offset < -128 || offset > 127)
                         m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
                     assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});

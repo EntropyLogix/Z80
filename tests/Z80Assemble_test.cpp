@@ -70,7 +70,7 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
     auto blocks = assembler.get_blocks();
     size_t compiled_size = 0;
     if (!blocks.empty()) {
-        compiled_size = blocks[0].second;
+        compiled_size = blocks[0].size;
     }
 
     if (compiled_size != expected_bytes.size()) {
@@ -82,7 +82,7 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
 
     uint16_t start_address = 0x0000;
     if (!blocks.empty()) {
-        start_address = blocks[0].first;
+        start_address = blocks[0].start_address;
     }
 
     bool mismatch = false;
