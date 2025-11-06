@@ -39,32 +39,23 @@ int tests_failed = 0;
 
 class MockSourceProvider : public ISourceProvider {
 public:
-    bool get_source(const std::string& identifier, std::string& source) override {
+    bool get_source(const std::string& identifier, std::vector<uint8_t>& data) override {
         if (m_sources.count(identifier)) {
-            source = m_sources[identifier];
-            return true;
-        }
-        return false;
-    }
-
-    bool get_binary_source(const std::string& identifier, std::vector<uint8_t>& data) override {
-        if (m_binary_sources.count(identifier)) {
-            data = m_binary_sources[identifier];
+            data = m_sources[identifier];
             return true;
         }
         return false;
     }
 
     void add_source(const std::string& identifier, const std::string& content) {
-        m_sources[identifier] = content;
+        m_sources[identifier] = std::vector<uint8_t>(content.begin(), content.end());
     }
 
     void add_binary_source(const std::string& identifier, const std::vector<uint8_t>& content) {
-        m_binary_sources[identifier] = content;
+        m_sources[identifier] = content;
     }
 private:
-    std::map<std::string, std::string> m_sources;
-    std::map<std::string, std::vector<uint8_t>> m_binary_sources;
+    std::map<std::string, std::vector<uint8_t>> m_sources;
 };
 
 void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes, const Z80Assembler<Z80DefaultBus>::Options& options) {
@@ -1535,6 +1526,61 @@ TEST_CASE(IncludeDirective_CircularDependency) {
         std::cerr << "Assertion failed: Circular dependency did not throw an exception.\n";
     } catch (const std::runtime_error&) {
         tests_passed++;
+    }
+}
+
+TEST_CASE(IncbinDirective) {
+    // Basic INCBIN
+    {
+        MockSourceProvider source_provider;
+        source_provider.add_source("main.asm", "ORG 0x100\nINCBIN \"data.bin\"\nNOP");
+        source_provider.add_binary_source("data.bin", {0xDE, 0xAD, 0xBE, 0xEF});
+        Z80DefaultBus bus;
+        Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+        bool success = assembler.compile("main.asm");
+        assert(success);
+
+        std::vector<uint8_t> expected = {0xDE, 0xAD, 0xBE, 0xEF, 0x00};
+        auto blocks = assembler.get_blocks();
+        assert(blocks.size() == 1 && blocks[0].start_address == 0x100 && blocks[0].size == expected.size());
+        for(size_t i = 0; i < expected.size(); ++i) {
+            if (bus.peek(0x100 + i) != expected[i]) {
+                 assert(false && "Byte mismatch in basic INCBIN test");
+            }
+        }
+        tests_passed++;
+    }
+
+    // INCBIN with labels
+    {
+        MockSourceProvider source_provider;
+        source_provider.add_source("main.asm", R"(
+            ORG 0x8000
+            LD HL, SPRITE_DATA
+            JP END
+        SPRITE_DATA:
+            INCBIN "sprite.dat"
+        END:
+            NOP
+        )");
+        source_provider.add_binary_source("sprite.dat", {0xFF, 0x81, 0x81, 0xFF});
+        Z80DefaultBus bus;
+        Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+        bool success = assembler.compile("main.asm");
+        assert(success);
+        auto symbols = assembler.get_symbols();
+        assert(symbols["SPRITE_DATA"].value == 0x8003);
+        assert(symbols["END"].value == 0x8007);
+        tests_passed++;
+    }
+
+    // INCBIN disabled in options
+    {
+        Z80Assembler<Z80DefaultBus>::Options options;
+        options.directives.allow_incbin = false;
+        MockSourceProvider source_provider;
+        source_provider.add_binary_source("data.bin", {0x01, 0x02});
+        ASSERT_COMPILE_FAILS_WITH_OPTS("INCBIN \"data.bin\"", options);
     }
 }
 

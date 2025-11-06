@@ -40,8 +40,7 @@
 class ISourceProvider {
 public:
 	virtual ~ISourceProvider() = default;
-	virtual bool get_binary_source(const std::string& identifier, std::vector<uint8_t>& data) { return false; };
-	virtual bool get_source(const std::string& identifier, std::string& source) = 0;
+	virtual bool get_source(const std::string& identifier, std::vector<uint8_t>& data) = 0;
 };
 
 template <typename TMemory> class Z80Assembler {
@@ -67,6 +66,7 @@ public:
             bool allow_org = true;
             bool allow_align = true;
             bool allow_data_definitions = true;
+            bool allow_incbin = true;
             bool allow_includes = true;
             bool allow_conditional_compilation = true;
         } directives;
@@ -154,23 +154,24 @@ private:
             return process_file(main_file_path, output_source, included_files);
         }
     private:
-        void remove_block_comments(std::string& source_content, const std::string& identifier) {
-            size_t start_pos = source_content.find("/*");
+        void remove_block_comments(std::string& source_str, const std::string& identifier) {
+            size_t start_pos = source_str.find("/*");
             while (start_pos != std::string::npos) {
-                size_t end_pos = source_content.find("*/", start_pos + 2);
+                size_t end_pos = source_str.find("*/", start_pos + 2);
                 if (end_pos == std::string::npos)
                     throw std::runtime_error("Unterminated block comment in " + identifier);
-                source_content.replace(start_pos, end_pos - start_pos + 2, "\n");
-                start_pos = source_content.find("/*");
+                source_str.replace(start_pos, end_pos - start_pos + 2, "\n");
+                start_pos = source_str.find("/*");
             }
         }
         bool process_file(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
             if (included_files.count(identifier))
                 throw std::runtime_error("Circular or duplicate include detected: " + identifier);
             included_files.insert(identifier);
-            std::string source_content;
-            if (!m_context.source_provider->get_source(identifier, source_content))
+            std::vector<uint8_t> source_data;
+            if (!m_context.source_provider->get_source(identifier, source_data))
                 return false;
+            std::string source_content(source_data.begin(), source_data.end());
             if (m_context.options.comments.enabled) {
                 if (m_context.options.comments.allow_block)
                     remove_block_comments(source_content, identifier);
@@ -980,12 +981,13 @@ private:
                 throw std::runtime_error("Invalid code block label: " + label);
         }
         virtual void on_incbin_directive(const std::string& filename) override {
-            if (!this->m_context.options.directives.allow_data_definitions) throw std::runtime_error("INCBIN directive is disabled.");
+            if (!this->m_context.options.directives.allow_incbin)
+                throw std::runtime_error("INCBIN directive is disabled.");
             std::vector<uint8_t> data;
-            if (this->m_context.source_provider->get_binary_source(filename, data)) 
+            if (this->m_context.source_provider->get_source(filename, data))
                 on_assemble(data);
-            else 
-                throw std::runtime_error("Could not open binary file for INCBIN: " + filename);
+            else
+                throw std::runtime_error("Could not open file for INCBIN: " + filename);
         }
         virtual void on_unknown_operand(const std::string& operand) { throw std::runtime_error("Unknown operand or undefined symbol: " + operand); }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
@@ -2211,14 +2213,16 @@ private:
                 } else
                     throw std::runtime_error("ALIGN directive is disabled.");
                 return true;
-            }
+            }        
             size_t incbin_pos = line_upper.find("INCBIN ");
             if (incbin_pos != std::string::npos && line_upper.substr(0, incbin_pos).find_first_not_of(" \t") == std::string::npos) {
                 std::string filename_str = line.substr(incbin_pos + 7);
+                if (!m_policy.get_compilation_context().options.directives.allow_incbin)
+                    throw std::runtime_error("INCBIN directive is disabled.");
                 StringHelper::trim_whitespace(filename_str);
-                if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
+                if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"') {
                     m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
-                else
+                } else
                     throw std::runtime_error("INCBIN filename must be in double quotes.");
                 return true;
             }
