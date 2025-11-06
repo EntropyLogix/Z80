@@ -113,10 +113,11 @@ public:
         for (auto& phase : m_phases) {
             if (!phase)
                 continue;
-            phase->on_pass_begin();
+            phase->on_initialize();
             bool end_phase = false;
             m_context.current_pass = 1;
             do {
+                phase->on_pass_begin();
                 m_context.current_address = start_addr;
                 m_context.current_line_number = 0;
                 LineProcessor line_processor(*phase);
@@ -132,6 +133,7 @@ public:
                     phase->on_pass_next();
                 }
             } while (!end_phase);
+            phase->on_finalize();
         }
         return true;
     }
@@ -673,6 +675,8 @@ private:
         IAssemblyPolicy(CompilationContext& context) : m_context(context) {};
         virtual ~IAssemblyPolicy() = default;
 
+        virtual void on_initialize() {};
+        virtual void on_finalize() {};
         //Source
         virtual void on_pass_begin() {};
         virtual bool on_pass_end() {return true;};
@@ -771,9 +775,12 @@ private:
         virtual ~SymbolsBuilding() {
             clear_symbols();
         }
+
+        virtual void on_initialize() override {
+            clear_symbols();
+        }
         virtual void on_pass_begin() override {
             m_symbols_stable = true;
-            clear_symbols();
         }
         virtual bool on_pass_end() override {
             if (!all_used_symbols_defined())
@@ -822,7 +829,6 @@ private:
                 }
                 throw std::runtime_error(error_msg);
             }
-            m_symbols_stable = true;
             for (auto& symbol_pair : m_symbols) {
                 Symbol* symbol = symbol_pair.second;
                 if (symbol)
