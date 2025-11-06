@@ -2078,15 +2078,12 @@ private:
         }
         bool process(const std::string& source_line) {
             bool is_skipping = !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
-
             std::string line = source_line;
             if (m_policy.get_compilation_context().options.comments.enabled)
                 process_comments(line);
-
             if (process_directives(line, is_skipping))
                 return true;
             if (is_skipping)
-
                 return true;
             if (m_policy.get_compilation_context().options.labels.enabled)
                 process_label(line);
@@ -2193,7 +2190,6 @@ private:
                     return true;
                 }
             }
-        
             size_t org_pos = line_upper.find("ORG ");
             if (org_pos != std::string::npos && line_upper.substr(0, org_pos).find_first_not_of(" \t") == std::string::npos) {
                 if (m_policy.get_compilation_context().options.directives.allow_org) {
@@ -2220,9 +2216,9 @@ private:
                 if (!m_policy.get_compilation_context().options.directives.allow_incbin)
                     throw std::runtime_error("INCBIN directive is disabled.");
                 StringHelper::trim_whitespace(filename_str);
-                if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"') {
+                if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
                     m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
-                } else
+                else
                     throw std::runtime_error("INCBIN filename must be in double quotes.");
                 return true;
             }
@@ -2230,7 +2226,6 @@ private:
         }
         bool process_label(std::string& line) {
             const auto& label_options = m_policy.get_compilation_context().options.labels;
-
             if (label_options.allow_colon) {
                 size_t colon_pos = line.find(':');
                 if (colon_pos != std::string::npos) {
@@ -2245,7 +2240,6 @@ private:
                     }
                 }
             }
-
             if (label_options.allow_no_colon) {
                 std::string trimmed_line = line;
                 StringHelper::trim_whitespace(trimmed_line);
