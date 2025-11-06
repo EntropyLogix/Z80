@@ -46,7 +46,11 @@ public:
 template <typename TMemory> class Z80Assembler {
 public:
     struct Options {
-        bool enable_labels = true;
+        struct LabelOptions {
+            bool enabled = true;
+            bool allow_colon = true;
+            bool allow_no_colon = true;
+        } labels;
         bool enable_comments = true;
         bool enable_block_comments = true;
         bool enable_expressions = true;
@@ -2010,7 +2014,7 @@ private:
             if (is_skipping)
 
                 return true;
-            if (m_policy.get_compilation_context().options.enable_labels)
+            if (m_policy.get_compilation_context().options.labels.enabled)
                 process_label(line);
             if (!line.empty()) 
                 return process_instruction(line);
@@ -2129,34 +2133,42 @@ private:
             return false;
         }
         bool process_label(std::string& line) {
-            size_t colon_pos = line.find(':');
-            if (colon_pos != std::string::npos) {
-                std::string label = line.substr(0, colon_pos);
-                StringHelper::trim_whitespace(label);
-                if (!label.empty() && label.find_first_of(" \t") == std::string::npos) {
-                    if (!Keywords::is_valid_label_name(label))
-                        throw std::runtime_error("Invalid label name: '" + label + "'");
-                    line.erase(0, colon_pos + 1);
-                    m_policy.on_label_definition(label);
-                    return true;
+            const auto& label_options = m_policy.get_compilation_context().options.labels;
+
+            if (label_options.allow_colon) {
+                size_t colon_pos = line.find(':');
+                if (colon_pos != std::string::npos) {
+                    std::string label = line.substr(0, colon_pos);
+                    StringHelper::trim_whitespace(label);
+                    if (!label.empty() && label.find_first_of(" \t") == std::string::npos) {
+                        if (!Keywords::is_valid_label_name(label))
+                            throw std::runtime_error("Invalid label name: '" + label + "'");
+                        line.erase(0, colon_pos + 1);
+                        m_policy.on_label_definition(label);
+                        return true;
+                    }
                 }
             }
-            std::string trimmed_line = line;
-            StringHelper::trim_whitespace(trimmed_line);
-            if (trimmed_line.empty() || !isalpha(trimmed_line[0]))
-                return false;
-            size_t first_space = trimmed_line.find_first_of(" \t");
-            std::string potential_label = (first_space == std::string::npos) ? trimmed_line : trimmed_line.substr(0, first_space);
-            if (Keywords::is_reserved(potential_label))
-                return false;
-            if (!Keywords::is_valid_label_name(potential_label))
-                throw std::runtime_error("Invalid label name: '" + potential_label + "'");
-            m_policy.on_label_definition(potential_label);
-            if (first_space == std::string::npos)
-                line.clear();
-            else
-                line = line.substr(line.find(potential_label) + potential_label.length());
-            return true;
+
+            if (label_options.allow_no_colon) {
+                std::string trimmed_line = line;
+                StringHelper::trim_whitespace(trimmed_line);
+                if (trimmed_line.empty() || !isalpha(trimmed_line[0]))
+                    return false;
+                size_t first_space = trimmed_line.find_first_of(" \t");
+                std::string potential_label = (first_space == std::string::npos) ? trimmed_line : trimmed_line.substr(0, first_space);
+                if (Keywords::is_reserved(potential_label))
+                    return false;
+                if (!Keywords::is_valid_label_name(potential_label))
+                    throw std::runtime_error("Invalid label name: '" + potential_label + "'");
+                m_policy.on_label_definition(potential_label);
+                if (first_space == std::string::npos)
+                    line.clear();
+                else
+                    line = line.substr(line.find(potential_label) + potential_label.length());
+                return true;
+            }
+            return false;
         }
         bool process_instruction(std::string& line) {
             StringHelper::trim_whitespace(line);

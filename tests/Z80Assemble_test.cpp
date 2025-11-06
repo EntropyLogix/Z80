@@ -106,11 +106,33 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
     }
 }
 
+void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assembler<Z80DefaultBus>::Options& options) {
+    Z80DefaultBus bus;
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);
+    try {
+        bool success = assembler.compile("main.asm", 0x0000);
+        if (success) {
+            std::cerr << "Assertion failed: Compilation succeeded for '" << asm_code << "' but was expected to fail.\n";
+            tests_failed++;
+        } else {
+            tests_passed++;
+        }
+    } catch (const std::runtime_error& e) {
+        tests_passed++;
+    } catch (...) {
+        std::cerr << "Assertion failed: An unexpected exception was thrown for '" << asm_code << "'.\n";
+        tests_failed++;
+    }
+}
+
 void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
     Z80DefaultBus bus;
     MockSourceProvider source_provider;
     source_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    Z80Assembler<Z80DefaultBus>::Options options;
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);
     try {
         bool success = assembler.compile("main.asm", 0x0000);
         if (success) {
