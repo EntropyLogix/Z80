@@ -47,12 +47,24 @@ public:
         return false;
     }
 
+    bool get_binary_source(const std::string& identifier, std::vector<uint8_t>& data) override {
+        if (m_binary_sources.count(identifier)) {
+            data = m_binary_sources[identifier];
+            return true;
+        }
+        return false;
+    }
+
     void add_source(const std::string& identifier, const std::string& content) {
         m_sources[identifier] = content;
     }
 
+    void add_binary_source(const std::string& identifier, const std::vector<uint8_t>& content) {
+        m_binary_sources[identifier] = content;
+    }
 private:
     std::map<std::string, std::string> m_sources;
+    std::map<std::string, std::vector<uint8_t>> m_binary_sources;
 };
 
 void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes, const Z80Assembler<Z80DefaultBus>::Options& options) {

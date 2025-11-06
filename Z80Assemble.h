@@ -40,6 +40,7 @@
 class ISourceProvider {
 public:
 	virtual ~ISourceProvider() = default;
+	virtual bool get_binary_source(const std::string& identifier, std::vector<uint8_t>& data) { return false; };
 	virtual bool get_source(const std::string& identifier, std::string& source) = 0;
 };
 
@@ -688,6 +689,8 @@ private:
         virtual void on_set_directive(const std::string& label, const std::string& value) {};
         virtual void on_org_directive(const std::string& label) {};
         virtual void on_align_directive(const std::string& boundary) {
+            if (!m_context.options.directives.allow_align)
+                throw std::runtime_error("ALIGN directive is disabled.");
             Expressions expression(*this);
             int32_t align_val;
             if (expression.evaluate(boundary, align_val)) {
@@ -697,6 +700,7 @@ private:
                     on_assemble({0x00});
             }
         };
+        virtual void on_incbin_directive(const std::string& filename) {};
         virtual void on_unknown_operand(const std::string& operand) {}
         //Instructions
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) {return false;};
@@ -975,6 +979,14 @@ private:
             else
                 throw std::runtime_error("Invalid code block label: " + label);
         }
+        virtual void on_incbin_directive(const std::string& filename) override {
+            if (!this->m_context.options.directives.allow_data_definitions) throw std::runtime_error("INCBIN directive is disabled.");
+            std::vector<uint8_t> data;
+            if (this->m_context.source_provider->get_binary_source(filename, data)) 
+                on_assemble(data);
+            else 
+                throw std::runtime_error("Could not open binary file for INCBIN: " + filename);
+        }
         virtual void on_unknown_operand(const std::string& operand) { throw std::runtime_error("Unknown operand or undefined symbol: " + operand); }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
             throw std::runtime_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
@@ -1025,7 +1037,7 @@ private:
             return mnemonics;
         }
         static const std::set<std::string>& directives() {
-            static const std::set<std::string> directives = {"DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "ORG", "INCLUDE", "ALIGN"};
+            static const std::set<std::string> directives = {"DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "ORG", "INCLUDE", "ALIGN", "INCBIN"};
             return directives;
         }
         static const std::set<std::string>& registers() {
@@ -2200,7 +2212,16 @@ private:
                     throw std::runtime_error("ALIGN directive is disabled.");
                 return true;
             }
-        
+            size_t incbin_pos = line_upper.find("INCBIN ");
+            if (incbin_pos != std::string::npos && line_upper.substr(0, incbin_pos).find_first_not_of(" \t") == std::string::npos) {
+                std::string filename_str = line.substr(incbin_pos + 7);
+                StringHelper::trim_whitespace(filename_str);
+                if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
+                    m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
+                else
+                    throw std::runtime_error("INCBIN filename must be in double quotes.");
+                return true;
+            }
             return false;
         }
         bool process_label(std::string& line) {
