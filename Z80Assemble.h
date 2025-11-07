@@ -2144,7 +2144,7 @@ private:
                     if (expression.evaluate(expr_str, value))
                         condition_result = (value != 0);
                 }
-            m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL); // Always push for structural tracking
+            m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({!is_skipping && condition_result, false});
                 return true;
             } else if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
@@ -2154,7 +2154,7 @@ private:
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
                 bool condition_result = !is_skipping && m_policy.on_symbol_resolve(symbol, dummy);
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL); // Always push for structural tracking
+                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             } else if (upper_trimmed_line.rfind("IFNDEF ", 0) == 0) {
@@ -2164,7 +2164,7 @@ private:
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
                 bool condition_result = !is_skipping && !m_policy.on_symbol_resolve(symbol, dummy);
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL); // Always push for structural tracking
+                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             } else if (upper_trimmed_line == "ELSE") {
@@ -2199,14 +2199,14 @@ private:
                 std::string expr_str = line.substr(rept_pos + 5);
                 StringHelper::trim_whitespace(expr_str);
                 Expressions expression(m_policy);
-                m_control_flow_stack.push_back(ControlBlockType::REPT); // Always push for structural tracking
+                m_control_flow_stack.push_back(ControlBlockType::REPT);
                 int32_t count;
                 if (expression.evaluate(expr_str, count)) {
                     if (count < 0)
                         throw std::runtime_error("REPT count cannot be negative.");
                     m_rept_stack.push_back({count, 0, {}, true});
                 } else
-                    m_rept_stack.push_back({0, 0, {}, true}); // Could not evaluate, start skipping until ENDR
+                    m_rept_stack.push_back({0, 0, {}, true});
                 return true;
             }
             if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
