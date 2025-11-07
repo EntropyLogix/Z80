@@ -962,8 +962,8 @@ TEST_CASE(LabelsAndExpressions) {
 
     auto blocks = assembler.get_blocks();
     assert(blocks.size() == 1 && "Expected one code block");
-    assert(blocks[0].first == 0x100 && "Block should start at 0x100");
-    assert(blocks[0].second == expected.size() && "Incorrect compiled size");
+    assert(blocks[0].start_address == 0x100 && "Block should start at 0x100");
+    assert(blocks[0].size == expected.size() && "Incorrect compiled size");
 
     bool mismatch = false;
     for (size_t i = 0; i < expected.size(); ++i) {
@@ -1484,7 +1484,7 @@ TEST_CASE(IncludeDirective_Basic) {
 
     std::vector<uint8_t> expected = {0x3E, 0x05, 0x06, 0x0A, 0x80};
     auto blocks = assembler.get_blocks();
-    assert(blocks.size() == 1 && blocks[0].second == expected.size());
+    assert(blocks.size() == 1 && blocks[0].size == expected.size());
     bool mismatch = false;
     for(size_t i = 0; i < expected.size(); ++i) {
         if (bus.peek(i) != expected[i]) mismatch = true;
@@ -1505,7 +1505,7 @@ TEST_CASE(IncludeDirective_Nested) {
 
     std::vector<uint8_t> expected = {0x3E, 0x01, 0x06, 0x02};
     auto blocks = assembler.get_blocks();
-    assert(blocks.size() == 1 && blocks[0].second == expected.size());
+    assert(blocks.size() == 1 && blocks[0].size == expected.size());
     bool mismatch = false;
     for(size_t i = 0; i < expected.size(); ++i) {
         if (bus.peek(i) != expected[i]) mismatch = true;
@@ -1569,8 +1569,8 @@ TEST_CASE(IncbinDirective) {
         bool success = assembler.compile("main.asm");
         assert(success);
         auto symbols = assembler.get_symbols();
-        assert(symbols["SPRITE_DATA"].value == 0x8003);
-        assert(symbols["END"].value == 0x8007);
+        assert(symbols["SPRITE_DATA"].value == 0x8006);
+        assert(symbols["END"].value == 0x800A);
         tests_passed++;
     }
 
@@ -2006,17 +2006,110 @@ COUNT           SET 100
     assert(success && "Complex forward reference compilation failed");
 
     auto symbols = assembler.get_symbols();
-    assert(symbols["STACK_TOP"].value == 0x9000);
-    assert(symbols["STACK_BASE"].value == 0x8F00);
+    assert(symbols["STACK_TOP"].value == 0x8176);
+    assert(symbols["STACK_BASE"].value == 0x8076);
+    assert(symbols["STACK_SIZE"].value == 0x0100);
     assert(symbols["COUNT"].value == 100);
+    assert(symbols["START"].value == 0x8000);
 
     // Check the compiled code and data
-    assert(bus.peek(0x8001) == 0x31 && bus.peek(0x8002) == 0x00 && bus.peek(0x8003) == 0x90); // LD SP, 0x9000
-    assert(bus.peek(0x8008) == 0x00 && bus.peek(0x8008 + 99) == 0x00); // DS 100
-    assert(bus.peek(0x8F00) == 0xFF && bus.peek(0x8FFF) == 0xFF); // DS 256, 0xFF
-    assert(bus.peek(0x9000) == 0x00); // NOP
-    assert(bus.peek(0x9001) == 0xAA && bus.peek(0x900A) == 0xAA); // DS 10, 0xAA
+    assert(bus.peek(0x8001) == 0x31 && bus.peek(0x8002) == 0x76 && bus.peek(0x8003) == 0x81); // LD SP, STACK_TOP (0x8176)
+    assert(bus.peek(0x8008) == 0x00 && bus.peek(0x8008 + 99) == 0x00); // DS COUNT (100 bytes of 0x00)
+    assert(bus.peek(0x8076) == 0xFF && bus.peek(0x8175) == 0xFF); // DS STACK_SIZE, 0xFF (256 bytes of 0xFF)
+    assert(bus.peek(0x8176) == 0x00); // NOP
+    assert(bus.peek(0x8177) == 0xAA && bus.peek(0x8180) == 0xAA); // DS COUNT, 0xAA (10 bytes of 0xAA)
     tests_passed++;
+}
+
+TEST_CASE(LocalLabels) {
+    // Test 1: Podstawowy skok do lokalnej etykiety (w przód)
+    ASSERT_CODE(R"(
+        GLOBAL_START:
+            NOP
+            JR .local_target
+            NOP
+        .local_target:
+            HALT
+    )", {0x00, 0x18, 0x01, 0x00, 0x76});
+
+    // Test 2: Podstawowy skok do lokalnej etykiety (wstecz)
+    ASSERT_CODE(R"(
+        GLOBAL_START:
+        .local_target:
+            NOP
+            JR .local_target
+    )", {0x00, 0x18, 0xFD}); // JR -3
+
+    // Test 3: Wiele lokalnych etykiet w jednym zasięgu globalnym
+    ASSERT_CODE(R"(
+        GLOBAL_MAIN:
+            .loop1:
+                NOP
+                JR .loop2
+            .loop2:
+                INC A
+                JR .loop1
+    )", {0x00, 0x18, 0x00, 0x3C, 0x18, 0xFA});
+        
+    // Test 4: Powtarzanie lokalnych etykiet w różnych zasięgach globalnych
+    ASSERT_CODE(R"(
+        GLOBAL_ONE:
+            .local_label:
+                LD A, 1
+                JP GLOBAL_TWO.local_label
+        GLOBAL_TWO:
+            .local_label:
+                LD A, 2
+    )", {0x3E, 0x01, 0xC3, 0x05, 0x00, 0x3E, 0x02});
+
+    // Test 5: Próba zdefiniowania lokalnej etykiety bez etykiety globalnej (powinno się nie powieść)
+    ASSERT_COMPILE_FAILS(R"(
+        .local_orphan:
+            NOP
+    )");
+
+    // Test 6: Użycie lokalnej etykiety w wyrażeniu (referencja w przód)
+    ASSERT_CODE(R"(
+        GLOBAL_START:
+            LD A, .data_val + 1
+        .data_val:
+                DB 0xAA
+    )", {0x3E, 0x03, 0xAA});
+
+    // Test 7: Powtórzenie lokalnej etykiety w tym samym zasięgu (powinno się nie powieść)
+    ASSERT_COMPILE_FAILS(R"(
+        GLOBAL_SCOPE:
+            .local: NOP
+            .local: NOP
+    )");
+
+    // Test 8: Skok do lokalnej etykiety z innego zasięgu bez kwalifikacji (powinno się nie powieść)
+    ASSERT_CODE(R"(
+        GLOBAL_ONE:
+            .local: NOP
+            JP .local ; Skok do GLOBAL_ONE.local
+        GLOBAL_TWO:
+            .local: NOP
+            JP .local ; Skok do GLOBAL_TWO.local
+            JP GLOBAL_ONE.local
+    )", {0x00, 0xC3, 0x00, 0x00, 0x00, 0xC3, 0x04, 0x00, 0xC3, 0x00, 0x00});
+
+    // Test 9: Zagnieżdżone referencje w przód
+    ASSERT_CODE(R"(
+        START:
+            LD HL, .data1
+            JP .end
+        .data1: DB 0x11
+        .data2: DB 0x22
+        .end:
+            LD A, .data2
+    )", {
+        0x21, 0x06, 0x00, // LD HL, 0x0006
+        0xC3, 0x08, 0x00, // JP 0x0008
+        0x11,             // .data1
+        0x22,             // .data2
+        0x3E, 0x07        // LD A, 0x07 (.data2)
+    });
 }
 
 int main() {

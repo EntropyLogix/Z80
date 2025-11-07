@@ -421,10 +421,9 @@ private:
                     tokens.push_back({Token::Type::NUMBER, "", (int32_t)expr[i+1]});
                     i += 2;
                     continue;
-                }
-                if (isalpha(c) || c == '_') {
+                } else if (isalpha(c) || c == '_' || c == '.') { // Allow symbols to start with a dot
                     size_t j = i;
-                    while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_'))
+                    while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.'))
                         j++;
                     std::string symbol_str = expr.substr(i, j - i);
                     std::string upper_symbol = symbol_str;
@@ -664,6 +663,7 @@ private:
         size_t current_line_number = 0;
         size_t current_pass = 0;
         std::map<std::string, SymbolInfo> symbols;
+        std::string last_global_label;
         std::vector<BlockInfo> blocks;
 
         const Options& options;
@@ -682,6 +682,15 @@ private:
         virtual void on_pass_begin() {};
         virtual bool on_pass_end() {return true;};
         virtual void on_pass_next() {};
+
+        // Helper to resolve local label names
+        std::string resolve_symbol_name(const std::string& symbol_name_param) const {
+            std::string resolved_name = symbol_name_param;
+            if (!resolved_name.empty() && resolved_name[0] == '.' && !this->m_context.last_global_label.empty()) {
+                resolved_name = this->m_context.last_global_label + resolved_name;
+            }
+            return resolved_name;
+        }
         //Lines
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) {
             if (symbol == "$") {
@@ -690,7 +699,19 @@ private:
             }
             return false;
         };
-        virtual void on_label_definition(const std::string& label) {};
+        virtual void on_label_definition(std::string& label) {
+            if (!label.empty()) {
+                if (label[0] != '.') {
+                    m_context.last_global_label = label;
+                } else { // It's a local label
+                    std::string full_label_name = label;
+                    if (this->m_context.last_global_label.empty())
+                        throw std::runtime_error("Local label '" + label + "' defined without a preceding global label. (Line: " + std::to_string(m_context.current_line_number) + ")");
+                    full_label_name = this->m_context.last_global_label + label;
+                    label = full_label_name;
+                }
+            }
+        };
         virtual void on_equ_directive(const std::string& label, const std::string& value) {};
         virtual void on_set_directive(const std::string& label, const std::string& value) {};
         virtual void on_org_directive(const std::string& label) {};
@@ -840,21 +861,24 @@ private:
             if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             bool resolved = false;
-            auto it = m_symbols.find(symbol);
+            
+            std::string actual_symbol_name = this->resolve_symbol_name(symbol);
+            auto it = m_symbols.find(actual_symbol_name);
             if (it != m_symbols.end()) {
-                Symbol *symbol = it->second;
-                if (symbol) {
-                    symbol->in_use = true;
-                    int index = symbol->index;
+                Symbol *symbol_obj = it->second;
+                if (symbol_obj) {
+                    symbol_obj->in_use = true;
+                    int index = symbol_obj->index;
                     if (index == -1)
-                        index = symbol->value.size() - 1;
-                    out_value = symbol->value[index];
-                    resolved = !symbol->undefined[index];
+                        index = symbol_obj->value.size() - 1;
+                    out_value = symbol_obj->value[index];
+                    resolved = !symbol_obj->undefined[index];
                 }
             }
             return resolved;
         }
-        virtual void on_label_definition(const std::string& label) override {
+        virtual void on_label_definition(std::string& label) override {
+            IAssemblyPolicy::on_label_definition(label);
             update_symbol(label, this->m_context.current_address, false, false);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
@@ -871,6 +895,16 @@ private:
                 Expressions expression(*this);
                 if (expression.evaluate(label, num_val))
                     this->m_context.current_address = num_val;
+            }
+        };
+        virtual void on_incbin_directive(const std::string& filename) override {
+            if (!this->m_context.options.directives.allow_incbin)
+                throw std::runtime_error("INCBIN directive is disabled.");
+            std::vector<uint8_t> data;
+            if (this->m_context.source_provider->get_source(filename, data)) {
+                on_assemble(data);
+            } else {
+                throw std::runtime_error("Could not open file for INCBIN: " + filename);
             }
         };
         virtual bool on_operand_not_matching(const Operand& operand, typename OperandParser::OperandType expected) override {
@@ -959,6 +993,7 @@ private:
         virtual ~CodeGeneration() = default;
 
         virtual void on_pass_begin() override {
+            this->m_context.last_global_label.clear();
             m_blocks.push_back({m_start_addr, 0});
         }
         virtual bool on_pass_end() override {
@@ -971,12 +1006,17 @@ private:
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
-            auto it = this->m_context.symbols.find(symbol);
+            
+            std::string actual_symbol_name = this->resolve_symbol_name(symbol);
+            auto it = this->m_context.symbols.find(actual_symbol_name);
             if (it == this->m_context.symbols.end())
-                return false; //for IFDEF/IFNDEF
+                return false; // For IFDEF/IFNDEF
             out_value = it->second.value;
-            return true;
+                return true;
         }
+        virtual void on_label_definition(std::string& label) override {
+            IAssemblyPolicy::on_label_definition(label);
+        };
         virtual void on_org_directive(const std::string& label) override {
             int32_t addr;
             Expressions expression(*this);
@@ -1021,10 +1061,10 @@ private:
         static bool is_valid_label_name(const std::string& s) {
             if (s.empty() || is_reserved(s))
                 return false;
-            if (!std::isalpha(s[0]) && s[0] != '_')
+            if (!std::isalpha(s[0]) && s[0] != '_' && s[0] != '.')
                 return false;
             for (char c : s) {
-                if (!std::isalnum(c) && c != '_')
+                if (!std::isalnum(c) && c != '_' && c != '.')
                     return false;
             }
             return true;
@@ -2143,7 +2183,7 @@ private:
                     if (expression.evaluate(expr_str, value))
                         condition_result = (value != 0);
                 }
-            m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
+                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({!is_skipping() && condition_result, false});
                 return true;
             } else if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
@@ -2296,7 +2336,7 @@ private:
             if (label_options.allow_no_colon) {
                 std::string trimmed_line = line;
                 StringHelper::trim_whitespace(trimmed_line);
-                if (trimmed_line.empty() || !isalpha(trimmed_line[0]))
+                if (trimmed_line.empty() || (!isalpha(trimmed_line[0]) && trimmed_line[0] != '_' && trimmed_line[0] != '.'))
                     return false;
                 size_t first_space = trimmed_line.find_first_of(" \t");
                 std::string potential_label = (first_space == std::string::npos) ? trimmed_line : trimmed_line.substr(0, first_space);
