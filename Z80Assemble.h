@@ -2097,13 +2097,12 @@ private:
             return true;
         }
         bool process(const std::string& source_line) {
-            bool is_skipping = !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
             std::string line = source_line;
             if (m_policy.get_compilation_context().options.comments.enabled)
                 process_comments(line);
-            if (process_directives(line, is_skipping))
+            if (process_directives(line))
                 return true;
-            if (is_skipping)
+            if (is_skipping())
                 return true;
             if (m_policy.get_compilation_context().options.labels.enabled)
                 process_label(line);
@@ -2123,7 +2122,7 @@ private:
             }
             return false;
         }
-        bool process_directives(const std::string& line, bool is_skipping) {
+        bool process_directives(const std::string& line) {
             std::string line_upper = line;
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
@@ -2138,14 +2137,14 @@ private:
                     throw std::runtime_error("IF directive is disabled.");
                 std::string expr_str = trimmed_line.substr(3);
                 bool condition_result = false;
-                if (!is_skipping) {
+                if (!is_skipping()) {
                     Expressions expression(m_policy);
                     int32_t value;
                     if (expression.evaluate(expr_str, value))
                         condition_result = (value != 0);
                 }
             m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
-                m_conditional_stack.push_back({!is_skipping && condition_result, false});
+                m_conditional_stack.push_back({!is_skipping() && condition_result, false});
                 return true;
             } else if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
                 if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
@@ -2153,7 +2152,7 @@ private:
                 std::string symbol = trimmed_line.substr(6);
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
-                bool condition_result = !is_skipping && m_policy.on_symbol_resolve(symbol, dummy);
+                bool condition_result = !is_skipping() && m_policy.on_symbol_resolve(symbol, dummy);
                 m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
@@ -2163,7 +2162,7 @@ private:
                 std::string symbol = trimmed_line.substr(7);
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
-                bool condition_result = !is_skipping && !m_policy.on_symbol_resolve(symbol, dummy);
+                bool condition_result = !is_skipping() && !m_policy.on_symbol_resolve(symbol, dummy);
                 m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
@@ -2190,7 +2189,7 @@ private:
                 m_conditional_stack.pop_back();
                 return true;
             }
-            if (is_skipping)
+            if (is_skipping())
                 return true;
             size_t rept_pos = line_upper.find("REPT ");
             if (rept_pos != std::string::npos && line_upper.substr(0, rept_pos).find_first_not_of(" \t") == std::string::npos) {
@@ -2354,6 +2353,11 @@ private:
             }
             return true;
         }
+
+        bool is_skipping() const {
+            return !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
+        }
+
         IAssemblyPolicy& m_policy;
         struct ConditionalState {
             bool is_active;
