@@ -2103,18 +2103,6 @@ private:
                 process_comments(line);
             if (process_directives(line, is_skipping))
                 return true;
-            if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
-                std::string trimmed_line = line;
-                StringHelper::trim_whitespace(trimmed_line);
-                std::string upper_trimmed_line = trimmed_line;
-                StringHelper::to_upper(upper_trimmed_line);
-                if (upper_trimmed_line == "ENDR") {
-                    m_rept_stack.back().recording = false;
-                    process_rept_block();
-                } else
-                    m_rept_stack.back().body.push_back(line);
-                return true;
-            }
             if (is_skipping)
                 return true;
             if (m_policy.get_compilation_context().options.labels.enabled)
@@ -2156,6 +2144,7 @@ private:
                     if (expression.evaluate(expr_str, value))
                         condition_result = (value != 0);
                 }
+            m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL); // Always push for structural tracking
                 m_conditional_stack.push_back({!is_skipping && condition_result, false});
                 return true;
             } else if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
@@ -2165,6 +2154,7 @@ private:
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
                 bool condition_result = !is_skipping && m_policy.on_symbol_resolve(symbol, dummy);
+                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL); // Always push for structural tracking
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             } else if (upper_trimmed_line.rfind("IFNDEF ", 0) == 0) {
@@ -2174,6 +2164,7 @@ private:
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
                 bool condition_result = !is_skipping && !m_policy.on_symbol_resolve(symbol, dummy);
+                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL); // Always push for structural tracking
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             } else if (upper_trimmed_line == "ELSE") {
@@ -2193,12 +2184,14 @@ private:
                     throw std::runtime_error("ENDIF directive is disabled.");
                 if (m_conditional_stack.empty())
                     throw std::runtime_error("ENDIF without IF");
+                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL)
+                    throw std::runtime_error("Mismatched ENDIF. An ENDR might be missing.");
+                m_control_flow_stack.pop_back();
                 m_conditional_stack.pop_back();
                 return true;
             }
             if (is_skipping)
                 return true;
-
             size_t rept_pos = line_upper.find("REPT ");
             if (rept_pos != std::string::npos && line_upper.substr(0, rept_pos).find_first_not_of(" \t") == std::string::npos) {
                 if (!m_policy.get_compilation_context().options.directives.allow_repeat)
@@ -2206,29 +2199,42 @@ private:
                 std::string expr_str = line.substr(rept_pos + 5);
                 StringHelper::trim_whitespace(expr_str);
                 Expressions expression(m_policy);
+                m_control_flow_stack.push_back(ControlBlockType::REPT); // Always push for structural tracking
                 int32_t count;
                 if (expression.evaluate(expr_str, count)) {
                     if (count < 0)
                         throw std::runtime_error("REPT count cannot be negative.");
                     m_rept_stack.push_back({count, 0, {}, true});
                 } else
-                    m_rept_stack.push_back({0, 0, {}, true}); //// Could not evaluate, start skipping until ENDR
+                    m_rept_stack.push_back({0, 0, {}, true}); // Could not evaluate, start skipping until ENDR
+                return true;
+            }
+            if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
+                std::string trimmed_line = line;
+                StringHelper::trim_whitespace(trimmed_line);
+                std::string upper_trimmed_line = trimmed_line;
+                StringHelper::to_upper(upper_trimmed_line);
+                if (upper_trimmed_line == "ENDR") {
+                    m_rept_stack.back().recording = false;
+                    if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
+                        throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
+                    m_control_flow_stack.pop_back();
+                    process_rept_block();
+                } else
+                    m_rept_stack.back().body.push_back(line);
                 return true;
             }
             std::stringstream line_stream(line);
             std::string label, directive, value;
             line_stream >> label >> directive;
-            
             if (!line_stream.fail()) {
                 StringHelper::to_upper(directive);
                 const auto& constants_options = m_policy.get_compilation_context().options.directives.constants;
                 if (constants_options.enabled && (directive == "EQU" || directive == "SET" || directive == "DEFL")) {
                     if (!Keywords::is_valid_label_name(label))
                         throw std::runtime_error("Invalid label name for directive: '" + label + "'");
-
                     std::getline(line_stream, value);
                     StringHelper::trim_whitespace(value);
-
                     if ((directive == "SET" || directive == "DEFL") && constants_options.allow_set)
                         m_policy.on_set_directive(label, value);
                     else if (directive == "EQU" && constants_options.allow_equ) 
@@ -2353,6 +2359,12 @@ private:
             bool is_active;
             bool else_seen;
         };
+        enum class ControlBlockType {
+            NONE,
+            CONDITIONAL,
+            REPT
+        };
+
         struct ReptState {
             int count;
             int current_iteration;
@@ -2361,6 +2373,7 @@ private:
         };
         std::vector<ConditionalState> m_conditional_stack;
         std::vector<ReptState> m_rept_stack;
+        std::vector<ControlBlockType> m_control_flow_stack;
     };
 
     CompilationContext m_context;

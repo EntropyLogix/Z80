@@ -1714,6 +1714,74 @@ TEST_CASE(ConditionalCompilation) {
     )"); // Double ELSE
 }
 
+TEST_CASE(MismatchedControlDirectives) {
+    // REPT inside IF, but ENDIF is inside REPT
+    ASSERT_COMPILE_FAILS(R"(
+        IF 1
+            REPT 2
+                NOP
+            ENDIF
+        ENDR
+    )");
+
+    // IF inside REPT, but ENDR is inside IF
+    ASSERT_COMPILE_FAILS(R"(
+        REPT 2
+            IF 1
+                NOP
+            ENDR
+        ENDIF
+    )");
+
+    ASSERT_COMPILE_FAILS("IF 1\nENDR"); // ENDR without REPT
+}
+
+TEST_CASE(ReptAndConditionalCompilation) {
+    // 1. REPT inside an active IF block
+    ASSERT_CODE(R"(
+        IF 1
+            REPT 2
+                NOP
+            ENDR
+        ENDIF
+    )", {0x00, 0x00});
+
+    // 2. REPT inside an inactive IF block (is_skipping should be true)
+    ASSERT_CODE(R"(
+        IF 0
+            REPT 2
+                NOP ; This should be skipped
+            ENDR
+        ENDIF
+        LD A, 1
+    )", {0x3E, 0x01});
+
+    // 3. REPT inside an active ELSE block
+    ASSERT_CODE(R"(
+        IF 0
+            LD A, 1
+        ELSE
+            REPT 3
+                INC A
+            ENDR
+        ENDIF
+    )", {0x3C, 0x3C, 0x3C});
+
+    // 4. IF inside a REPT block
+    ASSERT_CODE(R"(
+        REPT 2
+            IF 1
+                NOP
+            ENDIF
+            IF 0
+                HALT
+            ELSE
+                INC A
+            ENDIF
+        ENDR
+    )", {0x00, 0x3C, 0x00, 0x3C});
+}
+
 TEST_CASE(ReptEndrDirective) {
     // 1. Simple REPT
     ASSERT_CODE(R"(
