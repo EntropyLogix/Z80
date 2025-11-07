@@ -1714,6 +1714,83 @@ TEST_CASE(ConditionalCompilation) {
     )"); // Double ELSE
 }
 
+TEST_CASE(ReptEndrDirective) {
+    // 1. Simple REPT
+    ASSERT_CODE(R"(
+        REPT 3
+            NOP
+        ENDR
+    )", {0x00, 0x00, 0x00});
+
+    // 2. REPT with an expression
+    ASSERT_CODE(R"(
+        COUNT EQU 4
+        REPT COUNT
+            INC A
+        ENDR
+    )", {0x3C, 0x3C, 0x3C, 0x3C});
+
+    // 3. REPT with zero count
+    ASSERT_CODE(R"(
+        REPT 0
+            HALT
+        ENDR
+        NOP
+    )", {0x00});
+
+    // 4. Nested REPT
+    ASSERT_CODE(R"(
+        REPT 2
+            DB 0xFF
+            REPT 3
+                DB 0xAA
+            ENDR
+            DB 0xFF
+        ENDR
+    )", {0xFF, 0xAA, 0xAA, 0xAA, 0xFF, 0xFF, 0xAA, 0xAA, 0xAA, 0xFF});
+
+    // 5. REPT with a forward reference
+    ASSERT_CODE(R"(
+        REPT FORWARD_COUNT
+            NOP
+        ENDR
+        FORWARD_COUNT EQU 2
+    )", {0x00, 0x00});
+
+    // 6. REPT disabled by options
+    Z80Assembler<Z80DefaultBus>::Options options;
+    options.directives.allow_repeat = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("REPT 2\nNOP\nENDR", options);
+
+    // 7. Unterminated REPT
+    ASSERT_COMPILE_FAILS("REPT 2\nNOP");
+
+    // 8. REPT with complex expression and forward reference
+    ASSERT_CODE(R"(
+        REPT COUNT_B - 1
+            DB 0x11
+        ENDR
+        COUNT_A EQU 2
+        COUNT_B EQU COUNT_A + 2
+    )", {0x11, 0x11, 0x11});
+
+    // 9. REPT with a block of multiple instructions
+    ASSERT_CODE(R"(
+        REPT 2
+            LD A, 10
+            ADD A, 5
+            PUSH AF
+        ENDR
+    )", {
+        0x3E, 10,   // LD A, 10
+        0xC6, 5,    // ADD A, 5
+        0xF5,       // PUSH AF
+        0x3E, 10,   // LD A, 10
+        0xC6, 5,    // ADD A, 5
+        0xF5        // PUSH AF
+    });
+}
+
 TEST_CASE(DirectiveOptions) {
     Z80Assembler<Z80DefaultBus>::Options options;
 
@@ -1784,6 +1861,11 @@ TEST_CASE(DirectiveOptions) {
     ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nNOP\nENDIF", options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("IFDEF SYMBOL\nNOP\nENDIF", options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("IFNDEF SYMBOL\nNOP\nENDIF", options);
+
+    // 10. Test directives.allow_rept_endr = false (already tested in its own case, but good for completeness)
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.allow_repeat = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("REPT 2\nNOP\nENDR", options);
 
     // 10. Test that disabling conditional compilation doesn't affect other directives
     options = Z80Assembler<Z80DefaultBus>::get_default_options();

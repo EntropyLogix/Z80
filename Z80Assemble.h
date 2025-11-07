@@ -69,6 +69,7 @@ public:
             bool allow_incbin = true;
             bool allow_includes = true;
             bool allow_conditional_compilation = true;
+            bool allow_repeat = true;
         } directives;
         struct ExpressionOptions {
             bool enabled = true;
@@ -2077,10 +2078,23 @@ private:
     class LineProcessor {
     public:
         LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
-    
+
         void finalize() const {
             if (!m_conditional_stack.empty())
                 throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
+            if (!m_rept_stack.empty())
+                throw std::runtime_error("Unterminated REPT block (missing ENDR).");
+        }
+        bool process_rept_block() {
+            if (m_rept_stack.empty() || m_rept_stack.back().recording)
+                return false;
+            ReptState rept_block = m_rept_stack.back();
+            m_rept_stack.pop_back();
+            for (int i = 0; i < rept_block.count; ++i) {
+                for (const auto& body_line : rept_block.body)
+                    process(body_line);
+            }
+            return true;
         }
         bool process(const std::string& source_line) {
             bool is_skipping = !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
@@ -2089,6 +2103,18 @@ private:
                 process_comments(line);
             if (process_directives(line, is_skipping))
                 return true;
+            if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
+                std::string trimmed_line = line;
+                StringHelper::trim_whitespace(trimmed_line);
+                std::string upper_trimmed_line = trimmed_line;
+                StringHelper::to_upper(upper_trimmed_line);
+                if (upper_trimmed_line == "ENDR") {
+                    m_rept_stack.back().recording = false;
+                    process_rept_block();
+                } else
+                    m_rept_stack.back().body.push_back(line);
+                return true;
+            }
             if (is_skipping)
                 return true;
             if (m_policy.get_compilation_context().options.labels.enabled)
@@ -2172,7 +2198,23 @@ private:
             }
             if (is_skipping)
                 return true;
-            
+
+            size_t rept_pos = line_upper.find("REPT ");
+            if (rept_pos != std::string::npos && line_upper.substr(0, rept_pos).find_first_not_of(" \t") == std::string::npos) {
+                if (!m_policy.get_compilation_context().options.directives.allow_repeat)
+                    throw std::runtime_error("REPT directive is disabled.");
+                std::string expr_str = line.substr(rept_pos + 5);
+                StringHelper::trim_whitespace(expr_str);
+                Expressions expression(m_policy);
+                int32_t count;
+                if (expression.evaluate(expr_str, count)) {
+                    if (count < 0)
+                        throw std::runtime_error("REPT count cannot be negative.");
+                    m_rept_stack.push_back({count, 0, {}, true});
+                } else
+                    m_rept_stack.push_back({0, 0, {}, true}); //// Could not evaluate, start skipping until ENDR
+                return true;
+            }
             std::stringstream line_stream(line);
             std::string label, directive, value;
             line_stream >> label >> directive;
@@ -2311,7 +2353,14 @@ private:
             bool is_active;
             bool else_seen;
         };
+        struct ReptState {
+            int count;
+            int current_iteration;
+            std::vector<std::string> body;
+            bool recording;
+        };
         std::vector<ConditionalState> m_conditional_stack;
+        std::vector<ReptState> m_rept_stack;
     };
 
     CompilationContext m_context;
