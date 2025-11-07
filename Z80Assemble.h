@@ -727,7 +727,15 @@ private:
                     on_assemble({0x00});
             }
         };
-        virtual void on_incbin_directive(const std::string& filename) {};
+        virtual void on_incbin_directive(const std::string& filename) {
+            if (!this->m_context.options.directives.allow_incbin)
+                throw std::runtime_error("INCBIN directive is disabled.");
+            std::vector<uint8_t> data;
+            if (this->m_context.source_provider->get_source(filename, data))
+                on_assemble(data);
+            else
+                throw std::runtime_error("Could not open file for INCBIN: " + filename);
+        }
         virtual void on_unknown_operand(const std::string& operand) {}
         //Instructions
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) {return false;};
@@ -897,16 +905,6 @@ private:
                     this->m_context.current_address = num_val;
             }
         };
-        virtual void on_incbin_directive(const std::string& filename) override {
-            if (!this->m_context.options.directives.allow_incbin)
-                throw std::runtime_error("INCBIN directive is disabled.");
-            std::vector<uint8_t> data;
-            if (this->m_context.source_provider->get_source(filename, data)) {
-                on_assemble(data);
-            } else {
-                throw std::runtime_error("Could not open file for INCBIN: " + filename);
-            }
-        };
         virtual bool on_operand_not_matching(const Operand& operand, typename OperandParser::OperandType expected) override {
             if (operand.type == OperandType::UNKNOWN)
                 return expected == OperandType::IMMEDIATE || expected == OperandType::MEM_IMMEDIATE;
@@ -1026,15 +1024,6 @@ private:
             }
             else
                 throw std::runtime_error("Invalid code block label: " + label);
-        }
-        virtual void on_incbin_directive(const std::string& filename) override {
-            if (!this->m_context.options.directives.allow_incbin)
-                throw std::runtime_error("INCBIN directive is disabled.");
-            std::vector<uint8_t> data;
-            if (this->m_context.source_provider->get_source(filename, data))
-                on_assemble(data);
-            else
-                throw std::runtime_error("Could not open file for INCBIN: " + filename);
         }
         virtual void on_unknown_operand(const std::string& operand) { throw std::runtime_error("Unknown operand or undefined symbol: " + operand); }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
