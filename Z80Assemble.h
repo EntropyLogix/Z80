@@ -103,6 +103,8 @@ public:
         std::string flat_source;
         if (!preprocessor.process(main_file_path, flat_source))
             throw std::runtime_error("Could not open main source file: " + main_file_path);
+        m_context.is_phased = false;
+
         std::stringstream source_stream(flat_source);
         std::vector<std::string> source_lines;
         std::string line;
@@ -119,7 +121,8 @@ public:
             m_context.current_pass = 1;
             do {
                 phase->on_pass_begin();
-                m_context.current_address = start_addr;
+                m_context.current_logical_address = start_addr;
+                m_context.current_physical_address = start_addr;
                 m_context.current_line_number = 0;
                 LineProcessor line_processor(*phase);
                 for (size_t i = 0; i < source_lines.size(); ++i) {
@@ -659,7 +662,9 @@ private:
 
         TMemory* memory = nullptr;
         ISourceProvider* source_provider = nullptr;
-        uint16_t current_address = 0;
+        uint16_t current_logical_address = 0;
+        uint16_t current_physical_address = 0;
+        bool is_phased = false;
         size_t current_line_number = 0;
         size_t current_pass = 0;
         std::map<std::string, SymbolInfo> symbols;
@@ -685,7 +690,7 @@ private:
         //Lines
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) {
             if (symbol == "$") {
-                out_value = this->m_context.current_address;
+                out_value = this->m_context.current_logical_address;
                 return true;
             }
             return false;
@@ -702,9 +707,11 @@ private:
                 throw std::runtime_error("ALIGN directive is disabled.");
             Expressions expression(*this);
             int32_t align_val;
-            if (expression.evaluate(boundary, align_val)) {
-                uint16_t current_addr = this->m_context.current_address;
-                uint16_t new_addr = (current_addr + align_val - 1) & -align_val;
+            if (expression.evaluate(boundary, align_val) && align_val > 0) {
+                uint16_t current_addr = this->m_context.current_logical_address;
+                uint16_t new_addr = (current_addr + align_val - 1) & ~(align_val - 1);
+                uint16_t padding = new_addr - current_addr;
+
                 for (uint16_t i = current_addr; i < new_addr; ++i)
                     on_assemble({0x00});
             }
@@ -878,7 +885,7 @@ private:
         virtual void on_label_definition(const std::string& label) override {
             IAssemblyPolicy::on_label_definition(label);
             std::string actual_label_name = this->get_absolute_symbol_name(label);
-            update_symbol(actual_label_name, this->m_context.current_address, false, false);
+            update_symbol(actual_label_name, this->m_context.current_logical_address, false, false);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
             on_const(label, value, false);
@@ -889,11 +896,14 @@ private:
         virtual void on_org_directive(const std::string& label) override {
             int32_t num_val;
             if (StringHelper::is_number(label, num_val))
-                this->m_context.current_address = num_val;
+                this->m_context.current_logical_address = this->m_context.current_physical_address = num_val;
             else if (m_symbols_stable) {
                 Expressions expression(*this);
-                if (expression.evaluate(label, num_val))
-                    this->m_context.current_address = num_val;
+                if (expression.evaluate(label, num_val)) {
+                    this->m_context.current_logical_address = num_val;
+                    this->m_context.current_physical_address = num_val;
+                    this->m_context.is_phased = false;
+                }
             }
         };
         virtual bool on_operand_not_matching(const Operand& operand, typename OperandParser::OperandType expected) override {
@@ -903,7 +913,9 @@ private:
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
             size_t size = bytes.size();
-            this->m_context.current_address += size;
+            this->m_context.current_logical_address += size;
+            if (!this->m_context.is_phased)
+                this->m_context.current_physical_address += size;
         }
     private:
         struct Symbol {
@@ -1009,7 +1021,8 @@ private:
             int32_t addr;
             Expressions expression(*this);
             if (expression.evaluate(label, addr)) {
-                this->m_context.current_address = addr;
+                this->m_context.current_logical_address = addr;
+                this->m_context.current_physical_address = addr;
                 this->m_blocks.push_back({addr, 0});
             }
             else
@@ -1020,8 +1033,10 @@ private:
             throw std::runtime_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
-            for (auto& byte : bytes)
-                this->m_context.memory->poke(this->m_context.current_address++, byte);
+            for (auto& byte : bytes) {
+                this->m_context.memory->poke(this->m_context.current_physical_address++, byte);
+            }
+            this->m_context.current_logical_address += bytes.size();
             if (this->m_blocks.empty())
                 throw std::runtime_error("Invalid code block.");
             this->m_blocks.back().second += bytes.size();
@@ -1449,7 +1464,7 @@ private:
             if (mnemonic == "JR" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.get_compilation_context().current_address + instruction_size);
+                int32_t offset = target_addr - (m_policy.get_compilation_context().current_logical_address + instruction_size);
                 if (offset < -128 || offset > 127)
                     m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x18, (uint8_t)(offset)});
@@ -1486,7 +1501,7 @@ private:
             if (mnemonic == "DJNZ" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.get_compilation_context().current_address + instruction_size);
+                int32_t offset = target_addr - (m_policy.get_compilation_context().current_logical_address + instruction_size);
                 if (offset < -128 || offset > 127)
                     m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x10, (uint8_t)(offset)});
@@ -1993,7 +2008,7 @@ private:
                 if (relative_jump_condition_map().count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (m_policy.get_compilation_context().current_address + instruction_size);
+                    int32_t offset = target_addr - (m_policy.get_compilation_context().current_logical_address + instruction_size);
                     if (offset < -128 || offset > 127)
                         m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
                     assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
