@@ -363,7 +363,7 @@ private:
             std::function<int32_t(int32_t, int32_t)> apply;
         };
         struct Token {
-            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN };
+            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, CHAR_LITERAL };
             Type type = Type::FUNCTION;
             std::string s_val;
             int32_t n_val = 0;
@@ -413,22 +413,19 @@ private:
             };
             return op_map;
         }
-
         bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
-                tokens.push_back({Token::Type::NUMBER, "", (int32_t)expr[i+1]});
+                tokens.push_back({Token::Type::CHAR_LITERAL, "", (int32_t)expr[i+1]});
                 i += 2;
                 return true;
             }
             return false;
         }
-
         bool parse_function(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (isalpha(expr[i])) {
                 size_t start_pos = i;
-                while (i < expr.length() && isalnum(expr[i])) {
+                while (i < expr.length() && isalnum(expr[i]))
                     i++;
-                }
                 std::string potential_func = expr.substr(start_pos, i - start_pos);
                 StringHelper::to_upper(potential_func);
                 if (potential_func == "HIGH" || potential_func == "LOW") {
@@ -440,7 +437,6 @@ private:
             }
             return false;
         }
-
         bool parse_symbol(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (isalpha(expr[i]) || expr[i] == '_' || expr[i] == '.') {
                 size_t j = i;
@@ -449,17 +445,15 @@ private:
                 std::string symbol_str = expr.substr(i, j - i);
                 std::string upper_symbol = symbol_str;
                 StringHelper::to_upper(upper_symbol);
-                if (auto op_it = get_operator_map().find(upper_symbol); op_it != get_operator_map().end()) {
+                if (auto op_it = get_operator_map().find(upper_symbol); op_it != get_operator_map().end())
                     tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
-                } else {
+                else
                     tokens.push_back({Token::Type::SYMBOL, symbol_str});
-                }
                 i = j - 1;
                 return true;
             }
             return false;
         }
-
         bool parse_number(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (isdigit(expr[i]) || (expr[i] == '0' && i + 1 < expr.length() && (expr[i+1] == 'x' || expr[i+1] == 'X'))) {
                 size_t j = i;
@@ -471,58 +465,58 @@ private:
                 if (j < expr.length() && (last_char != 'B' && last_char != 'H') && (expr[j] == 'h' || expr[j] == 'H' || expr[j] == 'b' || expr[j] == 'B'))
                     j++;
                 int32_t val;
-                if (StringHelper::is_number(expr.substr(i, j - i), val)) {
+                if (StringHelper::is_number(expr.substr(i, j - i), val))
                     tokens.push_back({Token::Type::NUMBER, "", val});
-                } else {
+                else
                     throw std::runtime_error("Invalid number in expression: " + expr.substr(i, j - i));
-                }
                 i = j - 1;
                 return true;
             }
             return false;
         }
-
         bool parse_operator(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             std::string op_str;
-            // try 2-character operators
             if (i + 1 < expr.length()) {
                 op_str = expr.substr(i, 2);
                 if (get_operator_map().find(op_str) == get_operator_map().end())
-                    op_str = expr.substr(i, 1); // fallback to 1-character operator
+                    op_str = expr.substr(i, 1);
             } else 
                 op_str = expr.substr(i, 1);
             bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
             std::string op_key = op_str;
-            if (is_unary && (op_str == "-" || op_str == "~" || op_str == "!")) {
+            if (is_unary && (op_str == "-" || op_str == "~" || op_str == "!"))
                 op_key = (op_str == "-") ? "_" : op_str;
-            } else if (is_unary && op_str == "+") {
+            else if (is_unary && op_str == "+") {
                 i += op_str.length() - 1;
-                return true; // unary plus is a no-op, just consume and ignore
+                return true;
             }
             auto op_it = get_operator_map().find(op_key);
             if (op_it == get_operator_map().end())
-                return false; // not a known operator
+                return false;
             tokens.push_back({Token::Type::OPERATOR, op_key, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
-            i += op_str.length() - 1; // advance index by the length of the consumed operator string
+            i += op_str.length() - 1;
             return true;
         }
-
         std::vector<Token> tokenize_expression(const std::string& expr) const {
             std::vector<Token> tokens;
             for (size_t i = 0; i < expr.length(); ++i) {
                 char c = expr[i];
                 if (isspace(c))
                     continue;
-
-                if (parse_char_literal(expr, i, tokens)) continue;
-                if (parse_function(expr, i, tokens)) continue;
-                if (parse_symbol(expr, i, tokens)) continue;
+                if (parse_char_literal(expr, i, tokens))
+                    continue;
+                if (parse_function(expr, i, tokens))
+                    continue;
+                if (parse_symbol(expr, i, tokens))
+                    continue;
                 if (c == '$') {
                     tokens.push_back({Token::Type::SYMBOL, "$"});
                     continue;
                 }
-                if (parse_number(expr, i, tokens)) continue;
-                if (parse_operator(expr, i, tokens)) continue;
+                if (parse_number(expr, i, tokens))
+                    continue;
+                if (parse_operator(expr, i, tokens))
+                    continue;
                 if (c == '(')
                     tokens.push_back({Token::Type::LPAREN, "("});
                 else if (c == ')')
@@ -538,6 +532,7 @@ private:
             for (const auto& token : infix) {
                 switch (token.type) {
                     case Token::Type::NUMBER:
+                    case Token::Type::CHAR_LITERAL:
                     case Token::Type::SYMBOL:
                         postfix.push_back(token);
                         break;
@@ -546,8 +541,7 @@ private:
                         break;
                     case Token::Type::OPERATOR:
                         while (!op_stack.empty() && op_stack.back().type == Token::Type::OPERATOR &&
-                               ((op_stack.back().precedence > token.precedence) ||
-                                (op_stack.back().precedence == token.precedence && token.left_assoc))) {
+                              ((op_stack.back().precedence > token.precedence) || (op_stack.back().precedence == token.precedence && token.left_assoc))) {
                             postfix.push_back(op_stack.back());
                             op_stack.pop_back();
                         }
@@ -583,7 +577,7 @@ private:
         bool evaluate_rpn(const std::vector<Token>& rpn, int32_t& out_value) const {
             std::vector<int32_t> val_stack;
             for (const auto& token : rpn) {
-                if (token.type == Token::Type::NUMBER) {
+                if (token.type == Token::Type::NUMBER || token.type == Token::Type::CHAR_LITERAL) {
                     val_stack.push_back(token.n_val);
                 } else if (token.type == Token::Type::SYMBOL) {
                     int32_t sum_val;
