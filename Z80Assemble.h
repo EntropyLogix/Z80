@@ -682,15 +682,6 @@ private:
         virtual void on_pass_begin() {};
         virtual bool on_pass_end() {return true;};
         virtual void on_pass_next() {};
-
-        // Helper to resolve local label names
-        std::string resolve_symbol_name(const std::string& symbol_name_param) const {
-            std::string resolved_name = symbol_name_param;
-            if (!resolved_name.empty() && resolved_name[0] == '.' && !this->m_context.last_global_label.empty()) {
-                resolved_name = this->m_context.last_global_label + resolved_name;
-            }
-            return resolved_name;
-        }
         //Lines
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) {
             if (symbol == "$") {
@@ -699,18 +690,9 @@ private:
             }
             return false;
         };
-        virtual void on_label_definition(std::string& label) {
-            if (!label.empty()) {
-                if (label[0] != '.') {
-                    m_context.last_global_label = label;
-                } else { // It's a local label
-                    std::string full_label_name = label;
-                    if (this->m_context.last_global_label.empty())
-                        throw std::runtime_error("Local label '" + label + "' defined without a preceding global label. (Line: " + std::to_string(m_context.current_line_number) + ")");
-                    full_label_name = this->m_context.last_global_label + label;
-                    label = full_label_name;
-                }
-            }
+        virtual void on_label_definition(const std::string& label) {
+            if (!label.empty() && label[0] != '.') 
+                m_context.last_global_label = label;
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) {};
         virtual void on_set_directive(const std::string& label, const std::string& value) {};
@@ -744,6 +726,15 @@ private:
 
         virtual CompilationContext& get_compilation_context() {return m_context;}
     protected:
+        std::string get_absolute_symbol_name(const std::string& name) const {
+            if (!name.empty() && name[0] == '.') {
+                if (this->m_context.last_global_label.empty())
+                    throw std::runtime_error("Local label '" + name + "' used without a preceding global label.");
+                return this->m_context.last_global_label + name;
+            }
+            return name;
+        }
+
         CompilationContext& m_context;
     };
     // Helpers
@@ -869,25 +860,25 @@ private:
             if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             bool resolved = false;
-            
-            std::string actual_symbol_name = this->resolve_symbol_name(symbol);
+            std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
             auto it = m_symbols.find(actual_symbol_name);
             if (it != m_symbols.end()) {
-                Symbol *symbol_obj = it->second;
-                if (symbol_obj) {
-                    symbol_obj->in_use = true;
-                    int index = symbol_obj->index;
+                Symbol *symbol = it->second;
+                if (symbol) {
+                    symbol->in_use = true;
+                    int index = symbol->index;
                     if (index == -1)
-                        index = symbol_obj->value.size() - 1;
-                    out_value = symbol_obj->value[index];
-                    resolved = !symbol_obj->undefined[index];
+                        index = symbol->value.size() - 1;
+                    out_value = symbol->value[index];
+                    resolved = !symbol->undefined[index];
                 }
             }
             return resolved;
         }
-        virtual void on_label_definition(std::string& label) override {
+        virtual void on_label_definition(const std::string& label) override {
             IAssemblyPolicy::on_label_definition(label);
-            update_symbol(label, this->m_context.current_address, false, false);
+            std::string actual_label_name = this->get_absolute_symbol_name(label);
+            update_symbol(actual_label_name, this->m_context.current_address, false, false);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
             on_const(label, value, false);
@@ -1003,16 +994,15 @@ private:
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
-                return true;
-            
-            std::string actual_symbol_name = this->resolve_symbol_name(symbol);
+                return true;            
+            std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
             auto it = this->m_context.symbols.find(actual_symbol_name);
             if (it == this->m_context.symbols.end())
                 return false; // For IFDEF/IFNDEF
             out_value = it->second.value;
                 return true;
         }
-        virtual void on_label_definition(std::string& label) override {
+        virtual void on_label_definition(const std::string& label) override {
             IAssemblyPolicy::on_label_definition(label);
         };
         virtual void on_org_directive(const std::string& label) override {
