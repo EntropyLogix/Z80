@@ -413,42 +413,6 @@ private:
             };
             return op_map;
         }
-        int get_operator_precedence(const std::string& op) const {
-            auto it = get_operator_map().find(op);
-            if (it != get_operator_map().end())
-                return it->second.precedence;
-            return -1;
-        }
-        bool is_binary_operator_char(char c) const {
-            return c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || 
-                   c == '&' || c == '|' || c == '^' || c == '<' || c == '>' || 
-                   c == '=' || c == '!';
-        }
-        bool is_unary_operator_char(char c) const {
-            return c == '+' || c == '-' || c == '~' || c == '!';
-        }
-        std::string get_multichar_operator(const std::string& expr, size_t& i) const {
-            if (i + 1 < expr.length()) {
-                std::string two_char_op = expr.substr(i, 2);
-                if (two_char_op == "<<" || two_char_op == ">>" || two_char_op == "==" || 
-                    two_char_op == "!=" || two_char_op == ">=" || two_char_op == "<=" || 
-                    two_char_op == "&&" || two_char_op == "||") {
-                    i++;
-                    return two_char_op;
-                }
-            }
-            return std::string(1, expr[i]);
-        }
-        bool handle_unary_operator(char c, std::vector<Token>& tokens) const {
-            if (c == '-')
-                tokens.push_back({Token::Type::OPERATOR, "_", 0, 10, false}); // unary minus
-            else if (c == '~')
-                tokens.push_back({Token::Type::OPERATOR, "~", 0, 10, false}); // bitwise NOT
-            else if (c == '!')
-                tokens.push_back({Token::Type::OPERATOR, "!", 0, 10, false}); // logical NOT
-            // unary plus is a no-op, so we just skip it.
-            return true;
-        };
 
         bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
@@ -519,28 +483,27 @@ private:
         }
 
         bool parse_operator(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
-            char c = expr[i];
-            if (!is_binary_operator_char(c) && !is_unary_operator_char(c)) {
-                return false;
-            }
-
+            std::string op_str;
+            // try 2-character operators
+            if (i + 1 < expr.length()) {
+                op_str = expr.substr(i, 2);
+                if (get_operator_map().find(op_str) == get_operator_map().end())
+                    op_str = expr.substr(i, 1); // fallback to 1-character operator
+            } else 
+                op_str = expr.substr(i, 1);
             bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
-            if (is_unary && is_unary_operator_char(c)) {
-                handle_unary_operator(c, tokens);
-            } else {
-                std::string op_str = get_multichar_operator(expr, i);
-                auto op_it = get_operator_map().find(op_str);
-                if (op_it != get_operator_map().end()) {
-                    tokens.push_back({Token::Type::OPERATOR, op_str, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
-                } else {
-                    // Fallback for old logic if needed, though should not be necessary with the current map.
-                    int precedence = get_operator_precedence(op_str);
-                    if (precedence != -1) {
-                        tokens.push_back({Token::Type::OPERATOR, op_str, 0, precedence, true});
-                    } else
-                        throw std::runtime_error("Unknown operator: " + op_str);
-                }
+            std::string op_key = op_str;
+            if (is_unary && (op_str == "-" || op_str == "~" || op_str == "!")) {
+                op_key = (op_str == "-") ? "_" : op_str;
+            } else if (is_unary && op_str == "+") {
+                i += op_str.length() - 1;
+                return true; // unary plus is a no-op, just consume and ignore
             }
+            auto op_it = get_operator_map().find(op_key);
+            if (op_it == get_operator_map().end())
+                return false; // not a known operator
+            tokens.push_back({Token::Type::OPERATOR, op_key, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
+            i += op_str.length() - 1; // advance index by the length of the consumed operator string
             return true;
         }
 
