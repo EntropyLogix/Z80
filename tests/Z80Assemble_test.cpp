@@ -1863,6 +1863,20 @@ TEST_CASE(DirectiveOptions) {
         LD A, VALUE
         DB 0xFF
     )", {0x3E, 10, 0xFF}, options);
+
+    // 11. Test directives.allow_phase = false
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.allow_phase = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("PHASE 0x8000", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DEPHASE", options);
+
+    // 12. Test directives.allow_phase = true (default)
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.directives.allow_phase = true; // Explicitly set for clarity
+    ASSERT_CODE_WITH_OPTS(R"(
+        PHASE 0x8000
+        NOP
+    )", {0x00}, options);
 }
 
 TEST_CASE(ConditionalCompilation_ForwardReference) {

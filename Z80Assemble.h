@@ -70,6 +70,7 @@ public:
             bool allow_includes = true;
             bool allow_conditional_compilation = true;
             bool allow_repeat = true;
+            bool allow_phase = true;
         } directives;
         struct ExpressionOptions {
             bool enabled = true;
@@ -425,7 +426,10 @@ private:
                     std::string symbol_str = expr.substr(i, j - i);
                     std::string upper_symbol = symbol_str;
                     StringHelper::to_upper(upper_symbol);
-                    tokens.push_back({Token::Type::SYMBOL, symbol_str});
+                    if (upper_symbol == "HIGH" || upper_symbol == "LOW")
+                        tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0, 12, false});
+                    else
+                        tokens.push_back({Token::Type::SYMBOL, symbol_str});
                     i = j - 1;
                 } else if (c == '$')
                     tokens.push_back({Token::Type::SYMBOL, "$"});
@@ -1049,7 +1053,10 @@ private:
             return mnemonics;
         }
         static const std::set<std::string>& directives() {
-            static const std::set<std::string> directives = {"DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "ORG", "INCLUDE", "ALIGN", "INCBIN"};
+            static const std::set<std::string> directives = {
+                "DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "SET", "DEFL", "ORG", 
+                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE"
+            };
             return directives;
         }
         static const std::set<std::string>& registers() {
@@ -2280,6 +2287,8 @@ private:
             }
             size_t phase_pos = line_upper.find("PHASE ");
             if (phase_pos != std::string::npos && line_upper.substr(0, phase_pos).find_first_not_of(" \t") == std::string::npos) {
+                if (!m_policy.get_compilation_context().options.directives.allow_phase)
+                    return false;
                 std::string address_str = line.substr(phase_pos + 6);
                 StringHelper::trim_whitespace(address_str);
                 m_policy.on_phase_directive(address_str);
@@ -2288,6 +2297,8 @@ private:
             std::string trimmed_upper = line_upper;
             StringHelper::trim_whitespace(trimmed_upper);
             if (trimmed_upper == "DEPHASE") {
+                if (!m_policy.get_compilation_context().options.directives.allow_phase)
+                    return false;
                 m_policy.on_dephase_directive();
                 return true;
             }
