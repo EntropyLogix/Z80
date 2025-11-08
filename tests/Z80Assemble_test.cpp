@@ -2022,7 +2022,7 @@ COUNT           SET 100
 }
 
 TEST_CASE(LocalLabels) {
-    // Test 1: Podstawowy skok do lokalnej etykiety (w przód)
+    // Test 1: Basic forward jump to a local label
     ASSERT_CODE(R"(
         GLOBAL_START:
             NOP
@@ -2032,15 +2032,15 @@ TEST_CASE(LocalLabels) {
             HALT
     )", {0x00, 0x18, 0x01, 0x00, 0x76});
 
-    // Test 2: Podstawowy skok do lokalnej etykiety (wstecz)
+    // Test 2: Basic backward jump to a local label
     ASSERT_CODE(R"(
         GLOBAL_START:
         .local_target:
             NOP
             JR .local_target
-    )", {0x00, 0x18, 0xFD}); // JR -3
+    )", {0x00, 0x18, 0xFD}); // JR -3 -> 0 - (0+2) = -2 (FE), but NOP is 1 byte, so 1 - (1+2) = -2 (FE). Wait, the address of JR is 1. Target is 0. 0 - (1+2) = -3 = FD. Correct.
 
-    // Test 3: Wiele lokalnych etykiet w jednym zasięgu globalnym
+    // Test 3: Multiple local labels within one global scope
     ASSERT_CODE(R"(
         GLOBAL_MAIN:
             .loop1:
@@ -2049,9 +2049,9 @@ TEST_CASE(LocalLabels) {
             .loop2:
                 INC A
                 JR .loop1
-    )", {0x00, 0x18, 0x00, 0x3C, 0x18, 0xFA});
+    )", {0x00, 0x18, 0x00, 0x3C, 0x18, 0xFA}); // JR .loop2: 2-(1+2)=-1=FF. No, 2-(1+2) is not right. .loop2 is at addr 2. JR is at 1. 2-(1+2)=-1. Wait, NOP is 1 byte. JR is 2 bytes. .loop2 is at addr 3. JR is at 1. 3-(1+2)=0. Correct. JR .loop1: 0-(3+2)=-5=FB. No, INC A is 1 byte. .loop1 is at 0. JR is at 4. 0-(4+2)=-6=FA. Correct.
         
-    // Test 4: Powtarzanie lokalnych etykiet w różnych zasięgach globalnych
+    // Test 4: Reusing local label names in different global scopes
     ASSERT_CODE(R"(
         GLOBAL_ONE:
             .local_label:
@@ -2062,39 +2062,39 @@ TEST_CASE(LocalLabels) {
                 LD A, 2
     )", {0x3E, 0x01, 0xC3, 0x05, 0x00, 0x3E, 0x02});
 
-    // Test 5: Próba zdefiniowania lokalnej etykiety bez etykiety globalnej (powinno się nie powieść)
+    // Test 5: Attempt to define a local label without a preceding global label (should fail)
     ASSERT_COMPILE_FAILS(R"(
         .local_orphan:
             NOP
     )");
 
-    // Test 6: Użycie lokalnej etykiety w wyrażeniu (referencja w przód)
+    // Test 6: Using a local label in an expression (forward reference)
     ASSERT_CODE(R"(
         GLOBAL_START:
             LD A, .data_val + 1
         .data_val:
                 DB 0xAA
-    )", {0x3E, 0x03, 0xAA});
+    )", {0x3E, 0x03, 0xAA}); // .data_val is at 0x02. .data_val+1 = 3. Correct.
 
-    // Test 7: Powtórzenie lokalnej etykiety w tym samym zasięgu (powinno się nie powieść)
+    // Test 7: Redefining a local label within the same scope (should fail)
     ASSERT_COMPILE_FAILS(R"(
         GLOBAL_SCOPE:
             .local: NOP
             .local: NOP
     )");
 
-    // Test 8: Skok do lokalnej etykiety z innego zasięgu bez kwalifikacji (powinno się nie powieść)
+    // Test 8: Jump to a local label from another scope (qualified vs. unqualified)
     ASSERT_CODE(R"(
         GLOBAL_ONE:
             .local: NOP
-            JP .local ; Skok do GLOBAL_ONE.local
+            JP .local ; Jump to GLOBAL_ONE.local
         GLOBAL_TWO:
             .local: NOP
-            JP .local ; Skok do GLOBAL_TWO.local
+            JP .local ; Jump to GLOBAL_TWO.local
             JP GLOBAL_ONE.local
     )", {0x00, 0xC3, 0x00, 0x00, 0x00, 0xC3, 0x04, 0x00, 0xC3, 0x00, 0x00});
 
-    // Test 9: Zagnieżdżone referencje w przód
+    // Test 9: Nested forward references
     ASSERT_CODE(R"(
         START:
             LD HL, .data1
@@ -2104,13 +2104,410 @@ TEST_CASE(LocalLabels) {
         .end:
             LD A, .data2
     )", {
-        0x21, 0x06, 0x00, // LD HL, 0x0006
-        0xC3, 0x08, 0x00, // JP 0x0008
+        0x21, 0x06, 0x00, // LD HL, .data1 (0x0006)
+        0xC3, 0x08, 0x00, // JP .end (0x0008)
         0x11,             // .data1
         0x22,             // .data2
-        0x3E, 0x07        // LD A, 0x07 (.data2)
+        0x3E, 0x07        // LD A, .data2 (address of .data2 is 0x07)
     });
 }
+
+/* // TODO: Enable these tests after LOCAL directive is implemented */
+/* TEST_CASE(ProceduresAndLocalLabels) { */
+/*     // Test 1: Simple procedure with a local label */
+/*     ASSERT_CODE(R"( */
+/*         MyProc PROC */
+/*         LOCAL MyLocal */
+/*             LD A, 1 */
+/*         MyLocal: */
+/*             ADD A, 2 */
+/*             RET */
+/*         ENDP */
+/*         CALL MyProc */
+/*     )", { */
+/*         0x3E, 0x01,       // LD A, 1 */
+/*         0xC6, 0x02,       // ADD A, 2 */
+/*         0xC9,             // RET */
+/*         0xCD, 0x00, 0x00  // CALL MyProc */
+/*     }); */
+/*  */
+/*     // Test 2: Nested procedures and scope resolution */
+/*     ASSERT_CODE(R"( */
+/*         OuterProc PROC */
+/*         LOCAL Var */
+/*         Var EQU 10 */
+/*             InnerProc PROC */
+/*             LOCAL Var */
+/*             Var EQU 20 */
+/*                 LD A, Var ; Should be 20 */
+/*             ENDP */
+/*             LD B, Var ; Powinno być 10 */
+/*             CALL InnerProc */
+/*         ENDP */
+/*         CALL OuterProc */
+/*     )", { */
+/*         0x06, 10,         // LD B, 10 (Var z OuterProc) */
+/*         0xCD, 0x03, 0x00, // CALL InnerProc (at 0x00) */
+/*         0x3E, 20,         // LD A, 20 (Var z InnerProc) */
+/*         0xCD, 0x00, 0x00  // CALL OuterProc (at 0x05) */
+/*     }); */
+/*  */
+/*     // Test 3: Accessing outer scope from inner scope */
+/*     ASSERT_CODE(R"( */
+/*         Outer PROC */
+/*         LOCAL OuterVar */
+/*         OuterVar EQU 100 */
+/*             Inner PROC */
+/*                 LD A, OuterVar ; Access outer local variable */
+/*             ENDP */
+/*             CALL Inner */
+/*         ENDP */
+/*         CALL Outer */
+/*     )", { */
+/*         0xCD, 0x03, 0x00, // CALL Inner */
+/*         0x3E, 100,        // LD A, 100 */
+/*         0xCD, 0x00, 0x00  // CALL Outer */
+/*     }); */
+/*  */
+/*     // Test 4: Dot labels inside procedures */
+/*     ASSERT_CODE(R"( */
+/*         MyProc PROC */
+/*             JR .skip */
+/*             DB 0xFF */
+/*         .skip: */
+/*             NOP */
+/*         ENDP */
+/*     )", { */
+/*         0x18, 0x01, // JR .skip */
+/*         0xFF, */
+/*         0x00        // NOP */
+/*     }); */
+/*  */
+/*     // Test 5: Dot label refers to the innermost procedure */
+/*     ASSERT_CODE(R"( */
+/*         Outer PROC */
+/*             Inner PROC */
+/*                 JR .target ; Jump to Inner.target */
+/*             .target: */
+/*                 NOP */
+/*             ENDP */
+/*         .target: */
+/*             HALT */
+/*         ENDP */
+/*     )", { */
+/*         0x18, 0x00, // JR .target (Inner.target) */
+/*         0x00,       // NOP */
+/*         0x76        // HALT */
+/*     }); */
+/*  */
+/*     // Test 6: Error cases */
+/*     ASSERT_COMPILE_FAILS("LOCAL MyVar"); // LOCAL outside of PROC */
+/*     ASSERT_COMPILE_FAILS("MyProc PROC\nLOCAL .MyVar\nENDP"); // Dot label in LOCAL */
+/*     ASSERT_COMPILE_FAILS("MyProc PROC\nLD A, 1\nLOCAL MyVar\nENDP"); // LOCAL not at the beginning */
+/*     ASSERT_COMPILE_FAILS("MyProc PROC"); // Missing ENDP */
+/*     ASSERT_COMPILE_FAILS("ENDP"); // ENDP without PROC */
+/*     ASSERT_COMPILE_FAILS("Outer PROC\nInner PROC\nLD A, Var\nENDP\nLOCAL Var\nENDP"); // Accessing inner label from outside */
+/*  */
+/*     // Test 7: Empty procedure */
+/*     ASSERT_CODE("EmptyProc PROC\nENDP\nCALL EmptyProc", {0xCD, 0x00, 0x00}); */
+/*  */
+/*     // Test 8: Dot label inside and outside a procedure */
+/*     ASSERT_CODE(R"( */
+/*         MyLabel: */
+/*             JR .inside_global */
+/*         .inside_global: */
+/*             NOP */
+/*         MyProc PROC */
+/*             JR .inside_proc */
+/*         .inside_proc: */
+/*             HALT */
+/*         ENDP */
+/*     )", {0x18, 0x00, 0x00, 0x18, 0x00, 0x76}); */
+/*  */
+/*     // Test 9: More complex nesting */
+/*     ASSERT_CODE(R"( */
+/*         P1 PROC */
+/*         LOCAL V1 */
+/*         V1 EQU 1 */
+/*             P2 PROC */
+/*             LOCAL V2 */
+/*             V2 EQU 2 */
+/*                 P3 PROC */
+/*                 LOCAL V3 */
+/*                 V3 EQU 3 */
+/*                     LD A, V1 */
+/*                     ADD A, V2 */
+/*                     ADD A, V3 */
+/*                 ENDP */
+/*                 CALL P3 */
+/*             ENDP */
+/*             CALL P2 */
+/*         ENDP */
+/*         CALL P1 */
+/*     )", { */
+/*         0xCD, 0x06, 0x00, // CALL P2 */
+/*         0xCD, 0x03, 0x00, // CALL P3 */
+/*         0x3E, 1,          // LD A, V1 */
+/*         0xC6, 2,          // ADD A, V2 */
+/*         0xC6, 3,          // ADD A, V3 */
+/*         0xCD, 0x00, 0x00  // CALL P1 */
+/*     }); */
+/*  */
+/*     // Test 10: Redefining a local label as a global one (error) */
+/*     ASSERT_COMPILE_FAILS(R"( */
+/*         MyProc PROC */
+/*         LOCAL MyLabel */
+/*         MyLabel: */
+/*             NOP */
+/*         ENDP */
+/*         MyLabel: NOP */
+/*     )"); */
+/*  */
+/*     // Test 11: Referencing a nested procedure's label with a full name */
+/*     ASSERT_CODE(R"( */
+/*         P1 PROC */
+/*             P2 PROC */
+/*                 LD A, 42 */
+/*             ENDP */
+/*             CALL P1.P2 */
+/*         ENDP */
+/*         CALL P1 */
+/*     )", { */
+/*         0xCD, 0x03, 0x00, // CALL P1.P2 */
+/*         0x3E, 42,         // LD A, 42 */
+/*         0xCD, 0x00, 0x00  // CALL P1 */
+/*     }); */
+/*  */
+/*     // Test 12: Procedure referencing a global label */
+/*     ASSERT_CODE(R"( */
+/*         GlobalLabel: */
+/*             NOP */
+/*         MyProc PROC */
+/*             JP GlobalLabel */
+/*         ENDP */
+/*     )", { */
+/*         0x00,             // NOP */
+/*         0xC3, 0x00, 0x00  // JP GlobalLabel */
+/*     }); */
+/*  */
+/*     // Test 13: LOCAL and dot label with the same name */
+/*     ASSERT_CODE(R"( */
+/*         Outer PROC */
+/*             Inner PROC */
+/*             LOCAL Target */
+/*                 JP Target ; Skok do Inner.Target (0x05) */
+/*             Target: */
+/*                 NOP */
+/*             ENDP */
+/*             .Target: ; Definiuje Outer.Target (0x00) */
+/*                 CALL Inner */
+/*         ENDP */
+/*         CALL Outer */
+/*     )", { */
+/*         0xCD, 0x03, 0x00, // CALL Inner (adres 0x00) */
+/*         0xC3, 0x05, 0x00, // JP Target (adres 0x03, skok do 0x05) */
+/*         0x00,             // NOP (adres 0x05) */
+/*         0xCD, 0x00, 0x00  // CALL Outer (adres 0x06) */
+/*     }); */
+/*  */
+/*     // Test 14: Dot label inside a procedure refers to the procedure, not the previous global label */
+/*     ASSERT_CODE(R"( */
+/*         Global: */
+/*             NOP */
+/*         Proc PROC */
+/*             JP .local ; Should jump to Proc.local (0x04), not Global.local */
+/*         .local: */
+/*             HALT */
+/*         ENDP */
+/*     )", { */
+/*         0x00,             // NOP */
+/*         0xC3, 0x04, 0x00, // JP .local */
+/*         0x76              // HALT */
+/*     }); */
+/*  */
+/*     // Test 15: LOCAL label does not "leak" outside */
+/*     ASSERT_CODE(R"( */
+/*         X: NOP ; Global label X */
+/*         P PROC */
+/*         LOCAL X */
+/*         X EQU 20 */
+/*             LD A, X ; Should be 20 */
+/*         ENDP */
+/*         CALL P */
+/*         LD A, [X] ; Powinno odnosić się do globalnej X (adres 0x00) */
+/*     )", { */
+/*         0x00,             // NOP (Global X) */
+/*         0x3E, 20,         // LD A, 20 */
+/*         0xCD, 0x01, 0x00, // CALL P */
+/*         0x3A, 0x00, 0x00  // LD A, [X] */
+/*     }); */
+/*  */
+/*     // Test 16: Complex scope mixing */
+/*     ASSERT_CODE(R"( */
+/*         Global: NOP */
+/*         .Dot:   NOP */
+/*         Outer PROC */
+/*         LOCAL LVar */
+/*         LVar EQU 10 */
+/*             .Dot: JP Global.Dot ; Reference to global dot label */
+/*             Inner PROC */
+/*             LOCAL LVar */
+/*             LVar EQU 20 */
+/*                 LD A, LVar ; Should be 20 (from Inner) */
+/*                 ADD A, Outer.LVar ; Should be 10 (from Outer) */
+/*             ENDP */
+/*             CALL Inner */
+/*         ENDP */
+/*     )", { */
+/*         0x00,             // Global */
+/*         0x00,             // Global.Dot */
+/*         0xC3, 0x01, 0x00, // JP Global.Dot */
+/*         0x3E, 20,         // LD A, 20 */
+/*         0xC6, 10,         // ADD A, 10 */
+/*         0xCD, 0x04, 0x00  // CALL Inner */
+/*     }); */
+/*  */
+/*     // Test 17: REPT inside a procedure */
+/*     ASSERT_CODE(R"( */
+/*         MyProc PROC */
+/*             REPT 3 */
+/*                 INC A */
+/*             ENDR */
+/*             RET */
+/*         ENDP */
+/*         CALL MyProc */
+/*     )", { */
+/*         0x3C, 0x3C, 0x3C, // INC A (x3) */
+/*         0xC9,             // RET */
+/*         0xCD, 0x00, 0x00  // CALL MyProc */
+/*     }); */
+/*  */
+/*     // Test 18: REPT with LOCAL and dot labels inside a procedure */
+/*     ASSERT_CODE(R"( */
+/*         MyProc PROC */
+/*         LOCAL MyData */
+/*             REPT 2 */
+/*                 LD A, [MyData] */
+/*                 INC A */
+/*                 LD [MyData], A */
+/*             ENDR */
+/*             RET */
+/*         MyData: DB 0 */
+/*         ENDP */
+/*         CALL MyProc */
+/*     )", { */
+/*         0x3A, 0x0A, 0x00, // LD A, [MyData] */
+/*         0x3C,             // INC A */
+/*         0x32, 0x0A, 0x00, // LD [MyData], A */
+/*         0x3A, 0x0A, 0x00, // LD A, [MyData] */
+/*         0x3C,             // INC A */
+/*         0x32, 0x0A, 0x00, // LD [MyData], A */
+/*         0xC9,             // RET */
+/*         0x00,             // MyData: DB 0 */
+/*         0xCD, 0x00, 0x00  // CALL MyProc */
+/*     }); */
+/*  */
+/*     // Test 19: Defining a procedure inside REPT (should fail) */
+/*     ASSERT_COMPILE_FAILS(R"( */
+/*         REPT 2 */
+/*             MyProc PROC */
+/*                 NOP */
+/*             ENDP */
+/*         ENDR */
+/*     )"); */
+/* } */
+/*
+TEST_CASE(ProcEndpDirectives) {
+    // Test 1: Simple procedure definition and call
+    ASSERT_CODE(R"(
+        MyProc PROC
+            LD A, 42
+            RET
+        ENDP
+        CALL MyProc
+    )", {0x3E, 42, 0xC9, 0xCD, 0x00, 0x00});
+
+    // Test 2: Dot label inside a procedure
+    ASSERT_CODE(R"(
+        MyProc PROC
+            JR .skip
+            HALT
+        .skip:
+            NOP
+            RET
+        ENDP
+        CALL MyProc
+    )", {0x18, 0x01, 0x76, 0x00, 0xC9, 0xCD, 0x00, 0x00});
+
+    // Test 3: Nested procedures and label resolution
+    ASSERT_CODE(R"(
+        Outer PROC
+            LD A, 1
+            CALL Outer.Inner
+            RET
+        Inner PROC
+            LD B, 2
+            RET
+        ENDP
+        ENDP
+        CALL Outer
+    )", {0x3E, 0x01, 0xCD, 0x06, 0x00, 0xC9, 0x06, 0x02, 0xC9, 0xCD, 0x00, 0x00});
+
+    // Test 4: Dot labels refer to the nearest procedure scope
+    ASSERT_CODE(R"(
+        Outer PROC
+            JR .outer_local
+        Inner PROC
+            JR .inner_local
+        .inner_local:
+            NOP
+            RET
+        ENDP
+        .outer_local:
+            CALL Outer.Inner
+            RET
+        ENDP
+    )", {
+        0x18, 0x04,       // JR .outer_local (to address 0x06)
+        0x18, 0x00,       // JR .inner_local (to address 0x03)
+        0x00,             // .inner_local: NOP
+        0xC9,             // RET
+        0xCD, 0x02, 0x00, // .outer_local: CALL Outer.Inner (to address 0x02)
+        0xC9              // RET
+    });
+
+    // Test 5: Error cases for mismatched directives
+    ASSERT_COMPILE_FAILS("PROC MyProc"); // Missing ENDP
+    ASSERT_COMPILE_FAILS("ENDP"); // ENDP without PROC
+    ASSERT_COMPILE_FAILS("IF 1\nPROC MyProc\nENDIF\nENDP"); // Mismatched ENDP
+    ASSERT_COMPILE_FAILS("PROC MyProc\nIF 1\nENDP\nENDIF"); // Mismatched ENDIF
+
+    // Test 6: Procedure label used in expression
+    ASSERT_CODE(R"(
+        MyProc PROC
+            NOP
+        ENDP
+        LD HL, MyProc
+    )", {0x00, 0x21, 0x00, 0x00});
+
+    // Test 7: Global label, then procedure with same-named dot label
+    ASSERT_CODE(R"(
+        Global:
+            JP .local ; Jumps to Global.local
+        .local:
+            NOP
+        Proc PROC
+            JP .local ; Jumps to Proc.local
+        .local:
+            HALT
+        ENDP
+    )", {
+        0xC3, 0x03, 0x00, // JP .local (to 0x03)
+        0x00,             // Global.local: NOP
+        0xC3, 0x07, 0x00, // JP .local (to 0x07)
+        0x76              // Proc.local: HALT
+    });
+}*/
 
 int main() {
     std::cout << "=============================\n";
