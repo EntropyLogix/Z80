@@ -103,8 +103,6 @@ public:
         std::string flat_source;
         if (!preprocessor.process(main_file_path, flat_source))
             throw std::runtime_error("Could not open main source file: " + main_file_path);
-        m_context.is_phased = false;
-
         std::stringstream source_stream(flat_source);
         std::vector<std::string> source_lines;
         std::string line;
@@ -664,7 +662,6 @@ private:
         ISourceProvider* source_provider = nullptr;
         uint16_t current_logical_address = 0;
         uint16_t current_physical_address = 0;
-        bool is_phased = false;
         size_t current_line_number = 0;
         size_t current_pass = 0;
         std::map<std::string, SymbolInfo> symbols;
@@ -702,6 +699,8 @@ private:
         virtual void on_equ_directive(const std::string& label, const std::string& value) {};
         virtual void on_set_directive(const std::string& label, const std::string& value) {};
         virtual void on_org_directive(const std::string& label) {};
+        virtual void on_phase_directive(const std::string& address_str) {};
+        virtual void on_dephase_directive() {};
         virtual void on_align_directive(const std::string& boundary) {
             if (!m_context.options.directives.allow_align)
                 throw std::runtime_error("ALIGN directive is disabled.");
@@ -902,10 +901,24 @@ private:
                 if (expression.evaluate(label, num_val)) {
                     this->m_context.current_logical_address = num_val;
                     this->m_context.current_physical_address = num_val;
-                    this->m_context.is_phased = false;
                 }
             }
         };
+        virtual void on_phase_directive(const std::string& label) override {
+            int32_t num_val;
+            if (StringHelper::is_number(label, num_val)) {
+                this->m_context.current_logical_address = num_val;
+            }
+            else if (m_symbols_stable) {
+                Expressions expression(*this);
+                if (expression.evaluate(label, num_val))
+                    this->m_context.current_logical_address = num_val;
+            }
+        }
+        virtual void on_dephase_directive() override {
+            this->m_context.current_logical_address = this->m_context.current_physical_address;
+        }
+
         virtual bool on_operand_not_matching(const Operand& operand, typename OperandParser::OperandType expected) override {
             if (operand.type == OperandType::UNKNOWN)
                 return expected == OperandType::IMMEDIATE || expected == OperandType::MEM_IMMEDIATE;
@@ -914,8 +927,7 @@ private:
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
             size_t size = bytes.size();
             this->m_context.current_logical_address += size;
-            if (!this->m_context.is_phased)
-                this->m_context.current_physical_address += size;
+            this->m_context.current_physical_address += size;
         }
     private:
         struct Symbol {
@@ -1027,6 +1039,15 @@ private:
             }
             else
                 throw std::runtime_error("Invalid code block label: " + label);
+        }
+        virtual void on_phase_directive(const std::string& address_str) override {
+            int32_t new_logical_addr;
+            Expressions expression(*this);
+            if (expression.evaluate(address_str, new_logical_addr))
+                this->m_context.current_logical_address = new_logical_addr;
+        }
+        virtual void on_dephase_directive() override {
+            this->m_context.current_logical_address = this->m_context.current_physical_address;
         }
         virtual void on_unknown_operand(const std::string& operand) { throw std::runtime_error("Unknown operand or undefined symbol: " + operand); }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
@@ -2307,6 +2328,19 @@ private:
                     m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
                 else
                     throw std::runtime_error("INCBIN filename must be in double quotes.");
+                return true;
+            }
+            size_t phase_pos = line_upper.find("PHASE ");
+            if (phase_pos != std::string::npos && line_upper.substr(0, phase_pos).find_first_not_of(" \t") == std::string::npos) {
+                std::string address_str = line.substr(phase_pos + 6);
+                StringHelper::trim_whitespace(address_str);
+                m_policy.on_phase_directive(address_str);
+                return true;
+            }
+            std::string trimmed_upper = line_upper;
+            StringHelper::trim_whitespace(trimmed_upper);
+            if (trimmed_upper == "DEPHASE") {
+                m_policy.on_dephase_directive();
                 return true;
             }
             return false;

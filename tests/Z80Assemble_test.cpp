@@ -160,6 +160,55 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
     }
 }
 
+void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::vector<uint8_t>>& expected_blocks) {
+    Z80DefaultBus bus;
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    bool success = assembler.compile("main.asm", 0x0000);
+    if (!success) {
+        std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
+        tests_failed++;
+        return;
+    }
+
+    auto compiled_blocks = assembler.get_blocks();
+
+    if (compiled_blocks.size() != expected_blocks.size()) {
+        std::cerr << "Assertion failed: Incorrect number of compiled blocks for '" << asm_code << "'.\n";
+        std::cerr << "  Expected: " << expected_blocks.size() << ", Got: " << compiled_blocks.size() << "\n";
+        tests_failed++;
+        return;
+    }
+
+    for (const auto& compiled_block : compiled_blocks) {
+        uint16_t start_address = compiled_block.start_address;
+        if (expected_blocks.find(start_address) == expected_blocks.end()) {
+            std::cerr << "Assertion failed: Unexpected compiled block at address 0x" << std::hex << start_address << "\n";
+            tests_failed++;
+            continue;
+        }
+
+        const auto& expected_bytes = expected_blocks.at(start_address);
+        if (compiled_block.size != expected_bytes.size()) {
+            std::cerr << "Assertion failed: Incorrect size for block at 0x" << std::hex << start_address << ".\n";
+            std::cerr << "  Expected size: " << expected_bytes.size() << ", Got: " << compiled_block.size << "\n";
+            tests_failed++;
+            continue;
+        }
+
+        for (size_t i = 0; i < expected_bytes.size(); ++i) {
+            if (bus.peek(start_address + i) != expected_bytes[i]) {
+                std::cerr << "Assertion failed: Byte mismatch in block at 0x" << std::hex << start_address << " for '" << asm_code << "'\n";
+                // Można dodać bardziej szczegółowe wypisywanie bajtów, jeśli to konieczne
+                tests_failed++;
+                return; // Zakończ po pierwszym błędzie w bloku
+            }
+        }
+    }
+    tests_passed++;
+}
+
 void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assembler<Z80DefaultBus>::Options& options) {
     Z80DefaultBus bus;
     MockSourceProvider source_provider;
@@ -2110,6 +2159,62 @@ TEST_CASE(LocalLabels) {
         0x22,             // .data2
         0x3E, 0x07        // LD A, .data2 (address of .data2 is 0x07)
     });
+}
+
+TEST_CASE(PhaseDephaseDirectives) {
+    // Test 1: Basic PHASE/DEPHASE functionality
+    // Label inside PHASE should have a logical address.
+    // Code should be generated at the physical address.
+    std::string code1 = R"(
+        ORG 0x1000
+        LD A, 1         ; Physical: 0x1000, Logical: 0x1000
+
+        PHASE 0x8000
+    LOGICAL_START:      ; Should be 0x8000
+        LD B, 2         ; Physical: 0x1002, Logical: 0x8000
+        LD C, 3         ; Physical: 0x1004, Logical: 0x8002
+
+        DEPHASE
+    PHYSICAL_CONTINUE:  ; Should be 0x1006 (synced with physical)
+        LD D, 4         ; Physical: 0x1006, Logical: 0x1006
+    )";
+    std::vector<uint8_t> expected1 = {
+        0x3E, 0x01, // LD A, 1 at 0x1000
+        0x06, 0x02, // LD B, 2 at 0x1002
+        0x0E, 0x03, // LD C, 3 at 0x1004
+        0x16, 0x04  // LD D, 4 at 0x1006
+    };
+    Z80DefaultBus bus1;
+    MockSourceProvider sp1;
+    sp1.add_source("main.asm", code1);
+    Z80Assembler<Z80DefaultBus> assembler1(&bus1, &sp1);
+    assert(assembler1.compile("main.asm") && "Phase/Dephase test 1 compilation failed");
+    auto symbols1 = assembler1.get_symbols();
+    assert(symbols1["LOGICAL_START"].value == 0x8000);
+    assert(symbols1["PHYSICAL_CONTINUE"].value == 0x1006);
+    tests_passed++;
+
+    // Test 2: Using phased labels
+    std::string code2 = R"(
+        ORG 0x1000
+        JP LOGICAL_TARGET ; Should jump to the logical address 0x9000
+        
+        ORG 0x2000      ; Move physical address somewhere else
+    LOGICAL_TARGET_PHYSICAL_LOCATION:
+        PHASE 0x9000    ; But assemble as if it's at 0x9000
+    LOGICAL_TARGET:
+        NOP             ; Physical: 0x2000, Logical: 0x9000
+    )";
+
+    std::map<uint16_t, std::vector<uint8_t>> expected_blocks = {
+        {0x1000, {0xC3, 0x00, 0x90}}, // JP 0x9000
+        {0x2000, {0x00}}              // NOP
+    };
+
+    ASSERT_BLOCKS(code2, expected_blocks);
+    
+    // Test 3: DEPHASE without PHASE should not cause issues
+    ASSERT_CODE("ORG 0x100\nDEPHASE\nNOP", {0x00});
 }
 
 /* // TODO: Enable these tests after LOCAL directive is implemented */
