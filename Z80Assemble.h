@@ -186,20 +186,20 @@ private:
             while (std::getline(source_stream, line)) {
                 line_number++;
                 std::string trimmed_line = line;
-            if (m_context.options.directives.allow_includes) {
-                StringHelper::trim_whitespace(trimmed_line);
-                std::string upper_line = line;
-                StringHelper::to_upper(upper_line);
-                if (upper_line.find("INCLUDE ") != std::string::npos) {
-                    size_t first_quote = trimmed_line.find('"');
-                    size_t last_quote = trimmed_line.find('"', first_quote + 1);
-                    if (first_quote == std::string::npos || last_quote == std::string::npos)
-                        throw std::runtime_error("Malformed INCLUDE directive in " + identifier + " at line " + std::to_string(line_number));
-                    std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
-                    process_file(include_filename, output_source, included_files);
-                } else
-                    output_source.append(line).append("\n");
-            } else output_source.append(line).append("\n");
+                if (m_context.options.directives.allow_includes) {
+                    StringHelper::trim_whitespace(trimmed_line);
+                    std::string upper_line = line;
+                    StringHelper::to_upper(upper_line);
+                    if (upper_line.find("INCLUDE ") != std::string::npos) {
+                        size_t first_quote = trimmed_line.find('"');
+                        size_t last_quote = trimmed_line.find('"', first_quote + 1);
+                        if (first_quote == std::string::npos || last_quote == std::string::npos)
+                            throw std::runtime_error("Malformed INCLUDE directive in " + identifier + " at line " + std::to_string(line_number));
+                        std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
+                        process_file(include_filename, output_source, included_files);
+                    } else
+                        output_source.append(line).append("\n");
+                } else output_source.append(line).append("\n");
             }
             return true;
         }
@@ -340,10 +340,9 @@ private:
             if (!m_policy.get_compilation_context().options.expressions.enabled) {
                 std::string trimmed_s = s;
                 StringHelper::trim_whitespace(trimmed_s);
-                if (StringHelper::is_number(trimmed_s, out_value)) {
+                if (StringHelper::is_number(trimmed_s, out_value))
                     return true;
-                }
-                throw std::runtime_error("Expressions are disabled. Only numeric literals are allowed: " + s);
+                return false;
             }
             auto tokens = tokenize_expression(s);
             auto rpn = shunting_yard(tokens);
@@ -703,7 +702,7 @@ private:
         virtual void on_dephase_directive() {};
         virtual void on_align_directive(const std::string& boundary) {
             if (!m_context.options.directives.allow_align)
-                throw std::runtime_error("ALIGN directive is disabled.");
+                return;
             Expressions expression(*this);
             int32_t align_val;
             if (expression.evaluate(boundary, align_val) && align_val > 0) {
@@ -717,7 +716,7 @@ private:
         };
         virtual void on_incbin_directive(const std::string& filename) {
             if (!this->m_context.options.directives.allow_incbin)
-                throw std::runtime_error("INCBIN directive is disabled.");
+                return;
             std::vector<uint8_t> data;
             if (this->m_context.source_provider->get_source(filename, data))
                 on_assemble(data);
@@ -1187,7 +1186,7 @@ private:
         bool encode_data_block(const std::string& mnemonic, const std::vector<Operand>& ops) {
             const auto& directive_options = m_policy.get_compilation_context().options.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
-                throw std::runtime_error("Data definition directives (DB, DW, DS) are disabled.");
+                return false;
             if (mnemonic == "DB" || mnemonic == "DEFB") {
                 for (const auto& op : ops) {
                     if (match_imm16(op) || match_char(op)) {
@@ -2178,9 +2177,9 @@ private:
             return false;
         }
         bool process_directives(const std::string& line) {
-            std::string line_upper = line;
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
+            std::string line_upper = line;
             StringHelper::to_upper(line_upper);
             std::string trimmed_line = line;
             StringHelper::trim_whitespace(trimmed_line);
@@ -2189,7 +2188,7 @@ private:
 
             if (upper_trimmed_line.rfind("IF ", 0) == 0) {
                 if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    throw std::runtime_error("IF directive is disabled.");
+                    return false;
                 std::string expr_str = trimmed_line.substr(3);
                 bool condition_result = false;
                 if (!is_skipping()) {
@@ -2203,7 +2202,7 @@ private:
                 return true;
             } else if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
                 if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    throw std::runtime_error("IFDEF directive is disabled.");
+                    return false;
                 std::string symbol = trimmed_line.substr(6);
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
@@ -2213,7 +2212,7 @@ private:
                 return true;
             } else if (upper_trimmed_line.rfind("IFNDEF ", 0) == 0) {
                 if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    throw std::runtime_error("IFNDEF directive is disabled.");
+                    return false;
                 std::string symbol = trimmed_line.substr(7);
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
@@ -2223,7 +2222,7 @@ private:
                 return true;
             } else if (upper_trimmed_line == "ELSE") {
                 if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    throw std::runtime_error("ELSE directive is disabled.");
+                    return false;
                 if (m_conditional_stack.empty())
                     throw std::runtime_error("ELSE without IF");
                 if (m_conditional_stack.back().else_seen)
@@ -2235,7 +2234,7 @@ private:
                 return true;
             } else if (upper_trimmed_line == "ENDIF") {
                 if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    throw std::runtime_error("ENDIF directive is disabled.");
+                    return false;
                 if (m_conditional_stack.empty())
                     throw std::runtime_error("ENDIF without IF");
                 if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL)
@@ -2249,7 +2248,7 @@ private:
             size_t rept_pos = line_upper.find("REPT ");
             if (rept_pos != std::string::npos && line_upper.substr(0, rept_pos).find_first_not_of(" \t") == std::string::npos) {
                 if (!m_policy.get_compilation_context().options.directives.allow_repeat)
-                    throw std::runtime_error("REPT directive is disabled.");
+                    return false;
                 std::string expr_str = line.substr(rept_pos + 5);
                 StringHelper::trim_whitespace(expr_str);
                 Expressions expression(m_policy);
@@ -2294,7 +2293,7 @@ private:
                     else if (directive == "EQU" && constants_options.allow_equ) 
                         m_policy.on_equ_directive(label, value);
                     else
-                        throw std::runtime_error("Directive '" + directive + "' is disabled or unknown.");
+                        throw std::runtime_error("Directive '" + directive + "' is unknown.");
                     return true;
                 }
             }
@@ -2305,7 +2304,7 @@ private:
                     StringHelper::trim_whitespace(org_value_str);
                     m_policy.on_org_directive(org_value_str);
                 } else
-                    throw std::runtime_error("ORG directive is disabled.");
+                    return false;
                 return true;
             }
             size_t align_pos = line_upper.find("ALIGN ");
@@ -2315,14 +2314,14 @@ private:
                     StringHelper::trim_whitespace(align_value_str);
                     m_policy.on_align_directive(align_value_str);
                 } else
-                    throw std::runtime_error("ALIGN directive is disabled.");
+                    return false;
                 return true;
             }        
             size_t incbin_pos = line_upper.find("INCBIN ");
             if (incbin_pos != std::string::npos && line_upper.substr(0, incbin_pos).find_first_not_of(" \t") == std::string::npos) {
                 std::string filename_str = line.substr(incbin_pos + 7);
                 if (!m_policy.get_compilation_context().options.directives.allow_incbin)
-                    throw std::runtime_error("INCBIN directive is disabled.");
+                    return false;
                 StringHelper::trim_whitespace(filename_str);
                 if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
                     m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
