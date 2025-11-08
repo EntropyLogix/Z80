@@ -200,9 +200,8 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
         for (size_t i = 0; i < expected_bytes.size(); ++i) {
             if (bus.peek(start_address + i) != expected_bytes[i]) {
                 std::cerr << "Assertion failed: Byte mismatch in block at 0x" << std::hex << start_address << " for '" << asm_code << "'\n";
-                // Można dodać bardziej szczegółowe wypisywanie bajtów, jeśli to konieczne
                 tests_failed++;
-                return; // Zakończ po pierwszym błędzie w bloku
+                return; // End after the first error in the block
             }
         }
     }
@@ -1289,6 +1288,101 @@ TEST_CASE(LogicalNOTOperator) {
     ASSERT_CODE("LD A, !(1==0)", {0x3E, 1});
     ASSERT_CODE("VAL_A EQU 10\nLD A, !VAL_A", {0x3E, 0});
     ASSERT_CODE("VAL_B EQU 0\nLD A, !VAL_B", {0x3E, 1});
+}
+
+TEST_CASE(ExpressionOperators) {
+    // Tests for word and symbolic operators
+
+    // Arithmetic operators
+    ASSERT_CODE("LD A, 10 + 3", {0x3E, 13});
+    ASSERT_CODE("LD A, 10 - 3", {0x3E, 7});
+    ASSERT_CODE("LD A, 10 * 3", {0x3E, 30});
+    ASSERT_CODE("LD A, 10 / 3", {0x3E, 3});
+    ASSERT_CODE("LD A, 10 % 3", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 MOD 3", {0x3E, 1});
+
+    // Bitwise operators
+    ASSERT_CODE("LD A, 0b1010 | 0b0110", {0x3E, 0b1110});
+    ASSERT_CODE("LD A, 0b1010 OR 0b0110", {0x3E, 0b1110});
+
+    ASSERT_CODE("LD A, 0b1010 & 0b0110", {0x3E, 0b0010});
+    ASSERT_CODE("LD A, 0b1010 AND 0b0110", {0x3E, 0b0010});
+
+    ASSERT_CODE("LD A, 0b1010 ^ 0b0110", {0x3E, 0b1100});
+    ASSERT_CODE("LD A, 0b1010 XOR 0b0110", {0x3E, 0b1100});
+
+    ASSERT_CODE("LD A, 5 << 2", {0x3E, 20});
+    ASSERT_CODE("LD A, 5 SHL 2", {0x3E, 20});
+
+    ASSERT_CODE("LD A, 16 >> 2", {0x3E, 4});
+    ASSERT_CODE("LD A, 16 SHR 2", {0x3E, 4});
+
+    // Comparison operators
+    ASSERT_CODE("LD A, 10 > 5", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 GT 5", {0x3E, 1});
+    ASSERT_CODE("LD A, 5 > 10", {0x3E, 0});
+    ASSERT_CODE("LD A, 5 GT 10", {0x3E, 0});
+
+    ASSERT_CODE("LD A, 5 < 10", {0x3E, 1});
+    ASSERT_CODE("LD A, 5 LT 10", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 < 5", {0x3E, 0});
+    ASSERT_CODE("LD A, 10 LT 5", {0x3E, 0});
+
+    ASSERT_CODE("LD A, 10 >= 10", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 GE 10", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 >= 5", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 GE 5", {0x3E, 1});
+    ASSERT_CODE("LD A, 5 >= 10", {0x3E, 0});
+    ASSERT_CODE("LD A, 5 GE 10", {0x3E, 0});
+
+    ASSERT_CODE("LD A, 5 <= 5", {0x3E, 1});
+    ASSERT_CODE("LD A, 5 LE 5", {0x3E, 1});
+    ASSERT_CODE("LD A, 5 <= 10", {0x3E, 1});
+    ASSERT_CODE("LD A, 5 LE 10", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 <= 5", {0x3E, 0});
+    ASSERT_CODE("LD A, 10 LE 5", {0x3E, 0});
+
+    ASSERT_CODE("LD A, 10 == 10", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 EQ 10", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 == 5", {0x3E, 0});
+    ASSERT_CODE("LD A, 10 EQ 5", {0x3E, 0});
+
+    ASSERT_CODE("LD A, 10 != 5", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 NE 5", {0x3E, 1});
+    ASSERT_CODE("LD A, 10 != 10", {0x3E, 0});
+    ASSERT_CODE("LD A, 10 NE 10", {0x3E, 0});
+
+    // Logical operators
+    ASSERT_CODE("LD A, 1 && 1", {0x3E, 1});
+    ASSERT_CODE("LD A, 1 && 0", {0x3E, 0});
+    ASSERT_CODE("LD A, 0 && 0", {0x3E, 0});
+
+    ASSERT_CODE("LD A, 1 || 0", {0x3E, 1});
+    ASSERT_CODE("LD A, 0 || 1", {0x3E, 1});
+    ASSERT_CODE("LD A, 0 || 0", {0x3E, 0});
+
+    // Unary operators
+    ASSERT_CODE("LD A, -5", {0x3E, (uint8_t)-5});
+    ASSERT_CODE("LD A, ~0b01010101", {0x3E, 0b10101010});
+    ASSERT_CODE("LD A, NOT 0b01010101", {0x3E, 0b10101010});
+    ASSERT_CODE("LD A, !1", {0x3E, 0});
+    ASSERT_CODE("LD A, !0", {0x3E, 1});
+
+    // Check operator precedence
+    ASSERT_CODE("LD A, 2 + 3 * 4", {0x3E, 14});
+    ASSERT_CODE("LD A, 2 + 3 GT 4", {0x3E, 1}); // (2+3) > 4
+    ASSERT_CODE("LD A, 10 AND 12 + 1", {0x3E, 8}); // 10 & (12+1) -> 10 & 13 = 8
+
+    // Check functions
+    ASSERT_CODE("LD A, HIGH(0x1234)", {0x3E, 0x12});
+    ASSERT_CODE("LD A, LOW(0x1234)", {0x3E, 0x34});
+
+    // Invalid expressions
+    ASSERT_COMPILE_FAILS("LD A, 10 / 0");
+    ASSERT_COMPILE_FAILS("LD A, 10 MOD 0");
+    ASSERT_COMPILE_FAILS("LD A, 10 % 0");
+    ASSERT_COMPILE_FAILS("LD A, (10 + 2"); // Missing closing parenthesis
+    ASSERT_COMPILE_FAILS("LD A, 10 + * 2"); // Invalid syntax
 }
 
 TEST_CASE(CommentOptions) {

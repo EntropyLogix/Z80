@@ -347,6 +347,24 @@ private:
             return evaluate_rpn(rpn, out_value);
         }
     private:
+        enum class OperatorType {
+            // Unary
+            UNARY_MINUS, UNARY_PLUS, LOGICAL_NOT, BITWISE_NOT,
+            // Binary
+            ADD, SUB, MUL, DIV, MOD,
+            BITWISE_AND, BITWISE_OR, BITWISE_XOR,
+            SHL, SHR,
+            GT, LT, GTE, LTE, EQ, NE,
+            LOGICAL_AND, LOGICAL_OR
+        };
+        struct OperatorInfo {
+            OperatorType type;
+            int precedence;
+            bool is_unary;
+            bool left_assoc;
+            std::function<int32_t(int32_t, int32_t)> apply;
+        };
+
         struct Token {
             enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN };
             Type type = Type::FUNCTION;
@@ -354,30 +372,55 @@ private:
             int32_t n_val = 0;
             int precedence = 0;
             bool left_assoc = true;
+            const OperatorInfo* op_info = nullptr;
         };
     private:
+        static const std::map<std::string, OperatorInfo>& get_operator_map() {
+            static const std::map<std::string, OperatorInfo> op_map = {
+                // Unary
+                {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](int32_t a, int32_t) { return -a; }}},
+                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](int32_t a, int32_t) { return ~a; }}}, // Same as NOT
+                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](int32_t a, int32_t) { return !a; }}}, // Same as NOT for logical
+                {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](int32_t a, int32_t) { return ~a; }}},
+                // Binary
+                {"*",  {OperatorType::MUL,         9, false, true,  [](int32_t a, int32_t b) { if (b==0) throw std::runtime_error("Division by zero."); return a * b; }}},
+                {"/",  {OperatorType::DIV,         9, false, true,  [](int32_t a, int32_t b) { if (b==0) throw std::runtime_error("Division by zero."); return a / b; }}},
+                {"%",  {OperatorType::MOD,         9, false, true,  [](int32_t a, int32_t b) { if (b==0) throw std::runtime_error("Division by zero."); return a % b; }}},
+                {"MOD",{OperatorType::MOD,         9, false, true,  [](int32_t a, int32_t b) { if (b==0) throw std::runtime_error("Division by zero."); return a % b; }}},
+                {"+",  {OperatorType::ADD,         8, false, true,  [](int32_t a, int32_t b) { return a + b; }}},
+                {"-",  {OperatorType::SUB,         8, false, true,  [](int32_t a, int32_t b) { return a - b; }}},
+                {"<<", {OperatorType::SHL,         7, false, true,  [](int32_t a, int32_t b) { return a << b; }}},
+                {">>", {OperatorType::SHR,         7, false, true,  [](int32_t a, int32_t b) { return a >> b; }}},
+                {"SHL",{OperatorType::SHL,         7, false, true,  [](int32_t a, int32_t b) { return a << b; }}},
+                {"SHR",{OperatorType::SHR,         7, false, true,  [](int32_t a, int32_t b) { return a >> b; }}},
+                {">",  {OperatorType::GT,          6, false, true,  [](int32_t a, int32_t b) { return a > b; }}},
+                {"GT", {OperatorType::GT,          6, false, true,  [](int32_t a, int32_t b) { return a > b; }}},
+                {"<",  {OperatorType::LT,          6, false, true,  [](int32_t a, int32_t b) { return a < b; }}},
+                {"LT", {OperatorType::LT,          6, false, true,  [](int32_t a, int32_t b) { return a < b; }}},
+                {">=", {OperatorType::GTE,         6, false, true,  [](int32_t a, int32_t b) { return a >= b; }}},
+                {"GE", {OperatorType::GTE,         6, false, true,  [](int32_t a, int32_t b) { return a >= b; }}},
+                {"<=", {OperatorType::LTE,         6, false, true,  [](int32_t a, int32_t b) { return a <= b; }}},
+                {"LE", {OperatorType::LTE,         6, false, true,  [](int32_t a, int32_t b) { return a <= b; }}},
+                {"==", {OperatorType::EQ,          5, false, true,  [](int32_t a, int32_t b) { return a == b; }}},
+                {"EQ", {OperatorType::EQ,          5, false, true,  [](int32_t a, int32_t b) { return a == b; }}},
+                {"!=", {OperatorType::NE,          5, false, true,  [](int32_t a, int32_t b) { return a != b; }}},
+                {"NE", {OperatorType::NE,          5, false, true,  [](int32_t a, int32_t b) { return a != b; }}},
+                {"&",  {OperatorType::BITWISE_AND, 4, false, true,  [](int32_t a, int32_t b) { return a & b; }}},
+                {"AND",{OperatorType::BITWISE_AND, 4, false, true,  [](int32_t a, int32_t b) { return a & b; }}},
+                {"^",  {OperatorType::BITWISE_XOR, 3, false, true,  [](int32_t a, int32_t b) { return a ^ b; }}},
+                {"XOR",{OperatorType::BITWISE_XOR, 3, false, true,  [](int32_t a, int32_t b) { return a ^ b; }}},
+                {"|",  {OperatorType::BITWISE_OR,  2, false, true,  [](int32_t a, int32_t b) { return a | b; }}},
+                {"OR", {OperatorType::BITWISE_OR,  2, false, true,  [](int32_t a, int32_t b) { return a | b; }}},
+                {"&&", {OperatorType::LOGICAL_AND, 1, false, true,  [](int32_t a, int32_t b) { return a && b; }}},
+                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](int32_t a, int32_t b) { return a || b; }}}
+            };
+            return op_map;
+        }
         int get_operator_precedence(const std::string& op) const {
-            if (op == "*" || op == "/" || op == "%")
-                return 9;
-            if (op == "+" || op == "-")
-                return 8;
-            if (op == "<<" || op == ">>")
-                return 7;
-            if (op == "<" || op == "<=" || op == ">" || op == ">=")
-                return 6;
-            if (op == "==" || op == "!=")
-                return 5;
-            if (op == "&")
-                return 4;
-            if (op == "^")
-                return 3;
-            if (op == "|")
-                return 2;
-            if (op == "&&")
-                return 1;
-            if (op == "||")
-                return 0;
-            return -1; // not a valid binary operator
+            auto it = get_operator_map().find(op);
+            if (it != get_operator_map().end())
+                return it->second.precedence;
+            return -1;
         }
         bool is_binary_operator_char(char c) const {
             return c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || 
@@ -426,8 +469,13 @@ private:
                     std::string symbol_str = expr.substr(i, j - i);
                     std::string upper_symbol = symbol_str;
                     StringHelper::to_upper(upper_symbol);
-                    if (upper_symbol == "HIGH" || upper_symbol == "LOW")
+                    auto op_it = get_operator_map().find(upper_symbol);
+                    if (op_it != get_operator_map().end()) {
+                        tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
+                    }
+                    else if (upper_symbol == "HIGH" || upper_symbol == "LOW") {
                         tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0, 12, false});
+                    }
                     else
                         tokens.push_back({Token::Type::SYMBOL, symbol_str});
                     i = j - 1;
@@ -455,7 +503,11 @@ private:
                     } else {
                         std::string op_str = get_multichar_operator(expr, i);
                         int precedence = get_operator_precedence(op_str);
-                        if (precedence != -1) {
+                        auto op_it = get_operator_map().find(op_str);
+                        if (op_it != get_operator_map().end()) {
+                             tokens.push_back({Token::Type::OPERATOR, op_str, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
+                        }
+                        else if (precedence != -1) { // Fallback for old logic if needed, though should not be
                             tokens.push_back({Token::Type::OPERATOR, op_str, 0, precedence, true});
                         } else
                             throw std::runtime_error("Unknown operator: " + op_str);
@@ -536,64 +588,27 @@ private:
                         val_stack.push_back((arg >> 8) & 0xFF);
                     else // LOW
                         val_stack.push_back(arg & 0xFF);
-
                 } else if (token.type == Token::Type::OPERATOR) {
-                    if (token.s_val == "_" || token.s_val == "~" || token.s_val == "!") { // Unary operators
+                    auto it = get_operator_map().find(token.s_val);
+                    if (it == get_operator_map().end())
+                        throw std::runtime_error("Unknown operator in RPN evaluation: " + token.s_val);
+                    
+                    const auto& op_info = it->second;
+
+                    if (op_info.is_unary) {
                         if (val_stack.size() < 1) throw std::runtime_error("Invalid expression syntax for unary minus.");
-                        if (token.s_val == "_")
-                            val_stack.back() = -val_stack.back();
-                        else if (token.s_val == "~")
-                            val_stack.back() = ~val_stack.back();
-                        else // '!'
-                            val_stack.back() = !val_stack.back();
+                        int32_t v = val_stack.back();
+                        val_stack.back() = op_info.apply(v, 0);
                         continue;
                     }
                     // Binary operators
                     if (val_stack.size() < 2)
                         throw std::runtime_error("Invalid expression syntax.");
-                    int32_t v1 = val_stack.back();
-                    val_stack.pop_back();
                     int32_t v2 = val_stack.back();
                     val_stack.pop_back();
-                    if (token.s_val == "+")
-                        val_stack.push_back(v1 + v2);
-                    else if (token.s_val == "-")
-                        val_stack.push_back(v2 - v1);
-                    else if (token.s_val == "*")
-                        val_stack.push_back(v1 * v2);
-                    else if (token.s_val == "/") {
-                        if (v1 == 0) throw std::runtime_error("Division by zero in expression.");
-                        val_stack.push_back(v2 / v1); // v2 is dividend, v1 is divisor
-                    } else if (token.s_val == "%") {
-                        if (v1 == 0) throw std::runtime_error("Division by zero in expression.");
-                        val_stack.push_back(v2 % v1);
-                    } else if (token.s_val == "&") {
-                        val_stack.push_back(v2 & v1);
-                    } else if (token.s_val == "|") {
-                        val_stack.push_back(v2 | v1);
-                    } else if (token.s_val == "^") {
-                        val_stack.push_back(v2 ^ v1);
-                    } else if (token.s_val == "<<") {
-                        val_stack.push_back(v2 << v1);
-                    } else if (token.s_val == ">>") {
-                        val_stack.push_back(v2 >> v1);
-                    } else if (token.s_val == ">") {
-                        val_stack.push_back(v2 > v1);
-                    } else if (token.s_val == "<") {
-                        val_stack.push_back(v2 < v1);
-                    } else if (token.s_val == ">=") {
-                        val_stack.push_back(v2 >= v1);
-                    } else if (token.s_val == "<=") {
-                        val_stack.push_back(v2 <= v1);
-                    } else if (token.s_val == "==") {
-                        val_stack.push_back(v2 == v1);
-                    } else if (token.s_val == "!=") {
-                        val_stack.push_back(v2 != v1);
-                    } else if (token.s_val == "&&") {
-                        val_stack.push_back(v2 && v1);
-                    } else if (token.s_val == "||") {
-                        val_stack.push_back(v2 || v1);
-                    }
+                    int32_t v1 = val_stack.back();
+                    val_stack.pop_back();
+                    val_stack.push_back(op_info.apply(v1, v2));
                 }
             }
             if (val_stack.size() != 1)
