@@ -73,13 +73,10 @@ public:
         } directives;
         struct ExpressionOptions {
             bool enabled = true;
-            bool allow_functions = true;
-            bool allow_arithmetic = true;
-            bool allow_bitwise = true;
-            bool allow_logical = true;
-            bool allow_comparison = true;
         } expressions;
-        int max_compilation_passes = 10;
+        struct CompilationOptions {
+            int max_passes = 10;
+        } compilation;
     };
     static const Options& get_default_options() {
         static const Options default_options;
@@ -108,7 +105,7 @@ public:
         std::string line;
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
-        SymbolsBuilding symbols_building(m_context, m_context.options.max_compilation_passes);
+        SymbolsBuilding symbols_building(m_context, m_context.options.compilation.max_passes);
         CodeGeneration code_generation(m_context, start_addr);
         std::vector<IAssemblyPolicy*>  m_phases = {&symbols_building, &code_generation};
         for (auto& phase : m_phases) {
@@ -428,10 +425,7 @@ private:
                     std::string symbol_str = expr.substr(i, j - i);
                     std::string upper_symbol = symbol_str;
                     StringHelper::to_upper(upper_symbol);
-                    if (upper_symbol == "HIGH" || upper_symbol == "LOW")
-                        tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0, 12, false});
-                    else
-                        tokens.push_back({Token::Type::SYMBOL, symbol_str});
+                    tokens.push_back({Token::Type::SYMBOL, symbol_str});
                     i = j - 1;
                 } else if (c == '$')
                     tokens.push_back({Token::Type::SYMBOL, "$"});
@@ -454,22 +448,10 @@ private:
                     bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
                     if (is_unary && is_unary_operator_char(c)) {
                         handle_unary_operator(c, tokens);
-                        // Re-check the last token to ensure it's an operator and then apply expression options
-                        if (!tokens.empty() && tokens.back().type == Token::Type::OPERATOR) {
-                            const auto& expr_options = m_policy.get_compilation_context().options.expressions;
-                            if (tokens.back().s_val == "_" && !expr_options.allow_arithmetic)
-                                throw std::runtime_error("Unary minus operator is disabled by expression options.");
-                            if (tokens.back().s_val == "~" && !expr_options.allow_bitwise)
-                                throw std::runtime_error("Bitwise NOT operator is disabled by expression options.");
-                            if (tokens.back().s_val == "!" && !expr_options.allow_logical)
-                                throw std::runtime_error("Logical NOT operator is disabled by expression options.");
-                        }
                     } else {
                         std::string op_str = get_multichar_operator(expr, i);
                         int precedence = get_operator_precedence(op_str);
                         if (precedence != -1) {
-                            if (!check_binary_operator_allowed(op_str))
-                                throw std::runtime_error("Operator '" + op_str + "' is disabled by expression options.");
                             tokens.push_back({Token::Type::OPERATOR, op_str, 0, precedence, true});
                         } else
                             throw std::runtime_error("Unknown operator: " + op_str);
@@ -545,8 +527,6 @@ private:
                     if (val_stack.empty())
                         throw std::runtime_error("Invalid expression: function " + token.s_val + " requires an argument.");
                     int32_t arg = val_stack.back();
-                    if (!m_policy.get_compilation_context().options.expressions.allow_functions)
-                        throw std::runtime_error("Function '" + token.s_val + "' is disabled by expression options.");
                     val_stack.pop_back();
                     if (token.s_val == "HIGH")
                         val_stack.push_back((arg >> 8) & 0xFF);
@@ -556,24 +536,14 @@ private:
                 } else if (token.type == Token::Type::OPERATOR) {
                     if (token.s_val == "_" || token.s_val == "~" || token.s_val == "!") { // Unary operators
                         if (val_stack.size() < 1) throw std::runtime_error("Invalid expression syntax for unary minus.");
-                        const auto& expr_options = m_policy.get_compilation_context().options.expressions;
-                        if (token.s_val == "_") {
-                            if (!expr_options.allow_arithmetic)
-                                throw std::runtime_error("Unary minus operator is disabled by expression options.");
+                        if (token.s_val == "_")
                             val_stack.back() = -val_stack.back();
-                        } else if (token.s_val == "~") {
-                            if (!expr_options.allow_bitwise)
-                                throw std::runtime_error("Bitwise NOT operator is disabled by expression options.");
+                        else if (token.s_val == "~")
                             val_stack.back() = ~val_stack.back();
-                        } else { // '!'
-                            if (!expr_options.allow_logical)
-                                throw std::runtime_error("Logical NOT operator is disabled by expression options.");
+                        else // '!'
                             val_stack.back() = !val_stack.back();
-                        }
                         continue;
                     }
-                    if (!check_binary_operator_allowed(token.s_val))
-                        throw std::runtime_error("Operator '" + token.s_val + "' is disabled by expression options.");
                     // Binary operators
                     if (val_stack.size() < 2)
                         throw std::runtime_error("Invalid expression syntax.");
@@ -628,27 +598,6 @@ private:
             return true;
         }
         IAssemblyPolicy& m_policy;
-
-        bool check_binary_operator_allowed(const std::string& op) const {
-            const auto& expr_options = m_policy.get_compilation_context().options.expressions;
-            if ((op == "+" || op == "-" || op == "*" || op == "/" || op == "%") && !expr_options.allow_arithmetic)
-                return false;
-            if ((op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>") && !expr_options.allow_bitwise)
-                return false;
-            if ((op == "&&" || op == "||") && !expr_options.allow_logical)
-                return false;
-            if ((op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=") && !expr_options.allow_comparison)
-                return false;
-            return true;
-        }
-
-        bool check_unary_operator_allowed(const std::string& op) const {
-            const auto& expr_options = m_policy.get_compilation_context().options.expressions;
-            if (op == "_" || op == "+_") return expr_options.allow_arithmetic;
-            if (op == "~_") return expr_options.allow_bitwise;
-            if (op == "!_") return expr_options.allow_logical;
-            return false;
-        }
     };
     //Policy
     struct CompilationContext {
