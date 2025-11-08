@@ -348,9 +348,7 @@ private:
         }
     private:
         enum class OperatorType {
-            // Unary
             UNARY_MINUS, UNARY_PLUS, LOGICAL_NOT, BITWISE_NOT,
-            // Binary
             ADD, SUB, MUL, DIV, MOD,
             BITWISE_AND, BITWISE_OR, BITWISE_XOR,
             SHL, SHR,
@@ -364,7 +362,6 @@ private:
             bool left_assoc;
             std::function<int32_t(int32_t, int32_t)> apply;
         };
-
         struct Token {
             enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN };
             Type type = Type::FUNCTION;
@@ -377,12 +374,12 @@ private:
     private:
         static const std::map<std::string, OperatorInfo>& get_operator_map() {
             static const std::map<std::string, OperatorInfo> op_map = {
-                // Unary
+                // unary
                 {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](int32_t a, int32_t) { return -a; }}},
-                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](int32_t a, int32_t) { return ~a; }}}, // Same as NOT
-                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](int32_t a, int32_t) { return !a; }}}, // Same as NOT for logical
+                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](int32_t a, int32_t) { return ~a; }}}, 
+                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](int32_t a, int32_t) { return !a; }}},
                 {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](int32_t a, int32_t) { return ~a; }}},
-                // Binary
+                // binary
                 {"*",  {OperatorType::MUL,         9, false, true,  [](int32_t a, int32_t b) { if (b==0) throw std::runtime_error("Division by zero."); return a * b; }}},
                 {"/",  {OperatorType::DIV,         9, false, true,  [](int32_t a, int32_t b) { if (b==0) throw std::runtime_error("Division by zero."); return a / b; }}},
                 {"%",  {OperatorType::MOD,         9, false, true,  [](int32_t a, int32_t b) { if (b==0) throw std::runtime_error("Division by zero."); return a % b; }}},
@@ -452,67 +449,118 @@ private:
             // unary plus is a no-op, so we just skip it.
             return true;
         };
+
+        bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
+                tokens.push_back({Token::Type::NUMBER, "", (int32_t)expr[i+1]});
+                i += 2;
+                return true;
+            }
+            return false;
+        }
+
+        bool parse_function(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (isalpha(expr[i])) {
+                size_t start_pos = i;
+                while (i < expr.length() && isalnum(expr[i])) {
+                    i++;
+                }
+                std::string potential_func = expr.substr(start_pos, i - start_pos);
+                StringHelper::to_upper(potential_func);
+                if (potential_func == "HIGH" || potential_func == "LOW") {
+                    tokens.push_back({Token::Type::FUNCTION, potential_func, 0, 12, false});
+                    i--;
+                    return true;
+                }
+                i = start_pos;
+            }
+            return false;
+        }
+
+        bool parse_symbol(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (isalpha(expr[i]) || expr[i] == '_' || expr[i] == '.') {
+                size_t j = i;
+                while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.'))
+                    j++;
+                std::string symbol_str = expr.substr(i, j - i);
+                std::string upper_symbol = symbol_str;
+                StringHelper::to_upper(upper_symbol);
+                if (auto op_it = get_operator_map().find(upper_symbol); op_it != get_operator_map().end()) {
+                    tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
+                } else {
+                    tokens.push_back({Token::Type::SYMBOL, symbol_str});
+                }
+                i = j - 1;
+                return true;
+            }
+            return false;
+        }
+
+        bool parse_number(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (isdigit(expr[i]) || (expr[i] == '0' && i + 1 < expr.length() && (expr[i+1] == 'x' || expr[i+1] == 'X'))) {
+                size_t j = i;
+                if (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X")
+                    j += 2;
+                while (j < expr.length() && isalnum(expr[j]))
+                    j++;
+                char last_char = toupper(expr[j-1]);
+                if (j < expr.length() && (last_char != 'B' && last_char != 'H') && (expr[j] == 'h' || expr[j] == 'H' || expr[j] == 'b' || expr[j] == 'B'))
+                    j++;
+                int32_t val;
+                if (StringHelper::is_number(expr.substr(i, j - i), val)) {
+                    tokens.push_back({Token::Type::NUMBER, "", val});
+                } else {
+                    throw std::runtime_error("Invalid number in expression: " + expr.substr(i, j - i));
+                }
+                i = j - 1;
+                return true;
+            }
+            return false;
+        }
+
+        bool parse_operator(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            char c = expr[i];
+            if (!is_binary_operator_char(c) && !is_unary_operator_char(c)) {
+                return false;
+            }
+
+            bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
+            if (is_unary && is_unary_operator_char(c)) {
+                handle_unary_operator(c, tokens);
+            } else {
+                std::string op_str = get_multichar_operator(expr, i);
+                auto op_it = get_operator_map().find(op_str);
+                if (op_it != get_operator_map().end()) {
+                    tokens.push_back({Token::Type::OPERATOR, op_str, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
+                } else {
+                    // Fallback for old logic if needed, though should not be necessary with the current map.
+                    int precedence = get_operator_precedence(op_str);
+                    if (precedence != -1) {
+                        tokens.push_back({Token::Type::OPERATOR, op_str, 0, precedence, true});
+                    } else
+                        throw std::runtime_error("Unknown operator: " + op_str);
+                }
+            }
+            return true;
+        }
+
         std::vector<Token> tokenize_expression(const std::string& expr) const {
             std::vector<Token> tokens;
             for (size_t i = 0; i < expr.length(); ++i) {
                 char c = expr[i];
                 if (isspace(c))
                     continue;
-                if (c == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
-                    tokens.push_back({Token::Type::NUMBER, "", (int32_t)expr[i+1]});
-                    i += 2;
-                    continue;
-                } else if (isalpha(c) || c == '_' || c == '.') { // Allow symbols to start with a dot
-                    size_t j = i;
-                    while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.'))
-                        j++;
-                    std::string symbol_str = expr.substr(i, j - i);
-                    std::string upper_symbol = symbol_str;
-                    StringHelper::to_upper(upper_symbol);
-                    auto op_it = get_operator_map().find(upper_symbol);
-                    if (op_it != get_operator_map().end()) {
-                        tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
-                    }
-                    else if (upper_symbol == "HIGH" || upper_symbol == "LOW") {
-                        tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0, 12, false});
-                    }
-                    else
-                        tokens.push_back({Token::Type::SYMBOL, symbol_str});
-                    i = j - 1;
-                } else if (c == '$')
+
+                if (parse_char_literal(expr, i, tokens)) continue;
+                if (parse_function(expr, i, tokens)) continue;
+                if (parse_symbol(expr, i, tokens)) continue;
+                if (c == '$') {
                     tokens.push_back({Token::Type::SYMBOL, "$"});
-                else if (isdigit(c) || (c == '0' && (expr[i+1] == 'x' || expr[i+1] == 'X'))) { // Number
-                    size_t j = i;
-                    if (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X")
-                        j += 2;
-                    while (j < expr.length() && isalnum(expr[j]))
-                        j++;
-                    char last_char = toupper(expr[j-1]);
-                    if (j < expr.length() && (last_char != 'B' && last_char != 'H') && (expr[j] == 'h' || expr[j] == 'H' || expr[j] == 'b' || expr[j] == 'B'))
-                        j++;
-                    int32_t val;
-                    if (StringHelper::is_number(expr.substr(i, j - i), val)) {
-                        tokens.push_back({Token::Type::NUMBER, "", val});
-                    } else
-                         throw std::runtime_error("Invalid number in expression: " + expr.substr(i, j - i));
-                    i = j - 1;
-                } else if (is_binary_operator_char(c) || is_unary_operator_char(c)) {
-                    bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
-                    if (is_unary && is_unary_operator_char(c)) {
-                        handle_unary_operator(c, tokens);
-                    } else {
-                        std::string op_str = get_multichar_operator(expr, i);
-                        int precedence = get_operator_precedence(op_str);
-                        auto op_it = get_operator_map().find(op_str);
-                        if (op_it != get_operator_map().end()) {
-                             tokens.push_back({Token::Type::OPERATOR, op_str, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
-                        }
-                        else if (precedence != -1) { // Fallback for old logic if needed, though should not be
-                            tokens.push_back({Token::Type::OPERATOR, op_str, 0, precedence, true});
-                        } else
-                            throw std::runtime_error("Unknown operator: " + op_str);
-                    }
-                }else if (c == '(')
+                    continue;
+                }
+                if (parse_number(expr, i, tokens)) continue;
+                if (parse_operator(expr, i, tokens)) continue;
+                if (c == '(')
                     tokens.push_back({Token::Type::LPAREN, "("});
                 else if (c == ')')
                     tokens.push_back({Token::Type::RPAREN, ")"});
