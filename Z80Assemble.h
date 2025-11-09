@@ -427,19 +427,6 @@ private:
             }
             return false;
         }
-        bool parse_function(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
-            size_t start_pos = i;
-            while (i < expr.length() && isalnum(expr[i])) i++;
-            std::string name = expr.substr(start_pos, i - start_pos);
-            StringHelper::to_upper(name);
-            if (get_function_map().count(name)) {
-                tokens.push_back({Token::Type::FUNCTION, name, 0, 12, false});
-                i--;
-                return true;
-            }
-            i = start_pos;
-            return false;
-        }
         bool parse_string_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '"') {
                 size_t end_pos = expr.find('"', i + 1);
@@ -461,7 +448,9 @@ private:
             std::string symbol_str = expr.substr(i, j - i);
             std::string upper_symbol = symbol_str;
             StringHelper::to_upper(upper_symbol);
-            if (auto op_it = get_operator_map().find(upper_symbol); op_it != get_operator_map().end())
+            if (get_function_map().count(upper_symbol))
+                tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0, 12, false});
+            else if (auto op_it = get_operator_map().find(upper_symbol); op_it != get_operator_map().end())
                 tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
             else
                 tokens.push_back({Token::Type::SYMBOL, symbol_str});
@@ -520,8 +509,6 @@ private:
                 if (parse_string_literal(expr, i, tokens))
                     continue;
                 if (parse_char_literal(expr, i, tokens))
-                    continue;
-                if (parse_function(expr, i, tokens))
                     continue;
                 if (parse_symbol(expr, i, tokens))
                     continue;
