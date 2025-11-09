@@ -1385,6 +1385,84 @@ TEST_CASE(ExpressionOperators) {
     ASSERT_COMPILE_FAILS("LD A, 10 + * 2"); // Invalid syntax
 }
 
+void ASSERT_RAND_IN_RANGE(const std::string& asm_code, int min_val, int max_val) {
+    Z80DefaultBus bus;
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    bool success = assembler.compile("main.asm", 0x0000);
+    if (!success) {
+        std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
+        tests_failed++;
+        return;
+    }
+
+    auto blocks = assembler.get_blocks();
+    if (blocks.empty() || blocks[0].size == 0) {
+        std::cerr << "Assertion failed: No code generated for '" << asm_code << "'\n";
+        tests_failed++;
+        return;
+    }
+
+    uint8_t generated_value = bus.peek(blocks[0].start_address);
+    if (generated_value >= min_val && generated_value <= max_val) {
+        tests_passed++;
+    } else {
+        std::cerr << "Assertion failed: RAND value out of range for '" << asm_code << "'\n";
+        std::cerr << "  Expected range: [" << min_val << ", " << max_val << "], Got: " << (int)generated_value << "\n";
+        tests_failed++;
+    }
+}
+
+void reset_rand_seed() {
+    // This is a bit of a hack. Since the random generator is static inside a lambda,
+    // we can't easily reset it. To get a fresh sequence for tests, we compile
+    // a dummy expression that re-initializes the static generator.
+    Z80DefaultBus bus;
+    MockSourceProvider source_provider;
+    source_provider.add_source("main.asm", "DB RAND(0,0)");
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    assembler.compile("main.asm");
+}
+
+TEST_CASE(MathFunctionsInExpressions) {
+    // Trigonometric function tests (results are cast to int32_t)
+    ASSERT_CODE("LD A, SIN(0)", {0x3E, 0});
+    ASSERT_CODE("LD A, COS(0)", {0x3E, 1});
+    ASSERT_CODE("LD A, TAN(0)", {0x3E, 0});
+    ASSERT_CODE("LD A, ROUND(SIN(3.1415926535 / 2))", {0x3E, 1}); // sin(pi/2)
+    ASSERT_CODE("LD A, ROUND(COS(3.1415926535))", {0x3E, (uint8_t)-1}); // cos(pi)
+    ASSERT_CODE("LD A, ASIN(1)", {0x3E, 1}); // asin(1) ~= 1.57, rzutowane na 1
+    ASSERT_CODE("LD A, ACOS(1)", {0x3E, 0});
+    ASSERT_CODE("LD A, ATAN(1)", {0x3E, 0}); // atan(1) ~= 0.785, rzutowane na 0
+    ASSERT_CODE("LD A, ATAN2(1, 0)", {0x3E, 1}); // atan2(1,0) ~= 1.57, rzutowane na 1
+
+    // Testy funkcji potęgowych i logarytmicznych
+    ASSERT_CODE("LD A, ABS(-123.0)", {0x3E, 123});
+    ASSERT_CODE("LD A, POW(2, 7)", {0x3E, 128});
+    ASSERT_CODE("LD A, SQRT(64)", {0x3E, 8});
+    ASSERT_CODE("LD A, LOG(1)", {0x3E, 0}); // log naturalny
+    ASSERT_CODE("LD A, LOG10(1000)", {0x3E, 3});
+    ASSERT_CODE("LD A, LOG2(256)", {0x3E, 8});
+    ASSERT_CODE("LD A, EXP(0)", {0x3E, 1});
+
+    // Rounding function tests
+    ASSERT_CODE("LD A, FLOOR(9.9)", {0x3E, 9});
+    ASSERT_CODE("LD A, CEIL(9.1)", {0x3E, 10});
+    ASSERT_CODE("LD A, ROUND(9.5)", {0x3E, 10});
+    ASSERT_CODE("LD A, ROUND(9.4)", {0x3E, 9});
+
+    // Test random function (it's deterministic due to a fixed seed).
+    // We just check if the value is within the expected range.
+    reset_rand_seed();
+    ASSERT_RAND_IN_RANGE("DB RAND(1, 10)", 1, 10);
+    ASSERT_RAND_IN_RANGE("DB RAND(1, 10)", 1, 10); // Check the next value in the sequence
+    ASSERT_RAND_IN_RANGE("DB RAND(50, 100)", 50, 100);
+
+    // Complex expression with functions
+    ASSERT_CODE("LD A, SQRT(POW(3,2) + POW(4,2))", {0x3E, 5}); // SQRT(9+16) = SQRT(25) = 5
+}
+
 TEST_CASE(FloatingPointAndVariadicExpressions) {
     // Test floating point numbers in expressions
     ASSERT_CODE("LD A, 3.14 * 2", {0x3E, 6}); // 6.28 is truncated to 6
