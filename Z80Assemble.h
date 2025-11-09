@@ -416,12 +416,6 @@ private:
             return op_map;
         }
         static const std::map<std::string, FunctionInfo>& get_function_map() {
-            static const std::map<std::string, double> const_map = {
-                {"PI",    3.14159265358979323846},
-                {"E",     2.71828182845904523536},
-                {"TRUE",  1.0},
-                {"FALSE", 0.0}
-            };
             static const std::map<std::string, FunctionInfo> func_map = {
                 {"HIGH", {1, [](const std::vector<double>& args) { return ((int32_t)args[0] >> 8) & 0xFF; }}},
                 {"LOW",  {1, [](const std::vector<double>& args) { return (int32_t)args[0] & 0xFF; }}},
