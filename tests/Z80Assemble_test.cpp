@@ -1430,8 +1430,8 @@ TEST_CASE(MathFunctionsInExpressions) {
     ASSERT_CODE("LD A, SIN(0)", {0x3E, 0});
     ASSERT_CODE("LD A, COS(0)", {0x3E, 1});
     ASSERT_CODE("LD A, TAN(0)", {0x3E, 0});
-    ASSERT_CODE("LD A, ROUND(SIN(3.1415926535 / 2))", {0x3E, 1}); // sin(pi/2)
-    ASSERT_CODE("LD A, ROUND(COS(3.1415926535))", {0x3E, (uint8_t)-1}); // cos(pi)
+    ASSERT_CODE("LD A, ROUND(SIN(MATH_PI / 2))", {0x3E, 1}); // sin(pi/2)
+    ASSERT_CODE("LD A, ROUND(COS(MATH_PI))", {0x3E, (uint8_t)-1}); // cos(pi)
     ASSERT_CODE("LD A, ASIN(1)", {0x3E, 1}); // asin(1) ~= 1.57, rzutowane na 1
     ASSERT_CODE("LD A, ACOS(1)", {0x3E, 0});
     ASSERT_CODE("LD A, ATAN(1)", {0x3E, 0}); // atan(1) ~= 0.785, rzutowane na 0
@@ -1461,6 +1461,54 @@ TEST_CASE(MathFunctionsInExpressions) {
 
     // Complex expression with functions
     ASSERT_CODE("LD A, SQRT(POW(3,2) + POW(4,2))", {0x3E, 5}); // SQRT(9+16) = SQRT(25) = 5
+
+    // Test built-in constants
+    ASSERT_CODE("LD A, TRUE", {0x3E, 1});
+    ASSERT_CODE("LD A, FALSE", {0x3E, 0});
+    ASSERT_CODE("LD A, MATH_PI", {0x3E, 3}); // PI (3.14...) is truncated to 3
+    ASSERT_CODE("LD A, MATH_E", {0x3E, 2});  // E (2.71...) is truncated to 2
+    ASSERT_CODE("LD A, ROUND(LOG(MATH_E))", {0x3E, 1});
+    ASSERT_CODE("LD A, 5 * TRUE", {0x3E, 5});
+}
+
+TEST_CASE(CaseSensitivity) {
+    // 1. Built-in functions and constants are case-insensitive.
+    // Functions
+    ASSERT_CODE("LD A, ROUND(9.5)", {0x3E, 10});
+    ASSERT_CODE("LD A, round(9.5)", {0x3E, 10});
+    ASSERT_CODE("LD A, RoUnD(9.5)", {0x3E, 10});
+    ASSERT_CODE("LD A, SIN(0)", {0x3E, 0});
+    ASSERT_CODE("LD A, sin(0)", {0x3E, 0});
+    ASSERT_CODE("LD A, sIn(0)", {0x3E, 0});
+
+    // Constants
+    ASSERT_CODE("LD A, TRUE", {0x3E, 1});
+    ASSERT_CODE("LD A, true", {0x3E, 1});
+    ASSERT_CODE("LD A, TrUe", {0x3E, 1});
+    ASSERT_CODE("LD A, MATH_PI", {0x3E, 3});
+    ASSERT_CODE("LD A, math_pi", {0x3E, 3});
+    ASSERT_CODE("LD A, MaTh_Pi", {0x3E, 3});
+
+    // 2. User-defined symbols (EQU, SET, labels) are case-sensitive.
+    // EQU
+    ASSERT_CODE(R"(
+        MyConst EQU 123
+        LD A, MyConst
+    )", {0x3E, 123});
+    ASSERT_COMPILE_FAILS("MyConst EQU 123\nLD A, myconst");
+    ASSERT_COMPILE_FAILS("MyConst EQU 123\nLD A, MYCONST");
+
+    // SET
+    ASSERT_CODE(R"(
+        MyVar SET 55
+        LD A, MyVar
+    )", {0x3E, 55});
+    ASSERT_COMPILE_FAILS("MyVar SET 55\nLD A, myvar");
+
+    // Labels
+    ASSERT_CODE("MyLabel: NOP\nJP MyLabel", {0x00, 0xC3, 0x00, 0x00});
+    ASSERT_COMPILE_FAILS("MyLabel: NOP\nJP mylabel");
+    ASSERT_COMPILE_FAILS("MyLabel: NOP\nJP MYLABEL");
 }
 
 TEST_CASE(FloatingPointAndVariadicExpressions) {
