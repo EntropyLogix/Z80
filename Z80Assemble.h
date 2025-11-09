@@ -414,8 +414,8 @@ private:
         }
         static const std::map<std::string, FunctionInfo>& get_function_map() {
             static const std::map<std::string, FunctionInfo> func_map = {
-                {"HIGH", {1, [](const std::vector<double>& args) { return (static_cast<int32_t>(args[0]) >> 8) & 0xFF; }}},
-                {"LOW",  {1, [](const std::vector<double>& args) { return static_cast<int32_t>(args[0]) & 0xFF; }}},
+                {"HIGH", {1, [](const std::vector<double>& args) { return ((int32_t)args[0] >> 8) & 0xFF; }}},
+                {"LOW",  {1, [](const std::vector<double>& args) { return (int32_t)args[0] & 0xFF; }}},
                 {"MIN",  {-2, [](const std::vector<double>& args) {
                     if (args.size() < 2) throw std::runtime_error("MIN requires at least two arguments.");
                     double result = args[0];
@@ -433,7 +433,7 @@ private:
             };
             return func_map;
         }
-        bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+        bool parse_char_literal(const std::string& expr, int& i, std::vector<Token>& tokens) const {
             if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
                 tokens.push_back({Token::Type::CHAR_LITERAL, "", (double)(expr[i+1])});
                 i += 2;
@@ -441,7 +441,7 @@ private:
             }
             return false;
         }
-        bool parse_string_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+        bool parse_string_literal(const std::string& expr, int& i, std::vector<Token>& tokens) const {
             if (expr[i] == '"') {
                 size_t end_pos = expr.find('"', i + 1);
                 if (end_pos != std::string::npos) {
@@ -452,7 +452,7 @@ private:
             }
             return false;
         }
-        bool parse_symbol(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+        bool parse_symbol(const std::string& expr, int& i, std::vector<Token>& tokens) const {
             if (expr[i] == '$') {
                 tokens.push_back({Token::Type::SYMBOL, "$"});
                 return true;
@@ -460,21 +460,26 @@ private:
             if (!isalpha(expr[i]) && expr[i] != '_' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
                 return false;
             size_t j = i;
-            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || (expr[j] == '.' && j > i)))
+            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.')) {
+                if (expr[j] == '.' && j == i && (j + 1 >= expr.length() || !isalnum(expr[j+1]))) break;
                 j++;
+            }
             std::string symbol_str = expr.substr(i, j - i);
             std::string upper_symbol = symbol_str;
             StringHelper::to_upper(upper_symbol);
             if (get_function_map().count(upper_symbol))
                 tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0.0, 12, false});
-            else if (auto op_it = get_operator_map().find(upper_symbol); op_it != get_operator_map().end())
-                tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
-            else
-                tokens.push_back({Token::Type::SYMBOL, symbol_str});
+            else {
+                auto op_it = get_operator_map().find(upper_symbol);
+                if (op_it != get_operator_map().end())
+                    tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
+                else
+                    tokens.push_back({Token::Type::SYMBOL, symbol_str});
+            }
             i = j - 1;
             return true;
         }
-        bool parse_number(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+        bool parse_number(const std::string& expr, int& i, std::vector<Token>& tokens) const {
             if (isdigit(expr[i]) || (expr[i] == '.' && i + 1 < expr.length() && isdigit(expr[i + 1]))) {
                 size_t j = i;
                 bool has_dot = false;
@@ -492,7 +497,7 @@ private:
                     }
                     int32_t val;
                     if (StringHelper::is_number(expr.substr(i, j - i), val)) {
-                        tokens.push_back({Token::Type::NUMBER, "", static_cast<double>(val)});
+                        tokens.push_back({Token::Type::NUMBER, "", (double)(val)});
                         i = j - 1;
                         return true;
                     }
@@ -511,7 +516,7 @@ private:
             }
             return false;
         }
-        bool parse_operator(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+        bool parse_operator(const std::string& expr, int& i, std::vector<Token>& tokens) const {
             std::string op_str;
             if (i + 1 < expr.length()) {
                 op_str = expr.substr(i, 2);
@@ -534,7 +539,7 @@ private:
             i += op_str.length() - 1;
             return true;
         }
-        bool parse_parens(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+        bool parse_parens(const std::string& expr, int& i, std::vector<Token>& tokens) const {
             if (expr[i] == '(') {
                 tokens.push_back({Token::Type::LPAREN, "("});
                 return true;
@@ -545,7 +550,7 @@ private:
             }
             return false;
         }
-        bool parse_comma(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+        bool parse_comma(const std::string& expr, int& i, std::vector<Token>& tokens) const {
             if (expr[i] == ',') {
                 tokens.push_back({Token::Type::COMMA, ","});
                 return true;
@@ -554,7 +559,7 @@ private:
         }
         std::vector<Token> tokenize_expression(const std::string& expr) const {
             std::vector<Token> tokens;
-            for (size_t i = 0; i < expr.length(); ++i) {
+            for (int i = 0; i < expr.length(); ++i) {
                 char c = expr[i];
                 if (isspace(c))
                     continue;

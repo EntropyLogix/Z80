@@ -1385,6 +1385,48 @@ TEST_CASE(ExpressionOperators) {
     ASSERT_COMPILE_FAILS("LD A, 10 + * 2"); // Invalid syntax
 }
 
+TEST_CASE(FloatingPointAndVariadicExpressions) {
+    // Test floating point numbers in expressions
+    ASSERT_CODE("LD A, 3.14 * 2", {0x3E, 6}); // 6.28 is truncated to 6
+    ASSERT_CODE("LD A, 10.5 - 2.5", {0x3E, 8});
+    ASSERT_CODE("LD A, 7.5 + 2", {0x3E, 9});
+    ASSERT_CODE("LD A, 10.0 / 4.0", {0x3E, 2}); // 2.5 is truncated to 2
+    ASSERT_CODE("DB 1.5 * 4", {6});
+
+    // Test MIN() function with variadic arguments
+    ASSERT_CODE("LD A, MIN(10, 20)", {0x3E, 10});
+    ASSERT_CODE("LD A, MIN(30, 15, 25)", {0x3E, 15});
+    ASSERT_CODE("LD A, MIN(5, 2, 8, 3, 9)", {0x3E, 2});
+
+    // Test MAX() function with variadic arguments
+    ASSERT_CODE("LD A, MAX(10, 20)", {0x3E, 20});
+    ASSERT_CODE("LD A, MAX(30, 15, 25)", {0x3E, 30});
+    ASSERT_CODE("LD A, MAX(5, 2, 8, 3, 9)", {0x3E, 9});
+
+    // Test MIN/MAX with floating point and mixed arguments
+    ASSERT_CODE("LD A, MIN(3.14, 8.5, 2.9)", {0x3E, 2}); // 2.9 is truncated to 2
+    ASSERT_CODE("LD A, MAX(3.14, 8.5, 2.9)", {0x3E, 8}); // 8.5 is truncated to 8
+    ASSERT_CODE("LD A, MIN(10, 3.5, 12)", {0x3E, 3});
+    ASSERT_CODE("LD A, MAX(10, 3.5, 12)", {0x3E, 12});
+
+    // Test MIN/MAX with expressions as arguments
+    ASSERT_CODE("LD A, MIN(2*5, 3+3, 20/2)", {0x3E, 6}); // MIN(10, 6, 10)
+    ASSERT_CODE("LD A, MAX(2*5, 3+3, 20/2)", {0x3E, 10}); // MAX(10, 6, 10)
+
+    // Test MIN/MAX with functions as arguments
+    ASSERT_CODE("LD A, MIN(HIGH(0x1234), LOW(0x5678), 50)", {0x3E, 18}); // MIN(18, 120, 50)
+    ASSERT_CODE("LD A, MAX(HIGH(0x1234), LOW(0x5678), 50)", {0x3E, 120}); // MAX(18, 120, 50)
+
+    // Test MIN/MAX with the problematic expression from the bug report
+    ASSERT_CODE("LD A, MIN(HIGH(0x1234), LOW(0x1234), 3.14*8)", {0x3E, 18}); // MIN(18, 52, 25)
+
+    // Test error cases for MIN/MAX
+    ASSERT_COMPILE_FAILS("LD A, MIN()"); // No arguments
+    ASSERT_COMPILE_FAILS("LD A, MIN(10)"); // One argument
+    ASSERT_COMPILE_FAILS("LD A, MAX()"); // No arguments
+    ASSERT_COMPILE_FAILS("LD A, MAX(10)"); // One argument
+}
+
 TEST_CASE(CommentOptions) {
     Z80Assembler<Z80DefaultBus>::Options options;
 
