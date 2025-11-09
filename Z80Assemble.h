@@ -358,7 +358,9 @@ private:
             std::function<int32_t(int32_t, int32_t)> apply;
         };
         struct FunctionInfo {
-            int num_args;
+            // if num_args is positive, it's a fixed number of arguments.
+            // if negative, it's a variadic function with at least -num_args arguments.
+            int num_args; 
             std::function<int32_t(const std::vector<int32_t>&)> apply;
         };
         struct Token {
@@ -415,7 +417,21 @@ private:
         static const std::map<std::string, FunctionInfo>& get_function_map() {
             static const std::map<std::string, FunctionInfo> func_map = {
                 {"HIGH", {1, [](const std::vector<int32_t>& args) { return (args[0] >> 8) & 0xFF; }}},
-                {"LOW",  {1, [](const std::vector<int32_t>& args) { return args[0] & 0xFF; }}}
+                {"LOW",  {1, [](const std::vector<int32_t>& args) { return args[0] & 0xFF; }}},
+                {"MIN",  {-2, [](const std::vector<int32_t>& args) {
+                    if (args.size() < 2) throw std::runtime_error("MIN requires at least two arguments.");
+                    int32_t result = args[0];
+                    for (size_t i = 1; i < args.size(); ++i)
+                        result = std::min(result, args[i]);
+                    return result;
+                }}},
+                {"MAX",  {-2, [](const std::vector<int32_t>& args) {
+                    if (args.size() < 2) throw std::runtime_error("MAX requires at least two arguments.");
+                    int32_t result = args[0];
+                    for (size_t i = 1; i < args.size(); ++i)
+                        result = std::max(result, args[i]);
+                    return result;
+                }}}
             };
             return func_map;
         }
@@ -548,6 +564,7 @@ private:
         std::vector<Token> shunting_yard(const std::vector<Token>& infix) const {
             std::vector<Token> postfix;
             std::vector<Token> op_stack;
+            std::vector<int> arg_counts;
             for (const auto& token : infix) {
                 switch (token.type) {
                     case Token::Type::NUMBER:
@@ -556,6 +573,7 @@ private:
                         postfix.push_back(token);
                         break;
                     case Token::Type::FUNCTION:
+                        arg_counts.push_back(0);
                         op_stack.push_back(token);
                         break;
                     case Token::Type::OPERATOR:
@@ -567,6 +585,8 @@ private:
                         op_stack.push_back(token);
                         break;
                     case Token::Type::LPAREN:
+                        if (!op_stack.empty() && op_stack.back().type == Token::Type::FUNCTION)
+                            arg_counts.back() = 1;
                         op_stack.push_back(token);
                         break;
                     case Token::Type::RPAREN:
@@ -578,7 +598,11 @@ private:
                             throw std::runtime_error("Mismatched parentheses in expression.");
                         op_stack.pop_back();
                         if (!op_stack.empty() && op_stack.back().type == Token::Type::FUNCTION) {
-                            postfix.push_back(op_stack.back());
+                            Token func_token = op_stack.back();
+                            if (arg_counts.back() > 0)
+                                func_token.n_val = arg_counts.back();
+                            postfix.push_back(func_token);
+                            arg_counts.pop_back();
                             op_stack.pop_back();
                         }
                         break;
@@ -588,6 +612,8 @@ private:
                             op_stack.pop_back();
                         }
                         if (op_stack.empty()) throw std::runtime_error("Comma outside of function arguments or mismatched parentheses.");
+                        if (!arg_counts.empty())
+                            arg_counts.back()++;
                         break;
                     default: break;
                 }
@@ -615,13 +641,24 @@ private:
                     if (it == get_function_map().end())
                         throw std::runtime_error("Unknown function in RPN evaluation: " + token.s_val);
                     const auto& func_info = it->second;
-                    if (val_stack.size() < (size_t)func_info.num_args)
-                        throw std::runtime_error("Not enough arguments for function " + token.s_val);
+                    int num_args_provided = token.n_val;
+                    if (func_info.num_args > 0) {
+                        if (num_args_provided != func_info.num_args)
+                            throw std::runtime_error("Function " + token.s_val + " expects " + std::to_string(func_info.num_args) + " arguments, but got " + std::to_string(num_args_provided));
+                    } else { // variadic
+                        int min_args = -func_info.num_args;
+                        if (num_args_provided < min_args)
+                            throw std::runtime_error("Function " + token.s_val + " expects at least " + std::to_string(min_args) + " arguments, but got " + std::to_string(num_args_provided));
+                    }
+                    if (val_stack.size() < (size_t)num_args_provided)
+                        throw std::runtime_error("Not enough values on stack for function " + token.s_val);
                     std::vector<int32_t> args;
-                    args.reserve(func_info.num_args);
-                    for (int i = 0; i < func_info.num_args; ++i) {
-                        args.insert(args.begin(), val_stack.back());
-                        val_stack.pop_back();
+                    if (num_args_provided > 0) {
+                        args.resize(num_args_provided);
+                        for (int i = num_args_provided - 1; i >= 0; --i) {
+                            args[i] = val_stack.back();
+                            val_stack.pop_back();
+                        }
                     }
                     val_stack.push_back(func_info.apply(args));
                 } else if (token.type == Token::Type::OPERATOR) {
@@ -630,7 +667,6 @@ private:
                         throw std::runtime_error("Unknown operator in RPN evaluation: " + token.s_val);
                     
                     const auto& op_info = it->second;
-
                     if (op_info.is_unary) {
                         if (val_stack.size() < 1) throw std::runtime_error("Invalid expression syntax for unary minus.");
                         int32_t v = val_stack.back();
@@ -2409,10 +2445,15 @@ private:
                     if (!ops.empty()) {
                         std::string current_operand;
                         bool in_string = false;
+                        int paren_level = 0;
                         for (char c : ops) {
                             if (c == '"')
                                 in_string = !in_string;
-                            if (c == ',' && !in_string) {
+                            else if (c == '(' && !in_string)
+                                paren_level++;
+                            else if (c == ')' && !in_string)
+                                paren_level--;
+                            if (c == ',' && !in_string && paren_level == 0) {
                                 StringHelper::trim_whitespace(current_operand);
                                 if (!current_operand.empty())
                                     operands.push_back(operand_parser.parse(current_operand, mnemonic));
