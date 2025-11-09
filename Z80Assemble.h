@@ -21,13 +21,16 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <map>
 #include <functional>
+#include <random>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -429,7 +432,29 @@ private:
                     for (size_t i = 1; i < args.size(); ++i)
                         result = std::max(result, args[i]);
                     return result;
-                }}}
+                }}},
+                {"SIN",   {1, [](const std::vector<double>& args) { return sin(args[0]); }}},
+                {"COS",   {1, [](const std::vector<double>& args) { return cos(args[0]); }}},
+                {"TAN",   {1, [](const std::vector<double>& args) { return tan(args[0]); }}},
+                {"ASIN",  {1, [](const std::vector<double>& args) { return asin(args[0]); }}},
+                {"ACOS",  {1, [](const std::vector<double>& args) { return acos(args[0]); }}},
+                {"ATAN",  {1, [](const std::vector<double>& args) { return atan(args[0]); }}},
+                {"ATAN2", {2, [](const std::vector<double>& args) { return atan2(args[0], args[1]); }}},
+                {"ABS",   {1, [](const std::vector<double>& args) { return fabs(args[0]); }}},
+                {"POW",   {2, [](const std::vector<double>& args) { return pow(args[0], args[1]); }}},
+                {"SQRT",  {1, [](const std::vector<double>& args) { return sqrt(args[0]); }}},
+                {"LOG",   {1, [](const std::vector<double>& args) { return log(args[0]); }}},
+                {"LOG10", {1, [](const std::vector<double>& args) { return log10(args[0]); }}},
+                {"LOG2",  {1, [](const std::vector<double>& args) { return log2(args[0]); }}},
+                {"EXP",   {1, [](const std::vector<double>& args) { return exp(args[0]); }}},
+                {"RAND",  {2, [](const std::vector<double>& args) {
+                    static std::mt19937 gen(0); // Seed with 0 for deterministic results
+                    std::uniform_int_distribution<> distrib((int)args[0], (int)args[1]);
+                    return (double)distrib(gen);
+                }}},
+                {"FLOOR", {1, [](const std::vector<double>& args) { return floor(args[0]); }}},
+                {"CEIL",  {1, [](const std::vector<double>& args) { return ceil(args[0]); }}},
+                {"ROUND", {1, [](const std::vector<double>& args) { return round(args[0]); }}}
             };
             return func_map;
         }
