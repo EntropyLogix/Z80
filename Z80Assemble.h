@@ -362,7 +362,7 @@ private:
             std::function<int32_t(const std::vector<int32_t>&)> apply;
         };
         struct Token {
-            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, CHAR_LITERAL, STRING_LITERAL };
+            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, CHAR_LITERAL, STRING_LITERAL, COMMA };
             Type type = Type::FUNCTION;
             std::string s_val;
             int32_t n_val = 0;
@@ -439,12 +439,14 @@ private:
             return false;
         }
         bool parse_symbol(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (expr[i] == '$') {
+                tokens.push_back({Token::Type::SYMBOL, "$"});
+                return true;
+            }
             if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '.')
                 return false;
-
             size_t j = i;
-            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.'))
-                j++;
+            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.')) j++;
             std::string symbol_str = expr.substr(i, j - i);
             std::string upper_symbol = symbol_str;
             StringHelper::to_upper(upper_symbol);
@@ -500,6 +502,24 @@ private:
             i += op_str.length() - 1;
             return true;
         }
+        bool parse_parens(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (expr[i] == '(') {
+                tokens.push_back({Token::Type::LPAREN, "("});
+                return true;
+            }
+            if (expr[i] == ')') {
+                tokens.push_back({Token::Type::RPAREN, ")"});
+                return true;
+            }
+            return false;
+        }
+        bool parse_comma(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (expr[i] == ',') {
+                tokens.push_back({Token::Type::COMMA, ","});
+                return true;
+            }
+            return false;
+        }
         std::vector<Token> tokenize_expression(const std::string& expr) const {
             std::vector<Token> tokens;
             for (size_t i = 0; i < expr.length(); ++i) {
@@ -512,18 +532,14 @@ private:
                     continue;
                 if (parse_symbol(expr, i, tokens))
                     continue;
-                if (c == '$') {
-                    tokens.push_back({Token::Type::SYMBOL, "$"});
-                    continue;
-                }
                 if (parse_number(expr, i, tokens))
                     continue;
                 if (parse_operator(expr, i, tokens))
                     continue;
-                if (c == '(')
-                    tokens.push_back({Token::Type::LPAREN, "("});
-                else if (c == ')')
-                    tokens.push_back({Token::Type::RPAREN, ")"});
+                if (parse_comma(expr, i, tokens))
+                    continue;
+                if (parse_parens(expr, i, tokens))
+                    continue;
                 else
                     throw std::runtime_error("Invalid character in expression: " + std::string(1, c));
             }
@@ -565,6 +581,13 @@ private:
                             postfix.push_back(op_stack.back());
                             op_stack.pop_back();
                         }
+                        break;
+                    case Token::Type::COMMA:
+                        while (!op_stack.empty() && op_stack.back().type != Token::Type::LPAREN) {
+                            postfix.push_back(op_stack.back());
+                            op_stack.pop_back();
+                        }
+                        if (op_stack.empty()) throw std::runtime_error("Comma outside of function arguments or mismatched parentheses.");
                         break;
                     default: break;
                 }
