@@ -223,17 +223,12 @@ private:
             operand.str_val = operand_string;
             std::string upper_operand_string = operand_string;
             StringHelper::to_upper(upper_operand_string);
-            if (is_string_literal(operand_string)) {
-                if (operand_string.length() == 3) {
-                    operand.num_val = (uint8_t)(operand_string[1]);
-                    operand.type = OperandType::CHAR_LITERAL;
-                } else
-                    operand.type = OperandType::STRING_LITERAL;
-                return operand;
-            }
             if (is_char_literal(operand_string)) {
-                operand.num_val = (uint16_t)(operand_string[1]);
+                operand.num_val = (uint8_t)(operand_string[1]);
                 operand.type = OperandType::CHAR_LITERAL;
+                return operand;
+            } else if (is_string_literal(operand_string)) {
+                operand.type = OperandType::STRING_LITERAL;
                 return operand;
             }
             if (upper_operand_string == "(C)") {
@@ -363,7 +358,7 @@ private:
             std::function<int32_t(int32_t, int32_t)> apply;
         };
         struct Token {
-            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, CHAR_LITERAL };
+            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, CHAR_LITERAL, STRING_LITERAL };
             Type type = Type::FUNCTION;
             std::string s_val;
             int32_t n_val = 0;
@@ -437,6 +432,17 @@ private:
             }
             return false;
         }
+        bool parse_string_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (expr[i] == '"') {
+                size_t end_pos = expr.find('"', i + 1);
+                if (end_pos != std::string::npos) {
+                    tokens.push_back({Token::Type::STRING_LITERAL, expr.substr(i, end_pos - i + 1)});
+                    i = end_pos;
+                    return true;
+                }
+            }
+            return false;
+        }
         bool parse_symbol(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (isalpha(expr[i]) || expr[i] == '_' || expr[i] == '.') {
                 size_t j = i;
@@ -502,6 +508,8 @@ private:
             for (size_t i = 0; i < expr.length(); ++i) {
                 char c = expr[i];
                 if (isspace(c))
+                    continue;
+                if (parse_string_literal(expr, i, tokens))
                     continue;
                 if (parse_char_literal(expr, i, tokens))
                     continue;
