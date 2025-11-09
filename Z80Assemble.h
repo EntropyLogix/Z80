@@ -357,6 +357,10 @@ private:
             bool left_assoc;
             std::function<int32_t(int32_t, int32_t)> apply;
         };
+        struct FunctionInfo {
+            int num_args;
+            std::function<int32_t(const std::vector<int32_t>&)> apply;
+        };
         struct Token {
             enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, CHAR_LITERAL, STRING_LITERAL };
             Type type = Type::FUNCTION;
@@ -408,6 +412,13 @@ private:
             };
             return op_map;
         }
+        static const std::map<std::string, FunctionInfo>& get_function_map() {
+            static const std::map<std::string, FunctionInfo> func_map = {
+                {"HIGH", {1, [](const std::vector<int32_t>& args) { return (args[0] >> 8) & 0xFF; }}},
+                {"LOW",  {1, [](const std::vector<int32_t>& args) { return args[0] & 0xFF; }}}
+            };
+            return func_map;
+        }
         bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
                 tokens.push_back({Token::Type::CHAR_LITERAL, "", (int32_t)expr[i+1]});
@@ -417,19 +428,16 @@ private:
             return false;
         }
         bool parse_function(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
-            if (isalpha(expr[i])) {
-                size_t start_pos = i;
-                while (i < expr.length() && isalnum(expr[i]))
-                    i++;
-                std::string potential_func = expr.substr(start_pos, i - start_pos);
-                StringHelper::to_upper(potential_func);
-                if (potential_func == "HIGH" || potential_func == "LOW") {
-                    tokens.push_back({Token::Type::FUNCTION, potential_func, 0, 12, false});
-                    i--;
-                    return true;
-                }
-                i = start_pos;
+            size_t start_pos = i;
+            while (i < expr.length() && isalnum(expr[i])) i++;
+            std::string name = expr.substr(start_pos, i - start_pos);
+            StringHelper::to_upper(name);
+            if (get_function_map().count(name)) {
+                tokens.push_back({Token::Type::FUNCTION, name, 0, 12, false});
+                i--;
+                return true;
             }
+            i = start_pos;
             return false;
         }
         bool parse_string_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
@@ -444,21 +452,21 @@ private:
             return false;
         }
         bool parse_symbol(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
-            if (isalpha(expr[i]) || expr[i] == '_' || expr[i] == '.') {
-                size_t j = i;
-                while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.'))
-                    j++;
-                std::string symbol_str = expr.substr(i, j - i);
-                std::string upper_symbol = symbol_str;
-                StringHelper::to_upper(upper_symbol);
-                if (auto op_it = get_operator_map().find(upper_symbol); op_it != get_operator_map().end())
-                    tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
-                else
-                    tokens.push_back({Token::Type::SYMBOL, symbol_str});
-                i = j - 1;
-                return true;
-            }
-            return false;
+            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '.')
+                return false;
+
+            size_t j = i;
+            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.'))
+                j++;
+            std::string symbol_str = expr.substr(i, j - i);
+            std::string upper_symbol = symbol_str;
+            StringHelper::to_upper(upper_symbol);
+            if (auto op_it = get_operator_map().find(upper_symbol); op_it != get_operator_map().end())
+                tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
+            else
+                tokens.push_back({Token::Type::SYMBOL, symbol_str});
+            i = j - 1;
+            return true;
         }
         bool parse_number(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (isdigit(expr[i]) || (expr[i] == '0' && i + 1 < expr.length() && (expr[i+1] == 'x' || expr[i+1] == 'X'))) {
@@ -593,14 +601,19 @@ private:
                         return false;
                     val_stack.push_back(sum_val);
                 } else if (token.type == Token::Type::FUNCTION) {
-                    if (val_stack.empty())
-                        throw std::runtime_error("Invalid expression: function " + token.s_val + " requires an argument.");
-                    int32_t arg = val_stack.back();
-                    val_stack.pop_back();
-                    if (token.s_val == "HIGH")
-                        val_stack.push_back((arg >> 8) & 0xFF);
-                    else // LOW
-                        val_stack.push_back(arg & 0xFF);
+                    auto it = get_function_map().find(token.s_val);
+                    if (it == get_function_map().end())
+                        throw std::runtime_error("Unknown function in RPN evaluation: " + token.s_val);
+                    const auto& func_info = it->second;
+                    if (val_stack.size() < (size_t)func_info.num_args)
+                        throw std::runtime_error("Not enough arguments for function " + token.s_val);
+                    std::vector<int32_t> args;
+                    args.reserve(func_info.num_args);
+                    for (int i = 0; i < func_info.num_args; ++i) {
+                        args.insert(args.begin(), val_stack.back());
+                        val_stack.pop_back();
+                    }
+                    val_stack.push_back(func_info.apply(args));
                 } else if (token.type == Token::Type::OPERATOR) {
                     auto it = get_operator_map().find(token.s_val);
                     if (it == get_operator_map().end())
