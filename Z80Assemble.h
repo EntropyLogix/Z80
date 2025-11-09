@@ -416,6 +416,12 @@ private:
             return op_map;
         }
         static const std::map<std::string, FunctionInfo>& get_function_map() {
+            static const std::map<std::string, double> const_map = {
+                {"PI",    3.14159265358979323846},
+                {"E",     2.71828182845904523536},
+                {"TRUE",  1.0},
+                {"FALSE", 0.0}
+            };
             static const std::map<std::string, FunctionInfo> func_map = {
                 {"HIGH", {1, [](const std::vector<double>& args) { return ((int32_t)args[0] >> 8) & 0xFF; }}},
                 {"LOW",  {1, [](const std::vector<double>& args) { return (int32_t)args[0] & 0xFF; }}},
@@ -458,6 +464,15 @@ private:
             };
             return func_map;
         }
+        static const std::map<std::string, double>& get_constant_map() {
+            static const std::map<std::string, double> const_map = {
+                {"MATH_PI",    3.14159265358979323846},
+                {"MATH_E",     2.71828182845904523536},
+                {"TRUE",  1.0},
+                {"FALSE", 0.0}
+            };
+            return const_map;
+        }
         bool parse_char_literal(const std::string& expr, int& i, std::vector<Token>& tokens) const {
             if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
                 tokens.push_back({Token::Type::CHAR_LITERAL, "", (double)(expr[i+1])});
@@ -492,9 +507,13 @@ private:
             std::string symbol_str = expr.substr(i, j - i);
             std::string upper_symbol = symbol_str;
             StringHelper::to_upper(upper_symbol);
-            if (get_function_map().count(upper_symbol))
+
+            auto const_it = get_constant_map().find(upper_symbol);
+            if (const_it != get_constant_map().end()) {
+                tokens.push_back({Token::Type::NUMBER, "", const_it->second});
+            } else if (get_function_map().count(upper_symbol)) {
                 tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0.0, 12, false});
-            else {
+            } else {
                 auto op_it = get_operator_map().find(upper_symbol);
                 if (op_it != get_operator_map().end())
                     tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
