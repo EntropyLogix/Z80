@@ -25,6 +25,8 @@
 #include <filesystem>
 #include <algorithm>
 #include <cctype>
+#define REPLXX_IMPLEMENTATION
+#include <replxx.hxx>
 
 // --- Helper Functions ---
 
@@ -63,7 +65,6 @@ void print_usage() {
               << "  b[reakpoint] <addr>            Set a breakpoint.\n"
               << "  b[reakpoint] clear             Clear the breakpoint.\n"
               << "  set <reg> <value>              Set a register value (e.g., 'set pc 8000h').\n"
-              << "  history                        Show command history.\n"
               << "  help                           Show this help message.\n"
               << "  q[uit] / exit                  Exit the interactive session.\n";
 }
@@ -576,20 +577,21 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
     std::cout << "\n--- Entering Interactive Mode ---\n";
     std::cout << "Type 'help' for a list of commands or 'quit' to exit.\n";
 
+    replxx::Replxx rx;
+    rx.install_window_change_handler();
+
     uint16_t breakpoint_address = 0;
-    std::vector<std::string> history;
     bool breakpoint_set = false;
 
     while (true) {
-        std::cout << "(z80) > ";
-        std::string line;
-        if (!std::getline(std::cin, line)) { // Ctrl+D or error
+        const char* cinput = rx.input("(z80) > ");
+
+        if (cinput == nullptr) { // Ctrl+D or error
             break;
         }
+        std::string line(cinput);
 
-        if (!line.empty()) {
-            history.push_back(line);
-        } else {
+        if (line.empty()) {
             continue;
         }
 
@@ -708,15 +710,10 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
             } catch (const std::exception& e) {
                 std::cerr << "Error setting register: " << e.what() << "\n";
             }
-        } else if (command == "history") {
-            for (size_t i = 0; i < history.size(); ++i) {
-                std::cout << std::setw(4) << i + 1 << ": " << history[i] << std::endl;
-            }
         } else if (!command.empty()) {
             std::cerr << "Unknown command: '" << command << "'. Type 'help' for a list of commands.\n";
         }
 
     }
-    // Note: History is not saved to a file in this simple implementation.
     std::cout << "\nExiting interactive mode.\n";
 }
