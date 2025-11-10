@@ -34,6 +34,7 @@ void print_usage() {
               << "GENERAL OPTIONS:\n"
               << "  --assemble          Force assembly mode, regardless of file extension.\n"
               << "  --analyze           Force analysis/dump mode, regardless of file extension.\n"
+              << "  --interactive       Enter interactive mode after loading the file.\n"
               << "If no mode is specified, it is inferred from the input file extension (.asm vs others).\n\n"
               << "ASSEMBLY MODE (default for .asm files):\n"
               << "  Assembles the source code and then optionally analyzes or saves the result.\n"
@@ -59,7 +60,17 @@ void print_usage() {
               << "    --mem-dump <addr> <bytes>     Dump memory.\n"
               << "    --reg-dump [format]           Dump CPU registers.\n\n"
               << "Address format for <addr> can be a hex value (e.g., 4000, 8000h, 0x1234),\n"
-              << "a register (PC, SP, HL), or an expression (e.g., PC+10, HL-20h).\n";
+              << "a register (PC, SP, HL), or an expression (e.g., PC+10, HL-20h).\n\n"
+              << "INTERACTIVE MODE COMMANDS (when using --interactive):\n"
+              << "  d[isassemble] <addr> <lines>   Disassemble code.\n"
+              << "  m[em-dump] <addr> <bytes_hex>  Dump memory.\n"
+              << "  r[eg-dump] [format]            Dump registers.\n"
+              << "  t[icks] <num>                  Run for <num> T-states.\n"
+              << "  s[tep] <num>                   Run for <num> instructions.\n"
+              << "  b[reakpoint] <addr>            Set a breakpoint.\n"
+              << "  b[reakpoint] clear             Clear the breakpoint.\n"
+              << "  help                           Show this help message.\n"
+              << "  q[uit] / exit                  Exit the interactive session.\n";
 }
 
 std::string get_file_extension(const std::string& filename) {
@@ -308,6 +319,9 @@ public:
                 m_breakpointAddrStr = argv[++i];
                 m_breakpointSet = true;
             } else if (arg == "--run-steps" && i + 1 < argc) m_runSteps = std::stoll(argv[++i], nullptr, 10);
+            else if (arg == "--interactive") {
+                m_interactive = true;
+            }
             else {
                 throw std::runtime_error("Unknown or incomplete argument '" + arg + "'.");
             }
@@ -343,6 +357,7 @@ public:
     bool isBreakpointSet() const { return m_breakpointSet; }
     bool isRegDumpRequested() const { return m_regDumpAction; }
     const std::string& getRegDumpFormat() const { return m_regDumpFormat; }
+    bool isInteractive() const { return m_interactive; }
 
 private:
     ToolMode m_mode = ToolMode::NotSet;
@@ -354,7 +369,10 @@ private:
     std::string m_breakpointAddrStr;
     bool m_breakpointSet = false, m_regDumpAction = false;
     std::string m_regDumpFormat;
+    bool m_interactive = false;
 };
+
+void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels>& analyzer, Z80DefaultLabels& label_handler);
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -475,63 +493,183 @@ int main(int argc, char* argv[]) {
             if (!loaded) throw std::runtime_error("Failed to load file content into emulator.");
             std::cout << "File loaded successfully.\n";
 
-            // Now that labels are loaded, resolve the breakpoint address
-            uint16_t breakpoint_address = 0;
-            if (options.isBreakpointSet()) {
-                breakpoint_address = resolve_address(options.getBreakpointAddrStr(), cpu, &label_handler);
-            }
-
-            bool stopped_at_breakpoint = false;
-            bool emulation_requested = (options.getRunTicks() > 0 || options.getRunSteps() > 0 || options.isBreakpointSet());
-
-            if (emulation_requested) {
-                std::cout << "\n--- Starting emulation ---\n";
-                if (options.getRunTicks() > 0) std::cout << "  Running for " << options.getRunTicks() << " T-states.\n";
-                if (options.getRunSteps() > 0) std::cout << "  Running for " << options.getRunSteps() << " instructions.\n";
-                if (options.isBreakpointSet()) std::cout << "  Breakpoint set at " << format_hex(breakpoint_address, 4) << ".\n";
-
-                long long initial_ticks = cpu.get_ticks();
-                long long target_ticks = (options.getRunTicks() > 0) ? (initial_ticks + options.getRunTicks()) : -1; // -1 means no T-state limit
-                long long steps_executed = 0;
-
-                while (true) {
-                    // Check for breakpoint hit BEFORE executing the instruction
-                    if (options.isBreakpointSet() && cpu.get_PC() == breakpoint_address) {
-                        stopped_at_breakpoint = true;
-                        std::cout << "\n--- Breakpoint hit at " << format_hex(breakpoint_address, 4) << " (PC: " << format_hex(cpu.get_PC(), 4) << ") ---\n";
-                        break;
-                    }
-
-                    // Check if T-state limit is reached (if set)
-                    if (options.getRunTicks() > 0 && cpu.get_ticks() >= target_ticks) {
-                        std::cout << "\n--- T-state limit reached ---\n";
-                        break;
-                    }
-
-                    // Check if instruction step limit is reached (if set)
-                    if (options.getRunSteps() > 0 && steps_executed >= options.getRunSteps()) {
-                        std::cout << "\n--- Instruction step limit reached ---\n";
-                        break;
-                    }
-                    
-                    // Execute one instruction
-                    cpu.step();
-                    steps_executed++;
-                }
-                std::cout << "Emulation finished. Executed " << (cpu.get_ticks() - initial_ticks) << " T-states and " << steps_executed << " instructions.\n";
-            }
-            // Default action: if no other action, dump registers
-            if (options.getMemDumpSize() == 0 && options.getDisasmLines() == 0 && !options.isRegDumpRequested() && !emulation_requested) { // Only default to reg-dump if no emulation or other analysis was requested
-                run_analysis_actions(cpu, analyzer, label_handler, "", 0, "", 0, true, "");
-            } else {
-                // Run analysis actions
-                run_analysis_actions(cpu, analyzer, label_handler, options.getMemDumpAddrStr(), options.getMemDumpSize(), options.getDisasmAddrStr(), options.getDisasmLines(), options.isRegDumpRequested(), options.getRegDumpFormat());
-            }
         }
+
+        // --- STAGE 2: UNIFIED EXECUTION AND ANALYSIS ---
+        // This block runs after the memory has been prepared by either assembling or loading.
+
+        // Now that all labels are loaded (from assembly or files), resolve the breakpoint address.
+        uint16_t breakpoint_address = 0;
+        if (options.isBreakpointSet()) {
+            breakpoint_address = resolve_address(options.getBreakpointAddrStr(), cpu, &label_handler);
+        }
+
+        bool emulation_requested = (options.getRunTicks() > 0 || options.getRunSteps() > 0 || options.isBreakpointSet());
+
+        if (emulation_requested) {
+            std::cout << "\n--- Starting emulation ---\n";
+            if (options.getRunTicks() > 0) std::cout << "  Running for " << options.getRunTicks() << " T-states.\n";
+            if (options.getRunSteps() > 0) std::cout << "  Running for " << options.getRunSteps() << " instructions.\n";
+            if (options.isBreakpointSet()) std::cout << "  Breakpoint set at " << format_hex(breakpoint_address, 4) << ".\n";
+
+            long long initial_ticks = cpu.get_ticks();
+            long long target_ticks = (options.getRunTicks() > 0) ? (initial_ticks + options.getRunTicks()) : -1; // -1 means no T-state limit
+            long long steps_executed = 0;
+
+            while (true) {
+                // Check for breakpoint hit BEFORE executing the instruction
+                if (options.isBreakpointSet() && cpu.get_PC() == breakpoint_address) {
+                    std::cout << "\n--- Breakpoint hit at " << format_hex(breakpoint_address, 4) << " (PC: " << format_hex(cpu.get_PC(), 4) << ") ---\n";
+                    break;
+                }
+
+                // Check if T-state limit is reached (if set)
+                if (options.getRunTicks() > 0 && cpu.get_ticks() >= target_ticks) {
+                    std::cout << "\n--- T-state limit reached ---\n";
+                    break;
+                }
+
+                // Check if instruction step limit is reached (if set)
+                if (options.getRunSteps() > 0 && steps_executed >= options.getRunSteps()) {
+                    std::cout << "\n--- Instruction step limit reached ---\n";
+                    break;
+                }
+                
+                // Execute one instruction
+                cpu.step();
+                steps_executed++;
+            }
+            std::cout << "Emulation finished. Executed " << (cpu.get_ticks() - initial_ticks) << " T-states and " << steps_executed << " instructions.\n";
+        }
+
+        // Run one-shot analysis actions specified on the command line.
+        // This happens after any initial emulation run.
+        bool one_shot_analysis_requested = (options.getMemDumpSize() > 0 || options.getDisasmLines() > 0 || options.isRegDumpRequested());
+        if (one_shot_analysis_requested) {
+            run_analysis_actions(cpu, analyzer, label_handler, options.getMemDumpAddrStr(), options.getMemDumpSize(), options.getDisasmAddrStr(), options.getDisasmLines(), options.isRegDumpRequested(), options.getRegDumpFormat());
+        }
+
+        // If interactive mode is requested, enter it now.
+        if (options.isInteractive()) {
+            run_interactive_mode(cpu, analyzer, label_handler);
+        }
+        // If no actions were requested at all (no emulation, no analysis, no interactive),
+        // and we are in analysis mode, dump registers by default.
+        // In assembly mode, the default is already handled (printing listing).
+        else if (!emulation_requested && !one_shot_analysis_requested && options.getMode() == CommandLineOptions::ToolMode::Analysis) {
+            run_analysis_actions(cpu, analyzer, label_handler, "", 0, "", 0, true, "");
+        }
+
     } catch (const std::exception& e) {
         std::cerr << "\nError: " << e.what() << std::endl;
         return 1;
     }
 
     return 0;
+}
+
+void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels>& analyzer, Z80DefaultLabels& label_handler) {
+    std::cout << "\n--- Entering Interactive Mode ---\n";
+    std::cout << "Type 'help' for a list of commands or 'quit' to exit.\n";
+
+    std::string line;
+    uint16_t breakpoint_address = 0;
+    bool breakpoint_set = false;
+
+    while (true) {
+        std::cout << "(z80) > ";
+        if (!std::getline(std::cin, line)) {
+            break; // End on EOF (Ctrl+D)
+        }
+
+        std::stringstream ss(line);
+        std::string command;
+        ss >> command;
+
+        if (command == "q" || command == "quit" || command == "exit") {
+            break;
+        } else if (command == "help") {
+            print_usage();
+        } else if (command == "d" || command == "disassemble") {
+            std::string addr_str;
+            size_t lines = 0;
+            ss >> addr_str >> lines;
+            if (addr_str.empty() || lines == 0) {
+                std::cerr << "Usage: disassemble <addr> <lines>\n";
+                continue;
+            }
+            run_analysis_actions(cpu, analyzer, label_handler, "", 0, addr_str, lines, false, "");
+        } else if (command == "m" || command == "mem-dump") {
+            std::string addr_str;
+            size_t bytes = 0;
+            ss >> addr_str >> std::hex >> bytes; // Allow hex input for bytes
+            if (addr_str.empty() || bytes == 0) {
+                std::cerr << "Usage: mem-dump <addr> <bytes_hex>\n";
+                continue;
+            }
+            run_analysis_actions(cpu, analyzer, label_handler, addr_str, bytes, "", 0, false, "");
+        } else if (command == "r" || command == "reg-dump") {
+            std::string format;
+            std::getline(ss, format);
+            format.erase(0, format.find_first_not_of(" \t"));
+            run_analysis_actions(cpu, analyzer, label_handler, "", 0, "", 0, true, format);
+        } else if (command == "t" || command == "ticks") {
+            long long ticks_to_run = 0;
+            ss >> ticks_to_run;
+            if (ticks_to_run <= 0) {
+                std::cerr << "Usage: ticks <num_ticks>\n";
+                continue;
+            }
+            std::cout << "Running for " << ticks_to_run << " T-states...\n";
+            long long initial_ticks = cpu.get_ticks();
+            long long target_ticks = initial_ticks + ticks_to_run;
+            while (cpu.get_ticks() < target_ticks) {
+                if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
+                    std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                    break;
+                }
+                cpu.step();
+            }
+            std::cout << "Finished. Executed " << (cpu.get_ticks() - initial_ticks) << " T-states.\n";
+        } else if (command == "s" || command == "step") {
+            long long steps_to_run = 0;
+            ss >> steps_to_run;
+            if (steps_to_run <= 0) {
+                std::cerr << "Usage: step <num_steps>\n";
+                continue;
+            }
+            std::cout << "Running for " << steps_to_run << " instructions...\n";
+            for (long long i = 0; i < steps_to_run; ++i) {
+                if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
+                    std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                    break;
+                }
+                cpu.step();
+            }
+            std::cout << "Finished.\n";
+        } else if (command == "b" || command == "breakpoint") {
+            std::string arg;
+            ss >> arg;
+            if (arg == "clear") {
+                breakpoint_set = false;
+                std::cout << "Breakpoint cleared.\n";
+            } else if (!arg.empty()) {
+                try {
+                    breakpoint_address = resolve_address(arg, cpu, &label_handler);
+                    breakpoint_set = true;
+                    std::cout << "Breakpoint set at " << format_hex(breakpoint_address, 4) << ".\n";
+                } catch (const std::exception& e) {
+                    std::cerr << "Error setting breakpoint: " << e.what() << "\n";
+                }
+            } else {
+                if (breakpoint_set) {
+                    std::cout << "Breakpoint is currently set at " << format_hex(breakpoint_address, 4) << ".\n";
+                } else {
+                    std::cout << "No breakpoint is set. Usage: breakpoint <addr> | clear\n";
+                }
+            }
+        } else if (!command.empty()) {
+            std::cerr << "Unknown command: '" << command << "'. Type 'help' for a list of commands.\n";
+        }
+    }
 }
