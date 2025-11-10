@@ -29,26 +29,19 @@
 // --- Helper Functions ---
 
 void print_usage() {
-    std::cerr << "Usage: Z80Tool <input_file> [options]\n"
+    std::cerr << "Usage: Z80Tool <command> <input_file> [options]\n"
               << "A unified tool for Z80 assembly and analysis.\n\n"
+              << "COMMANDS:\n"
+              << "  assemble          Assemble a Z80 source file.\n"
+              << "  analyze           Analyze or run a Z80 binary/snapshot file.\n\n"
               << "GENERAL OPTIONS:\n"
-              << "  --assemble          Force assembly mode, regardless of file extension.\n"
-              << "  --analyze           Force analysis/dump mode, regardless of file extension.\n"
-              << "  --interactive       Enter interactive mode after loading the file.\n"
-              << "If no mode is specified, it is inferred from the input file extension (.asm vs others).\n\n"
-              << "ASSEMBLY MODE (default for .asm files):\n"
-              << "  Assembles the source code and then optionally analyzes or saves the result.\n"
-              << "  Output Options:\n"
+              << "ASSEMBLY OPTIONS (for 'assemble' command):\n"
               << "    --out-bin <file>    Save result as a raw binary file.\n"
               << "    --out-hex <file>    Save result as an Intel HEX file.\n"
               << "    --out-map <file>    Save the symbol table to a map file.\n"
-              << "  Analysis Options (run after assembly):\n"
-              << "    --disassemble <addr> <lines>  Disassemble generated code from a given address.\n"
-              << "    --mem-dump <addr> <bytes>     Dump generated memory from a given address.\n"
-              << "    --reg-dump [format]           Dump registers (shows initial state after assembly).\n\n"
-              << "ANALYSIS/DUMP MODE (default for .bin, .hex, .sna, .z80 files):\n"
-              << "  Loads a binary file/snapshot and runs analysis or emulation.\n"
-              << "  Loading Options:\n"
+              << "\n"
+              << "ANALYSIS OPTIONS (for 'analyze' command or after assembly):\n"
+              << "  Loading (for 'analyze' command only):\n"
               << "    --load-addr <addr>  Specifies the loading address for .bin files (default: 0x0000).\n"
               << "    --map <file>        Load a .map symbol file (can be used multiple times).\n"
               << "    --ctl <file>        Load a .ctl symbol file (can be used multiple times).\n"
@@ -69,6 +62,8 @@ void print_usage() {
               << "  s[tep] <num>                   Run for <num> instructions.\n"
               << "  b[reakpoint] <addr>            Set a breakpoint.\n"
               << "  b[reakpoint] clear             Clear the breakpoint.\n"
+              << "  set <reg> <value>              Set a register value (e.g., 'set pc 8000h').\n"
+              << "  history                        Show command history.\n"
               << "  help                           Show this help message.\n"
               << "  q[uit] / exit                  Exit the interactive session.\n";
 }
@@ -283,62 +278,62 @@ void run_analysis_actions(
 
 class CommandLineOptions {
 public:
-    enum class ToolMode { Assembly, Analysis, NotSet };
+    enum class ToolMode { Assembly, Analysis, Unknown };
 
     CommandLineOptions(int argc, char* argv[]) {
-        if (argc < 2) {
-            throw std::runtime_error("No input file specified.");
+        if (argc < 3) {
+            throw std::runtime_error("Invalid arguments. Command and input file are required.");
         }
-        m_inputFile = argv[1];
+        std::string mode_str = argv[1];
+        if (mode_str == "assemble") m_mode = ToolMode::Assembly;
+        else if (mode_str == "analyze") m_mode = ToolMode::Analysis;
+        else throw std::runtime_error("Unknown command: '" + mode_str + "'. Use 'assemble' or 'analyze'.");
 
-        // Parse arguments
+        // Parse remaining arguments to find options and the input file
         for (int i = 2; i < argc; ++i) {
             std::string arg = argv[i];
-            if (arg == "--assemble") {
-                m_mode = ToolMode::Assembly;
-            } else if (arg == "--analyze") {
-                m_mode = ToolMode::Analysis;
+            if (arg.rfind("--", 0) == 0) { // It's an option
+                if (arg == "--out-bin" && i + 1 < argc) m_outputBinFile = argv[++i];
+                else if (arg == "--out-hex" && i + 1 < argc) m_outputHexFile = argv[++i];
+                else if (arg == "--out-map" && i + 1 < argc) m_outputMapFile = argv[++i];
+                else if (arg == "--mem-dump" && i + 2 < argc) {
+                    m_memDumpAddrStr = argv[++i];
+                    m_memDumpSize = std::stoul(argv[++i], nullptr, 0);
+                } else if (arg == "--disassemble" && i + 2 < argc) {
+                    m_disasmAddrStr = argv[++i];
+                    m_disasmLines = std::stoul(argv[++i], nullptr, 10);
+                } else if (arg == "--load-addr" && i + 1 < argc) m_loadAddrStr = argv[++i];
+                else if (arg == "--map" && i + 1 < argc) m_mapFiles.push_back(argv[++i]);
+                else if (arg == "--ctl" && i + 1 < argc) m_ctlFiles.push_back(argv[++i]);
+                else if (arg == "--reg-dump") {
+                    m_regDumpAction = true;
+                    if (i + 1 < argc && argv[i + 1][0] != '-') m_regDumpFormat = argv[++i];
+                } else if (arg == "--run-ticks" && i + 1 < argc) m_runTicks = std::stoll(argv[++i], nullptr, 10);
+                else if (arg == "--breakpoint" && i + 1 < argc) {
+                    m_breakpointAddrStr = argv[++i];
+                    m_breakpointSet = true;
+                } else if (arg == "--run-steps" && i + 1 < argc) m_runSteps = std::stoll(argv[++i], nullptr, 10);
+                else if (arg == "--interactive") {
+                    m_interactive = true;
+                }
+                else if (arg == "--verbose") {
+                    m_verbose = true;
+                }
+                else {
+                    throw std::runtime_error("Unknown or incomplete argument '" + arg + "'.");
+                }
+            } else { // It's a positional argument, should be the input file
+                if (!m_inputFile.empty()) {
+                    throw std::runtime_error("Multiple input files specified: '" + m_inputFile + "' and '" + arg + "'.");
+                }
+                m_inputFile = arg;
             }
-            else if (arg == "--out-bin" && i + 1 < argc) m_outputBinFile = argv[++i];
-            else if (arg == "--out-hex" && i + 1 < argc) m_outputHexFile = argv[++i];
-            else if (arg == "--out-map" && i + 1 < argc) m_outputMapFile = argv[++i];
-            else if (arg == "--mem-dump" && i + 2 < argc) {
-                m_memDumpAddrStr = argv[++i];
-                m_memDumpSize = std::stoul(argv[++i], nullptr, 0);
-            } else if (arg == "--disassemble" && i + 2 < argc) {
-                m_disasmAddrStr = argv[++i];
-                m_disasmLines = std::stoul(argv[++i], nullptr, 10);
-            } else if (arg == "--load-addr" && i + 1 < argc) m_loadAddrStr = argv[++i];
-            else if (arg == "--map" && i + 1 < argc) m_mapFiles.push_back(argv[++i]);
-            else if (arg == "--ctl" && i + 1 < argc) m_ctlFiles.push_back(argv[++i]);
-            else if (arg == "--reg-dump") {
-                m_regDumpAction = true;
-                if (i + 1 < argc && argv[i + 1][0] != '-') m_regDumpFormat = argv[++i];
-            } else if (arg == "--run-ticks" && i + 1 < argc) m_runTicks = std::stoll(argv[++i], nullptr, 10);
-            else if (arg == "--breakpoint" && i + 1 < argc) {
-                m_breakpointAddrStr = argv[++i];
-                m_breakpointSet = true;
-            } else if (arg == "--run-steps" && i + 1 < argc) m_runSteps = std::stoll(argv[++i], nullptr, 10);
-            else if (arg == "--interactive") {
-                m_interactive = true;
-            }
-            else {
-                throw std::runtime_error("Unknown or incomplete argument '" + arg + "'.");
-            }
+        }
+        if (m_inputFile.empty()) {
+            throw std::runtime_error("No input file specified.");
         }
     }
     
-    void resolveMode() {
-        if (m_mode == ToolMode::NotSet) {
-            std::string ext = get_file_extension(m_inputFile);
-            if (ext == "asm") {
-                m_mode = ToolMode::Assembly;
-            } else {
-                m_mode = ToolMode::Analysis;
-            }
-        }
-    }
-
     ToolMode getMode() const { return m_mode; }
     const std::string& getInputFile() const { return m_inputFile; }
     const std::string& getOutputBinFile() const { return m_outputBinFile; }
@@ -358,9 +353,10 @@ public:
     bool isRegDumpRequested() const { return m_regDumpAction; }
     const std::string& getRegDumpFormat() const { return m_regDumpFormat; }
     bool isInteractive() const { return m_interactive; }
+    bool isVerbose() const { return m_verbose; }
 
 private:
-    ToolMode m_mode = ToolMode::NotSet;
+    ToolMode m_mode = ToolMode::Unknown;
     std::string m_inputFile, m_outputBinFile, m_outputHexFile, m_outputMapFile;
     std::string m_memDumpAddrStr, m_disasmAddrStr, m_loadAddrStr = "0x0000";
     size_t m_memDumpSize = 0, m_disasmLines = 0;
@@ -369,26 +365,27 @@ private:
     std::string m_breakpointAddrStr;
     bool m_breakpointSet = false, m_regDumpAction = false;
     std::string m_regDumpFormat;
+    bool m_verbose = false;
     bool m_interactive = false;
 };
 
 void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels>& analyzer, Z80DefaultLabels& label_handler);
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
+    if (argc < 3) {
         print_usage();
         return 1;
     }
 
     try {
         CommandLineOptions options(argc, argv);
-        options.resolveMode();
 
         // --- Core Objects ---
         Z80<> cpu;
         Z80DefaultBus bus;
         Z80DefaultLabels label_handler;
         Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(&bus, &cpu, &label_handler);
+        uint16_t entry_point = 0;
         if (options.getMode() == CommandLineOptions::ToolMode::Assembly) { // --- MODE 1: ASSEMBLY (.asm file) ---
             std::cout << "--- Assembly Mode ---\n";
             FileSystemSourceProvider source_provider;
@@ -409,8 +406,7 @@ int main(int argc, char* argv[]) {
             }
 
             // Default action: print summary to screen
-            if (options.getOutputBinFile().empty() && options.getOutputHexFile().empty() && options.getOutputMapFile().empty() &&
-                options.getMemDumpSize() == 0 && options.getDisasmLines() == 0 && !options.isRegDumpRequested())
+            if (options.isVerbose())
             {
                 std::cout << "\n--- Calculated Symbols ---\n";
                 for (const auto& symbol : symbols) {
@@ -426,6 +422,10 @@ int main(int argc, char* argv[]) {
                     }
                 }
             }
+            if (!blocks.empty()) {
+                entry_point = blocks[0].start_address;
+            }
+            cpu.set_PC(entry_point);
 
             // Write output files
             if (!options.getOutputBinFile().empty()) {
@@ -440,9 +440,6 @@ int main(int argc, char* argv[]) {
                 write_map_file(options.getOutputMapFile(), symbols);
                 std::cout << "Symbols written to " << options.getOutputMapFile() << std::endl;
             }
-
-            // Run analysis actions
-            run_analysis_actions(cpu, analyzer, label_handler, options.getMemDumpAddrStr(), options.getMemDumpSize(), options.getDisasmAddrStr(), options.getDisasmLines(), options.isRegDumpRequested(), options.getRegDumpFormat());
 
         }
         // --- MODE 2: ANALYSIS/DUMP (other files) ---
@@ -492,6 +489,7 @@ int main(int argc, char* argv[]) {
             }
             if (!loaded) throw std::runtime_error("Failed to load file content into emulator.");
             std::cout << "File loaded successfully.\n";
+            entry_point = cpu.get_PC();
 
         }
 
@@ -502,6 +500,12 @@ int main(int argc, char* argv[]) {
         uint16_t breakpoint_address = 0;
         if (options.isBreakpointSet()) {
             breakpoint_address = resolve_address(options.getBreakpointAddrStr(), cpu, &label_handler);
+        }
+
+        // If no execution is requested, set PC to the entry point before analysis/interactive mode.
+        bool execution_requested = (options.getRunTicks() > 0 || options.getRunSteps() > 0);
+        if (!execution_requested) {
+            cpu.set_PC(entry_point);
         }
 
         bool emulation_requested = (options.getRunTicks() > 0 || options.getRunSteps() > 0 || options.isBreakpointSet());
@@ -572,14 +576,21 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
     std::cout << "\n--- Entering Interactive Mode ---\n";
     std::cout << "Type 'help' for a list of commands or 'quit' to exit.\n";
 
-    std::string line;
     uint16_t breakpoint_address = 0;
+    std::vector<std::string> history;
     bool breakpoint_set = false;
 
     while (true) {
         std::cout << "(z80) > ";
-        if (!std::getline(std::cin, line)) {
-            break; // End on EOF (Ctrl+D)
+        std::string line;
+        if (!std::getline(std::cin, line)) { // Ctrl+D or error
+            break;
+        }
+
+        if (!line.empty()) {
+            history.push_back(line);
+        } else {
+            continue;
         }
 
         std::stringstream ss(line);
@@ -668,8 +679,44 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
                     std::cout << "No breakpoint is set. Usage: breakpoint <addr> | clear\n";
                 }
             }
+        } else if (command == "set") {
+            std::string reg_str, val_str;
+            ss >> reg_str >> val_str;
+            if (reg_str.empty() || val_str.empty()) {
+                std::cerr << "Usage: set <register> <value>\n";
+                continue;
+            }
+            try {
+                uint16_t value = resolve_address(val_str, cpu, &label_handler);
+                std::transform(reg_str.begin(), reg_str.end(), reg_str.begin(), ::toupper);
+                if (reg_str == "PC") cpu.set_PC(value);
+                else if (reg_str == "SP") cpu.set_SP(value);
+                else if (reg_str == "AF") cpu.set_AF(value);
+                else if (reg_str == "BC") cpu.set_BC(value);
+                else if (reg_str == "DE") cpu.set_DE(value);
+                else if (reg_str == "HL") cpu.set_HL(value);
+                else if (reg_str == "IX") cpu.set_IX(value);
+                else if (reg_str == "IY") cpu.set_IY(value);
+                else if (reg_str == "A") cpu.set_A(value);
+                else if (reg_str == "B") cpu.set_B(value);
+                else if (reg_str == "C") cpu.set_C(value);
+                else if (reg_str == "D") cpu.set_D(value);
+                else if (reg_str == "E") cpu.set_E(value);
+                else if (reg_str == "H") cpu.set_H(value);
+                else if (reg_str == "L") cpu.set_L(value);
+                else { std::cerr << "Unknown register: " << reg_str << "\n"; }
+            } catch (const std::exception& e) {
+                std::cerr << "Error setting register: " << e.what() << "\n";
+            }
+        } else if (command == "history") {
+            for (size_t i = 0; i < history.size(); ++i) {
+                std::cout << std::setw(4) << i + 1 << ": " << history[i] << std::endl;
+            }
         } else if (!command.empty()) {
             std::cerr << "Unknown command: '" << command << "'. Type 'help' for a list of commands.\n";
         }
+
     }
+    // Note: History is not saved to a file in this simple implementation.
+    std::cout << "\nExiting interactive mode.\n";
 }
