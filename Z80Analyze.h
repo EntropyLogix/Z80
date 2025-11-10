@@ -1749,15 +1749,16 @@ private:
         return ss.str();
     }
     std::string format_address_label(uint16_t address, int width = -1, bool hex = true) {
+        std::string hex_str = hex ? format_hex(address, width) : format_dec(address);
         if constexpr (!std::is_same_v<TLabels, void>) {
             if (m_labels) {
                 std::string labels_str = m_labels->get_label(address);
                 if (!labels_str.empty()) {
-                    return labels_str;
+                    return hex_str + " (" + labels_str + ")";
                 }
             }
         }
-        return hex ? format_hex(address, width) : format_dec(address);
+        return hex_str;
     }
     uint8_t peek_next_byte() {
         uint8_t value = m_memory->peek(m_address++);
@@ -1861,6 +1862,15 @@ public:
             labels_str += it->second;
         }
         return labels_str;
+    }
+    std::string get_closest_label(uint16_t address, uint16_t& label_address) const {
+        auto it = m_labels.upper_bound(address);
+        if (it != m_labels.begin()) {
+            --it;
+            label_address = it->first;
+            return it->second;
+        }
+        return "";
     }
     void add_label(uint16_t address, const std::string& label) {
         auto range = m_labels.equal_range(address);

@@ -57,7 +57,7 @@ void print_usage() {
               << "Address format for <addr> can be a hex value (e.g., 4000, 8000h, 0x1234),\n"
               << "a register (PC, SP, HL), or an expression (e.g., PC+10, HL-20h).\n\n"
               << "INTERACTIVE MODE COMMANDS (when using --interactive):\n"
-              << "  d[isassemble] <addr> <lines>   Disassemble code.\n"
+              << "  d[isassemble] [addr] [lines]   Disassemble code (default: 'd pc 1').\n"
               << "  m[em-dump] <addr> <bytes_hex>  Dump memory.\n"
               << "  r[eg-dump] [format]            Dump CPU registers.\n"
               << "  s[tep] / s[tep-into] [num]     Run for <num> instructions (steps into calls).\n"
@@ -65,6 +65,7 @@ void print_usage() {
               << "  su / step-out                  Run until the current function returns.\n"
               << "  c[ontinue]                     Run until a breakpoint is hit.\n"
               << "  t[icks] <num>                  Run for <num> T-states.\n"
+              << "  cs / callstack [depth]         Show the call stack (default depth: 16).\n"
               << "  b[reakpoint] <addr>            Set a breakpoint.\n"
               << "  b[reakpoint] clear             Clear the breakpoint.\n"
               << "  set <reg> <value>              Set a register value (e.g., 'set pc 8000h').\n"
@@ -626,10 +627,14 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
             print_usage();
         } else if (command == "d" || command == "disassemble") {
             std::string addr_str;
-            size_t lines = 0;
+            size_t lines = 1; // Domyślnie 1 linia
             ss >> addr_str >> lines;
-            if (addr_str.empty() || lines == 0) {
-                std::cerr << "Usage: disassemble <addr> <lines>\n";
+            if (addr_str.empty()) {
+                addr_str = "pc"; // Domyślnie PC
+                lines = 1;
+            }
+            if (lines == 0) {
+                std::cerr << "Usage: disassemble [addr] [lines]\n";
                 continue;
             }
             run_analysis_actions(cpu, analyzer, label_handler, "", 0, addr_str, lines, false, "");
@@ -734,6 +739,38 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
                     break;
                 }
                 cpu.step();
+            }
+        } else if (command == "cs" || command == "callstack") {
+            int max_depth = 16;
+            ss >> max_depth;
+            if (max_depth <= 0) max_depth = 16;
+
+            std::cout << "--- Call Stack (from SP: " << format_hex(cpu.get_SP(), 4) << ") ---\n";
+            uint16_t current_sp = cpu.get_SP();
+            int depth = 0;
+            while (current_sp < 0xFFFF && depth < max_depth) {
+                uint8_t low_byte = cpu.get_bus()->peek(current_sp);
+                uint8_t high_byte = cpu.get_bus()->peek(current_sp + 1);
+                uint16_t return_addr = (high_byte << 8) | low_byte;
+
+                std::stringstream label_ss;
+                uint16_t label_addr = 0;
+                std::string label = label_handler.get_closest_label(return_addr, label_addr);
+
+                if (!label.empty()) {
+                    label_ss << label;
+                    uint16_t offset = return_addr - label_addr;
+                    // Pokaż offset tylko jeśli jest większy od zera
+                    if (offset > 0)
+                        label_ss << " + " << std::dec << offset;
+                }
+
+                std::string label_str = label_ss.str();
+
+                std::cout << format_hex(current_sp, 4) << ": " << format_hex(return_addr, 4)
+                          << "  " << (label_str.empty() ? "" : "(" + label_str + ")") << "\n";
+                current_sp += 2;
+                depth++;
             }
         } else if (command == "b" || command == "breakpoint") {
             std::string arg;
