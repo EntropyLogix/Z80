@@ -1868,7 +1868,6 @@ public:
             if (it->second == label)
                 return;
         m_labels.insert({address, label});
-        // Add to reverse map, overwriting if exists, which is fine for label->addr.
         m_reverse_labels[label] = address;
     }
 
@@ -1879,6 +1878,9 @@ public:
         }
         throw std::runtime_error("Label not found: " + label);
     }
+
+    const std::map<std::string, uint16_t>& get_labels() const { return m_reverse_labels; }
+
 private:
     void add_label_from_spectaculator_format(std::stringstream& ss, uint16_t address) {
         std::string remaining;

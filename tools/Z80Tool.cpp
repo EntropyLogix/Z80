@@ -381,9 +381,9 @@ int main(int argc, char* argv[]) {
     try {
         CommandLineOptions options(argc, argv);
 
-        // --- Core Objects ---
-        Z80<> cpu;
+        // --- Core Objects ---        
         Z80DefaultBus bus;
+        Z80<> cpu(&bus);
         Z80DefaultLabels label_handler;
         Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(&bus, &cpu, &label_handler);
         uint16_t entry_point = 0;
@@ -577,8 +577,11 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
     std::cout << "\n--- Entering Interactive Mode ---\n";
     std::cout << "Type 'help' for a list of commands or 'quit' to exit.\n";
 
+    const char* history_file = ".z80tool_history.txt";
+
     replxx::Replxx rx;
     rx.install_window_change_handler();
+    rx.history_load(history_file);
 
     uint16_t breakpoint_address = 0;
     bool breakpoint_set = false;
@@ -594,6 +597,8 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
         if (line.empty()) {
             continue;
         }
+
+        rx.history_add(line);
 
         std::stringstream ss(line);
         std::string command;
@@ -641,7 +646,7 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
                     std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
                     break;
                 }
-                cpu.step();
+                long long last_step_ticks = cpu.step();
             }
             std::cout << "Finished. Executed " << (cpu.get_ticks() - initial_ticks) << " T-states.\n";
         } else if (command == "s" || command == "step") {
@@ -681,6 +686,25 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
                     std::cout << "No breakpoint is set. Usage: breakpoint <addr> | clear\n";
                 }
             }
+        } else if (command == "symbol") {
+            std::string name;
+            ss >> name;
+            if (name.empty()) {
+                // Show all symbols
+                std::cout << "--- All Symbols ---\n";
+                const auto& all_labels = label_handler.get_labels();
+                if (all_labels.empty()) {
+                    std::cout << "No symbols loaded.\n";
+                } else {
+                    for (const auto& pair : all_labels) {
+                        std::cout << std::setw(20) << std::left << pair.first << " = " << format_hex(pair.second, 4) << "\n";
+                    }
+                }
+            } else {
+                // Show specific symbol
+                uint16_t addr = resolve_address(name, cpu, &label_handler);
+                std::cout << name << " = " << format_hex(addr, 4) << "\n";
+            }
         } else if (command == "set") {
             std::string reg_str, val_str;
             ss >> reg_str >> val_str;
@@ -715,5 +739,6 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
         }
 
     }
+    rx.history_save(history_file);
     std::cout << "\nExiting interactive mode.\n";
 }
