@@ -59,12 +59,16 @@ void print_usage() {
               << "INTERACTIVE MODE COMMANDS (when using --interactive):\n"
               << "  d[isassemble] <addr> <lines>   Disassemble code.\n"
               << "  m[em-dump] <addr> <bytes_hex>  Dump memory.\n"
-              << "  r[eg-dump] [format]            Dump registers.\n"
+              << "  r[eg-dump] [format]            Dump CPU registers.\n"
+              << "  s[tep] / s[tep-into] [num]     Run for <num> instructions (steps into calls).\n"
+              << "  so / step-over                 Execute one instruction (steps over calls).\n"
+              << "  su / step-out                  Run until the current function returns.\n"
+              << "  c[ontinue]                     Run until a breakpoint is hit.\n"
               << "  t[icks] <num>                  Run for <num> T-states.\n"
-              << "  s[tep] <num>                   Run for <num> instructions.\n"
               << "  b[reakpoint] <addr>            Set a breakpoint.\n"
               << "  b[reakpoint] clear             Clear the breakpoint.\n"
               << "  set <reg> <value>              Set a register value (e.g., 'set pc 8000h').\n"
+              << "  symbol [name]                  Show all symbols or a specific one.\n"
               << "  help                           Show this help message.\n"
               << "  q[uit] / exit                  Exit the interactive session.\n";
 }
@@ -370,6 +374,18 @@ private:
     bool m_interactive = false;
 };
 
+bool is_call_instruction(uint16_t addr, Z80DefaultBus* bus) {
+    uint8_t opcode = bus->peek(addr);
+    // CALL nn, CALL cc, nn
+    if (opcode == 0xCD || (opcode & 0xC7) == 0xC4) {
+        return true;
+    }
+    // RST p
+    if ((opcode & 0xC7) == 0xC7) {
+        return true;
+    }
+    return false;
+}
 void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels>& analyzer, Z80DefaultLabels& label_handler);
 
 int main(int argc, char* argv[]) {
@@ -627,12 +643,12 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
             }
             run_analysis_actions(cpu, analyzer, label_handler, addr_str, bytes, "", 0, false, "");
         } else if (command == "r" || command == "reg-dump") {
-            std::string format;
-            std::getline(ss, format);
-            format.erase(0, format.find_first_not_of(" \t"));
-            run_analysis_actions(cpu, analyzer, label_handler, "", 0, "", 0, true, format);
+            std::string reg_format;
+            std::getline(ss, reg_format);
+            reg_format.erase(0, reg_format.find_first_not_of(" \t"));
+            run_analysis_actions(cpu, analyzer, label_handler, "", 0, "", 0, true, reg_format);
         } else if (command == "t" || command == "ticks") {
-            long long ticks_to_run = 0;
+            long long ticks_to_run = 1;
             ss >> ticks_to_run;
             if (ticks_to_run <= 0) {
                 std::cerr << "Usage: ticks <num_ticks>\n";
@@ -646,15 +662,16 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
                     std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
                     break;
                 }
-                long long last_step_ticks = cpu.step();
+                cpu.step();
             }
             std::cout << "Finished. Executed " << (cpu.get_ticks() - initial_ticks) << " T-states.\n";
-        } else if (command == "s" || command == "step") {
-            long long steps_to_run = 0;
+        } else if (command == "s" || command == "step" || command == "si" || command == "step-into") {
+            long long steps_to_run = 1;
             ss >> steps_to_run;
             if (steps_to_run <= 0) {
-                std::cerr << "Usage: step <num_steps>\n";
-                continue;
+                // If no number is provided, default to 1 step.
+                // This makes 's' or 'step' execute a single step.
+                steps_to_run = 1;
             }
             std::cout << "Running for " << steps_to_run << " instructions...\n";
             for (long long i = 0; i < steps_to_run; ++i) {
@@ -665,6 +682,59 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
                 cpu.step();
             }
             std::cout << "Finished.\n";
+        } else if (command == "so" || command == "step-over") {
+            uint16_t current_pc = cpu.get_PC();
+            if (is_call_instruction(current_pc, cpu.get_bus())) {
+                uint16_t next_pc = current_pc;
+                analyzer.disassemble(next_pc, 1); // This advances next_pc past the current instruction
+                uint16_t step_over_breakpoint = next_pc;
+                std::cout << "Stepping over call. Will stop at " << format_hex(step_over_breakpoint, 4) << ".\n";
+                while (cpu.get_PC() != step_over_breakpoint) {
+                    if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
+                        std::cout << "Original breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                        break;
+                    }
+                    cpu.step();
+                }
+                std::cout << "Finished step-over.\n";
+            } else {
+                std::cout << "Stepping one instruction.\n";
+                cpu.step();
+                std::cout << "Finished.\n";
+            }
+        } else if (command == "su" || command == "step-out") {
+            uint16_t sp_on_entry = cpu.get_SP();
+            std::cout << "Running until a RET instruction is executed at a higher or equal stack level...\n";
+            while (true) {
+                uint8_t opcode = cpu.get_bus()->peek(cpu.get_PC());
+                // Check for RET, RET cc, RETI, RETN
+                bool is_ret = (opcode == 0xC9 || (opcode & 0xC7) == 0xC0 || opcode == 0xED);
+                if (is_ret && opcode == 0xED) {
+                    uint8_t next_byte = cpu.get_bus()->peek(cpu.get_PC() + 1);
+                    is_ret = (next_byte == 0x4D || next_byte == 0x45); // RETI, RETN
+                }
+
+                if (is_ret && cpu.get_SP() >= sp_on_entry) {
+                    std::cout << "Stepping out with RET instruction.\n";
+                    cpu.step(); // Execute the RET
+                    break;
+                }
+                if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
+                    std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                    break;
+                }
+                cpu.step();
+            }
+            std::cout << "Finished step-out.\n";
+        } else if (command == "c" || command == "continue") {
+            std::cout << "Continuing execution...\n";
+            while (true) {
+                if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
+                    std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                    break;
+                }
+                cpu.step();
+            }
         } else if (command == "b" || command == "breakpoint") {
             std::string arg;
             ss >> arg;
