@@ -181,7 +181,7 @@ int main(int argc, char* argv[]) {
             std::cout << std::endl;
 
             // Print memory map of code blocks
-            Z80Analyzer<Z80DefaultBus, Z80<>, void> analyzer(&bus, &cpu, nullptr);
+            Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(&bus, &cpu, nullptr);
             auto blocks = assembler.get_blocks();
             std::cout << "--- Code Blocks ---" << std::endl;
             for (size_t i = 0; i < blocks.size(); ++i) {

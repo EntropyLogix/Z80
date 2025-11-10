@@ -1862,14 +1862,24 @@ public:
         }
         return labels_str;
     }
-private:
     void add_label(uint16_t address, const std::string& label) {
         auto range = m_labels.equal_range(address);
         for (auto it = range.first; it != range.second; ++it)
             if (it->second == label)
                 return;
         m_labels.insert({address, label});
+        // Add to reverse map, overwriting if exists, which is fine for label->addr.
+        m_reverse_labels[label] = address;
     }
+
+    uint16_t get_addr(const std::string& label) const {
+        auto it = m_reverse_labels.find(label);
+        if (it != m_reverse_labels.end()) {
+            return it->second;
+        }
+        throw std::runtime_error("Label not found: " + label);
+    }
+private:
     void add_label_from_spectaculator_format(std::stringstream& ss, uint16_t address) {
         std::string remaining;
         std::getline(ss, remaining);
@@ -1884,6 +1894,7 @@ private:
         }
     }
     std::multimap<uint16_t, std::string> m_labels;
+    std::map<std::string, uint16_t> m_reverse_labels;
 };
 
 template <typename TMemory, typename TRegisters> class Z80DefaultFiles {

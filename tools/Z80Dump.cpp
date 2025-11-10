@@ -215,7 +215,7 @@ int main(int argc, char* argv[]) {
     }
     Z80<> cpu;
     Z80DefaultLabels label_handler;
-    Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(cpu.get_bus(), &cpu, &label_handler);    
+    Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(cpu.get_bus(), &cpu, &label_handler);
     try {
         Z80DefaultFiles<Z80DefaultBus, Z80<>> file_loader(cpu.get_bus(), &cpu);
         for (const auto& map_file : map_files) {
