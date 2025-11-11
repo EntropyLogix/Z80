@@ -423,19 +423,23 @@ private:
             m_ticks = 10;
             break;
         case 0x02:
-            m_mnemonic = "LD (BC), A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::MEM_REG16, "BC"), Operand(Operand::REG8, "A")};
             m_ticks = 7;
             break;
         case 0x03:
-            m_mnemonic = "INC BC";
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG16, "BC")};
             m_ticks = 6;
             break;
         case 0x04:
-            m_mnemonic = "INC B";
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x05:
-            m_mnemonic = "DEC B";
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x06:
@@ -457,19 +461,23 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 15;
             break;
         case 0x0A:
-            m_mnemonic = "LD A, (BC)";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::MEM_REG16, "BC")};
             m_ticks = 7;
             break;
         case 0x0B:
-            m_mnemonic = "DEC BC";
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG16, "BC")};
             m_ticks = 6;
             break;
         case 0x0C:
-            m_mnemonic = "INC C";
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x0D:
-            m_mnemonic = "DEC C";
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x0E:
@@ -496,19 +504,23 @@ private:
             m_ticks = 10;
             break;
         case 0x12:
-            m_mnemonic = "LD (DE), A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::MEM_REG16, "DE"), Operand(Operand::REG8, "A")};
             m_ticks = 7;
             break;
         case 0x13:
-            m_mnemonic = "INC DE";
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG16, "DE")};
             m_ticks = 6;
             break;
         case 0x14:
-            m_mnemonic = "INC D";
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x15:
-            m_mnemonic = "DEC D";
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x16:
@@ -534,19 +546,23 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 15;
             break;
         case 0x1A:
-            m_mnemonic = "LD A, (DE)";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::MEM_REG16, "DE")};
             m_ticks = 7;
             break;
         case 0x1B:
-            m_mnemonic = "DEC DE";
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG16, "DE")};
             m_ticks = 6;
             break;
         case 0x1C:
-            m_mnemonic = "INC E";
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x1D:
-            m_mnemonic = "DEC E";
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x1E:
@@ -583,11 +599,13 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 6 : 10;
             break;
         case 0x24:
-            m_mnemonic = "INC " + get_indexed_h_str();
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x25:
-            m_mnemonic = "DEC " + get_indexed_h_str();
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x26:
@@ -626,11 +644,13 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 6 : 10;
             break;
         case 0x2C:
-            m_mnemonic = "INC " + get_indexed_l_str();
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x2D:
-            m_mnemonic = "DEC " + get_indexed_l_str();
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x2E:
@@ -662,7 +682,8 @@ private:
             m_ticks = 13;
             break;
         case 0x33:
-            m_mnemonic = "INC SP";
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG16, "SP")};
             m_ticks = 6;
             break;
         case 0x34:
@@ -706,15 +727,18 @@ private:
             m_ticks = 13;
             break;
         case 0x3B:
-            m_mnemonic = "DEC SP";
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG16, "SP")};
             m_ticks = 6;
             break;
         case 0x3C:
-            m_mnemonic = "INC A";
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x3D:
-            m_mnemonic = "DEC A";
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x3E:
@@ -1370,12 +1394,14 @@ private:
             m_ticks = 4;
             break;
         case 0xC0:
-            m_mnemonic = "RET NZ";
+            m_mnemonic = "RET";
+            m_operands = {Operand(Operand::CONDITION, "NZ")};
             m_ticks = 5;
             m_ticks_alt = 11;
             break;
         case 0xC1:
-            m_mnemonic = "POP BC";
+            m_mnemonic = "POP";
+            m_operands = {Operand(Operand::REG16, "BC")};
             m_ticks = 10;
             break;
         case 0xC2:
@@ -1395,7 +1421,8 @@ private:
             m_ticks_alt = 17;
             break;
         case 0xC5:
-            m_mnemonic = "PUSH BC";
+            m_mnemonic = "PUSH";
+            m_operands = {Operand(Operand::REG16, "BC")};
             m_ticks = 11;
             break;
         case 0xC6:
@@ -1404,11 +1431,13 @@ private:
             m_ticks = 7;
             break;
         case 0xC7:
-            m_mnemonic = "RST 00H";
+            m_mnemonic = "RST";
+            m_operands = {Operand(Operand::IMM8, 0x00)};
             m_ticks = 11;
             break;
         case 0xC8:
-            m_mnemonic = "RET Z";
+            m_mnemonic = "RET";
+            m_operands = {Operand(Operand::CONDITION, "Z")};
             m_ticks = 5;
             m_ticks_alt = 11;
             break;
@@ -1488,12 +1517,14 @@ private:
             m_ticks = 11;
             break;
         case 0xD0:
-            m_mnemonic = "RET NC";
+            m_mnemonic = "RET";
+            m_operands = {Operand(Operand::CONDITION, "NC")};
             m_ticks = 5;
             m_ticks_alt = 11;
             break;
         case 0xD1:
-            m_mnemonic = "POP DE";
+            m_mnemonic = "POP";
+            m_operands = {Operand(Operand::REG16, "DE")};
             m_ticks = 10;
             break;
         case 0xD2:
@@ -1513,7 +1544,8 @@ private:
             m_ticks_alt = 17;
             break;
         case 0xD5:
-            m_mnemonic = "PUSH DE";
+            m_mnemonic = "PUSH";
+            m_operands = {Operand(Operand::REG16, "DE")};
             m_ticks = 11;
             break;
         case 0xD6:
@@ -1522,11 +1554,13 @@ private:
             m_ticks = 7;
             break;
         case 0xD7:
-            m_mnemonic = "RST 10H";
+            m_mnemonic = "RST";
+            m_operands = {Operand(Operand::IMM8, 0x10)};
             m_ticks = 11;
             break;
         case 0xD8:
-            m_mnemonic = "RET C";
+            m_mnemonic = "RET";
+            m_operands = {Operand(Operand::CONDITION, "C")};
             m_ticks = 5;
             m_ticks_alt = 11;
             break;
@@ -1556,11 +1590,13 @@ private:
             m_ticks = 7;
             break;
         case 0xDF:
-            m_mnemonic = "RST 18H";
+            m_mnemonic = "RST";
+            m_operands = {Operand(Operand::IMM8, 0x18)};
             m_ticks = 11;
             break;
         case 0xE0:
-            m_mnemonic = "RET PO";
+            m_mnemonic = "RET";
+            m_operands = {Operand(Operand::CONDITION, "PO")};
             m_ticks = 5;
             m_ticks_alt = 11;
             break;
@@ -1596,7 +1632,8 @@ private:
             m_ticks = 7;
             break;
         case 0xE7:
-            m_mnemonic = "RST 20H";
+            m_mnemonic = "RST";
+            m_operands = {Operand(Operand::IMM8, 0x20)};
             m_ticks = 11;
             break;
         case 0xE8:
@@ -1631,11 +1668,13 @@ private:
             set_index_mode(IndexMode::HL);
             switch (opcodeED) {
             case 0x40:
-                m_mnemonic = "IN B, (C)";
+                m_mnemonic = "IN";
+                m_operands = {Operand(Operand::REG8, "B"), Operand(Operand::MEM_REG16, "C")};
                 m_ticks = 12;
                 break;
             case 0x41:
-                m_mnemonic = "OUT (C), B";
+                m_mnemonic = "OUT";
+                m_operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "B")};
                 m_ticks = 12;
                 break;
             case 0x42:
@@ -1672,7 +1711,8 @@ private:
             case 0x4E:
             case 0x66:
             case 0x6E:
-                m_mnemonic = "IM 0";
+                m_mnemonic = "IM";
+                m_operands = {Operand(Operand::IMM8, 0)};
                 m_ticks = 8;
                 break;
             case 0x47:
@@ -1680,15 +1720,18 @@ private:
                 m_ticks = 9;
                 break;
             case 0x48:
-                m_mnemonic = "IN C, (C)";
+                m_mnemonic = "IN";
+                m_operands = {Operand(Operand::REG8, "C"), Operand(Operand::MEM_REG16, "C")};
                 m_ticks = 12;
                 break;
             case 0x49:
-                m_mnemonic = "OUT (C), C";
+                m_mnemonic = "OUT";
+                m_operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "C")};
                 m_ticks = 12;
                 break;
             case 0x4A:
-                m_mnemonic = "ADC HL, BC";
+                m_mnemonic = "ADC";
+                m_operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "BC")};
                 m_ticks = 15;
                 break;
             case 0x4B:
@@ -1705,15 +1748,18 @@ private:
                 m_ticks = 9;
                 break;
             case 0x50:
-                m_mnemonic = "IN D, (C)";
+                m_mnemonic = "IN";
+                m_operands = {Operand(Operand::REG8, "D"), Operand(Operand::MEM_REG16, "C")};
                 m_ticks = 12;
                 break;
             case 0x51:
-                m_mnemonic = "OUT (C), D";
+                m_mnemonic = "OUT";
+                m_operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "D")};
                 m_ticks = 12;
                 break;
             case 0x52:
-                m_mnemonic = "SBC HL, DE";
+                m_mnemonic = "SBC";
+                m_operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "DE")};
                 m_ticks = 15;
                 break;
             case 0x53:
@@ -1723,7 +1769,8 @@ private:
                 break;
             case 0x56: // IM 1
             case 0x76: // IM 1
-                m_mnemonic = "IM 1";
+                m_mnemonic = "IM";
+                m_operands = {Operand(Operand::IMM8, 1)};
                 m_ticks = 8;
                 break;
             case 0x57:
@@ -1731,15 +1778,18 @@ private:
                 m_ticks = 9;
                 break;
             case 0x58:
-                m_mnemonic = "IN E, (C)";
+                m_mnemonic = "IN";
+                m_operands = {Operand(Operand::REG8, "E"), Operand(Operand::MEM_REG16, "C")};
                 m_ticks = 12;
                 break;
             case 0x59:
-                m_mnemonic = "OUT (C), E";
+                m_mnemonic = "OUT";
+                m_operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "E")};
                 m_ticks = 12;
                 break;
             case 0x5A:
-                m_mnemonic = "ADC HL, DE";
+                m_mnemonic = "ADC";
+                m_operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "DE")};
                 m_ticks = 15;
                 break;
             case 0x5B:
@@ -1749,7 +1799,8 @@ private:
                 break;
             case 0x5E:
             case 0x7E:
-                m_mnemonic = "IM 2";
+                m_mnemonic = "IM";
+                m_operands = {Operand(Operand::IMM8, 2)};
                 m_ticks = 8;
                 break;
             case 0x5F:
@@ -1757,15 +1808,18 @@ private:
                 m_ticks = 9;
                 break;
             case 0x60:
-                m_mnemonic = "IN H, (C)";
+                m_mnemonic = "IN";
+                m_operands = {Operand(Operand::REG8, "H"), Operand(Operand::MEM_REG16, "C")};
                 m_ticks = 12;
                 break;
             case 0x61:
-                m_mnemonic = "OUT (C), H";
+                m_mnemonic = "OUT";
+                m_operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "H")};
                 m_ticks = 12;
                 break;
             case 0x62:
-                m_mnemonic = "SBC HL, HL";
+                m_mnemonic = "SBC";
+                m_operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "HL")};
                 m_ticks = 15;
                 break;
             case 0x63:
@@ -1778,15 +1832,18 @@ private:
                 m_ticks = 18;
                 break;
             case 0x68:
-                m_mnemonic = "IN L, (C)";
+                m_mnemonic = "IN";
+                m_operands = {Operand(Operand::REG8, "L"), Operand(Operand::MEM_REG16, "C")};
                 m_ticks = 12;
                 break;
             case 0x69:
-                m_mnemonic = "OUT (C), L";
+                m_mnemonic = "OUT";
+                m_operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "L")};
                 m_ticks = 12;
                 break;
             case 0x6A:
-                m_mnemonic = "ADC HL, HL";
+                m_mnemonic = "ADC";
+                m_operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "HL")};
                 m_ticks = 15;
                 break;
             case 0x6B:
@@ -1799,15 +1856,18 @@ private:
                 m_ticks = 18;
                 break;
             case 0x70:
-                m_mnemonic = "IN (C)";
+                m_mnemonic = "IN";
+                m_operands = {Operand(Operand::MEM_REG16, "C")};
                 m_ticks = 12;
                 break;
             case 0x71:
-                m_mnemonic = "OUT (C), 0";
+                m_mnemonic = "OUT";
+                m_operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::IMM8, 0)};
                 m_ticks = 12;
                 break;
             case 0x72:
-                m_mnemonic = "SBC HL, SP";
+                m_mnemonic = "SBC";
+                m_operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "SP")};
                 m_ticks = 15;
                 break;
             case 0x73:
@@ -1816,15 +1876,18 @@ private:
                 m_ticks = 20;
                 break;
             case 0x78:
-                m_mnemonic = "IN A, (C)";
+                m_mnemonic = "IN";
+                m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::MEM_REG16, "C")};
                 m_ticks = 12;
                 break;
             case 0x79:
-                m_mnemonic = "OUT (C), A";
+                m_mnemonic = "OUT";
+                m_operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "A")};
                 m_ticks = 12;
                 break;
             case 0x7A:
-                m_mnemonic = "ADC HL, SP";
+                m_mnemonic = "ADC";
+                m_operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "SP")};
                 m_ticks = 15;
                 break;
             case 0x7B:
@@ -1912,20 +1975,24 @@ private:
             break;
         }
         case 0xEE:
-            m_mnemonic = "XOR " + format_hex(peek_next_byte());
+            m_mnemonic = "XOR";
+            m_operands = {Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0xEF:
-            m_mnemonic = "RST 28H";
+            m_mnemonic = "RST";
+            m_operands = {Operand(Operand::IMM8, 0x28)};
             m_ticks = 11;
             break;
         case 0xF0:
-            m_mnemonic = "RET P";
+            m_mnemonic = "RET";
+            m_operands = {Operand(Operand::CONDITION, "P")};
             m_ticks = 5;
             m_ticks_alt = 11;
             break;
         case 0xF1:
-            m_mnemonic = "POP AF";
+            m_mnemonic = "POP";
+            m_operands = {Operand(Operand::REG16, "AF")};
             m_ticks = 10;
             break;
         case 0xF2:
@@ -1944,7 +2011,8 @@ private:
             m_ticks_alt = 17;
             break;
         case 0xF5:
-            m_mnemonic = "PUSH AF";
+            m_mnemonic = "PUSH";
+            m_operands = {Operand(Operand::REG16, "AF")};
             m_ticks = 11;
             break;
         case 0xF6:
@@ -1953,11 +2021,13 @@ private:
             m_ticks = 7;
             break;
         case 0xF7:
-            m_mnemonic = "RST 30H";
+            m_mnemonic = "RST";
+            m_operands = {Operand(Operand::IMM8, 0x30)};
             m_ticks = 11;
             break;
         case 0xF8:
-            m_mnemonic = "RET M";
+            m_mnemonic = "RET";
+            m_operands = {Operand(Operand::CONDITION, "M")};
             m_ticks = 5;
             m_ticks_alt = 11;
             break;
@@ -1987,7 +2057,8 @@ private:
             m_ticks = 7;
             break;
         case 0xFF:
-            m_mnemonic = "RST 38H";
+            m_mnemonic = "RST";
+            m_operands = {Operand(Operand::IMM8, 0x38)};
             m_ticks = 11;
             break;
         }
