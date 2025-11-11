@@ -111,7 +111,7 @@ public:
             source_lines.push_back(line);
         SymbolsBuilding symbols_building(m_context, m_context.options.compilation.max_passes);
         CodeGeneration code_generation(m_context, start_addr);
-        std::vector<IAssemblyPolicy*>  m_phases = {&symbols_building, &code_generation};
+        std::vector<IAssemblyPolicy*> m_phases = {&symbols_building, &code_generation};
         for (auto& phase : m_phases) {
             if (!phase)
                 continue;
@@ -766,7 +766,6 @@ private:
         std::map<std::string, SymbolInfo> symbols;
         std::string last_global_label;
         std::vector<BlockInfo> blocks;
-
         const Options& options;
     };
     class IAssemblyPolicy {
@@ -774,72 +773,92 @@ private:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
 
-        IAssemblyPolicy(CompilationContext& context) : m_context(context) {};
         virtual ~IAssemblyPolicy() = default;
 
-        virtual void on_initialize() {};
-        virtual void on_finalize() {};
-        //Source
-        virtual void on_pass_begin() {};
-        virtual bool on_pass_end() {return true;};
-        virtual void on_pass_next() {};
-        //Lines
-        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) {
+        virtual void on_initialize() = 0;
+        virtual void on_finalize() = 0;
+        virtual void on_pass_begin() = 0;
+        virtual bool on_pass_end() = 0;
+        virtual void on_pass_next() = 0;
+
+        virtual CompilationContext& get_compilation_context() = 0;
+        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) = 0;
+        virtual void on_label_definition(const std::string& label) = 0;
+        virtual void on_equ_directive(const std::string& label, const std::string& value) = 0;
+        virtual void on_set_directive(const std::string& label, const std::string& value) = 0;
+        virtual void on_org_directive(const std::string& label) = 0;
+        virtual void on_phase_directive(const std::string& address_str) = 0;
+        virtual void on_dephase_directive() = 0;
+        virtual void on_align_directive(const std::string& boundary) = 0;
+        virtual void on_incbin_directive(const std::string& filename) = 0;
+        virtual void on_unknown_operand(const std::string& operand) = 0;
+        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
+        virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
+        virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
+    };
+
+    class DefaultAssemblyPolicy : public IAssemblyPolicy {
+    public:
+        using Operand = typename IAssemblyPolicy::Operand;
+        using OperandType = typename IAssemblyPolicy::OperandType;
+
+        DefaultAssemblyPolicy(CompilationContext& context) : m_context(context) {}
+
+        virtual CompilationContext& get_compilation_context() override { return m_context; }
+
+        void on_initialize() override {}
+        void on_finalize() override {}
+        void on_pass_begin() override {}
+        bool on_pass_end() override { return true; }
+        void on_pass_next() override {}
+        bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (symbol == "$") {
                 out_value = this->m_context.current_logical_address;
                 return true;
             }
             return false;
-        };
-        virtual void on_label_definition(const std::string& label) {
-            if (!label.empty() && label[0] != '.') 
-                m_context.last_global_label = label;
-        };
-        virtual void on_equ_directive(const std::string& label, const std::string& value) {};
-        virtual void on_set_directive(const std::string& label, const std::string& value) {};
-        virtual void on_org_directive(const std::string& label) {};
-        virtual void on_phase_directive(const std::string& address_str) {};
-        virtual void on_dephase_directive() {};
-        virtual void on_align_directive(const std::string& boundary) {
-            if (!m_context.options.directives.allow_align)
+        }
+        void on_label_definition(const std::string& label) override {
+            if (!label.empty() && label[0] != '.')
+                this->m_last_global_label = label;
+        }
+        void on_equ_directive(const std::string& label, const std::string& value) override {}
+        void on_set_directive(const std::string& label, const std::string& value) override {}
+        void on_org_directive(const std::string& label) override {}
+        void on_phase_directive(const std::string& address_str) override {}
+        void on_dephase_directive() override {}
+        void on_align_directive(const std::string& boundary) override {
+            if (!this->m_context.options.directives.allow_align)
                 return;
             Expressions expression(*this);
             int32_t align_val;
             if (expression.evaluate(boundary, align_val) && align_val > 0) {
                 uint16_t current_addr = this->m_context.current_logical_address;
                 uint16_t new_addr = (current_addr + align_val - 1) & ~(align_val - 1);
-                uint16_t padding = new_addr - current_addr;
-
                 for (uint16_t i = current_addr; i < new_addr; ++i)
                     on_assemble({0x00});
             }
-        };
-        virtual void on_incbin_directive(const std::string& filename) {
-            if (!this->m_context.options.directives.allow_incbin)
-                return;
-            std::vector<uint8_t> data;
-            if (this->m_context.source_provider->get_source(filename, data))
-                on_assemble(data);
-            else
-                throw std::runtime_error("Could not open file for INCBIN: " + filename);
         }
-        virtual void on_unknown_operand(const std::string& operand) {}
-        //Instructions
-        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) {return false;};
-        virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) {};
-        virtual void on_assemble(std::vector<uint8_t> bytes) {};
-
-        virtual CompilationContext& get_compilation_context() {return m_context;}
+        void on_incbin_directive(const std::string& filename) override {
+            if (!this->m_context.options.directives.allow_incbin) return;
+            std::vector<uint8_t> data;
+            if (this->m_context.source_provider->get_source(filename, data)) on_assemble(data);
+            else throw std::runtime_error("Could not open file for INCBIN: " + filename);
+        }
+        void on_unknown_operand(const std::string& operand) override {}
+        bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; } // Now Operand and OperandType are known
+        void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
+        void on_assemble(std::vector<uint8_t> bytes) override {}
     protected:
         std::string get_absolute_symbol_name(const std::string& name) const {
             if (!name.empty() && name[0] == '.') {
-                if (this->m_context.last_global_label.empty())
+                if (this->m_last_global_label.empty())
                     throw std::runtime_error("Local label '" + name + "' used without a preceding global label.");
-                return this->m_context.last_global_label + name;
+                return this->m_last_global_label + name;
             }
             return name;
-        }
-
+        }    
+        std::string m_last_global_label;
         CompilationContext& m_context;
     };
     // Helpers
@@ -892,12 +911,12 @@ private:
             return success;
         }
     };
-    class SymbolsBuilding : public IAssemblyPolicy {
+    class SymbolsBuilding : public DefaultAssemblyPolicy {
     public:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
 
-        SymbolsBuilding(CompilationContext& context, int max_pass) : IAssemblyPolicy(context), m_max_pass(max_pass) {}
+        SymbolsBuilding(CompilationContext& context, int max_pass) : DefaultAssemblyPolicy(context), m_max_pass(max_pass) {}
         virtual ~SymbolsBuilding() {
             clear_symbols();
         }
@@ -962,7 +981,7 @@ private:
             }
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
-            if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
+            if (DefaultAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             bool resolved = false;
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
@@ -981,7 +1000,7 @@ private:
             return resolved;
         }
         virtual void on_label_definition(const std::string& label) override {
-            IAssemblyPolicy::on_label_definition(label);
+            DefaultAssemblyPolicy::on_label_definition(label);
             std::string actual_label_name = this->get_absolute_symbol_name(label);
             update_symbol(actual_label_name, this->m_context.current_logical_address, false, false);
         };
@@ -1096,16 +1115,16 @@ private:
         bool m_final_pass_scheduled = false;
         int m_max_pass = 0;
     };
-    class CodeGeneration : public IAssemblyPolicy {
+    class CodeGeneration : public DefaultAssemblyPolicy {
     public:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
         
-        CodeGeneration(CompilationContext& context, uint16_t start_addr) : IAssemblyPolicy(context), m_start_addr(start_addr) {}
+        CodeGeneration(CompilationContext& context, uint16_t start_addr) : DefaultAssemblyPolicy(context), m_start_addr(start_addr) {}
         virtual ~CodeGeneration() = default;
 
         virtual void on_pass_begin() override {
-            this->m_context.last_global_label.clear();
+            this->m_last_global_label.clear();
             m_blocks.push_back({m_start_addr, 0});
         }
         virtual bool on_pass_end() override {
@@ -1116,7 +1135,7 @@ private:
             return true;
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
-            if (IAssemblyPolicy::on_symbol_resolve(symbol, out_value))
+            if (DefaultAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;            
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
             auto it = this->m_context.symbols.find(actual_symbol_name);
@@ -1126,7 +1145,7 @@ private:
                 return true;
         }
         virtual void on_label_definition(const std::string& label) override {
-            IAssemblyPolicy::on_label_definition(label);
+            DefaultAssemblyPolicy::on_label_definition(label);
         };
         virtual void on_org_directive(const std::string& label) override {
             int32_t addr;
@@ -1148,7 +1167,7 @@ private:
         virtual void on_dephase_directive() override {
             this->m_context.current_logical_address = this->m_context.current_physical_address;
         }
-        virtual void on_unknown_operand(const std::string& operand) { throw std::runtime_error("Unknown operand or undefined symbol: " + operand); }
+        virtual void on_unknown_operand(const std::string& operand) override { throw std::runtime_error("Unknown operand or undefined symbol: " + operand); }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
             throw std::runtime_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
         }
