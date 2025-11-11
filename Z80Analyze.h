@@ -140,105 +140,50 @@ public:
     //  - `%m`: Mnemonic with operands.
     //  - `%M`: Mnemonic only.
     //  - `%o`: Operands only.
-    //  - `%t`: T-states (cycle count), e.g., (4T) or (7/12T).
-    //  - `%l`: Label at the instruction's address (if any).
-    //  - `%N`: Newline character (`\n`).
-    //  - `%s<c>`: Separator character, where `<c>` is the character to use.
-    //  - Supports width (`%10`), alignment (`%-10`), and fill character (`%-10.b` uses `.` instead of space).
-    std::string disassemble(uint16_t& address, const std::string& format) {
+    //  - `%t`: T-states (cycle count), e.g., (4T) or (7/12T).    
+    std::string disassemble(uint16_t& address) {
         uint16_t initial_address = address;
         std::string label_str;
         if constexpr (!std::is_same_v<TLabels, void>)
             if (m_labels) {
                 label_str = m_labels->get_label(initial_address);
             }
+
         parse_instruction(address);
         std::stringstream ss;
-        for (size_t i = 0; i < format.length(); ++i) {
-            if (format[i] == '%') {
-                int width = 0;
-                bool left_align = false;
-                char fill_char = ' ';
-                size_t j = i + 1;
-                if (format[j] == '-') {
-                    left_align = true;
-                    j++;
-                }
-                while (isdigit(format[j])) {
-                    width = width * 10 + (format[j] - '0');
-                    j++;
-                }
-                if (format[j] == '.') {
-                    fill_char = '.';
-                    j++;
-                }
-                if (j < format.length()) {
-                    char specifier = format[j];
-                    std::string replacement;
-                    switch (specifier) {
-                    case 'a':
-                        replacement = format_hex(initial_address, 4);
-                        break;
-                    case 'A':
-                        replacement = format_dec(initial_address);
-                        break;
-                    case 'b':
-                        replacement = get_bytes_str(true);
-                        break;
-                    case 'B':
-                        replacement = get_bytes_str(false);
-                        break;
-                    case 'm':
-                        replacement = m_mnemonic;
-                        break;
-                    case 't':
-                        if (m_ticks_alt > 0) {
-                            replacement = "(" + std::to_string(m_ticks) + "/" + std::to_string(m_ticks_alt) + "T)";
-                        } else
-                            replacement = "(" + std::to_string(m_ticks) + "T)";
-                        break;
-                    case 'l':
-                        if (!label_str.empty())
-                            replacement = label_str + ":";
-                        break;
-                    case 'M':
-                        replacement = m_mnemonic;
-                        break;
-                    case 'o':
-                        replacement = format_operands();
-                        break;
-                    case 'N':
-                        replacement = "\n";
-                        break;
-                    case 's':
-                        if (j + 1 < format.length()) {
-                            replacement = std::string(1, format[j + 1]);
-                            j++;
-                        } else {
-                            replacement = " ";
-                        }
-                        break;
-                    }
-                    ss << std::setfill(fill_char) << std::setw(width) << (left_align ? std::left : std::right)
-                       << replacement;
-                    ss << std::setfill(' ');
-                    i = j;
-                }
-            } else if (format[i] == '\\' && i + 1 < format.length() && format[i+1] == 'n') {
-                ss << '\n';
-                i++;
-            } else {
-                ss << format[i];
-            }
+
+        // Format: etykieta: \n adres (hex) bajty (hex) mnemonic i operandy, ticks
+        if (!label_str.empty()) {
+            ss << label_str << ":\n";
         }
+
+        ss << format_hex(initial_address, 4) << " ";
+
+        std::stringstream ticks_ss;
+        if (m_ticks_alt > 0) {
+            ticks_ss << "(" << m_ticks << "/" << m_ticks_alt << "T)";
+        } else {
+            ticks_ss << "(" << m_ticks << "T)";
+        }
+        ss << std::left << std::setw(8) << ticks_ss.str() << " ";
+
+        ss << std::left << std::setw(12) << get_bytes_str(true) << " ";
+
+        std::string full_mnemonic = m_mnemonic;
+        std::string operands_str = format_operands();
+        if (!operands_str.empty()) {
+            full_mnemonic += " " + operands_str;
+        }
+        ss << std::left << std::setw(20) << full_mnemonic;
+
         return ss.str();
     }
-    std::string disassemble(uint16_t& address) { return disassemble(address, "%l%s%a:%s\t%-12b %-15m %t"); }
-    std::vector<std::string> disassemble(uint16_t& address, size_t lines, const std::string& format = "%l%s%a:%s\t%-12b %-7M %-18o %t") {
+    std::vector<std::string> disassemble(uint16_t& address, size_t lines)
+    {
         std::vector<std::string> result;
         result.reserve(lines);
         for (size_t i = 0; i < lines; ++i)
-            result.push_back(disassemble(address, format));
+            result.push_back(disassemble(address));
         return result;
     }
 
@@ -250,19 +195,31 @@ public:
         for (size_t i = 0; i < m_operands.size(); ++i) {
             const auto& op = m_operands[i];
             switch (op.type) {
-                case Operand::REG8:
-                case Operand::REG16:
-                case Operand::CONDITION:
-                    ss << op.s_val;
-                    break;
-                case Operand::IMM8:
-                    ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
-                    break;
-                case Operand::IMM16:
-                case Operand::MEM_IMM16: {
-                    std::string formatted_addr = format_address_with_label(op.num_val);
-                    if (op.type == Operand::MEM_IMM16) ss << "(" << formatted_addr << ")";
-                    else ss << formatted_addr;
+            case Operand::REG8:
+            case Operand::REG16:
+            case Operand::CONDITION:
+                ss << op.s_val;
+                break;
+            case Operand::IMM8:
+                ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
+                break;
+            case Operand::IMM16:
+            case Operand::MEM_IMM16:
+                {
+                    std::string label_str;
+                    if constexpr (!std::is_same_v<TLabels, void>) {
+                        if (m_labels) {
+                            label_str = m_labels->get_label(op.num_val);
+                        }
+                    }
+
+                    std::string formatted_addr = label_str.empty() ? format_hex(op.num_val, 4) : label_str + " (" + format_hex(op.num_val, 4) + ")";
+
+                    if (op.type == Operand::MEM_IMM16) {
+                        ss << "(" << formatted_addr << ")";
+                    } else {
+                        ss << formatted_addr;
+                    }
                     break;
                 }
                 case Operand::MEM_REG16:

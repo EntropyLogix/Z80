@@ -315,7 +315,7 @@ int main(int argc, char* argv[]) {
     if (disasm_lines > 0) {
         uint16_t disasm_addr = resolve_address(disasm_addr_str, cpu);
         std::cout << "\n--- Disassembly from " << format_hex(disasm_addr, 4) << " (" << disasm_lines << " lines) ---\n";
-        uint16_t pc = disasm_addr;
+        uint16_t pc = disasm_addr;        
         auto listing = analyzer.disassemble(pc, disasm_lines);
         for (const auto& line : listing)
             std::cout << line << std::endl;

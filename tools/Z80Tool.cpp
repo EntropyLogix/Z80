@@ -70,6 +70,7 @@ void print_usage() {
               << "  b[reakpoint] clear             Clear the breakpoint.\n"
               << "  set <reg> <value>              Set a register value (e.g., 'set pc 8000h').\n"
               << "  symbol [name]                  Show all symbols or a specific one.\n"
+              << "  format <type> <string>         Set default format for 'reg', 'mem', or 'disasm'.\n"
               << "  help                           Show this help message.\n"
               << "  q[uit] / exit                  Exit the interactive session.\n";
 }
@@ -250,8 +251,8 @@ void run_analysis_actions(
     Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels>& analyzer,
     Z80DefaultLabels& label_handler,
     const std::string& mem_dump_addr_str, size_t mem_dump_size,
-    const std::string& disasm_addr_str, size_t disasm_lines,
-    bool reg_dump_action, const std::string& reg_dump_format
+    const std::string& disasm_addr_str, size_t disasm_lines, const std::string& disasm_format,
+    bool reg_dump_action, const std::string& reg_dump_format, const std::string& mem_dump_format
 ) {
     if (reg_dump_action) {
         std::string format = reg_dump_format.empty() ? "AF=%af BC=%bc DE=%de HL=%hl IX=%ix IY=%iy PC=%pc SP=%sp | %flags" : reg_dump_format;
@@ -263,16 +264,20 @@ void run_analysis_actions(
         uint16_t mem_dump_addr = resolve_address(mem_dump_addr_str, cpu, &label_handler);
         std::cout << "\n--- Memory Dump from " << format_hex(mem_dump_addr, 4) << " (" << mem_dump_size << " bytes) ---\n";
         uint16_t current_addr = mem_dump_addr;
-        auto dump = analyzer.dump_memory(current_addr, (mem_dump_size + 15) / 16, 16);
+        std::string format = mem_dump_format.empty() ? "%a: %h  %c" : mem_dump_format;
+        auto dump = analyzer.dump_memory(current_addr, (mem_dump_size + 15) / 16, 16, format);
         for (const auto& line : dump) {
             std::cout << line << std::endl;
         }
     }
 
     if (disasm_lines > 0) {
-        uint16_t disasm_addr = resolve_address(disasm_addr_str, cpu, &label_handler);
+        uint16_t disasm_addr = resolve_address(disasm_addr_str, cpu, &label_handler); // Pass label_handler
         std::cout << "\n--- Disassembly from " << format_hex(disasm_addr, 4) << " (" << disasm_lines << " lines) ---\n";
         uint16_t pc = disasm_addr;
+        // Since disassemble no longer takes a format string, we call it and then iterate through the results.
+        // The format is now hardcoded in Z80Analyze.h.
+        // The old format string was: disasm_format.empty() ? "%L%s\n%a: %-12b %-20M" : disasm_format
         auto listing = analyzer.disassemble(pc, disasm_lines);
         for (const auto& line : listing) {
             std::cout << line << std::endl;
@@ -434,9 +439,10 @@ int main(int argc, char* argv[]) {
                 std::cout << "\n--- Disassembly of Generated Code ---\n";
                 for (const auto& block : blocks) {
                     uint16_t pc = block.start_address;
-                    uint16_t end_addr = pc + block.size;
-                    while (pc < end_addr) {
-                        std::cout << analyzer.disassemble(pc, "%a: %-12b %-15m") << std::endl;
+                    uint16_t end_addr = pc + block.size;                    
+                    auto listing = analyzer.disassemble(pc, (end_addr - pc)); // Disassemble the whole block
+                    for (const auto& line : listing) {
+                        std::cout << line << std::endl;
                     }
                 }
             }
@@ -568,18 +574,18 @@ int main(int argc, char* argv[]) {
         // This happens after any initial emulation run.
         bool one_shot_analysis_requested = (options.getMemDumpSize() > 0 || options.getDisasmLines() > 0 || options.isRegDumpRequested());
         if (one_shot_analysis_requested) {
-            run_analysis_actions(cpu, analyzer, label_handler, options.getMemDumpAddrStr(), options.getMemDumpSize(), options.getDisasmAddrStr(), options.getDisasmLines(), options.isRegDumpRequested(), options.getRegDumpFormat());
+            run_analysis_actions(cpu, analyzer, label_handler, options.getMemDumpAddrStr(), options.getMemDumpSize(), options.getDisasmAddrStr(), options.getDisasmLines(), "", options.isRegDumpRequested(), options.getRegDumpFormat(), "");
         }
 
         // If interactive mode is requested, enter it now.
         if (options.isInteractive()) {
             run_interactive_mode(cpu, analyzer, label_handler);
         }
-        // If no actions were requested at all (no emulation, no analysis, no interactive),
+        // If no actions were requested at all (no emulation, no analysis, no interactive), and we are in analysis mode, dump registers by default.
         // and we are in analysis mode, dump registers by default.
         // In assembly mode, the default is already handled (printing listing).
         else if (!emulation_requested && !one_shot_analysis_requested && options.getMode() == CommandLineOptions::ToolMode::Analysis) {
-            run_analysis_actions(cpu, analyzer, label_handler, "", 0, "", 0, true, "");
+            run_analysis_actions(cpu, analyzer, label_handler, "", 0, "", 0, "", true, "", "");
         }
 
     } catch (const std::exception& e) {
@@ -602,6 +608,10 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
 
     uint16_t breakpoint_address = 0;
     bool breakpoint_set = false;
+
+    std::string default_reg_format = "AF=%af BC=%bc DE=%de HL=%hl IX=%ix IY=%iy PC=%pc SP=%sp | %flags";
+    std::string default_mem_format = "%a: %h  %c";
+    std::string default_disasm_format = "%L%s%a: %-12b %-20M"; // Removed the literal \n from here
 
     while (true) {
         const char* cinput = rx.input("(z80) > ");
@@ -631,14 +641,17 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
             ss >> addr_str >> lines;
             if (addr_str.empty()) {
                 addr_str = "pc"; // Domyślnie PC
-                lines = 1;
+                lines = 1; // Default to 1 line if not specified
             }
             if (lines == 0) {
-                std::cerr << "Usage: disassemble [addr] [lines]\n";
+                std::cerr << "Usage: d[isassemble] [addr] [lines]\n";
                 continue;
             }
-            run_analysis_actions(cpu, analyzer, label_handler, "", 0, addr_str, lines, false, "");
-        } else if (command == "m" || command == "mem-dump") {
+            // Call disassemble directly as it doesn't need the full run_analysis_actions function
+            uint16_t disasm_addr = resolve_address(addr_str, cpu, &label_handler);
+            auto listing = analyzer.disassemble(disasm_addr, lines);
+            for (const auto& line : listing) { std::cout << line << std::endl; }
+        } else if (command == "m" || command == "mem-dump") { // TODO: This should also use the new format
             std::string addr_str;
             size_t bytes = 0;
             ss >> addr_str >> std::hex >> bytes; // Allow hex input for bytes
@@ -646,12 +659,12 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
                 std::cerr << "Usage: mem-dump <addr> <bytes_hex>\n";
                 continue;
             }
-            run_analysis_actions(cpu, analyzer, label_handler, addr_str, bytes, "", 0, false, "");
+            run_analysis_actions(cpu, analyzer, label_handler, addr_str, bytes, "", 0, "", false, "", default_mem_format);
         } else if (command == "r" || command == "reg-dump") {
             std::string reg_format;
             std::getline(ss, reg_format);
             reg_format.erase(0, reg_format.find_first_not_of(" \t"));
-            run_analysis_actions(cpu, analyzer, label_handler, "", 0, "", 0, true, reg_format);
+            run_analysis_actions(cpu, analyzer, label_handler, "", 0, "", 0, "", true, reg_format.empty() ? default_reg_format : reg_format, "");
         } else if (command == "t" || command == "ticks") {
             long long ticks_to_run = 1;
             ss >> ticks_to_run;
