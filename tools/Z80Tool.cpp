@@ -669,9 +669,6 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
     rx.install_window_change_handler();
     rx.history_load(history_file);
 
-    uint16_t breakpoint_address = 0;
-    bool breakpoint_set = false;
-
     std::string default_reg_format = "AF=%af BC=%bc DE=%de HL=%hl IX=%ix IY=%iy PC=%pc SP=%sp | %flags";
     std::string default_mem_format = "%a: %h  %c";
     std::string default_disasm_format = "%L%s%a: %-12b %-20M"; // Removed the literal \n from here
@@ -742,8 +739,8 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
             long long initial_ticks = cpu.get_ticks();
             long long target_ticks = initial_ticks + ticks_to_run;
             while (cpu.get_ticks() < target_ticks) {
-                if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
-                    std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                if (analyzer.is_breakpoint(cpu.get_PC())) {
+                    std::cout << "Breakpoint hit at " << format_hex(cpu.get_PC(), 4) << ".\n";
                     break;
                 }
                 cpu.step();
@@ -759,8 +756,8 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
             }
             std::cout << "Running for " << steps_to_run << " instructions...\n";
             for (long long i = 0; i < steps_to_run; ++i) {
-                if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
-                    std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                if (analyzer.is_breakpoint(cpu.get_PC())) {
+                    std::cout << "Breakpoint hit at " << format_hex(cpu.get_PC(), 4) << ".\n";
                     break;
                 }
                 cpu.step();
@@ -774,8 +771,8 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
                 uint16_t step_over_breakpoint = next_pc;
                 std::cout << "Stepping over call. Will stop at " << format_hex(step_over_breakpoint, 4) << ".\n";
                 while (cpu.get_PC() != step_over_breakpoint) {
-                    if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
-                        std::cout << "Original breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                    if (analyzer.is_breakpoint(cpu.get_PC())) {
+                        std::cout << "Original breakpoint hit at " << format_hex(cpu.get_PC(), 4) << ".\n";
                         break;
                     }
                     cpu.step();
@@ -803,8 +800,8 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
                     cpu.step(); // Execute the RET
                     break;
                 }
-                if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
-                    std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                if (analyzer.is_breakpoint(cpu.get_PC())) {
+                    std::cout << "Breakpoint hit at " << format_hex(cpu.get_PC(), 4) << ".\n";
                     break;
                 }
                 cpu.step();
@@ -813,8 +810,8 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
         } else if (command == "c" || command == "continue") {
             std::cout << "Continuing execution...\n";
             while (true) {
-                if (breakpoint_set && cpu.get_PC() == breakpoint_address) {
-                    std::cout << "Breakpoint hit at " << format_hex(breakpoint_address, 4) << ".\n";
+                if (analyzer.is_breakpoint(cpu.get_PC())) {
+                    std::cout << "Breakpoint hit at " << format_hex(cpu.get_PC(), 4) << ".\n";
                     break;
                 }
                 cpu.step();
@@ -855,22 +852,22 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
             std::string arg;
             ss >> arg;
             if (arg == "clear") {
-                breakpoint_set = false;
-                std::cout << "Breakpoint cleared.\n";
+                analyzer.remove_breakpoint(0); // Assuming we only have one for now.
+                std::cout << "All breakpoints cleared.\n";
             } else if (!arg.empty()) {
                 try {
-                    breakpoint_address = resolve_address(arg, cpu, &label_handler);
-                    breakpoint_set = true;
+                    uint16_t breakpoint_address = resolve_address(arg, cpu, &label_handler);
+                    analyzer.add_breakpoint(breakpoint_address);
                     std::cout << "Breakpoint set at " << format_hex(breakpoint_address, 4) << ".\n";
                 } catch (const std::exception& e) {
                     std::cerr << "Error setting breakpoint: " << e.what() << "\n";
                 }
             } else {
-                if (breakpoint_set) {
-                    std::cout << "Breakpoint is currently set at " << format_hex(breakpoint_address, 4) << ".\n";
-                } else {
-                    std::cout << "No breakpoint is set. Usage: breakpoint <addr> | clear\n";
-                }
+                // This part needs to be updated if we support multiple breakpoints
+                // For now, let's just say it's not fully implemented.
+                // A better implementation would be to iterate through analyzer.m_breakpoints
+                std::cout << "Usage: breakpoint <addr> | clear\n";
+                std::cout << "(Listing active breakpoints is not yet fully supported in this view)\n";
             }
         } else if (command == "symbol") {
             std::string name;

@@ -25,6 +25,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <set>
 #include <iostream>
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -180,8 +181,12 @@ public:
         if (colors) ss << colors->to_ansi_fg(colors->address);
         ss << format_hex(initial_address, 4);
         if (colors) ss << colors->RESET_COLOR;
-        ss << " ";
 
+        if (is_breakpoint(initial_address)) {
+            ss << "* ";
+        } else {
+            ss << "  ";
+        }
         std::stringstream ticks_ss;
         if (m_ticks_alt > 0) {
             ticks_ss << "(" << m_ticks << "/" << m_ticks_alt << "T)";
@@ -217,6 +222,18 @@ public:
         for (size_t i = 0; i < lines; ++i)
             result.push_back(disassemble(address, colors));
         return result;
+    }
+
+    void add_breakpoint(uint16_t address) {
+        m_breakpoints.insert(address);
+    }
+
+    void remove_breakpoint(uint16_t address) {
+        m_breakpoints.erase(address);
+    }
+
+    bool is_breakpoint(uint16_t address) const {
+        return m_breakpoints.count(address) > 0;
     }
 
     std::string format_operands(const ColorScheme* colors = nullptr) {
@@ -2181,6 +2198,7 @@ private:
     std::vector<Operand> m_operands;
     std::vector<uint8_t> m_bytes;
     int m_ticks, m_ticks_alt;
+    std::set<uint16_t> m_breakpoints;
     TLabels* m_labels;
 };
 
