@@ -44,6 +44,23 @@
 #define Z80_POP_PACK()
 #endif
 
+struct ColorScheme {
+    struct RGB { int r, g, b; };
+    RGB label = {255, 255, 100};
+    RGB mnemonic = {100, 255, 100};
+    RGB address = {180, 180, 180};
+    RGB bytes = {128, 128, 128};
+    RGB ticks = {100, 100, 100};
+    RGB operand_reg = {180, 180, 255};
+    RGB operand_imm = {100, 200, 255};
+    RGB operand_addr = {100, 200, 255};
+    RGB operand_mem = {200, 150, 255};
+    RGB operand_cond = {255, 150, 150};
+
+    std::string to_ansi_fg(RGB color) const { return "\033[38;2;" + std::to_string(color.r) + ";" + std::to_string(color.g) + ";" + std::to_string(color.b) + "m"; }
+    const std::string RESET_COLOR = "\033[0m";
+};
+
 template <typename, typename, typename> class Z80;
 
 template <typename TMemory, typename TRegisters, typename TLabels> class Z80Analyzer {
@@ -141,7 +158,7 @@ public:
     //  - `%M`: Mnemonic only.
     //  - `%o`: Operands only.
     //  - `%t`: T-states (cycle count), e.g., (4T) or (7/12T).    
-    std::string disassemble(uint16_t& address) {
+    std::string disassemble(uint16_t& address, const ColorScheme* colors = nullptr) {
         uint16_t initial_address = address;
         std::string label_str;
         if constexpr (!std::is_same_v<TLabels, void>)
@@ -154,10 +171,16 @@ public:
 
         // Format: etykieta: \n adres (hex) bajty (hex) mnemonic i operandy, ticks
         if (!label_str.empty()) {
-            ss << label_str << ":\n";
+            if (colors) ss << colors->to_ansi_fg(colors->label);
+            ss << label_str << ":";
+            if (colors) ss << colors->RESET_COLOR;
+            ss << "\n";
         }
 
-        ss << format_hex(initial_address, 4) << " ";
+        if (colors) ss << colors->to_ansi_fg(colors->address);
+        ss << format_hex(initial_address, 4);
+        if (colors) ss << colors->RESET_COLOR;
+        ss << " ";
 
         std::stringstream ticks_ss;
         if (m_ticks_alt > 0) {
@@ -165,29 +188,38 @@ public:
         } else {
             ticks_ss << "(" << m_ticks << "T)";
         }
-        ss << std::left << std::setw(8) << ticks_ss.str() << " ";
+        if (colors) ss << colors->to_ansi_fg(colors->ticks);
+        ss << std::left << std::setw(8) << ticks_ss.str();
+        if (colors) ss << colors->RESET_COLOR;
+        ss << " ";
 
-        ss << std::left << std::setw(12) << get_bytes_str(true) << " ";
+        if (colors) ss << colors->to_ansi_fg(colors->bytes);
+        ss << std::left << std::setw(12) << get_bytes_str(true);
+        if (colors) ss << colors->RESET_COLOR;
+        ss << " ";
 
+        if (colors) ss << colors->to_ansi_fg(colors->mnemonic);
+        ss << std::left << std::setw(8) << m_mnemonic;
+        if (colors) ss << colors->RESET_COLOR;
+
+        std::string operands_str = format_operands(colors);
         std::string full_mnemonic = m_mnemonic;
-        std::string operands_str = format_operands();
         if (!operands_str.empty()) {
-            full_mnemonic += " " + operands_str;
+            ss << " " << operands_str;
         }
-        ss << std::left << std::setw(20) << full_mnemonic;
 
         return ss.str();
     }
-    std::vector<std::string> disassemble(uint16_t& address, size_t lines)
+    std::vector<std::string> disassemble(uint16_t& address, size_t lines, const ColorScheme* colors = nullptr)
     {
         std::vector<std::string> result;
         result.reserve(lines);
         for (size_t i = 0; i < lines; ++i)
-            result.push_back(disassemble(address));
+            result.push_back(disassemble(address, colors));
         return result;
     }
 
-    std::string format_operands() {
+    std::string format_operands(const ColorScheme* colors = nullptr) {
         if (m_operands.empty()) {
             return "";
         }
@@ -198,12 +230,21 @@ public:
             case Operand::REG8:
             case Operand::REG16:
             case Operand::CONDITION:
+                if (colors) {
+                    if (op.type == Operand::CONDITION) ss << colors->to_ansi_fg(colors->operand_cond);
+                    else ss << colors->to_ansi_fg(colors->operand_reg);
+                }
                 ss << op.s_val;
                 break;
             case Operand::IMM8:
+                if (colors) ss << colors->to_ansi_fg(colors->operand_imm);
                 ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
                 break;
             case Operand::IMM16:
+                if (colors) ss << colors->to_ansi_fg(colors->operand_imm);
+                ss << format_hex(op.num_val, 4);
+                break;
+            case Operand::ADDR:
             case Operand::MEM_IMM16:
                 {
                     std::string label_str;
@@ -213,25 +254,50 @@ public:
                         }
                     }
 
-                    std::string formatted_addr = label_str.empty() ? format_hex(op.num_val, 4) : label_str + " (" + format_hex(op.num_val, 4) + ")";
+                    std::string formatted_addr;
+                    if (label_str.empty()) {
+                        if (colors) formatted_addr += colors->to_ansi_fg(colors->operand_addr);
+                        formatted_addr += format_hex(op.num_val, 4);
+                    } else {
+                        if (colors) formatted_addr += colors->to_ansi_fg(colors->label);
+                        formatted_addr += label_str;
+                        if (colors) formatted_addr += colors->RESET_COLOR;
+                        formatted_addr += " (";
+                        if (colors) formatted_addr += colors->to_ansi_fg(colors->operand_addr);
+                        formatted_addr += format_hex(op.num_val, 4);
+                        if (colors) formatted_addr += colors->RESET_COLOR;
+                        formatted_addr += ")";
+                    }
 
                     if (op.type == Operand::MEM_IMM16) {
+                        if (colors) ss << colors->to_ansi_fg(colors->operand_mem);
                         ss << "(" << formatted_addr << ")";
+                        if (colors) ss << colors->RESET_COLOR;
                     } else {
                         ss << formatted_addr;
                     }
                     break;
                 }
                 case Operand::MEM_REG16:
+                    if (colors) ss << colors->to_ansi_fg(colors->operand_mem);
                     ss << "(" << op.s_val << ")";
                     break;
                 case Operand::MEM_INDEXED:
+                    if (colors) ss << colors->to_ansi_fg(colors->operand_mem);
                     ss << format_indexed_address(op.s_val, op.offset);
                     break;
                 case Operand::PORT_IMM8:
-                    ss << "(" << format_hex(static_cast<uint8_t>(op.num_val), 2) << ")";
+                    if (colors) ss << colors->to_ansi_fg(colors->operand_mem);
+                    ss << "(";
+                    if (colors) ss << colors->RESET_COLOR;
+                    if (colors) ss << colors->to_ansi_fg(colors->operand_imm);
+                    ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
+                    if (colors) ss << colors->RESET_COLOR;
+                    if (colors) ss << colors->to_ansi_fg(colors->operand_mem);
+                    ss << ")";
                     break;
             }
+            if (colors) ss << colors->RESET_COLOR;
             if (i < m_operands.size() - 1) ss << ", ";
         }
         return ss.str();
@@ -239,7 +305,7 @@ public:
 private:
     struct Operand {
         enum Type {
-            REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, PORT_IMM8
+            REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, PORT_IMM8, ADDR
         };
         Type type;
         std::string s_val;
@@ -450,7 +516,7 @@ private:
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
             m_mnemonic = "DJNZ";
-            m_operands = {Operand(Operand::IMM16, address)};
+            m_operands = {Operand(Operand::ADDR, address)};
             m_ticks = 8;
             m_ticks_alt = 13;
             break;
@@ -493,7 +559,7 @@ private:
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
             m_mnemonic = "JR";
-            m_operands = {Operand(Operand::IMM16, address)};
+            m_operands = {Operand(Operand::ADDR, address)};
             m_ticks = 12;
             break;
         }
@@ -578,7 +644,7 @@ private:
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
             m_mnemonic = "JR";
-            m_operands = {Operand(Operand::CONDITION, "Z"), Operand(Operand::IMM16, address)};
+            m_operands = {Operand(Operand::CONDITION, "Z"), Operand(Operand::ADDR, address)};
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
@@ -623,7 +689,7 @@ private:
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
             m_mnemonic = "JR";
-            m_operands = {Operand(Operand::CONDITION, "NC"), Operand(Operand::IMM16, address)};
+            m_operands = {Operand(Operand::CONDITION, "NC"), Operand(Operand::ADDR, address)};
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
@@ -668,7 +734,7 @@ private:
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
             m_mnemonic = "JR";
-            m_operands = {Operand(Operand::CONDITION, "C"), Operand(Operand::IMM16, address)};
+            m_operands = {Operand(Operand::CONDITION, "C"), Operand(Operand::ADDR, address)};
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
@@ -1363,17 +1429,17 @@ private:
             break;
         case 0xC2:
             m_mnemonic = "JP";
-            m_operands = {Operand(Operand::CONDITION, "NZ"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "NZ"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xC3:
             m_mnemonic = "JP";
-            m_operands = {Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xC4:
             m_mnemonic = "CALL";
-            m_operands = {Operand(Operand::CONDITION, "NZ"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "NZ"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1404,7 +1470,7 @@ private:
             break;
         case 0xCA:
             m_mnemonic = "JP";
-            m_operands = {Operand(Operand::CONDITION, "Z"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "Z"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xCB:
@@ -1454,13 +1520,13 @@ private:
             break;
         case 0xCC:
             m_mnemonic = "CALL";
-            m_operands = {Operand(Operand::CONDITION, "Z"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "Z"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
         case 0xCD:
             m_mnemonic = "CALL";
-            m_operands = {Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 17;
             break;
         case 0xCE:
@@ -1486,7 +1552,7 @@ private:
             break;
         case 0xD2:
             m_mnemonic = "JP";
-            m_operands = {Operand(Operand::CONDITION, "NC"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "NC"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xD3:
@@ -1496,7 +1562,7 @@ private:
             break;
         case 0xD4:
             m_mnemonic = "CALL";
-            m_operands = {Operand(Operand::CONDITION, "NC"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "NC"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1527,7 +1593,7 @@ private:
             break;
         case 0xDA:
             m_mnemonic = "JP";
-            m_operands = {Operand(Operand::CONDITION, "C"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "C"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xDB:
@@ -1537,7 +1603,7 @@ private:
             break;
         case 0xDC:
             m_mnemonic = "CALL";
-            m_operands = {Operand(Operand::CONDITION, "C"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "C"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1564,7 +1630,7 @@ private:
             break;
         case 0xE2:
             m_mnemonic = "JP";
-            m_operands = {Operand(Operand::CONDITION, "PO"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "PO"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xE3:
@@ -1574,7 +1640,7 @@ private:
             break;
         case 0xE4:
             m_mnemonic = "CALL";
-            m_operands = {Operand(Operand::CONDITION, "PO"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "PO"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1606,7 +1672,7 @@ private:
             break;
         case 0xEA:
             m_mnemonic = "JP";
-            m_operands = {Operand(Operand::CONDITION, "PE"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "PE"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xEB:
@@ -1616,7 +1682,7 @@ private:
             break;
         case 0xEC:
             m_mnemonic = "CALL";
-            m_operands = {Operand(Operand::CONDITION, "PE"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "PE"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1954,7 +2020,7 @@ private:
             break;
         case 0xF2:
             m_mnemonic = "JP";
-            m_operands = {Operand(Operand::CONDITION, "P"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "P"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xF3:
@@ -1963,7 +2029,7 @@ private:
             break;
         case 0xF4:
             m_mnemonic = "CALL";
-            m_operands = {Operand(Operand::CONDITION, "P"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "P"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1995,7 +2061,7 @@ private:
             break;
         case 0xFA:
             m_mnemonic = "JP";
-            m_operands = {Operand(Operand::CONDITION, "M"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "M"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xFB:
@@ -2004,7 +2070,7 @@ private:
             break;
         case 0xFC:
             m_mnemonic = "CALL";
-            m_operands = {Operand(Operand::CONDITION, "M"), Operand(Operand::IMM16, peek_next_word())};
+            m_operands = {Operand(Operand::CONDITION, "M"), Operand(Operand::ADDR, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;

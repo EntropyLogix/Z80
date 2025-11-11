@@ -27,6 +27,69 @@
 #include <cctype>
 #define REPLXX_IMPLEMENTATION
 #include <replxx.hxx>
+#include <map>
+
+void parse_color(const std::string& s, ColorScheme::RGB& color) {
+    std::stringstream ss(s);
+    int r, g, b;
+    char comma;
+    ss >> r >> comma >> g >> comma >> b;
+    if (!ss.fail()) {
+        color = {r, g, b};
+    }
+}
+
+void load_color_scheme(const std::string& filename, ColorScheme& scheme) {
+    std::ifstream file(filename);
+    if (!file) {
+        // Jeśli plik nie istnieje, ustaw wszystkie kolory na czarny.
+        scheme.label = {0, 0, 0};
+        scheme.mnemonic = {0, 0, 0};
+        scheme.address = {0, 0, 0};
+        scheme.bytes = {0, 0, 0};
+        scheme.ticks = {0, 0, 0};
+        scheme.operand_reg = {0, 0, 0};
+        scheme.operand_imm = {0, 0, 0};
+        scheme.operand_addr = {0, 0, 0};
+        scheme.operand_mem = {0, 0, 0};
+        scheme.operand_cond = {0, 0, 0};
+        return;
+    }
+
+    std::string line;
+    std::string current_section;
+    while (std::getline(file, line)) {
+        // Trim whitespace
+        line.erase(0, line.find_first_not_of(" \t"));
+        line.erase(line.find_last_not_of(" \t") + 1);
+
+        if (line.empty() || line[0] == ';') continue;
+
+        if (line[0] == '[' && line.back() == ']') {
+            current_section = line.substr(1, line.length() - 2);
+        } else if (current_section == "disassembly") {
+            size_t equals_pos = line.find('=');
+            if (equals_pos != std::string::npos) {
+                std::string key = line.substr(0, equals_pos);
+                std::string value = line.substr(equals_pos + 1);
+                key.erase(key.find_last_not_of(" \t") + 1);
+                value.erase(0, value.find_first_not_of(" \t"));
+
+                if (key == "label") parse_color(value, scheme.label);
+                else if (key == "mnemonic") parse_color(value, scheme.mnemonic);
+                else if (key == "address") parse_color(value, scheme.address);
+                else if (key == "bytes") parse_color(value, scheme.bytes);
+                else if (key == "ticks") parse_color(value, scheme.ticks);
+                else if (key == "operand_reg") parse_color(value, scheme.operand_reg);
+                else if (key == "operand_imm") parse_color(value, scheme.operand_imm);
+                else if (key == "operand_addr") parse_color(value, scheme.operand_addr);
+                else if (key == "operand_mem") parse_color(value, scheme.operand_mem);
+                else if (key == "operand_cond") parse_color(value, scheme.operand_cond);
+            }
+        }
+    }
+    std::cout << "Color scheme loaded from " << filename << ".\n";
+}
 
 // --- Helper Functions ---
 
@@ -278,7 +341,7 @@ void run_analysis_actions(
         // Since disassemble no longer takes a format string, we call it and then iterate through the results.
         // The format is now hardcoded in Z80Analyze.h.
         // The old format string was: disasm_format.empty() ? "%L%s\n%a: %-12b %-20M" : disasm_format
-        auto listing = analyzer.disassemble(pc, disasm_lines);
+        auto listing = analyzer.disassemble(pc, disasm_lines, nullptr); // No colors in non-interactive mode
         for (const auto& line : listing) {
             std::cout << line << std::endl;
         }
@@ -440,7 +503,7 @@ int main(int argc, char* argv[]) {
                 for (const auto& block : blocks) {
                     uint16_t pc = block.start_address;
                     uint16_t end_addr = pc + block.size;                    
-                    auto listing = analyzer.disassemble(pc, (end_addr - pc)); // Disassemble the whole block
+                    auto listing = analyzer.disassemble(pc, (end_addr - pc), nullptr); // No colors in non-interactive mode
                     for (const auto& line : listing) {
                         std::cout << line << std::endl;
                     }
@@ -613,6 +676,9 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
     std::string default_mem_format = "%a: %h  %c";
     std::string default_disasm_format = "%L%s%a: %-12b %-20M"; // Removed the literal \n from here
 
+    ColorScheme color_scheme;
+    load_color_scheme(".colors", color_scheme);
+
     while (true) {
         const char* cinput = rx.input("(z80) > ");
 
@@ -649,7 +715,7 @@ void run_interactive_mode(Z80<>& cpu, Z80Analyzer<Z80DefaultBus, Z80<>, Z80Defau
             }
             // Call disassemble directly as it doesn't need the full run_analysis_actions function
             uint16_t disasm_addr = resolve_address(addr_str, cpu, &label_handler);
-            auto listing = analyzer.disassemble(disasm_addr, lines);
+            auto listing = analyzer.disassemble(disasm_addr, lines, &color_scheme);
             for (const auto& line : listing) { std::cout << line << std::endl; }
         } else if (command == "m" || command == "mem-dump") { // TODO: This should also use the new format
             std::string addr_str;

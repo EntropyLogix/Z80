@@ -1,0 +1,14 @@
+[disassembly]
+; Kolory w formacie R,G,B (0-255)
+label = 255,255,100
+mnemonic = 100,255,100
+address = 0,255,255
+bytes = 128,128,128
+ticks = 100,100,100
+
+; --- Kolory Operandów ---
+operand_reg = 180,180,255   ; Dla rejestrów (np. HL, A, BC)
+operand_imm = 100,200,255   ; Dla liczb (np. w LD A, 5)
+operand_addr = 210,210,120  ; Dla adresów (np. w JP 0x8000)
+operand_mem = 200,150,255   ; Dla odwołań do pamięci (np. (HL), (IX+2))
+operand_cond = 255,150,150  ; Dla warunków (np. NZ, C, Z)

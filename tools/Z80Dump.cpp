@@ -24,6 +24,68 @@
 #include <sstream>
 #include <string>
 
+void parse_color(const std::string& s, ColorScheme::RGB& color) {
+    std::stringstream ss(s);
+    int r, g, b;
+    char comma;
+    ss >> r >> comma >> g >> comma >> b;
+    if (!ss.fail()) {
+        color = {r, g, b};
+    }
+}
+
+void load_color_scheme(const std::string& filename, ColorScheme& scheme) {
+    std::ifstream file(filename);
+    if (!file) {
+        // Jeśli plik nie istnieje, ustaw wszystkie kolory na czarny.
+        scheme.label = {0, 0, 0};
+        scheme.mnemonic = {0, 0, 0};
+        scheme.address = {0, 0, 0};
+        scheme.bytes = {0, 0, 0};
+        scheme.ticks = {0, 0, 0};
+        scheme.operand_reg = {0, 0, 0};
+        scheme.operand_imm = {0, 0, 0};
+        scheme.operand_addr = {0, 0, 0};
+        scheme.operand_mem = {0, 0, 0};
+        scheme.operand_cond = {0, 0, 0};
+        return;
+    }
+
+    std::string line;
+    std::string current_section;
+    while (std::getline(file, line)) {
+        // Trim whitespace
+        line.erase(0, line.find_first_not_of(" \t"));
+        line.erase(line.find_last_not_of(" \t") + 1);
+
+        if (line.empty() || line[0] == ';') continue;
+
+        if (line[0] == '[' && line.back() == ']') {
+            current_section = line.substr(1, line.length() - 2);
+        } else if (current_section == "disassembly") {
+            size_t equals_pos = line.find('=');
+            if (equals_pos != std::string::npos) {
+                std::string key = line.substr(0, equals_pos);
+                std::string value = line.substr(equals_pos + 1);
+                key.erase(key.find_last_not_of(" \t") + 1);
+                value.erase(0, value.find_first_not_of(" \t"));
+
+                if (key == "label") parse_color(value, scheme.label);
+                else if (key == "mnemonic") parse_color(value, scheme.mnemonic);
+                else if (key == "address") parse_color(value, scheme.address);
+                else if (key == "bytes") parse_color(value, scheme.bytes);
+                else if (key == "ticks") parse_color(value, scheme.ticks);
+                else if (key == "operand_reg") parse_color(value, scheme.operand_reg);
+                else if (key == "operand_imm") parse_color(value, scheme.operand_imm);
+                else if (key == "operand_addr") parse_color(value, scheme.operand_addr);
+                else if (key == "operand_mem") parse_color(value, scheme.operand_mem);
+                else if (key == "operand_cond") parse_color(value, scheme.operand_cond);
+            }
+        }
+    }
+    std::cout << "Color scheme loaded from " << filename << ".\n";
+}
+
 template <typename T> std::string format_hex(T value, int width) {
     std::stringstream ss;
     ss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(width) << value;
@@ -313,10 +375,13 @@ int main(int argc, char* argv[]) {
         }
     }
     if (disasm_lines > 0) {
+        ColorScheme color_scheme;
+        load_color_scheme(".colors", color_scheme);
+
         uint16_t disasm_addr = resolve_address(disasm_addr_str, cpu);
         std::cout << "\n--- Disassembly from " << format_hex(disasm_addr, 4) << " (" << disasm_lines << " lines) ---\n";
         uint16_t pc = disasm_addr;        
-        auto listing = analyzer.disassemble(pc, disasm_lines);
+        auto listing = analyzer.disassemble(pc, disasm_lines, &color_scheme);
         for (const auto& line : listing)
             std::cout << line << std::endl;
     }
