@@ -133,24 +133,25 @@ public:
         return ss.str();
     }
     // Format specifiers:
-    //  - `%a`: Address (hex)
-    //  - `%A`: Address (dec)
-    //  - `%b`: Instruction bytes (hex)
-    //  - `%B`: Instruction bytes (dec)
-    //  - `%m`: Mnemonic
-    //  - `%t`: T-states (cycle count)
-    //  supports width (`%10`), alignment (`%-10`), and fill character (`%-10.b` uses `.` instead of space).
+    //  - `%a`: Address (hex).
+    //  - `%A`: Address (dec).
+    //  - `%b`: Instruction bytes (hex).
+    //  - `%B`: Instruction bytes (dec).
+    //  - `%m`: Mnemonic with operands.
+    //  - `%M`: Mnemonic only.
+    //  - `%o`: Operands only.
+    //  - `%t`: T-states (cycle count), e.g., (4T) or (7/12T).
+    //  - `%l`: Label at the instruction's address (if any).
+    //  - `%N`: Newline character (`\n`).
+    //  - `%s<c>`: Separator character, where `<c>` is the character to use.
+    //  - Supports width (`%10`), alignment (`%-10`), and fill character (`%-10.b` uses `.` instead of space).
     std::string disassemble(uint16_t& address, const std::string& format) {
         uint16_t initial_address = address;
-        std::string label_prefix;
-        if constexpr (!std::is_same_v<TLabels, void>) {
+        std::string label_str;
+        if constexpr (!std::is_same_v<TLabels, void>)
             if (m_labels) {
-                std::string labels_str = m_labels->get_label(initial_address);
-                if (!labels_str.empty()) {
-                    label_prefix = labels_str + ":\n";
-                }
+                label_str = m_labels->get_label(initial_address);
             }
-        }
         parse_instruction(address);
         std::stringstream ss;
         for (size_t i = 0; i < format.length(); ++i) {
@@ -196,27 +197,114 @@ public:
                         } else
                             replacement = "(" + std::to_string(m_ticks) + "T)";
                         break;
+                    case 'l':
+                        if (!label_str.empty())
+                            replacement = label_str + ":";
+                        break;
+                    case 'M':
+                        replacement = m_mnemonic;
+                        break;
+                    case 'o':
+                        replacement = format_operands();
+                        break;
+                    case 'N':
+                        replacement = "\n";
+                        break;
+                    case 's':
+                        if (j + 1 < format.length()) {
+                            replacement = std::string(1, format[j + 1]);
+                            j++;
+                        } else {
+                            replacement = " ";
+                        }
+                        break;
                     }
                     ss << std::setfill(fill_char) << std::setw(width) << (left_align ? std::left : std::right)
                        << replacement;
                     ss << std::setfill(' ');
                     i = j;
                 }
-            } else
+            } else if (format[i] == '\\' && i + 1 < format.length() && format[i+1] == 'n') {
+                ss << '\n';
+                i++;
+            } else {
                 ss << format[i];
+            }
         }
-        return label_prefix + ss.str();
+        return ss.str();
     }
-    std::string disassemble(uint16_t& address) { return disassemble(address, "%a: %-12b %m %t"); }
-    std::vector<std::string> disassemble(uint16_t& address, size_t lines, const std::string& format = "%a: %-12b %-15m %t") {
+    std::string disassemble(uint16_t& address) { return disassemble(address, "%l%s%a:%s\t%-12b %-15m %t"); }
+    std::vector<std::string> disassemble(uint16_t& address, size_t lines, const std::string& format = "%l%s%a:%s\t%-12b %-7M %-18o %t") {
         std::vector<std::string> result;
         result.reserve(lines);
         for (size_t i = 0; i < lines; ++i)
             result.push_back(disassemble(address, format));
         return result;
     }
+
+    std::string format_operands() {
+        if (m_operands.empty()) {
+            return "";
+        }
+        std::stringstream ss;
+        for (size_t i = 0; i < m_operands.size(); ++i) {
+            const auto& op = m_operands[i];
+            switch (op.type) {
+                case Operand::REG8:
+                case Operand::REG16:
+                case Operand::CONDITION:
+                    ss << op.s_val;
+                    break;
+                case Operand::IMM8:
+                    ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
+                    break;
+                case Operand::IMM16:
+                case Operand::MEM_IMM16: {
+                    std::string formatted_addr = format_address_with_label(op.num_val);
+                    if (op.type == Operand::MEM_IMM16) ss << "(" << formatted_addr << ")";
+                    else ss << formatted_addr;
+                    break;
+                }
+                case Operand::MEM_REG16:
+                    ss << "(" << op.s_val << ")";
+                    break;
+                case Operand::MEM_INDEXED:
+                    ss << format_indexed_address(op.s_val, op.offset);
+                    break;
+                case Operand::PORT_IMM8:
+                    ss << "(" << format_hex(static_cast<uint8_t>(op.num_val), 2) << ")";
+                    break;
+            }
+            if (i < m_operands.size() - 1) ss << ", ";
+        }
+        return ss.str();
+    }
 private:
+    struct Operand {
+        enum Type {
+            REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, PORT_IMM8
+        };
+        Type type;
+        std::string s_val;
+        int32_t num_val;
+        int8_t offset;
+
+        Operand(Type t, int32_t n) : type(t), num_val(n), offset(0) {}
+        Operand(Type t, const std::string& s) : type(t), s_val(s), num_val(0), offset(0) {}
+        Operand(Type t, const std::string& s, int8_t o) : type(t), s_val(s), num_val(0), offset(o) {}
+    };
+
     enum class IndexMode { HL, IX, IY };
+
+    std::string format_address_with_label(uint16_t addr) {
+        if constexpr (!std::is_same_v<TLabels, void>) {
+            if (m_labels) {
+                std::string label = m_labels->get_label(addr);
+                if (!label.empty()) return label;
+            }
+        }
+        return format_hex(addr, 4);
+    }
 
     std::string format_register_segment(const std::string& specifier) {
         std::string s_lower = specifier;
@@ -314,6 +402,7 @@ private:
     void parse_instruction(uint16_t& address) {
         m_address = address;
         m_mnemonic.clear();
+        m_operands.clear(); // This now clears a vector<Operand>
         m_bytes.clear();
         m_ticks = 0;
         m_ticks_alt = 0;
@@ -329,7 +418,8 @@ private:
             m_ticks = 4;
             break;
         case 0x01:
-            m_mnemonic = "LD BC, " + format_address_label(peek_next_word());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG16, "BC"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0x02:
@@ -349,7 +439,8 @@ private:
             m_ticks = 4;
             break;
         case 0x06:
-            m_mnemonic = "LD B, " + format_hex(peek_next_byte());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "B"), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0x07:
@@ -361,7 +452,8 @@ private:
             m_ticks = 4;
             break;
         case 0x09:
-            m_mnemonic = "ADD " + get_indexed_reg_str() + ", BC";
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG16, get_indexed_reg_str()), Operand(Operand::REG16, "BC")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 15;
             break;
         case 0x0A:
@@ -381,7 +473,8 @@ private:
             m_ticks = 4;
             break;
         case 0x0E:
-            m_mnemonic = "LD C, " + format_hex(peek_next_byte());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "C"), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0x0F:
@@ -391,13 +484,15 @@ private:
         case 0x10: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "DJNZ " + format_address_label(address);
+            m_mnemonic = "DJNZ";
+            m_operands = {Operand(Operand::IMM16, address)};
             m_ticks = 8;
             m_ticks_alt = 13;
             break;
         }
         case 0x11:
-            m_mnemonic = "LD DE, " + format_address_label(peek_next_word());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG16, "DE"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0x12:
@@ -417,7 +512,8 @@ private:
             m_ticks = 4;
             break;
         case 0x16:
-            m_mnemonic = "LD D, " + format_hex(peek_next_byte());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "D"), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0x17:
@@ -427,12 +523,14 @@ private:
         case 0x18: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR " + format_address_label(address);
+            m_mnemonic = "JR";
+            m_operands = {Operand(Operand::IMM16, address)};
             m_ticks = 12;
             break;
         }
         case 0x19:
-            m_mnemonic = "ADD " + get_indexed_reg_str() + ", DE";
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG16, get_indexed_reg_str()), Operand(Operand::REG16, "DE")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 15;
             break;
         case 0x1A:
@@ -452,7 +550,8 @@ private:
             m_ticks = 4;
             break;
         case 0x1E:
-            m_mnemonic = "LD E, " + format_hex(peek_next_byte());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "E"), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0x1F:
@@ -462,21 +561,25 @@ private:
         case 0x20: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR NZ, " + format_address_label(address);
+            m_mnemonic = "JR";
+            m_operands = {Operand(Operand::CONDITION, "NZ"), Operand(Operand::IMM16, address)};
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
         }
         case 0x21:
-            m_mnemonic = "LD " + get_indexed_reg_str() + ", " + format_address_label(peek_next_word());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG16, get_indexed_reg_str()), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 10 : 14;
             break;
         case 0x22:
-            m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), " + get_indexed_reg_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::MEM_IMM16, peek_next_word()), Operand(Operand::REG16, get_indexed_reg_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 16 : 20;
             break;
         case 0x23:
-            m_mnemonic = "INC " + get_indexed_reg_str();
+            m_mnemonic = "INC";
+            m_operands = {Operand(Operand::REG16, get_indexed_reg_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 6 : 10;
             break;
         case 0x24:
@@ -488,7 +591,8 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x26:
-            m_mnemonic = "LD " + get_indexed_h_str() + ", " + format_hex(peek_next_byte());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str()), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 11;
             break;
         case 0x27:
@@ -498,23 +602,27 @@ private:
         case 0x28: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR Z, " + format_address_label(address);
+            m_mnemonic = "JR";
+            m_operands = {Operand(Operand::CONDITION, "Z"), Operand(Operand::IMM16, address)};
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
         }
         case 0x29: {
             std::string reg = get_indexed_reg_str();
-            m_mnemonic = "ADD " + reg + ", " + reg;
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG16, reg), Operand(Operand::REG16, reg)};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 15;
             break;
         }
         case 0x2A:
-            m_mnemonic = "LD " + get_indexed_reg_str() + ", (" + format_address_label(peek_next_word()) + ")";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG16, get_indexed_reg_str()), Operand(Operand::MEM_IMM16, peek_next_word())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 16 : 20;
             break;
         case 0x2B:
-            m_mnemonic = "DEC " + get_indexed_reg_str();
+            m_mnemonic = "DEC";
+            m_operands = {Operand(Operand::REG16, get_indexed_reg_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 6 : 10;
             break;
         case 0x2C:
@@ -526,7 +634,8 @@ private:
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x2E:
-            m_mnemonic = "LD " + get_indexed_l_str() + ", " + format_hex(peek_next_byte());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str()), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 11;
             break;
         case 0x2F:
@@ -536,17 +645,20 @@ private:
         case 0x30: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR NC, " + format_address_label(address);
+            m_mnemonic = "JR";
+            m_operands = {Operand(Operand::CONDITION, "NC"), Operand(Operand::IMM16, address)};
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
         }
         case 0x31:
-            m_mnemonic = "LD SP, " + format_address_label(peek_next_word());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG16, "SP"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0x32:
-            m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::MEM_IMM16, peek_next_word()), Operand(Operand::REG8, "A")};
             m_ticks = 13;
             break;
         case 0x33:
@@ -554,17 +666,19 @@ private:
             m_ticks = 6;
             break;
         case 0x34:
-            m_mnemonic = "INC " + get_indexed_addr_str();
+            m_mnemonic = "INC";
+            m_operands = {get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 23;
             break;
         case 0x35:
-            m_mnemonic = "DEC " + get_indexed_addr_str();
+            m_mnemonic = "DEC";
+            m_operands = {get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 23;
             break;
         case 0x36: {
-            std::string addr_str = get_indexed_addr_str();
-            std::string val_str = format_hex(peek_next_byte());
-            m_mnemonic = "LD " + addr_str + ", " + val_str;
+            Operand addr_op = get_indexed_addr_operand(true);
+            m_mnemonic = "LD";
+            m_operands = {addr_op, Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 10 : 19;
             break;
         }
@@ -575,17 +689,20 @@ private:
         case 0x38: {
             int8_t offset = static_cast<int8_t>(peek_next_byte());
             uint16_t address = m_address + offset;
-            m_mnemonic = "JR C, " + format_address_label(address);
+            m_mnemonic = "JR";
+            m_operands = {Operand(Operand::CONDITION, "C"), Operand(Operand::IMM16, address)};
             m_ticks = 7;
             m_ticks_alt = 12;
             break;
         }
         case 0x39:
-            m_mnemonic = "ADD " + get_indexed_reg_str() + ", SP";
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG16, get_indexed_reg_str()), Operand(Operand::REG16, "SP")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 15;
             break;
         case 0x3A:
-            m_mnemonic = "LD A, (" + format_address_label(peek_next_word()) + ")";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::MEM_IMM16, peek_next_word())};
             m_ticks = 13;
             break;
         case 0x3B:
@@ -601,7 +718,8 @@ private:
             m_ticks = 4;
             break;
         case 0x3E:
-            m_mnemonic = "LD A, " + format_hex(peek_next_byte());
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0x3F:
@@ -609,223 +727,277 @@ private:
             m_ticks = 4;
             break;
         case 0x40:
-            m_mnemonic = "LD B, B";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "B"), Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x41:
-            m_mnemonic = "LD B, C";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "B"), Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x42:
-            m_mnemonic = "LD B, D";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "B"), Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x43:
-            m_mnemonic = "LD B, E";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "B"), Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x44:
-            m_mnemonic = "LD B, " + get_indexed_h_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "B"), Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x45:
-            m_mnemonic = "LD B, " + get_indexed_l_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "B"), Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x46:
-            m_mnemonic = "LD B, " + get_indexed_addr_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "B"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x47:
-            m_mnemonic = "LD B, A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "B"), Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x48:
-            m_mnemonic = "LD C, B";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "C"), Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x49:
-            m_mnemonic = "LD C, C";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "C"), Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x4A:
-            m_mnemonic = "LD C, D";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "C"), Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x4B:
-            m_mnemonic = "LD C, E";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "C"), Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x4C:
-            m_mnemonic = "LD C, " + get_indexed_h_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "C"), Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x4D:
-            m_mnemonic = "LD C, " + get_indexed_l_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "C"), Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x4E:
-            m_mnemonic = "LD C, " + get_indexed_addr_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "C"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x4F:
-            m_mnemonic = "LD C, A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "C"), Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x50:
-            m_mnemonic = "LD D, B";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "D"), Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x51:
-            m_mnemonic = "LD D, C";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "D"), Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x52:
-            m_mnemonic = "LD D, D";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "D"), Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x53:
-            m_mnemonic = "LD D, E";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "D"), Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x54:
-            m_mnemonic = "LD D, " + get_indexed_h_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "D"), Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x55:
-            m_mnemonic = "LD D, " + get_indexed_l_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "D"), Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x56:
-            m_mnemonic = "LD D, " + get_indexed_addr_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "D"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x57:
-            m_mnemonic = "LD D, A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "D"), Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x58:
-            m_mnemonic = "LD E, B";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "E"), Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x59:
-            m_mnemonic = "LD E, C";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "E"), Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x5A:
-            m_mnemonic = "LD E, D";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "E"), Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x5B:
-            m_mnemonic = "LD E, E";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "E"), Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x5C:
-            m_mnemonic = "LD E, " + get_indexed_h_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "E"), Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x5D:
-            m_mnemonic = "LD E, " + get_indexed_l_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "E"), Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x5E:
-            m_mnemonic = "LD E, " + get_indexed_addr_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "E"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x5F:
-            m_mnemonic = "LD E, A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "E"), Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x60:
-            m_mnemonic = "LD H, B";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str()), Operand(Operand::REG8, "B")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x61:
-            m_mnemonic = "LD H, C";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str()), Operand(Operand::REG8, "C")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x62:
-            m_mnemonic = "LD H, D";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str()), Operand(Operand::REG8, "D")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x63:
-            m_mnemonic = "LD H, E";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str()), Operand(Operand::REG8, "E")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x64: {
             std::string reg = get_indexed_h_str();
-            m_mnemonic = "LD " + reg + ", " + reg;
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, reg), Operand(Operand::REG8, reg)};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         }
         case 0x65:
-            m_mnemonic = "LD " + get_indexed_h_str() + ", " + get_indexed_l_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str()), Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x66:
-            m_mnemonic = "LD H, " + get_indexed_addr_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "H"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x67:
-            m_mnemonic = "LD " + get_indexed_h_str() + ", A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str()), Operand(Operand::REG8, "A")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x68:
-            m_mnemonic = "LD " + get_indexed_l_str() + ", B";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str()), Operand(Operand::REG8, "B")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x69:
-            m_mnemonic = "LD " + get_indexed_l_str() + ", C";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str()), Operand(Operand::REG8, "C")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x6A:
-            m_mnemonic = "LD " + get_indexed_l_str() + ", D";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str()), Operand(Operand::REG8, "D")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x6B:
-            m_mnemonic = "LD " + get_indexed_l_str() + ", E";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str()), Operand(Operand::REG8, "E")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x6C:
-            m_mnemonic = "LD " + get_indexed_l_str() + ", " + get_indexed_h_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str()), Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x6D: {
             std::string reg = get_indexed_l_str();
-            m_mnemonic = "LD " + reg + ", " + reg;
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, reg), Operand(Operand::REG8, reg)};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         }
         case 0x6E:
-            m_mnemonic = "LD L, " + get_indexed_addr_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "L"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x6F:
-            m_mnemonic = "LD " + get_indexed_l_str() + ", A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str()), Operand(Operand::REG8, "A")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x70:
-            m_mnemonic = "LD " + get_indexed_addr_str() + ", B";
+            m_mnemonic = "LD";
+            m_operands = {get_indexed_addr_operand(), Operand(Operand::REG8, "B")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x71:
-            m_mnemonic = "LD " + get_indexed_addr_str() + ", C";
+            m_mnemonic = "LD";
+            m_operands = {get_indexed_addr_operand(), Operand(Operand::REG8, "C")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x72:
-            m_mnemonic = "LD " + get_indexed_addr_str() + ", D";
+            m_mnemonic = "LD";
+            m_operands = {get_indexed_addr_operand(), Operand(Operand::REG8, "D")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x73:
-            m_mnemonic = "LD " + get_indexed_addr_str() + ", E";
+            m_mnemonic = "LD";
+            m_operands = {get_indexed_addr_operand(), Operand(Operand::REG8, "E")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x74:
-            m_mnemonic = "LD " + get_indexed_addr_str() + ", H";
+            m_mnemonic = "LD";
+            m_operands = {get_indexed_addr_operand(), Operand(Operand::REG8, "H")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x75:
-            m_mnemonic = "LD " + get_indexed_addr_str() + ", L";
+            m_mnemonic = "LD";
+            m_operands = {get_indexed_addr_operand(), Operand(Operand::REG8, "L")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x76:
@@ -833,295 +1005,368 @@ private:
             m_ticks = 4;
             break;
         case 0x77:
-            m_mnemonic = "LD " + get_indexed_addr_str() + ", A";
+            m_mnemonic = "LD";
+            m_operands = {get_indexed_addr_operand(), Operand(Operand::REG8, "A")};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x78:
-            m_mnemonic = "LD A, B";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x79:
-            m_mnemonic = "LD A, C";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x7A:
-            m_mnemonic = "LD A, D";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x7B:
-            m_mnemonic = "LD A, E";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x7C:
-            m_mnemonic = "LD A, " + get_indexed_h_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x7D:
-            m_mnemonic = "LD A, " + get_indexed_l_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x7E:
-            m_mnemonic = "LD A, " + get_indexed_addr_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x7F:
-            m_mnemonic = "LD A, A";
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x80:
-            m_mnemonic = "ADD A, B";
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x81:
-            m_mnemonic = "ADD A, C";
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x82:
-            m_mnemonic = "ADD A, D";
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x83:
-            m_mnemonic = "ADD A, E";
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x84:
-            m_mnemonic = "ADD A, " + get_indexed_h_str();
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x85:
-            m_mnemonic = "ADD A, " + get_indexed_l_str();
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x86:
-            m_mnemonic = "ADD A, " + get_indexed_addr_str();
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG8, "A"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x87:
-            m_mnemonic = "ADD A, A";
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x88:
-            m_mnemonic = "ADC A, B";
+            m_mnemonic = "ADC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x89:
-            m_mnemonic = "ADC A, C";
+            m_mnemonic = "ADC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x8A:
-            m_mnemonic = "ADC A, D";
+            m_mnemonic = "ADC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x8B:
-            m_mnemonic = "ADC A, E";
+            m_mnemonic = "ADC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x8C:
-            m_mnemonic = "ADC A, " + get_indexed_h_str();
+            m_mnemonic = "ADC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x8D:
-            m_mnemonic = "ADC A, " + get_indexed_l_str();
+            m_mnemonic = "ADC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x8E:
-            m_mnemonic = "ADC A, " + get_indexed_addr_str();
+            m_mnemonic = "ADC";
+            m_operands = {Operand(Operand::REG8, "A"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x8F:
-            m_mnemonic = "ADC A, A";
+            m_mnemonic = "ADC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x90:
-            m_mnemonic = "SUB B";
+            m_mnemonic = "SUB";
+            m_operands = {Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x91:
-            m_mnemonic = "SUB C";
+            m_mnemonic = "SUB";
+            m_operands = {Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x92:
-            m_mnemonic = "SUB D";
+            m_mnemonic = "SUB";
+            m_operands = {Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x93:
-            m_mnemonic = "SUB E";
+            m_mnemonic = "SUB";
+            m_operands = {Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x94:
-            m_mnemonic = "SUB " + get_indexed_h_str();
+            m_mnemonic = "SUB";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x95:
-            m_mnemonic = "SUB " + get_indexed_l_str();
+            m_mnemonic = "SUB";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x96:
-            m_mnemonic = "SUB " + get_indexed_addr_str();
+            m_mnemonic = "SUB";
+            m_operands = {get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x97:
-            m_mnemonic = "SUB A";
+            m_mnemonic = "SUB";
+            m_operands = {Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0x98:
-            m_mnemonic = "SBC A, B";
+            m_mnemonic = "SBC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0x99:
-            m_mnemonic = "SBC A, C";
+            m_mnemonic = "SBC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0x9A:
-            m_mnemonic = "SBC A, D";
+            m_mnemonic = "SBC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0x9B:
-            m_mnemonic = "SBC A, E";
+            m_mnemonic = "SBC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0x9C:
-            m_mnemonic = "SBC A, " + get_indexed_h_str();
+            m_mnemonic = "SBC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x9D:
-            m_mnemonic = "SBC A, " + get_indexed_l_str();
+            m_mnemonic = "SBC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0x9E:
-            m_mnemonic = "SBC A, " + get_indexed_addr_str();
+            m_mnemonic = "SBC";
+            m_operands = {Operand(Operand::REG8, "A"), get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0x9F:
-            m_mnemonic = "SBC A, A";
+            m_mnemonic = "SBC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0xA0:
-            m_mnemonic = "AND B";
+            m_mnemonic = "AND";
+            m_operands = {Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0xA1:
-            m_mnemonic = "AND C";
+            m_mnemonic = "AND";
+            m_operands = {Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0xA2:
-            m_mnemonic = "AND D";
+            m_mnemonic = "AND";
+            m_operands = {Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0xA3:
-            m_mnemonic = "AND E";
+            m_mnemonic = "AND";
+            m_operands = {Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0xA4:
-            m_mnemonic = "AND " + get_indexed_h_str();
+            m_mnemonic = "AND";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xA5:
-            m_mnemonic = "AND " + get_indexed_l_str();
+            m_mnemonic = "AND";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xA6:
-            m_mnemonic = "AND " + get_indexed_addr_str();
+            m_mnemonic = "AND";
+            m_operands = {get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0xA7:
-            m_mnemonic = "AND A";
+            m_mnemonic = "AND";
+            m_operands = {Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0xA8:
-            m_mnemonic = "XOR B";
+            m_mnemonic = "XOR";
+            m_operands = {Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0xA9:
-            m_mnemonic = "XOR C";
+            m_mnemonic = "XOR";
+            m_operands = {Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0xAA:
-            m_mnemonic = "XOR D";
+            m_mnemonic = "XOR";
+            m_operands = {Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0xAB:
-            m_mnemonic = "XOR E";
+            m_mnemonic = "XOR";
+            m_operands = {Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0xAC:
-            m_mnemonic = "XOR " + get_indexed_h_str();
+            m_mnemonic = "XOR";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xAD:
-            m_mnemonic = "XOR " + get_indexed_l_str();
+            m_mnemonic = "XOR";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xAE:
-            m_mnemonic = "XOR " + get_indexed_addr_str();
+            m_mnemonic = "XOR";
+            m_operands = {get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0xAF:
-            m_mnemonic = "XOR A";
+            m_mnemonic = "XOR";
+            m_operands = {Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0xB0:
-            m_mnemonic = "OR B";
+            m_mnemonic = "OR";
+            m_operands = {Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0xB1:
-            m_mnemonic = "OR C";
+            m_mnemonic = "OR";
+            m_operands = {Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0xB2:
-            m_mnemonic = "OR D";
+            m_mnemonic = "OR";
+            m_operands = {Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0xB3:
-            m_mnemonic = "OR E";
+            m_mnemonic = "OR";
+            m_operands = {Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0xB4:
-            m_mnemonic = "OR " + get_indexed_h_str();
+            m_mnemonic = "OR";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xB5:
-            m_mnemonic = "OR " + get_indexed_l_str();
+            m_mnemonic = "OR";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xB6:
-            m_mnemonic = "OR " + get_indexed_addr_str();
+            m_mnemonic = "OR";
+            m_operands = {get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0xB7:
-            m_mnemonic = "OR A";
+            m_mnemonic = "OR";
+            m_operands = {Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0xB8:
-            m_mnemonic = "CP B";
+            m_mnemonic = "CP";
+            m_operands = {Operand(Operand::REG8, "B")};
             m_ticks = 4;
             break;
         case 0xB9:
-            m_mnemonic = "CP C";
+            m_mnemonic = "CP";
+            m_operands = {Operand(Operand::REG8, "C")};
             m_ticks = 4;
             break;
         case 0xBA:
-            m_mnemonic = "CP D";
+            m_mnemonic = "CP";
+            m_operands = {Operand(Operand::REG8, "D")};
             m_ticks = 4;
             break;
         case 0xBB:
-            m_mnemonic = "CP E";
+            m_mnemonic = "CP";
+            m_operands = {Operand(Operand::REG8, "E")};
             m_ticks = 4;
             break;
         case 0xBC:
-            m_mnemonic = "CP " + get_indexed_h_str();
+            m_mnemonic = "CP";
+            m_operands = {Operand(Operand::REG8, get_indexed_h_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xBD:
-            m_mnemonic = "CP " + get_indexed_l_str();
+            m_mnemonic = "CP";
+            m_operands = {Operand(Operand::REG8, get_indexed_l_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xBE:
-            m_mnemonic = "CP " + get_indexed_addr_str();
+            m_mnemonic = "CP";
+            m_operands = {get_indexed_addr_operand()};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
         case 0xBF:
-            m_mnemonic = "CP A";
+            m_mnemonic = "CP";
+            m_operands = {Operand(Operand::REG8, "A")};
             m_ticks = 4;
             break;
         case 0xC0:
@@ -1134,15 +1379,18 @@ private:
             m_ticks = 10;
             break;
         case 0xC2:
-            m_mnemonic = "JP NZ, " + format_address_label(peek_next_word());
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::CONDITION, "NZ"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xC3:
-            m_mnemonic = "JP " + format_address_label(peek_next_word());
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xC4:
-            m_mnemonic = "CALL NZ, " + format_address_label(peek_next_word());
+            m_mnemonic = "CALL";
+            m_operands = {Operand(Operand::CONDITION, "NZ"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1151,7 +1399,8 @@ private:
             m_ticks = 11;
             break;
         case 0xC6:
-            m_mnemonic = "ADD A, " + format_hex(peek_next_byte());
+            m_mnemonic = "ADD";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0xC7:
@@ -1168,7 +1417,8 @@ private:
             m_ticks = 10;
             break;
         case 0xCA:
-            m_mnemonic = "JP Z, " + format_address_label(peek_next_word());
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::CONDITION, "Z"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xCB:
@@ -1181,13 +1431,13 @@ private:
                 uint8_t bit = (cb_opcode >> 3) & 0x07;
                 uint8_t reg_code = cb_opcode & 0x07;
                 std::string reg_str = registers[reg_code];
-                if (operation_group == 0) { // Rotates/Shifts
-                    m_mnemonic = std::string(operations[bit]) + " " + reg_str;
+                if (operation_group == 0) {
+                    m_mnemonic = operations[bit];
+                    m_operands = {Operand(Operand::REG8, reg_str)};
                     m_ticks = (reg_code == 6) ? 15 : 8;
-                } else { // BIT, RES, SET
-                    std::stringstream ss;
-                    ss << bit_ops[operation_group - 1] << " " << (int)bit << ", " << reg_str;
-                    m_mnemonic = ss.str();
+                } else {
+                    m_mnemonic = bit_ops[operation_group - 1];
+                    m_operands = {Operand(Operand::IMM8, (int32_t)bit), Operand(Operand::REG8, reg_str)};
                     m_ticks = (reg_code == 6) ? (operation_group == 1 ? 12 : 15) : 8;
                 }
             } else {
@@ -1196,41 +1446,45 @@ private:
                 const char* operations[] = {"RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SRL"};
                 const char* bit_ops[] = {"BIT", "RES", "SET"};
                 const char* registers[] = {"B", "C", "D", "E", "H", "L", "", "A"};
-                std::string index_reg_str = (get_index_mode() == IndexMode::IX) ? "IX" : "IY";
-                std::stringstream address_ss;
-                address_ss << "(" << index_reg_str << (offset >= 0 ? "+" : "") << static_cast<int>(offset) << ")";
-                std::string address_str = address_ss.str();
+                std::string base_reg = (get_index_mode() == IndexMode::IX) ? "IX" : "IY";
+                Operand addr_op(Operand::MEM_INDEXED, base_reg, offset);
                 uint8_t operation_group = cb_opcode >> 6;
                 uint8_t bit = (cb_opcode >> 3) & 0x07;
                 uint8_t reg_code = cb_opcode & 0x07;
-                std::stringstream ss;
-                if (operation_group == 0) { // Rotates/Shifts
-                    ss << operations[bit] << " " << address_str;
+                if (operation_group == 0) {
+                    m_mnemonic = operations[bit];
+                    m_operands = {addr_op};
                     m_ticks = 23;
-                } else { // BIT, RES, SET
-                    ss << bit_ops[operation_group - 1] << " " << (int)bit << ", " << address_str;
+                } else {
+                    m_mnemonic = bit_ops[operation_group - 1];
+                    m_operands = {Operand(Operand::IMM8, (int32_t)bit), addr_op};
                     m_ticks = (operation_group == 1) ? 20 : 23;
                 }
-                if (reg_code != 6)
-                    ss << ", " << registers[reg_code];
-                m_mnemonic = ss.str();
+                if (reg_code != 6) {
+                    // This is an undocumented feature, some assemblers create a second operand
+                    m_operands.push_back(Operand(Operand::REG8, registers[reg_code]));
+                }
             }
             break;
         case 0xCC:
-            m_mnemonic = "CALL Z, " + format_address_label(peek_next_word());
+            m_mnemonic = "CALL";
+            m_operands = {Operand(Operand::CONDITION, "Z"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
         case 0xCD:
-            m_mnemonic = "CALL " + format_address_label(peek_next_word());
+            m_mnemonic = "CALL";
+            m_operands = {Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 17;
             break;
         case 0xCE:
-            m_mnemonic = "ADC A, " + format_hex(peek_next_byte());
+            m_mnemonic = "ADC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0xCF:
-            m_mnemonic = "RST 08H";
+            m_mnemonic = "RST";
+            m_operands = {Operand(Operand::IMM8, 0x08)};
             m_ticks = 11;
             break;
         case 0xD0:
@@ -1243,15 +1497,18 @@ private:
             m_ticks = 10;
             break;
         case 0xD2:
-            m_mnemonic = "JP NC, " + format_address_label(peek_next_word());
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::CONDITION, "NC"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xD3:
-            m_mnemonic = "OUT (" + format_hex(peek_next_byte()) + "), A";
+            m_mnemonic = "OUT";
+            m_operands = {Operand(Operand::PORT_IMM8, peek_next_byte()), Operand(Operand::REG8, "A")};
             m_ticks = 11;
             break;
         case 0xD4:
-            m_mnemonic = "CALL NC, " + format_address_label(peek_next_word());
+            m_mnemonic = "CALL";
+            m_operands = {Operand(Operand::CONDITION, "NC"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1260,7 +1517,8 @@ private:
             m_ticks = 11;
             break;
         case 0xD6:
-            m_mnemonic = "SUB " + format_hex(peek_next_byte());
+            m_mnemonic = "SUB";
+            m_operands = {Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0xD7:
@@ -1277,20 +1535,24 @@ private:
             m_ticks = 4;
             break;
         case 0xDA:
-            m_mnemonic = "JP C, " + format_address_label(peek_next_word());
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::CONDITION, "C"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xDB:
-            m_mnemonic = "IN A, (" + format_hex(peek_next_byte()) + ")";
+            m_mnemonic = "IN";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::PORT_IMM8, peek_next_byte())};
             m_ticks = 11;
             break;
         case 0xDC:
-            m_mnemonic = "CALL C, " + format_address_label(peek_next_word());
+            m_mnemonic = "CALL";
+            m_operands = {Operand(Operand::CONDITION, "C"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
         case 0xDE:
-            m_mnemonic = "SBC A, " + format_hex(peek_next_byte());
+            m_mnemonic = "SBC";
+            m_operands = {Operand(Operand::REG8, "A"), Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0xDF:
@@ -1303,28 +1565,34 @@ private:
             m_ticks_alt = 11;
             break;
         case 0xE1:
-            m_mnemonic = "POP " + get_indexed_reg_str();
+            m_mnemonic = "POP";
+            m_operands = {Operand(Operand::REG16, get_indexed_reg_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 10 : 14;
             break;
         case 0xE2:
-            m_mnemonic = "JP PO, " + format_address_label(peek_next_word());
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::CONDITION, "PO"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xE3:
-            m_mnemonic = "EX (SP), " + get_indexed_reg_str();
+            m_mnemonic = "EX";
+            m_operands = {Operand(Operand::MEM_REG16, "SP"), Operand(Operand::REG16, get_indexed_reg_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 19 : 23;
             break;
         case 0xE4:
-            m_mnemonic = "CALL PO, " + format_address_label(peek_next_word());
+            m_mnemonic = "CALL";
+            m_operands = {Operand(Operand::CONDITION, "PO"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
         case 0xE5:
-            m_mnemonic = "PUSH HL";
+            m_mnemonic = "PUSH";
+            m_operands = {Operand(Operand::REG16, get_indexed_reg_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 11 : 15;
             break;
         case 0xE6:
-            m_mnemonic = "AND " + format_hex(peek_next_byte());
+            m_mnemonic = "AND";
+            m_operands = {Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0xE7:
@@ -1332,24 +1600,29 @@ private:
             m_ticks = 11;
             break;
         case 0xE8:
-            m_mnemonic = "RET PE";
+            m_mnemonic = "RET";
+            m_operands = {Operand(Operand::CONDITION, "PE")};
             m_ticks = 5;
             m_ticks_alt = 11;
             break;
         case 0xE9:
-            m_mnemonic = "JP (" + get_indexed_reg_str() + ")";
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::MEM_REG16, get_indexed_reg_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
         case 0xEA:
-            m_mnemonic = "JP PE, " + format_address_label(peek_next_word());
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::CONDITION, "PE"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xEB:
-            m_mnemonic = "EX DE, HL";
+            m_mnemonic = "EX";
+            m_operands = {Operand(Operand::REG16, "DE"), Operand(Operand::REG16, "HL")};
             m_ticks = 4;
             break;
         case 0xEC:
-            m_mnemonic = "CALL PE, " + format_address_label(peek_next_word());
+            m_mnemonic = "CALL";
+            m_operands = {Operand(Operand::CONDITION, "PE"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1370,7 +1643,8 @@ private:
                 m_ticks = 15;
                 break;
             case 0x43:
-                m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), BC";
+                m_mnemonic = "LD";
+                m_operands = {Operand(Operand::MEM_IMM16, peek_next_word()), Operand(Operand::REG16, "BC")};
                 m_ticks = 20;
                 break;
             case 0x44:
@@ -1418,7 +1692,8 @@ private:
                 m_ticks = 15;
                 break;
             case 0x4B:
-                m_mnemonic = "LD BC, (" + format_address_label(peek_next_word()) + ")";
+                m_mnemonic = "LD";
+                m_operands = {Operand(Operand::REG16, "BC"), Operand(Operand::MEM_IMM16, peek_next_word())};
                 m_ticks = 20;
                 break;
             case 0x4D:
@@ -1442,7 +1717,8 @@ private:
                 m_ticks = 15;
                 break;
             case 0x53:
-                m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), DE";
+                m_mnemonic = "LD";
+                m_operands = {Operand(Operand::MEM_IMM16, peek_next_word()), Operand(Operand::REG16, "DE")};
                 m_ticks = 20;
                 break;
             case 0x56: // IM 1
@@ -1467,7 +1743,8 @@ private:
                 m_ticks = 15;
                 break;
             case 0x5B:
-                m_mnemonic = "LD DE, (" + format_address_label(peek_next_word()) + ")";
+                m_mnemonic = "LD";
+                m_operands = {Operand(Operand::REG16, "DE"), Operand(Operand::MEM_IMM16, peek_next_word())};
                 m_ticks = 20;
                 break;
             case 0x5E:
@@ -1492,7 +1769,8 @@ private:
                 m_ticks = 15;
                 break;
             case 0x63:
-                m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), HL";
+                m_mnemonic = "LD";
+                m_operands = {Operand(Operand::MEM_IMM16, peek_next_word()), Operand(Operand::REG16, "HL")};
                 m_ticks = 20;
                 break;
             case 0x67:
@@ -1512,7 +1790,8 @@ private:
                 m_ticks = 15;
                 break;
             case 0x6B:
-                m_mnemonic = "LD HL, (" + format_address_label(peek_next_word()) + ")";
+                m_mnemonic = "LD";
+                m_operands = {Operand(Operand::REG16, "HL"), Operand(Operand::MEM_IMM16, peek_next_word())};
                 m_ticks = 20;
                 break;
             case 0x6F:
@@ -1532,7 +1811,8 @@ private:
                 m_ticks = 15;
                 break;
             case 0x73:
-                m_mnemonic = "LD (" + format_address_label(peek_next_word()) + "), SP";
+                m_mnemonic = "LD";
+                m_operands = {Operand(Operand::MEM_IMM16, peek_next_word()), Operand(Operand::REG16, "SP")};
                 m_ticks = 20;
                 break;
             case 0x78:
@@ -1548,7 +1828,8 @@ private:
                 m_ticks = 15;
                 break;
             case 0x7B:
-                m_mnemonic = "LD SP, (" + format_address_label(peek_next_word()) + ")";
+                m_mnemonic = "LD";
+                m_operands = {Operand(Operand::REG16, "SP"), Operand(Operand::MEM_IMM16, peek_next_word())};
                 m_ticks = 20;
                 break;
             case 0xA0:
@@ -1624,7 +1905,8 @@ private:
                 m_ticks_alt = 21;
                 break;
             default:
-                m_mnemonic = "NOP (DB 0xED, " + format_hex(opcodeED) + ")";
+                m_mnemonic = "NOP";
+                m_operands = {Operand(Operand::IMM8, 0xED), Operand(Operand::IMM8, opcodeED)};
                 m_ticks = 8;
             }
             break;
@@ -1647,7 +1929,8 @@ private:
             m_ticks = 10;
             break;
         case 0xF2:
-            m_mnemonic = "JP P, " + format_address_label(peek_next_word());
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::CONDITION, "P"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xF3:
@@ -1655,7 +1938,8 @@ private:
             m_ticks = 4;
             break;
         case 0xF4:
-            m_mnemonic = "CALL P, " + format_address_label(peek_next_word());
+            m_mnemonic = "CALL";
+            m_operands = {Operand(Operand::CONDITION, "P"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
@@ -1664,7 +1948,8 @@ private:
             m_ticks = 11;
             break;
         case 0xF6:
-            m_mnemonic = "OR " + format_hex(peek_next_byte());
+            m_mnemonic = "OR";
+            m_operands = {Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0xF7:
@@ -1677,11 +1962,13 @@ private:
             m_ticks_alt = 11;
             break;
         case 0xF9:
-            m_mnemonic = "LD SP, " + get_indexed_reg_str();
+            m_mnemonic = "LD";
+            m_operands = {Operand(Operand::REG16, "SP"), Operand(Operand::REG16, get_indexed_reg_str())};
             m_ticks = (get_index_mode() == IndexMode::HL) ? 6 : 10;
             break;
         case 0xFA:
-            m_mnemonic = "JP M, " + format_address_label(peek_next_word());
+            m_mnemonic = "JP";
+            m_operands = {Operand(Operand::CONDITION, "M"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             break;
         case 0xFB:
@@ -1689,18 +1976,25 @@ private:
             m_ticks = 4;
             break;
         case 0xFC:
-            m_mnemonic = "CALL M, " + format_address_label(peek_next_word());
+            m_mnemonic = "CALL";
+            m_operands = {Operand(Operand::CONDITION, "M"), Operand(Operand::IMM16, peek_next_word())};
             m_ticks = 10;
             m_ticks_alt = 17;
             break;
         case 0xFE:
-            m_mnemonic = "CP " + format_hex(peek_next_byte());
+            m_mnemonic = "CP";
+            m_operands = {Operand(Operand::IMM8, peek_next_byte())};
             m_ticks = 7;
             break;
         case 0xFF:
             m_mnemonic = "RST 38H";
             m_ticks = 11;
             break;
+        }
+        if (m_mnemonic.empty()) {
+            std::stringstream ss;
+            m_mnemonic = "DB";
+            m_operands = {Operand(Operand::IMM8, opcode)};
         }
         address = m_address;
     }
@@ -1727,14 +2021,16 @@ private:
             return "IYL";
         return "L";
     }
-    std::string get_indexed_addr_str() {
+    std::string format_indexed_address(const std::string& reg, int8_t offset) {
+        std::stringstream ss;
+        ss << "(" << reg << (offset >= 0 ? "+" : "") << static_cast<int>(offset) << ")";
+        return ss.str();
+    }
+    std::string get_indexed_addr_str(bool consume_byte = true) {
         if (get_index_mode() == IndexMode::HL)
             return "(HL)";
-        int8_t offset = static_cast<int8_t>(peek_next_byte());
-        std::string index_reg_str = (get_index_mode() == IndexMode::IX) ? "IX" : "IY";
-        std::stringstream ss;
-        ss << "(" << index_reg_str << (offset >= 0 ? "+" : "") << static_cast<int>(offset) << ")";
-        return ss.str();
+        int8_t offset = consume_byte ? static_cast<int8_t>(peek_next_byte()) : 0;
+        return format_indexed_address((get_index_mode() == IndexMode::IX) ? "IX" : "IY", offset);
     }
     std::string get_bytes_str(bool hex_format = true) const {
         std::stringstream ss;
@@ -1747,18 +2043,6 @@ private:
                 ss << " ";
         }
         return ss.str();
-    }
-    std::string format_address_label(uint16_t address, int width = -1, bool hex = true) {
-        std::string hex_str = hex ? format_hex(address, width) : format_dec(address);
-        if constexpr (!std::is_same_v<TLabels, void>) {
-            if (m_labels) {
-                std::string labels_str = m_labels->get_label(address);
-                if (!labels_str.empty()) {
-                    return hex_str + " (" + labels_str + ")";
-                }
-            }
-        }
-        return hex_str;
     }
     uint8_t peek_next_byte() {
         uint8_t value = m_memory->peek(m_address++);
@@ -1786,11 +2070,21 @@ private:
         ss << std::dec << static_cast<int>(value);
         return ss.str();
     }
+    Operand get_indexed_addr_operand(bool consume_byte = true) {
+        if (get_index_mode() == IndexMode::HL) {
+            return Operand(Operand::MEM_REG16, "HL");
+        }
+        // For IX/IY, the displacement byte is always part of the instruction stream.
+        int8_t offset = static_cast<int8_t>(peek_next_byte());
+        std::string base_reg = (get_index_mode() == IndexMode::IX) ? "IX" : "IY";
+        return Operand(Operand::MEM_INDEXED, base_reg, offset);
+    }
     TRegisters* m_registers;
     TMemory* m_memory;
     IndexMode m_index_mode;
     uint16_t m_address;
     std::string m_mnemonic;
+    std::vector<Operand> m_operands;
     std::vector<uint8_t> m_bytes;
     int m_ticks, m_ticks_alt;
     TLabels* m_labels;
