@@ -793,6 +793,8 @@ private:
         virtual void on_incbin_directive(const std::string& filename) = 0;
         virtual void on_unknown_operand(const std::string& operand) = 0;
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
+        virtual void on_proc_begin(const std::string& name) = 0;
+        virtual void on_proc_end() = 0;
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
@@ -846,6 +848,15 @@ private:
             else throw std::runtime_error("Could not open file for INCBIN: " + filename);
         }
         void on_unknown_operand(const std::string& operand) override {}
+        void on_proc_begin(const std::string& name) override {
+            m_proc_stack.push_back(name);
+            on_label_definition(name);
+        }
+        void on_proc_end() override {
+            if (m_proc_stack.empty())
+                throw std::runtime_error("ENDP without PROC.");
+            m_proc_stack.pop_back();
+        }
         bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; } // Now Operand and OperandType are known
         void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
         void on_assemble(std::vector<uint8_t> bytes) override {}
@@ -859,6 +870,7 @@ private:
             return name;
         }    
         std::string m_last_global_label;
+        std::vector<std::string> m_proc_stack;
         CompilationContext& m_context;
     };
     // Helpers
@@ -919,6 +931,10 @@ private:
         SymbolsBuilding(CompilationContext& context, int max_pass) : DefaultAssemblyPolicy(context), m_max_pass(max_pass) {}
         virtual ~SymbolsBuilding() {
             clear_symbols();
+        }
+        void on_finalize() override {
+            if (!this->m_proc_stack.empty())
+                throw std::runtime_error("Unterminated procedure block (missing ENDP).");
         }
 
         virtual void on_initialize() override {
@@ -1221,7 +1237,8 @@ private:
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "SET", "DEFL", "ORG", 
-                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE"
+                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE",
+                "PROC", "ENDP"
             };
             return directives;
         }
@@ -2277,7 +2294,7 @@ private:
             if (m_policy.get_compilation_context().options.comments.enabled)
                 process_comments(line);
             if (process_directives(line))
-                return true;
+                 return true;
             if (is_skipping())
                 return true;
             if (m_policy.get_compilation_context().options.labels.enabled)
@@ -2468,6 +2485,24 @@ private:
                 m_policy.on_dephase_directive();
                 return true;
             }
+            size_t proc_pos = line_upper.find(" PROC");
+            if (proc_pos != std::string::npos) {
+                std::string proc_name = line.substr(0, proc_pos);
+                StringHelper::trim_whitespace(proc_name);
+                if (!Keywords::is_valid_label_name(proc_name))
+                     throw std::runtime_error("Invalid procedure name: '" + proc_name + "'");
+                m_policy.on_proc_begin(proc_name);
+                m_control_flow_stack.push_back(ControlBlockType::PROCEDURE);
+                return true;
+            }
+            if (trimmed_upper == "ENDP") {
+                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::PROCEDURE)
+                     throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
+
+                m_policy.on_proc_end();
+                m_control_flow_stack.pop_back();
+                return true;
+            }
             return false;
         }
         bool process_label(std::string& line) {
@@ -2564,7 +2599,8 @@ private:
         enum class ControlBlockType {
             NONE,
             CONDITIONAL,
-            REPT
+            REPT,
+            PROCEDURE
         };
 
         struct ReptState {

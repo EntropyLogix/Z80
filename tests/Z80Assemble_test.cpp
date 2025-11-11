@@ -2364,6 +2364,80 @@ TEST_CASE(PhaseDephaseDirectives) {
     ASSERT_CODE("ORG 0x100\nDEPHASE\nNOP", {0x00});
 }
 
+TEST_CASE(ProcEndpDirectives) {
+    // Test 1: Simple procedure definition and call
+    ASSERT_CODE(R"(
+        MyProc PROC
+            LD A, 42
+            RET
+        ENDP
+        CALL MyProc
+    )", {0x3E, 42, 0xC9, 0xCD, 0x00, 0x00});
+
+    // Test 2: Dot label inside a procedure
+    ASSERT_CODE(R"(
+        MyProc PROC
+            JR .skip
+            HALT
+        .skip:
+            NOP
+            RET
+        ENDP
+        CALL MyProc
+    )", {0x18, 0x01, 0x76, 0x00, 0xC9, 0xCD, 0x00, 0x00});
+
+    // Test 3: Nested procedures and label resolution
+    ASSERT_CODE(R"(
+        Outer PROC
+            LD A, 1         ; Global label 'Inner' is defined, not 'Outer.Inner'
+            CALL Inner
+            RET
+        Inner PROC
+            LD B, 2
+            RET
+        ENDP
+        ENDP
+        CALL Outer
+    )", {
+        0x3E, 0x01,       // 0000: LD A, 1
+        0xCD, 0x06, 0x00, // 0002: CALL Inner (to 0x0006)
+        0xC9,             // 0005: RET
+        0x06, 0x02,       // 0006: Inner: LD B, 2
+        0xC9,             // 0008: RET
+        0xCD, 0x00, 0x00  // 0009: CALL Outer
+    });
+
+    // Test 4: Dot labels refer to the nearest procedure scope
+    // The label .outer_local is defined after `Inner PROC`, so its scope becomes `Inner`.
+    // The `JR .outer_local` inside `Outer` cannot find its target, as `Outer.outer_local` is never defined.
+    // This should fail compilation.
+    ASSERT_COMPILE_FAILS(R"(
+        Outer PROC
+            CALL Inner
+            JR .outer_local ; Jump to Outer.outer_local
+        Inner PROC
+            RET
+        ENDP
+        .outer_local:
+            RET
+        ENDP
+    )");
+
+    // Test 5: Error cases for mismatched directives
+    ASSERT_COMPILE_FAILS("MyProc PROC"); // Missing ENDP
+    ASSERT_COMPILE_FAILS("ENDP"); // ENDP without PROC
+    ASSERT_COMPILE_FAILS("IF 1\nMyProc PROC\nENDIF\nENDP"); // Mismatched ENDP
+    ASSERT_COMPILE_FAILS("MyProc PROC\nIF 1\nENDP\nENDIF"); // Mismatched ENDIF
+
+    // Test 6: Procedure label used in expression
+    ASSERT_CODE(R"(
+        MyProc PROC
+            NOP
+        ENDP
+        LD HL, MyProc
+    )", {0x00, 0x21, 0x00, 0x00});
+}
+
 /* // TODO: Enable these tests after LOCAL directive is implemented */
 /* TEST_CASE(ProceduresAndLocalLabels) { */
 /*     // Test 1: Simple procedure with a local label */
