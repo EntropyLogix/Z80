@@ -2241,11 +2241,11 @@ TEST_CASE(LocalLabels) {
         GLOBAL_MAIN:
             .loop1:
                 NOP
-                JR .loop2
+                JR .loop2 ; target is at 0x03, instruction is at 0x01. offset = 0x03 - (0x01+2) = 0
             .loop2:
                 INC A
-                JR .loop1
-    )", {0x00, 0x18, 0x00, 0x3C, 0x18, 0xFA}); // JR .loop2: 2-(1+2)=-1=FF. No, 2-(1+2) is not right. .loop2 is at addr 2. JR is at 1. 2-(1+2)=-1. Wait, NOP is 1 byte. JR is 2 bytes. .loop2 is at addr 3. JR is at 1. 3-(1+2)=0. Correct. JR .loop1: 0-(3+2)=-5=FB. No, INC A is 1 byte. .loop1 is at 0. JR is at 4. 0-(4+2)=-6=FA. Correct.
+                JR .loop1 ; target is at 0x00, instruction is at 0x04. offset = 0x00 - (0x04+2) = -6 = 0xFA
+    )", {0x00, 0x18, 0x00, 0x3C, 0x18, 0xFA});
         
     // Test 4: Reusing local label names in different global scopes
     ASSERT_CODE(R"(
@@ -2304,8 +2304,70 @@ TEST_CASE(LocalLabels) {
         0xC3, 0x08, 0x00, // JP .end (0x0008)
         0x11,             // .data1
         0x22,             // .data2
-        0x3E, 0x07        // LD A, .data2 (address of .data2 is 0x07)
+        0x3E, 0x07        // LD A, .data2 (value of .data2 is its address 0x07)
     });
+
+    // Test 10: Simple local EQU
+    ASSERT_CODE(R"(
+        GLOBAL_SCOPE:
+            .val EQU 123
+            LD A, .val
+    )", {0x3E, 123});
+
+    // Test 11: Simple local SET
+    ASSERT_CODE(R"(
+        GLOBAL_SCOPE:
+            .val SET 45
+            LD A, .val
+    )", {0x3E, 45});
+
+    // Test 12: Redefining local SET
+    ASSERT_CODE(R"(
+        GLOBAL_SCOPE:
+            .val SET 10
+            LD A, .val
+            .val SET 20
+            LD B, .val
+    )", {0x3E, 10, 0x06, 20});
+
+    // Test 13: Reusing local EQU name in different scopes
+    ASSERT_CODE(R"(
+        SCOPE_A:
+            .val EQU 1
+            LD A, .val
+        SCOPE_B:
+            .val EQU 2
+            LD B, .val
+    )", {0x3E, 1, 0x06, 2});
+
+    // Test 14: Using local constant outside its scope (unqualified)
+    ASSERT_COMPILE_FAILS(R"(
+        SCOPE_A:
+            .val EQU 1
+        SCOPE_B:
+            LD A, .val ; This should resolve to SCOPE_B.val, which is not defined
+    )");
+
+    // Test 15: Using local constant with qualified name
+    ASSERT_CODE(R"(
+        SCOPE_A:
+            .val EQU 128
+        SCOPE_B:
+            LD A, SCOPE_A.val
+    )", {0x3E, 128});
+
+    // Test 16: Attempt to define local EQU without a global scope
+    ASSERT_COMPILE_FAILS(R"(
+        .my_const EQU 10
+        NOP
+    )");
+
+    // Test 17: Attempt to redefine local EQU with SET
+    ASSERT_COMPILE_FAILS(R"(
+        SCOPE_A:
+            .val EQU 10
+            .val SET 20
+    )");
 }
 
 TEST_CASE(PhaseDephaseDirectives) {
@@ -2325,7 +2387,7 @@ TEST_CASE(PhaseDephaseDirectives) {
     PHYSICAL_CONTINUE:  ; Should be 0x1006 (synced with physical)
         LD D, 4         ; Physical: 0x1006, Logical: 0x1006
     )";
-    std::vector<uint8_t> expected1 = {
+    const std::vector<uint8_t> expected1 = {
         0x3E, 0x01, // LD A, 1 at 0x1000
         0x06, 0x02, // LD B, 2 at 0x1002
         0x0E, 0x03, // LD C, 3 at 0x1004
@@ -2366,59 +2428,66 @@ TEST_CASE(PhaseDephaseDirectives) {
 
 TEST_CASE(ProcEndpDirectives) {
     // Test 1: Simple procedure definition and call
-    ASSERT_CODE(R"(
+    ASSERT_CODE(R"( ; PROC/ENDP define blocks but don't change code layout
         MyProc PROC
             LD A, 42
             RET
         ENDP
         CALL MyProc
-    )", {0x3E, 42, 0xC9, 0xCD, 0x00, 0x00});
+    )", {
+        0x3E, 42,       // 0x00: LD A, 42
+        0xC9,           // 0x02: RET
+        0xCD, 0x00, 0x00  // 0x03: CALL MyProc (to 0x0000)
+    });
 
     // Test 2: Dot label inside a procedure
     ASSERT_CODE(R"(
         MyProc PROC
-            JR .skip
+            JR .skip      ; Jumps to MyProc.skip
             HALT
         .skip:
             NOP
             RET
         ENDP
         CALL MyProc
-    )", {0x18, 0x01, 0x76, 0x00, 0xC9, 0xCD, 0x00, 0x00});
+    )", {
+        0x18, 0x01,       // 0x00: JR .skip (to 0x03)
+        0x76,             // 0x02: HALT
+        0x00,             // 0x03: .skip: NOP
+        0xC9,             // 0x04: RET
+        0xCD, 0x00, 0x00  // 0x05: CALL MyProc
+    });
 
     // Test 3: Nested procedures and label resolution
     ASSERT_CODE(R"(
         Outer PROC
-            LD A, 1         ; Global label 'Inner' is defined, not 'Outer.Inner'
-            CALL Inner
+            LD A, 1         
+            CALL Inner      
             RET
-        Inner PROC
-            LD B, 2
-            RET
-        ENDP
+            Inner PROC      
+                LD B, 2
+                RET
+            ENDP
         ENDP
         CALL Outer
     )", {
-        0x3E, 0x01,       // 0000: LD A, 1
-        0xCD, 0x06, 0x00, // 0002: CALL Inner (to 0x0006)
-        0xC9,             // 0005: RET
-        0x06, 0x02,       // 0006: Inner: LD B, 2
-        0xC9,             // 0008: RET
-        0xCD, 0x00, 0x00  // 0009: CALL Outer
+        0x3E, 0x01,       // 0x0000: LD A, 1
+        0xCD, 0x06, 0x00, // 0x0002: CALL Inner (to 0x0006)
+        0xC9,             // 0x0005: RET
+        0x06, 0x02,       // 0x0006: Inner: LD B, 2
+        0xC9,             // 0x0008: RET
+        0xCD, 0x00, 0x00  // 0x0009: CALL Outer (to 0x0000)
     });
 
     // Test 4: Dot labels refer to the nearest procedure scope
-    // The label .outer_local is defined after `Inner PROC`, so its scope becomes `Inner`.
-    // The `JR .outer_local` inside `Outer` cannot find its target, as `Outer.outer_local` is never defined.
-    // This should fail compilation.
     ASSERT_COMPILE_FAILS(R"(
         Outer PROC
             CALL Inner
-            JR .outer_local ; Jump to Outer.outer_local
+            JR .outer_local ; Tries to jump to Outer.outer_local, which is not defined.
         Inner PROC
             RET
         ENDP
-        .outer_local:
+        .outer_local: ; This becomes a label in the global scope, not inside Outer.
             RET
         ENDP
     )");

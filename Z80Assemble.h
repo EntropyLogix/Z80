@@ -94,8 +94,7 @@ public:
         uint16_t start_address;
         uint16_t size;
     };
-    Z80Assembler(TMemory* memory, ISourceProvider* source_provider, const Options& options = get_default_options()) : m_context(options)
-    {
+    Z80Assembler(TMemory* memory, ISourceProvider* source_provider, const Options& options = get_default_options()) : m_context(options) {
         m_context.memory = memory;
         m_context.source_provider = source_provider;
     }
@@ -752,6 +751,14 @@ private:
     };
     //Policy
     struct CompilationContext {
+        struct Symbol {
+            bool redefinable;
+            int index;
+            std::vector<int32_t> value;
+            std::vector<bool> undefined;
+            bool in_use;
+        };
+
         CompilationContext(const Options& opts) : options(opts) {}
 
         CompilationContext(const CompilationContext& other) = delete;
@@ -763,10 +770,11 @@ private:
         uint16_t current_physical_address = 0;
         size_t current_line_number = 0;
         size_t current_pass = 0;
-        std::map<std::string, SymbolInfo> symbols;
         std::string last_global_label;
+        std::map<std::string, SymbolInfo> symbols;
         std::vector<BlockInfo> blocks;
         const Options& options;
+        std::map<std::string, Symbol*> m_map_symbols; 
     };
     class IAssemblyPolicy {
     public:
@@ -805,6 +813,7 @@ private:
         using OperandType = typename IAssemblyPolicy::OperandType;
 
         DefaultAssemblyPolicy(CompilationContext& context) : m_context(context) {}
+        virtual ~DefaultAssemblyPolicy() {}
 
         virtual CompilationContext& get_compilation_context() override { return m_context; }
 
@@ -861,6 +870,20 @@ private:
         void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
         void on_assemble(std::vector<uint8_t> bytes) override {}
     protected:
+        void clear_symbols() {
+            for (auto& symbol_pair : this->m_context.m_map_symbols) {
+                delete symbol_pair.second;
+                symbol_pair.second = nullptr;
+            }
+            this->m_context.m_map_symbols.clear();
+        }
+        void reset_symbols_index() {
+            for (auto& symbol_pair : this->m_context.m_map_symbols) {
+                typename CompilationContext::Symbol* symbol = symbol_pair.second;
+                if (symbol)
+                    symbol->index = -1;
+            }
+        }
         std::string get_absolute_symbol_name(const std::string& name) const {
             if (!name.empty() && name[0] == '.') {
                 if (this->m_last_global_label.empty())
@@ -929,16 +952,12 @@ private:
         using OperandType = typename OperandParser::OperandType;
 
         SymbolsBuilding(CompilationContext& context, int max_pass) : DefaultAssemblyPolicy(context), m_max_pass(max_pass) {}
-        virtual ~SymbolsBuilding() {
-            clear_symbols();
+        virtual void on_initialize() override {
+            this->clear_symbols();
         }
         void on_finalize() override {
             if (!this->m_proc_stack.empty())
                 throw std::runtime_error("Unterminated procedure block (missing ENDP).");
-        }
-
-        virtual void on_initialize() override {
-            clear_symbols();
         }
         virtual void on_pass_begin() override {
             m_symbols_stable = true;
@@ -949,8 +968,8 @@ private:
             if (m_final_pass_scheduled) {
                 if (m_symbols_stable) {
                     this->m_context.symbols.clear();
-                    for (const auto& symbol_pair : m_symbols) {
-                        Symbol* symbol = symbol_pair.second;
+                    for (const auto& symbol_pair : this->m_context.m_map_symbols) {
+                        typename CompilationContext::Symbol* symbol = symbol_pair.second;
                         if (symbol) {
                             int index = symbol->index;
                             if (!symbol->undefined[index])
@@ -976,8 +995,8 @@ private:
                 else {
                     error_msg += " Undefined symbol(s): ";
                     bool first = true;
-                    for (const auto& symbol_pair : m_symbols) {
-                        Symbol* symbol = symbol_pair.second;
+                    for (const auto& symbol_pair : this->m_context.m_map_symbols) {
+                        typename CompilationContext::Symbol* symbol = symbol_pair.second;
                         if (symbol) {
                             int index = symbol->index;
                             if (symbol->undefined[index]) {
@@ -990,20 +1009,16 @@ private:
                 }
                 throw std::runtime_error(error_msg);
             }
-            for (auto& symbol_pair : m_symbols) {
-                Symbol* symbol = symbol_pair.second;
-                if (symbol)
-                    symbol->index = -1;
-            }
+            this->reset_symbols_index();
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (DefaultAssemblyPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             bool resolved = false;
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
-            auto it = m_symbols.find(actual_symbol_name);
-            if (it != m_symbols.end()) {
-                Symbol *symbol = it->second;
+            auto it = this->m_context.m_map_symbols.find(actual_symbol_name);
+            if (it != this->m_context.m_map_symbols.end()) {
+                typename CompilationContext::Symbol *symbol = it->second;
                 if (symbol) {
                     symbol->in_use = true;
                     int index = symbol->index;
@@ -1017,8 +1032,7 @@ private:
         }
         virtual void on_label_definition(const std::string& label) override {
             DefaultAssemblyPolicy::on_label_definition(label);
-            std::string actual_label_name = this->get_absolute_symbol_name(label);
-            update_symbol(actual_label_name, this->m_context.current_logical_address, false, false);
+            update_symbol(label, this->m_context.current_logical_address, false, false);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
             on_const(label, value, false);
@@ -1064,20 +1078,6 @@ private:
             this->m_context.current_physical_address += size;
         }
     private:
-        struct Symbol {
-            bool redefinable;
-            int index;
-            std::vector<int32_t> value;
-            std::vector<bool> undefined;
-            bool in_use;
-        };
-        void clear_symbols() {
-            for (auto& symbol_pair : m_symbols) {
-                delete symbol_pair.second;
-                symbol_pair.second = nullptr;
-            }
-            m_symbols.clear();
-        }
         void on_const(const std::string& label, const std::string& value, bool redefinable) {
             int32_t num_val = 0;
             Expressions expression(*this);
@@ -1086,8 +1086,8 @@ private:
         };
         bool all_used_symbols_defined() const {
             bool all_used_defined = true;
-            for (const auto& symbol_pair : m_symbols) {
-                Symbol* symbol = symbol_pair.second;
+            for (const auto& symbol_pair : this->m_context.m_map_symbols) {
+                typename CompilationContext::Symbol* symbol = symbol_pair.second;
                 if (symbol) {
                     if (symbol->in_use && symbol->undefined[symbol->index]) {
                         all_used_defined = false;
@@ -1098,21 +1098,22 @@ private:
             return all_used_defined;
         }
         void update_symbol(const std::string& name, int32_t value, bool is_undefined, bool redefinable) {
-            auto it = m_symbols.find(name);
-            if (it == m_symbols.end()) {
-                Symbol* new_symbol = new Symbol{redefinable, 0, {value}, {is_undefined}};
-                m_symbols[name] = new_symbol;
+            std::string actual_name = this->get_absolute_symbol_name(name);
+            auto it = this->m_context.m_map_symbols.find(actual_name);
+            if (it == this->m_context.m_map_symbols.end()) {
+                typename CompilationContext::Symbol* new_symbol = new typename CompilationContext::Symbol{redefinable, 0, {value}, {is_undefined}};
+                this->m_context.m_map_symbols[actual_name] = new_symbol;
                 m_symbols_stable = false;
             } else {
-                Symbol *symbol = it->second;
+                typename CompilationContext::Symbol *symbol = it->second;
                 if (symbol) {
                     if (!symbol->redefinable && redefinable)
-                        throw std::runtime_error("Cannot redefine constant symbol: " + name);
+                        throw std::runtime_error("Cannot redefine constant symbol: " + actual_name);
                     int& index = symbol->index;
                     index++;
                     if (index >= symbol->value.size()) {
                         if (!redefinable)
-                            throw std::runtime_error("Duplicate symbol definition: " + name);
+                            throw std::runtime_error("Duplicate symbol definition: " + actual_name);
                         symbol->value.push_back(value);
                         symbol->undefined.push_back(is_undefined);
                         m_symbols_stable = false;
@@ -1126,7 +1127,6 @@ private:
                 }
             }
         }
-        std::map<std::string, Symbol*> m_symbols; 
         bool m_symbols_stable = false;
         bool m_final_pass_scheduled = false;
         int m_max_pass = 0;
@@ -1139,6 +1139,12 @@ private:
         CodeGeneration(CompilationContext& context, uint16_t start_addr) : DefaultAssemblyPolicy(context), m_start_addr(start_addr) {}
         virtual ~CodeGeneration() = default;
 
+        virtual void on_initialize() override {
+            this->reset_symbols_index();
+        }
+        virtual void on_finalize() override {
+            this->clear_symbols();
+        }
         virtual void on_pass_begin() override {
             this->m_last_global_label.clear();
             m_blocks.push_back({m_start_addr, 0});
@@ -1152,16 +1158,30 @@ private:
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (DefaultAssemblyPolicy::on_symbol_resolve(symbol, out_value))
-                return true;            
-            std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
-            auto it = this->m_context.symbols.find(actual_symbol_name);
-            if (it == this->m_context.symbols.end())
-                return false; // For IFDEF/IFNDEF
-            out_value = it->second.value;
                 return true;
+            std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
+            auto it = this->m_context.m_map_symbols.find(actual_symbol_name);
+            if (it != this->m_context.m_map_symbols.end()) {
+                typename CompilationContext::Symbol *symbol = it->second;
+                if (symbol) {
+                    int index = symbol->index;
+                    if (index == -1)
+                        index = symbol->value.size() - 1;
+                    out_value = symbol->value[index];
+                    return true;
+                }
+            }
+            return false;
         }
         virtual void on_label_definition(const std::string& label) override {
             DefaultAssemblyPolicy::on_label_definition(label);
+            update_symbol_index(label);
+        };
+        virtual void on_equ_directive(const std::string& label, const std::string& value) override {
+            update_symbol_index(label);
+        };
+        virtual void on_set_directive(const std::string& label, const std::string& value) override {
+            update_symbol_index(label);
         };
         virtual void on_org_directive(const std::string& label) override {
             int32_t addr;
@@ -1197,6 +1217,15 @@ private:
             this->m_blocks.back().second += bytes.size();
         }
     private:
+        void update_symbol_index(const std::string& label) {
+            std::string actual_name = this->get_absolute_symbol_name(label);
+            auto it = this->m_context.m_map_symbols.find(actual_name);
+            if (it != this->m_context.m_map_symbols.end()) {
+                typename CompilationContext::Symbol *symbol = it->second;
+                if (symbol)
+                    symbol->index++;
+            }
+        };
         uint16_t m_start_addr;
         std::vector<std::pair<uint16_t, uint16_t>> m_blocks;
     };
