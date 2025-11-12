@@ -2370,6 +2370,23 @@ TEST_CASE(LocalLabels) {
     )");
 }
 
+TEST_CASE(ForwardReferenceWithSet) {
+    ASSERT_CODE(R"(
+            JP TARGET
+ GLOBAL_SCOPE:
+            val SET 10
+            LD A, val
+            val SET 20
+            LD B, val
+TARGET:     NOP
+    )", {
+        0xC3, 0x07, 0x00, // JP 0x0007
+        0x3E, 10,         // LD A, 10
+        0x06, 20,         // LD B, 20
+        0x00              // NOP
+    });
+}
+
 TEST_CASE(PhaseDephaseDirectives) {
     // Test 1: Basic PHASE/DEPHASE functionality
     // Label inside PHASE should have a logical address.
