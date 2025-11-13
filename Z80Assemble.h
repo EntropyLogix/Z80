@@ -74,6 +74,7 @@ public:
             bool allow_conditional_compilation = true;
             bool allow_repeat = true;
             bool allow_phase = true;
+            bool allow_proc = true;
         } directives;
         struct ExpressionOptions {
             bool enabled = true;
@@ -774,7 +775,12 @@ private:
             std::vector<bool> undefined;
             bool used;
         };
-        std::map<std::string, Symbol*> symbols; 
+        std::map<std::string, Symbol*> symbols;
+        struct Scope {
+            std::string full_name;
+            std::set<std::string> local_symbols;
+        };
+        std::vector<Scope> scope_stack;
         struct Results {
             std::map<std::string, SymbolInfo> symbols_table;
             std::vector<BlockInfo> blocks_table;
@@ -794,6 +800,7 @@ private:
         virtual void on_pass_next() = 0;
 
         virtual CompilationContext& get_compilation_context() = 0;
+        virtual std::string get_absolute_symbol_name(const std::string& name) = 0;
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) = 0;
         virtual void on_label_definition(const std::string& label) = 0;
         virtual void on_equ_directive(const std::string& label, const std::string& value) = 0;
@@ -807,6 +814,7 @@ private:
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
         virtual void on_proc_begin(const std::string& name) = 0;
         virtual void on_proc_end() = 0;
+        virtual void on_local_directive(const std::vector<std::string>& symbols) = 0;
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
@@ -862,13 +870,34 @@ private:
         }
         void on_unknown_operand(const std::string& operand) override {}
         void on_proc_begin(const std::string& name) override {
-            m_proc_stack.push_back(name);
+            if (m_context.scope_stack.empty())
+                m_context.scope_stack.push_back({name, {}});
+            else {
+                auto& parent_scope = m_context.scope_stack.back();
+                if (parent_scope.local_symbols.count(name)) {
+                    std::string full_name = parent_scope.full_name + "." + name;
+                    m_context.scope_stack.push_back({full_name, {}});
+                } else
+                    m_context.scope_stack.push_back({name, {}});
+            }
             on_label_definition(name);
         }
         void on_proc_end() override {
-            if (m_proc_stack.empty())
+            if (m_context.scope_stack.empty())
                 throw std::runtime_error("ENDP without PROC.");
-            m_proc_stack.pop_back();
+            m_context.scope_stack.pop_back();
+        }
+        void on_local_directive(const std::vector<std::string>& symbols) override {
+            if (m_context.scope_stack.empty()) {
+                throw std::runtime_error("LOCAL directive used outside of a PROC block.");
+            }
+            auto& current_scope = m_context.scope_stack.back();
+            for (const auto& symbol : symbols) {
+                if (!Keywords::is_valid_label_name(symbol) || symbol.find('.') != std::string::npos) {
+                    throw std::runtime_error("Invalid symbol name in LOCAL directive: '" + symbol + "'");
+                }
+                current_scope.local_symbols.insert(symbol);
+            }
         }
         bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; } // Now Operand and OperandType are known
         void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
@@ -888,14 +917,18 @@ private:
                     symbol->index = -1;
             }
         }
-        std::string get_absolute_symbol_name(const std::string& name) const {
-            if (!name.empty() && name[0] == '.') {
+        std::string get_absolute_symbol_name(const std::string& name) override {
+            for (auto it = m_context.scope_stack.rbegin(); it != m_context.scope_stack.rend(); ++it) {
+                if (it->local_symbols.count(name))
+                    return it->full_name + "." + name;
+            }
+            if (name[0] == '.') {
                 if (this->m_last_global_label.empty())
                     throw std::runtime_error("Local label '" + name + "' used without a preceding global label.");
                 return this->m_last_global_label + name;
             }
             return name;
-        }    
+        }
         std::string m_last_global_label;
         std::vector<std::string> m_proc_stack;
         CompilationContext& m_context;
@@ -960,7 +993,7 @@ private:
             this->clear_symbols();
         }
         void on_finalize() override {
-            if (!this->m_proc_stack.empty())
+            if (!this->m_context.scope_stack.empty())
                 throw std::runtime_error("Unterminated procedure block (missing ENDP).");
         }
         virtual void on_pass_begin() override {
@@ -1207,7 +1240,13 @@ private:
         virtual void on_dephase_directive() override {
             this->m_context.current_logical_address = this->m_context.current_physical_address;
         }
-        virtual void on_unknown_operand(const std::string& operand) override { throw std::runtime_error("Unknown operand or undefined symbol: " + operand); }
+        virtual void on_unknown_operand(const std::string& operand) override { 
+            std::string actual_symbol_name = this->get_absolute_symbol_name(operand);
+            std::string resolved;
+            if (actual_symbol_name != operand)
+                resolved = " (resolved to '" + actual_symbol_name + "')";
+            throw std::runtime_error("Invalid expression or unknown operand: '" + operand + "'" + resolved); 
+        }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
             throw std::runtime_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
         }
@@ -1253,9 +1292,7 @@ private:
         }
     private:
         static bool is_in_set(const std::string& s, const std::set<std::string>& set) {
-            std::string upper_s = s;
-            StringHelper::to_upper(upper_s);
-            return set.count(upper_s);
+            return set.count(s);
         }
         static const std::set<std::string>& mnemonics() {
             static const std::set<std::string> mnemonics = {
@@ -1270,7 +1307,7 @@ private:
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "SET", "DEFL", "ORG", 
-                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE",
+                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL",
                 "PROC", "ENDP"
             };
             return directives;
@@ -2518,22 +2555,70 @@ private:
                 m_policy.on_dephase_directive();
                 return true;
             }
-            size_t proc_pos = line_upper.find(" PROC");
+            size_t proc_pos = line_upper.rfind(" PROC");
             if (proc_pos != std::string::npos) {
                 std::string proc_name = line.substr(0, proc_pos);
                 StringHelper::trim_whitespace(proc_name);
+                if (!m_policy.get_compilation_context().options.directives.allow_proc)
+                    return false;
+                StringHelper::trim_whitespace(proc_name);
+                if (proc_name.empty())
+                    throw std::runtime_error("PROC directive requires a name.");
+                if (Keywords::is_mnemonic(proc_name))
+                    return false;
+                if (Keywords::is_reserved(proc_name))
+                    throw std::runtime_error("Invalid procedure name: '" + proc_name + "' is a reserved keyword.");
                 if (!Keywords::is_valid_label_name(proc_name))
-                     throw std::runtime_error("Invalid procedure name: '" + proc_name + "'");
+                    throw std::runtime_error("Invalid procedure name: '" + proc_name + "'");
                 m_policy.on_proc_begin(proc_name);
                 m_control_flow_stack.push_back(ControlBlockType::PROCEDURE);
                 return true;
             }
-            if (trimmed_upper == "ENDP") {
+            size_t endp_pos = line_upper.rfind("ENDP");
+            if (endp_pos != std::string::npos) {
+                std::string after_endp = line_upper.substr(endp_pos + 4);
+                if (after_endp.find_first_not_of(" \t") != std::string::npos)
+                    return false;
+                if (!m_policy.get_compilation_context().options.directives.allow_proc) return false;
                 if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::PROCEDURE)
                      throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
-
                 m_policy.on_proc_end();
                 m_control_flow_stack.pop_back();
+                return true;
+            }
+            size_t local_pos = line_upper.find("LOCAL ");
+            if (local_pos != std::string::npos && line_upper.substr(0, local_pos).find_first_not_of(" \t") == std::string::npos) {
+                if (!m_policy.get_compilation_context().options.directives.allow_proc) return false;
+                std::string symbols_str = line.substr(local_pos + 6);
+                std::vector<std::string> symbols;
+                std::stringstream ss(symbols_str);
+                std::string symbol;
+                while (std::getline(ss, symbol, ',')) {
+                    StringHelper::trim_whitespace(symbol);
+                    if (!symbol.empty())
+                        symbols.push_back(symbol);
+                }
+                m_policy.on_local_directive(symbols);
+                return true;
+            }
+            return false;
+        }
+        bool process_local_directive(std::string& line) {
+            std::string upper_line = line;
+            StringHelper::to_upper(upper_line);
+            if (upper_line.rfind("LOCAL ", 0) == 0) {
+                if (!m_policy.get_compilation_context().options.directives.allow_proc) return false;
+                std::string symbols_str = line.substr(6);
+                std::vector<std::string> symbols;
+                std::stringstream ss(symbols_str);
+                std::string symbol;
+                while (std::getline(ss, symbol, ',')) {
+                    StringHelper::trim_whitespace(symbol);
+                    if (!symbol.empty())
+                        symbols.push_back(symbol);
+                }
+                m_policy.on_local_directive(symbols);
+                line.clear();
                 return true;
             }
             return false;
