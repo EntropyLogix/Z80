@@ -282,7 +282,6 @@ private:
                     StringHelper::trim_whitespace(name_part);
                     if (!name_part.empty() && name_part.find_first_of(" \t") == std::string::npos) {
                         current_macro_name = name_part;
-                        StringHelper::to_upper(current_macro_name);
                         in_macro_def = true;
                         current_macro = Macro();
                         std::string args_part = trimmed_line.substr(macro_keyword_pos + 6);
@@ -307,7 +306,6 @@ private:
                 std::stringstream line_ss(trimmed_line);
                 std::string first_word;
                 line_ss >> first_word;
-                StringHelper::to_upper(first_word);
                 if (m_macros.count(first_word)) {
                     std::string args_str;
                     std::getline(line_ss, args_str);
