@@ -159,6 +159,12 @@ private:
             return process_file(main_file_path, output_source, included_files);
         }
     private:
+        struct Macro {
+            std::vector<std::string> arg_names;
+            std::string body;
+        };
+        std::map<std::string, Macro> m_macros;
+        int m_unique_macro_id_counter = 0;
         void remove_block_comments(std::string& source_str, const std::string& identifier) {
             size_t start_pos = source_str.find("/*");
             while (start_pos != std::string::npos) {
@@ -168,6 +174,65 @@ private:
                 source_str.replace(start_pos, end_pos - start_pos + 2, "\n");
                 start_pos = source_str.find("/*");
             }
+        }
+        std::string expand_macro(const std::string& name, const std::vector<std::string>& args) {
+            if (m_macros.find(name) == m_macros.end())
+                return "";
+            const Macro& macro = m_macros.at(name);
+            std::string expanded_body = macro.body;
+            std::string unique_prefix = "@@" + std::to_string(m_unique_macro_id_counter++) + "_";
+            size_t at_pos = expanded_body.find('@');
+            while (at_pos != std::string::npos) {
+                expanded_body.replace(at_pos, 1, unique_prefix);
+                at_pos = expanded_body.find('@', at_pos + unique_prefix.length());
+            }
+            for (size_t i = 0; i < macro.arg_names.size(); ++i) {
+                std::string placeholder = "{" + macro.arg_names[i] + "}";
+                std::string value = (i < args.size()) ? args[i] : "";
+                size_t pos = expanded_body.find(placeholder);
+                while (pos != std::string::npos) {
+                    expanded_body.replace(pos, placeholder.length(), value);
+                    pos = expanded_body.find(placeholder, pos + value.length());
+                }
+            }
+            for (size_t i = 0; i < args.size(); ++i) {
+                std::string placeholder = "\\" + std::to_string(i + 1);
+                const std::string& value = args[i];
+                size_t pos = expanded_body.find(placeholder);
+                while (pos != std::string::npos) {
+                    expanded_body.replace(pos, placeholder.length(), value);
+                    pos = expanded_body.find(placeholder, pos + value.length());
+                }
+            }
+            return expanded_body;
+        }
+
+        std::vector<std::string> parse_macro_call_args(const std::string& args_str) {
+            std::vector<std::string> args;
+            std::string current_arg;
+            bool in_string = false;
+            int paren_level = 0;
+
+            for (char c : args_str) {
+                if (c == '"')
+                    in_string = !in_string;
+                else if (!in_string) {
+                    if (c == '(')
+                        paren_level++;
+                    else
+                        if (c == ')') paren_level--;
+                }
+                if (c == ',' && !in_string && paren_level == 0) {
+                    StringHelper::trim_whitespace(current_arg);
+                    args.push_back(current_arg);
+                    current_arg.clear();
+                } else
+                    current_arg += c;
+            }
+            StringHelper::trim_whitespace(current_arg);
+            if (!current_arg.empty() || !args.empty())
+                args.push_back(current_arg);
+            return args;
         }
         bool process_file(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
             if (included_files.count(identifier))
@@ -182,25 +247,75 @@ private:
                     remove_block_comments(source_content, identifier);
             }
             std::stringstream source_stream(source_content);
-            std::string line;
+            std::string line, original_line;
             size_t line_number = 0;
-            while (std::getline(source_stream, line)) {
+
+            bool in_macro_def = false;
+            std::string current_macro_name;
+            Macro current_macro;
+
+            std::vector<std::string> lines_to_process;
+            while (std::getline(source_stream, original_line))
+                lines_to_process.push_back(original_line);
+
+            for (size_t i = 0; i < lines_to_process.size(); ++i) {
+                line = lines_to_process[i];
                 line_number++;
                 std::string trimmed_line = line;
+                StringHelper::trim_whitespace(trimmed_line);
+                std::string upper_trimmed_line = trimmed_line;
+                StringHelper::to_upper(upper_trimmed_line);
+
+                if (in_macro_def) {
+                    if (upper_trimmed_line == "ENDM" || upper_trimmed_line == "MEND") {
+                        in_macro_def = false;
+                        m_macros[current_macro_name] = current_macro;
+                    } else
+                        current_macro.body.append(line).append("\n");
+                    continue;
+                }
+                std::string upper_trimmed_line_copy = upper_trimmed_line;
+                size_t macro_keyword_pos = upper_trimmed_line_copy.find(" MACRO");
+                if (macro_keyword_pos == std::string::npos) macro_keyword_pos = upper_trimmed_line_copy.find("\tMACRO");
+                if (macro_keyword_pos != std::string::npos && (macro_keyword_pos == 0 || upper_trimmed_line_copy[macro_keyword_pos-1] != ' ')) {
+                    std::string name_part = trimmed_line.substr(0, macro_keyword_pos);
+                    StringHelper::trim_whitespace(name_part);
+                    if (!name_part.empty() && name_part.find_first_of(" \t") == std::string::npos) {
+                        current_macro_name = name_part;
+                        StringHelper::to_upper(current_macro_name);
+                        in_macro_def = true;
+                        current_macro = Macro();
+                        std::string args_part = trimmed_line.substr(macro_keyword_pos + 6);
+                        StringHelper::trim_whitespace(args_part);
+                        current_macro.arg_names = parse_macro_call_args(args_part);
+                        for(auto& arg : current_macro.arg_names)
+                            StringHelper::trim_whitespace(arg);
+                        continue;
+                    }
+                }
                 if (m_context.options.directives.allow_includes) {
-                    StringHelper::trim_whitespace(trimmed_line);
-                    std::string upper_line = line;
-                    StringHelper::to_upper(upper_line);
-                    if (upper_line.find("INCLUDE ") != std::string::npos) {
+                    if (upper_trimmed_line.rfind("INCLUDE ", 0) == 0) {
                         size_t first_quote = trimmed_line.find('"');
                         size_t last_quote = trimmed_line.find('"', first_quote + 1);
                         if (first_quote == std::string::npos || last_quote == std::string::npos)
                             throw std::runtime_error("Malformed INCLUDE directive in " + identifier + " at line " + std::to_string(line_number));
                         std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
                         process_file(include_filename, output_source, included_files);
-                    } else
-                        output_source.append(line).append("\n");
-                } else output_source.append(line).append("\n");
+                        continue;
+                    }
+                }
+                std::stringstream line_ss(trimmed_line);
+                std::string first_word;
+                line_ss >> first_word;
+                StringHelper::to_upper(first_word);
+                if (m_macros.count(first_word)) {
+                    std::string args_str;
+                    std::getline(line_ss, args_str);
+                    StringHelper::trim_whitespace(args_str);
+                    std::string expansion = expand_macro(first_word, parse_macro_call_args(args_str));
+                    output_source.append(expansion);
+                } else
+                    output_source.append(line).append("\n");
             }
             return true;
         }
@@ -491,11 +606,11 @@ private:
                 tokens.push_back({Token::Type::SYMBOL, "$"});
                 return true;
             }
-            if (!isalpha(expr[i]) && expr[i] != '_' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
+            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
                 return false;
             size_t j = i;
-            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.')) {
-                if (expr[j] == '.' && j == i && (j + 1 >= expr.length() || !isalnum(expr[j+1]))) break;
+            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.' || expr[j] == '@')) {
+                if (expr[j] == '.' && j == i && (j + 1 >= expr.length() || !isalnum(expr[j+1]))) break; // Don't treat a single dot as a symbol
                 j++;
             }
             std::string symbol_str = expr.substr(i, j - i);
@@ -1281,10 +1396,10 @@ private:
         static bool is_valid_label_name(const std::string& s) {
             if (s.empty() || is_reserved(s))
                 return false;
-            if (!std::isalpha(s[0]) && s[0] != '_' && s[0] != '.')
+            if (!std::isalpha(s[0]) && s[0] != '_' && s[0] != '.' && s[0] != '@')
                 return false;
             for (char c : s) {
-                if (!std::isalnum(c) && c != '_' && c != '.')
+                if (!std::isalnum(c) && c != '_' && c != '.' && c != '@')
                     return false;
             }
             return true;
