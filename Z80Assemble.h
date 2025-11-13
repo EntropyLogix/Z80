@@ -2451,6 +2451,24 @@ private:
                 m_conditional_stack.pop_back();
                 return true;
             }
+            std::string temp_line_upper = line;
+            StringHelper::to_upper(temp_line_upper);
+            if (temp_line_upper.find(" EQU ") == std::string::npos && temp_line_upper.find(" SET ") == std::string::npos && temp_line_upper.find(" DEFL ") == std::string::npos) {
+                size_t equals_pos = line.find('=');
+                if (equals_pos != std::string::npos) {
+                    std::string label = line.substr(0, equals_pos);
+                    StringHelper::trim_whitespace(label);
+                    std::string value = line.substr(equals_pos + 1);
+                    StringHelper::trim_whitespace(value);
+                    const auto& constants_options = m_policy.get_compilation_context().options.directives.constants;
+                    if (constants_options.enabled && constants_options.allow_set) {
+                        if (Keywords::is_valid_label_name(label) && !Keywords::is_mnemonic(label)) {
+                            m_policy.on_set_directive(label, value);
+                            return true;
+                        }
+                    }
+                }
+            }
             if (is_skipping())
                 return true;
             size_t rept_pos = line_upper.find("REPT ");

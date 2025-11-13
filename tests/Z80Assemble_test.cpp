@@ -1076,6 +1076,80 @@ TEST_CASE(SETDirective) {
     ASSERT_COMPILE_FAILS("VAL SET 1\nVAL EQU 2");
 }
 
+TEST_CASE(EqualsAsSetDirective) {
+    // 1. Basic usage of '=' as SET
+    ASSERT_CODE(R"(
+        VALUE = 15
+        LD A, VALUE
+    )", {0x3E, 15});
+
+    // 2. Redefinition using '='
+    ASSERT_CODE(R"(
+        VALUE = 10
+        VALUE = 20
+        LD A, VALUE
+    )", {0x3E, 20});
+
+    // 3. Mixing SET and '='
+    ASSERT_CODE(R"(
+        VALUE SET 5
+        VALUE = 10 ; Redefine with =
+        LD A, VALUE
+        VALUE SET 15 ; Redefine with SET
+        LD B, VALUE
+    )", {0x3E, 10, 0x06, 15});
+
+    // 4. Mixing EQU and '=' (should fail)
+    ASSERT_COMPILE_FAILS("VAL EQU 1\nVAL = 2");
+    ASSERT_COMPILE_FAILS("VAL = 1\nVAL EQU 2");
+}
+
+TEST_CASE(AdvancedConstantsAndExpressions) {
+    // 1. SET based on an EQU constant
+    ASSERT_CODE(R"(
+        BASE_VAL EQU 100
+        OFFSET_VAL SET BASE_VAL + 5
+        LD A, OFFSET_VAL
+    )", {0x3E, 105});
+
+    // 2. EQU based on a SET constant (EQU should be fixed to the value of SET at that point)
+    ASSERT_CODE(R"(
+        VAR_SET SET 50
+        CONST_EQU EQU VAR_SET * 2
+        VAR_SET SET 60 ; This redefinition should not affect CONST_EQU
+        LD A, CONST_EQU
+        LD B, VAR_SET
+    )", {0x3E, 100, 0x06, 60});
+
+    // 3. Using '==' in an IF directive (true case)
+    ASSERT_CODE(R"(
+        VAL1 EQU 10
+        VAL2 SET 10
+        IF VAL1 == VAL2
+            LD A, 1
+        ELSE
+            LD A, 0
+        ENDIF
+    )", {0x3E, 1});
+
+    // 4. Using '==' in an IF directive (false case)
+    ASSERT_CODE(R"(
+        VAL1 EQU 10
+        VAL2 SET 11
+        IF VAL1 == VAL2
+            LD A, 1
+        ELSE
+            LD A, 0
+        ENDIF
+    )", {0x3E, 0});
+
+    // 5. Using '==' directly in a constant definition
+    ASSERT_CODE(R"(
+        IS_EQUAL EQU (10 == 10)
+        LD A, IS_EQUAL
+    )", {0x3E, 1});
+}
+
 TEST_CASE(Comments) {
     // Test single-line semicolon comments
     ASSERT_CODE("LD A, 5 ; This is a comment", {0x3E, 0x05});
