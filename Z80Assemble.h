@@ -162,6 +162,7 @@ private:
         struct Macro {
             std::vector<std::string> arg_names;
             std::string body;
+            std::vector<std::string> local_labels;
         };
         std::map<std::string, Macro> m_macros;
         int m_unique_macro_id_counter = 0;
@@ -180,11 +181,38 @@ private:
                 return "";
             const Macro& macro = m_macros.at(name);
             std::string expanded_body = macro.body;
-            std::string unique_prefix = "@@" + std::to_string(m_unique_macro_id_counter++) + "_";
-            size_t at_pos = expanded_body.find('@');
+            std::string unique_id_str = std::to_string(m_unique_macro_id_counter++);
+            size_t at_pos = 0;
             while (at_pos != std::string::npos) {
-                expanded_body.replace(at_pos, 1, unique_prefix);
-                at_pos = expanded_body.find('@', at_pos + unique_prefix.length());
+                at_pos = expanded_body.find('@', at_pos);
+                if (at_pos == std::string::npos)
+                    break;
+                size_t label_start = at_pos + 1;
+                size_t label_end = label_start;
+                while (label_end < expanded_body.length() && (isalnum(expanded_body[label_end]) || expanded_body[label_end] == '_'))
+                    label_end++;
+                if (label_end > label_start) {
+                    std::string label_name = expanded_body.substr(label_start, label_end - label_start);
+                    std::string new_label = label_name + "@" + unique_id_str;
+                    expanded_body.replace(at_pos, label_end - at_pos, new_label);
+                    at_pos += new_label.length();
+                } else
+                    at_pos++;
+            }
+            for (const auto& label : macro.local_labels) {
+                std::string unique_label = "??";
+                unique_label.append(label).append("_").append(unique_id_str);
+                size_t pos = 0;
+                while (pos != std::string::npos) {
+                    pos = expanded_body.find(label, pos);
+                    if (pos == std::string::npos)
+                        break;
+                    if ((pos == 0 || !isalnum(expanded_body[pos - 1])) && (pos + label.length() == expanded_body.length() || !isalnum(expanded_body[pos + label.length()]))) {
+                        expanded_body.replace(pos, label.length(), unique_label);
+                        pos += unique_label.length();
+                    } else
+                        pos += label.length();
+                }
             }
             for (size_t i = 0; i < macro.arg_names.size(); ++i) {
                 std::string placeholder = "{" + macro.arg_names[i] + "}";
@@ -270,8 +298,23 @@ private:
                     if (upper_trimmed_line == "ENDM" || upper_trimmed_line == "MEND") {
                         in_macro_def = false;
                         m_macros[current_macro_name] = current_macro;
-                    } else
-                        current_macro.body.append(line).append("\n");
+                    } else {
+                        std::string temp_line = line;
+                        StringHelper::trim_whitespace(temp_line);
+                        std::string temp_line_upper = temp_line;
+                        StringHelper::to_upper(temp_line_upper);
+                        if (temp_line_upper.rfind("LOCAL ", 0) == 0) {
+                            std::string symbols_str = temp_line.substr(6);
+                            std::stringstream ss(symbols_str);
+                            std::string symbol;
+                            while (std::getline(ss, symbol, ',')) {
+                                StringHelper::trim_whitespace(symbol);
+                                if (!symbol.empty())
+                                    current_macro.local_labels.push_back(symbol);
+                            }
+                        } else
+                            current_macro.body.append(line).append("\n");
+                    }
                     continue;
                 }
                 std::string upper_trimmed_line_copy = upper_trimmed_line;
@@ -604,10 +647,10 @@ private:
                 tokens.push_back({Token::Type::SYMBOL, "$"});
                 return true;
             }
-            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
+            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '?' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
                 return false;
             size_t j = i;
-            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.' || expr[j] == '@')) {
+            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.' || expr[j] == '@' || expr[j] == '?')) {
                 if (expr[j] == '.' && j == i && (j + 1 >= expr.length() || !isalnum(expr[j+1]))) break; // Don't treat a single dot as a symbol
                 j++;
             }
@@ -1394,10 +1437,10 @@ private:
         static bool is_valid_label_name(const std::string& s) {
             if (s.empty() || is_reserved(s))
                 return false;
-            if (!std::isalpha(s[0]) && s[0] != '_' && s[0] != '.' && s[0] != '@')
+            if (!std::isalpha(s[0]) && s[0] != '_' && s[0] != '.' && s[0] != '@' && s[0] != '?')
                 return false;
             for (char c : s) {
-                if (!std::isalnum(c) && c != '_' && c != '.' && c != '@')
+                if (!std::isalnum(c) && c != '_' && c != '.' && c != '@' && c != '?')
                     return false;
             }
             return true;
