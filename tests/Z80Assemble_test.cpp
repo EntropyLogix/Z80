@@ -2613,6 +2613,148 @@ TEST_CASE(ProcEndpDirectives) {
     });
 }
 
+TEST_CASE(SimpleMacroNoParams) {
+    ASSERT_CODE(R"(
+        CLEAR_A MACRO
+            XOR A
+        ENDM
+
+        CLEAR_A
+    )", {0xAF}); // XOR A
+}
+
+TEST_CASE(MacroWithOneNamedParam) {
+    ASSERT_CODE(R"(
+        LOAD_A MACRO val
+            LD A, {val}
+        ENDM
+
+        LOAD_A 42
+    )", {0x3E, 42}); // LD A, 42
+}
+
+TEST_CASE(MacroWithMissingPositionalParams) {
+    ASSERT_COMPILE_FAILS(R"(
+        LOAD_REGS MACRO
+            LD A, \1
+            LD B, \2
+            LD C, \3
+        ENDM
+
+        LOAD_REGS 5
+    )");
+}
+
+TEST_CASE(MacroWithMixedParamTypes) {
+    ASSERT_CODE(R"(
+        COMPLEX_LD MACRO dest, src
+            LD {dest}, {src}
+        ENDM
+
+        COMPLEX_LD B, A
+        COMPLEX_LD C, 123
+        COMPLEX_LD A, (label)
+    label:
+        NOP
+    )", {
+        0x47,             // LD B, A
+        0x0E, 123,        // LD C, 123
+        0x3A, 0x06, 0x00, // LD A, (label) where label address is 0x0006
+        0x00              // NOP at 0x0006
+    });
+}
+
+TEST_CASE(MacroWithReptDirective) {
+    ASSERT_CODE(R"(
+        FILL_NOPS MACRO count
+            REPT {count}
+                NOP
+            ENDR
+        ENDM
+
+        FILL_NOPS 4
+    )", {0x00, 0x00, 0x00, 0x00}); // 4 x NOP
+}
+
+TEST_CASE(NestedMacros) {
+    ASSERT_CODE(R"(
+        INNER MACRO val
+            ADD A, {val}
+        ENDM
+
+        OUTER MACRO
+            LD A, 10
+            INNER 5
+        ENDM
+
+        OUTER
+    )", {
+        0x3E, 10,   // LD A, 10
+        0xC6, 5     // ADD A, 5
+    });
+}
+
+TEST_CASE(MacroWithLocalLabels) {
+    ASSERT_CODE(R"(
+        DELAY MACRO
+            LOCAL loop
+            LD B, 255
+        loop:
+            DJNZ loop
+        ENDM
+
+        DELAY
+        DELAY
+    )", {
+        0x06, 255,  // LD B, 255
+        0x10, 0xFE, // DJNZ do pierwszej unikalnej etykiety 'loop'
+        0x06, 255,  // LD B, 255 (z drugiego wywołania)
+        0x10, 0xFE  // DJNZ do drugiej unikalnej etykiety 'loop'
+    });
+}
+
+TEST_CASE(MacroWithMoreThanNineParams) {
+    ASSERT_CODE(R"(
+        BIG_MACRO MACRO
+            DB \1, \2, \3, \4, \5, \6, \7, \8, \9, \10
+        ENDM
+
+        BIG_MACRO 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
+    )", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+}
+
+TEST_CASE(MacroWithTenParamsAndMissingOnes) {
+    ASSERT_CODE(R"(
+        BIG_MACRO MACRO
+            DB \1, \10, \2
+        ENDM
+
+        BIG_MACRO 100, 200, 300, 400, 500, 600, 700, 800, 900, 255
+    )", {100, 255, 200});
+}
+
+TEST_CASE(MacroWithMoreThanTenParamsFailsGracefully) {
+    // This test now verifies that parameters beyond 9 are handled correctly.
+    ASSERT_CODE(R"(
+        MYMACRO MACRO
+            DB \11
+        ENDM
+        MYMACRO 1,2,3,4,5,6,7,8,9,10,55
+    )", {55});
+}
+
+TEST_CASE(MacroWithMoreThanNineParamsAndMissing) {
+    // This test verifies that if a parameter like \10 is used but not provided,
+    // it is correctly replaced with an empty string.
+    ASSERT_CODE(R"(
+        BIG_MACRO MACRO
+            DB \1, \2\10
+        ENDM
+
+        BIG_MACRO 1, 2
+    )", {1, 2}); // Expects DB 1, 2 (since \10 is replaced by nothing)
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";

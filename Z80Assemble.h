@@ -864,10 +864,9 @@ private:
         virtual ~DefaultAssemblyPolicy() {}
 
         virtual CompilationContext& get_compilation_context() override { return m_context; }
-
         virtual void on_initialize() override {}
         virtual void on_finalize() override {}
-        virtual void on_pass_begin() override {}
+        virtual void on_pass_begin() override { m_context.unique_macro_id_counter = 0; }
         virtual bool on_pass_end() override { return true; }
         virtual void on_pass_next() override {}
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
@@ -1074,6 +1073,7 @@ private:
                 throw std::runtime_error("Unterminated procedure block (missing ENDP).");
         }
         virtual void on_pass_begin() override {
+            DefaultAssemblyPolicy::on_pass_begin();
             m_symbols_stable = true;
         }
         virtual bool on_pass_end() override {
@@ -1259,6 +1259,7 @@ private:
             this->clear_symbols();
         }
         virtual void on_pass_begin() override {
+            DefaultAssemblyPolicy::on_pass_begin();
             this->m_last_global_label.clear();
             m_blocks.push_back({m_start_addr, 0});
         }
@@ -2454,14 +2455,12 @@ private:
         bool process_macro(std::string& line) {
             StringHelper::trim_whitespace(line);
             std::string potential_macro_name = line.substr(0, line.find_first_of(" \t"));
-            std::string upper_name = potential_macro_name;
-            StringHelper::to_upper(upper_name);
-            if (m_policy.get_compilation_context().macros.count(upper_name)) {
+            if (m_policy.get_compilation_context().macros.count(potential_macro_name)) {
                 std::string args_str = line.substr(potential_macro_name.length());
                 StringHelper::trim_whitespace(args_str);
                 std::vector<std::string> args = StringHelper::parse_argument_list(args_str);
 
-                const auto& macro = m_policy.get_compilation_context().macros.at(upper_name);
+                const auto& macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
                 std::string expanded_body = macro.body;
                 std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
 
@@ -2480,11 +2479,28 @@ private:
                     std::string value = (i < args.size()) ? args[i] : "";
                     StringHelper::replace_all(expanded_body, "{" + macro.arg_names[i] + "}", value);
                 }
-                for (size_t i = 0; i < args.size(); ++i) {
-                    const std::string& value = args[i];
-                    StringHelper::replace_all(expanded_body, "\\" + std::to_string(i + 1), value);
+
+                // Efficiently parse and replace positional parameters like \1, \10, etc.
+                std::string final_body;
+                final_body.reserve(expanded_body.length());
+                for (size_t i = 0; i < expanded_body.length(); ++i) {
+                    if (expanded_body[i] == '\\' && i + 1 < expanded_body.length() && isdigit(expanded_body[i + 1])) {
+                        size_t j = i + 1;
+                        int param_num = 0;
+                        while (j < expanded_body.length() && isdigit(expanded_body[j])) {
+                            param_num = param_num * 10 + (expanded_body[j] - '0');
+                            j++;
+                        }
+                        if (param_num > 0 && (size_t)param_num <= args.size()) {
+                            final_body += args[param_num - 1];
+                        }
+                        // If param_num is out of bounds, it's replaced with an empty string by not appending anything.
+                        i = j - 1; // Move index past the processed digits
+                    } else {
+                        final_body += expanded_body[i];
+                    }
                 }
-                line = expanded_body;
+                line = final_body;
                 return true;
             }
             return false;
