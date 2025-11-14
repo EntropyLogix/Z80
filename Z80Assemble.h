@@ -150,8 +150,16 @@ private:
     class SymbolsBuilding;
     class Expressions;
 
-    class Preprocessor {
-    public:
+    struct Macro {
+        std::vector<std::string> arg_names;
+        std::string body;
+        std::vector<std::string> local_labels;
+    };
+
+
+    class Preprocessor { public:
+        std::map<std::string, Macro> m_macros;
+        int m_unique_macro_id_counter = 0;
         Preprocessor(CompilationContext& context) : m_context(context) {}
 
         bool process(const std::string& main_file_path, std::string& output_source) {
@@ -159,13 +167,7 @@ private:
             return process_file(main_file_path, output_source, included_files);
         }
     private:
-        struct Macro {
-            std::vector<std::string> arg_names;
-            std::string body;
-            std::vector<std::string> local_labels;
-        };
-        std::map<std::string, Macro> m_macros;
-        int m_unique_macro_id_counter = 0;
+
         void remove_block_comments(std::string& source_str, const std::string& identifier) {
             size_t start_pos = source_str.find("/*");
             while (start_pos != std::string::npos) {
@@ -175,92 +177,6 @@ private:
                 source_str.replace(start_pos, end_pos - start_pos + 2, "\n");
                 start_pos = source_str.find("/*");
             }
-        }
-        std::string expand_macro(const std::string& name, const std::vector<std::string>& args) {
-            if (m_macros.find(name) == m_macros.end())
-                return "";
-            const Macro& macro = m_macros.at(name);
-            std::string expanded_body = macro.body;
-            std::string unique_id_str = std::to_string(m_unique_macro_id_counter++);
-            size_t at_pos = 0;
-            while (at_pos != std::string::npos) {
-                at_pos = expanded_body.find('@', at_pos);
-                if (at_pos == std::string::npos)
-                    break;
-                size_t label_start = at_pos + 1;
-                size_t label_end = label_start;
-                while (label_end < expanded_body.length() && (isalnum(expanded_body[label_end]) || expanded_body[label_end] == '_'))
-                    label_end++;
-                if (label_end > label_start) {
-                    std::string label_name = expanded_body.substr(label_start, label_end - label_start);
-                    std::string new_label = label_name + "@" + unique_id_str;
-                    expanded_body.replace(at_pos, label_end - at_pos, new_label);
-                    at_pos += new_label.length();
-                } else
-                    at_pos++;
-            }
-            for (const auto& label : macro.local_labels) {
-                std::string unique_label = "??";
-                unique_label.append(label).append("_").append(unique_id_str);
-                size_t pos = 0;
-                while (pos != std::string::npos) {
-                    pos = expanded_body.find(label, pos);
-                    if (pos == std::string::npos)
-                        break;
-                    if ((pos == 0 || !isalnum(expanded_body[pos - 1])) && (pos + label.length() == expanded_body.length() || !isalnum(expanded_body[pos + label.length()]))) {
-                        expanded_body.replace(pos, label.length(), unique_label);
-                        pos += unique_label.length();
-                    } else
-                        pos += label.length();
-                }
-            }
-            for (size_t i = 0; i < macro.arg_names.size(); ++i) {
-                std::string placeholder = "{" + macro.arg_names[i] + "}";
-                std::string value = (i < args.size()) ? args[i] : "";
-                size_t pos = expanded_body.find(placeholder);
-                while (pos != std::string::npos) {
-                    expanded_body.replace(pos, placeholder.length(), value);
-                    pos = expanded_body.find(placeholder, pos + value.length());
-                }
-            }
-            for (size_t i = 0; i < args.size(); ++i) {
-                std::string placeholder = "\\" + std::to_string(i + 1);
-                const std::string& value = args[i];
-                size_t pos = expanded_body.find(placeholder);
-                while (pos != std::string::npos) {
-                    expanded_body.replace(pos, placeholder.length(), value);
-                    pos = expanded_body.find(placeholder, pos + value.length());
-                }
-            }
-            return expanded_body;
-        }
-
-        std::vector<std::string> parse_macro_call_args(const std::string& args_str) {
-            std::vector<std::string> args;
-            std::string current_arg;
-            bool in_string = false;
-            int paren_level = 0;
-
-            for (char c : args_str) {
-                if (c == '"')
-                    in_string = !in_string;
-                else if (!in_string) {
-                    if (c == '(')
-                        paren_level++;
-                    else
-                        if (c == ')') paren_level--;
-                }
-                if (c == ',' && !in_string && paren_level == 0) {
-                    StringHelper::trim_whitespace(current_arg);
-                    args.push_back(current_arg);
-                    current_arg.clear();
-                } else
-                    current_arg += c;
-            }
-            StringHelper::trim_whitespace(current_arg);
-            if (!current_arg.empty() || !args.empty())
-                args.push_back(current_arg);
-            return args;
         }
         bool process_file(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
             if (included_files.count(identifier))
@@ -297,7 +213,7 @@ private:
                 if (in_macro_def) {
                     if (upper_trimmed_line == "ENDM" || upper_trimmed_line == "MEND") {
                         in_macro_def = false;
-                        m_macros[current_macro_name] = current_macro;
+                        m_context.macros[current_macro_name] = current_macro;
                     } else {
                         std::string temp_line = line;
                         StringHelper::trim_whitespace(temp_line);
@@ -326,10 +242,10 @@ private:
                     if (!name_part.empty() && name_part.find_first_of(" \t") == std::string::npos) {
                         current_macro_name = name_part;
                         in_macro_def = true;
-                        current_macro = Macro();
+                        current_macro = {};
                         std::string args_part = trimmed_line.substr(macro_keyword_pos + 6);
                         StringHelper::trim_whitespace(args_part);
-                        current_macro.arg_names = parse_macro_call_args(args_part);
+                        current_macro.arg_names = StringHelper::parse_argument_list(args_part);
                         for(auto& arg : current_macro.arg_names)
                             StringHelper::trim_whitespace(arg);
                         continue;
@@ -346,17 +262,7 @@ private:
                         continue;
                     }
                 }
-                std::stringstream line_ss(trimmed_line);
-                std::string first_word;
-                line_ss >> first_word;
-                if (m_macros.count(first_word)) {
-                    std::string args_str;
-                    std::getline(line_ss, args_str);
-                    StringHelper::trim_whitespace(args_str);
-                    std::string expansion = expand_macro(first_word, parse_macro_call_args(args_str));
-                    output_source.append(expansion);
-                } else
-                    output_source.append(line).append("\n");
+                output_source.append(line).append("\n");
             }
             return true;
         }
@@ -936,6 +842,9 @@ private:
             std::map<std::string, SymbolInfo> symbols_table;
             std::vector<BlockInfo> blocks_table;
         } results;
+
+        std::map<std::string, Macro> macros;
+        int unique_macro_id_counter = 0;
     };
     class IAssemblyPolicy {
     public:
@@ -1136,6 +1045,33 @@ private:
             if (success && is_negative)
                 out_value = -out_value;
             return success;
+        }
+        static std::vector<std::string> parse_argument_list(const std::string& args_str) {
+            std::vector<std::string> args;
+            std::string current_arg;
+            bool in_string = false;
+            int paren_level = 0;
+
+            for (char c : args_str) {
+                if (c == '"')
+                    in_string = !in_string;
+                else if (!in_string) {
+                    if (c == '(')
+                        paren_level++;
+                    else if (c == ')')
+                        paren_level--;
+                }
+                if (c == ',' && !in_string && paren_level == 0) {
+                    trim_whitespace(current_arg);
+                    args.push_back(current_arg);
+                    current_arg.clear();
+                } else
+                    current_arg += c;
+            }
+            trim_whitespace(current_arg);
+            if (!current_arg.empty() || !args.empty())
+                args.push_back(current_arg);
+            return args;
         }
     };
     class SymbolsBuilding : public DefaultAssemblyPolicy {
@@ -2519,7 +2455,14 @@ private:
             if (m_policy.get_compilation_context().options.comments.enabled)
                 process_comments(line);
             if (process_directives(line))
-                 return true;
+                return true;
+            if (process_macro(line)) {
+                std::stringstream expansion_stream(line);
+                std::string expansion_line;
+                while (std::getline(expansion_stream, expansion_line))
+                    process(expansion_line);
+                return true;
+            }
             if (is_skipping())
                 return true;
             if (m_policy.get_compilation_context().options.labels.enabled)
@@ -2530,6 +2473,24 @@ private:
         }
 
     private:
+        bool process_macro(std::string& line) {
+            StringHelper::trim_whitespace(line);
+            std::string potential_macro_name = line.substr(0, line.find_first_of(" \t"));
+            std::string upper_name = potential_macro_name;
+            StringHelper::to_upper(upper_name);
+
+            if (m_policy.get_compilation_context().macros.count(upper_name)) {
+                std::string args_str = line.substr(potential_macro_name.length());
+                StringHelper::trim_whitespace(args_str);
+                
+                std::vector<std::string> args = StringHelper::parse_argument_list(args_str);
+                line = expand_macro(upper_name, args);
+                return true;
+            }
+            return false;
+        }
+
+
         bool process_comments(std::string& line) {
             if (m_policy.get_compilation_context().options.comments.allow_semicolon) {
                 size_t comment_pos = line.find(';');
@@ -2776,26 +2737,6 @@ private:
             }
             return false;
         }
-        bool process_local_directive(std::string& line) {
-            std::string upper_line = line;
-            StringHelper::to_upper(upper_line);
-            if (upper_line.rfind("LOCAL ", 0) == 0) {
-                if (!m_policy.get_compilation_context().options.directives.allow_proc) return false;
-                std::string symbols_str = line.substr(6);
-                std::vector<std::string> symbols;
-                std::stringstream ss(symbols_str);
-                std::string symbol;
-                while (std::getline(ss, symbol, ',')) {
-                    StringHelper::trim_whitespace(symbol);
-                    if (!symbol.empty())
-                        symbols.push_back(symbol);
-                }
-                m_policy.on_local_directive(symbols);
-                line.clear();
-                return true;
-            }
-            return false;
-        }
         bool process_label(std::string& line) {
             const auto& label_options = m_policy.get_compilation_context().options.labels;
             if (label_options.allow_colon) {
@@ -2880,6 +2821,43 @@ private:
 
         bool is_skipping() const {
             return !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
+        }
+        std::string expand_macro(const std::string& name, const std::vector<std::string>& args) {
+            StringHelper::to_upper(const_cast<std::string&>(name));
+            const auto& macro = m_policy.get_compilation_context().macros.at(name);
+            std::string expanded_body = macro.body;
+            std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
+
+            for (const auto& label : macro.local_labels) {
+                std::string unique_label = "??" + label + "_" + unique_id_str;
+                size_t pos = 0;
+                while ((pos = expanded_body.find(label, pos)) != std::string::npos) {
+                    if ((pos == 0 || !isalnum(expanded_body[pos - 1])) && (pos + label.length() >= expanded_body.length() || !isalnum(expanded_body[pos + label.length()]))) {
+                        expanded_body.replace(pos, label.length(), unique_label);
+                        pos += unique_label.length();
+                    } else
+                        pos += label.length();
+                }
+            }
+            for (size_t i = 0; i < macro.arg_names.size(); ++i) {
+                std::string placeholder = "{" + macro.arg_names[i] + "}";
+                std::string value = (i < args.size()) ? args[i] : "";
+                size_t pos = 0;
+                while ((pos = expanded_body.find(placeholder, pos)) != std::string::npos) {
+                    expanded_body.replace(pos, placeholder.length(), value);
+                    pos += value.length();
+                }
+            }
+            for (size_t i = 0; i < args.size(); ++i) {
+                std::string placeholder = "\\" + std::to_string(i + 1);
+                const std::string& value = args[i];
+                size_t pos = 0;
+                while ((pos = expanded_body.find(placeholder, pos)) != std::string::npos) {
+                    expanded_body.replace(pos, placeholder.length(), value);
+                    pos += value.length();
+                }
+            }
+            return expanded_body;
         }
 
         IAssemblyPolicy& m_policy;
