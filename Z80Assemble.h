@@ -2427,10 +2427,16 @@ private:
             m_rept_stack.clear();
         }
         void finalize() const {
-            if (!m_conditional_stack.empty())
-                throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
-            if (!m_rept_stack.empty())
-                throw std::runtime_error("Unterminated REPT block (missing ENDR).");
+            if (!m_control_flow_stack.empty()) {
+                switch (m_control_flow_stack.back()) {
+                    case ControlBlockType::CONDITIONAL:
+                        throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
+                    case ControlBlockType::REPT:
+                        throw std::runtime_error("Unterminated REPT block (missing ENDR).");
+                    case ControlBlockType::PROCEDURE:
+                        throw std::runtime_error("Unterminated procedure block (missing ENDP).");
+                }
+            }
         }
         bool process(const std::string& source_line) {
             std::string line = source_line;
