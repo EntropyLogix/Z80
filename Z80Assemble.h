@@ -45,7 +45,6 @@ public:
 	virtual ~ISourceProvider() = default;
 	virtual bool get_source(const std::string& identifier, std::vector<uint8_t>& data) = 0;
 };
-
 template <typename TMemory> class Z80Assembler {
 public:
     struct Options {
@@ -124,6 +123,7 @@ public:
                 m_context.current_physical_address = start_addr;
                 m_context.current_line_number = 0;
                 LineProcessor line_processor(*phase);
+                line_processor.initialize();
                 for (size_t i = 0; i < source_lines.size(); ++i) {
                     m_context.current_line_number = i + 1;
                     line_processor.process(source_lines[i]);
@@ -142,7 +142,6 @@ public:
     }
     const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
     const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
-
 private:
     struct CompilationContext {
         struct Macro {
@@ -220,7 +219,6 @@ private:
             std::vector<std::string> lines_to_process;
             while (std::getline(source_stream, original_line))
                 lines_to_process.push_back(original_line);
-
             for (size_t i = 0; i < lines_to_process.size(); ++i) {
                 line = lines_to_process[i];
                 line_number++;
@@ -228,7 +226,6 @@ private:
                 StringHelper::trim_whitespace(trimmed_line);
                 std::string upper_trimmed_line = trimmed_line;
                 StringHelper::to_upper(upper_trimmed_line);
-
                 if (in_macro_def) {
                     if (upper_trimmed_line == "ENDM" || upper_trimmed_line == "MEND") {
                         in_macro_def = false;
@@ -987,6 +984,15 @@ private:
         }
         static void to_upper(std::string& s) {
             std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+        }
+        static void replace_all(std::string& str, const std::string& from, const std::string& to) {
+            if (from.empty())
+                return;
+            size_t start_pos = 0;
+            while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
+                str.replace(start_pos, from.length(), to);
+                start_pos += to.length();
+            }
         }
         static bool is_number(const std::string& s, int32_t& out_value) {
             std::string str = s;
@@ -2411,7 +2417,11 @@ private:
     class LineProcessor {
     public:
         LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
-
+        void initialize() {
+            m_conditional_stack.clear();
+            m_control_flow_stack.clear();
+            m_rept_stack.clear();
+        }
         void finalize() const {
             if (!m_conditional_stack.empty())
                 throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
@@ -2446,13 +2456,35 @@ private:
             std::string potential_macro_name = line.substr(0, line.find_first_of(" \t"));
             std::string upper_name = potential_macro_name;
             StringHelper::to_upper(upper_name);
-
             if (m_policy.get_compilation_context().macros.count(upper_name)) {
                 std::string args_str = line.substr(potential_macro_name.length());
                 StringHelper::trim_whitespace(args_str);
-                
                 std::vector<std::string> args = StringHelper::parse_argument_list(args_str);
-                line = expand_macro(upper_name, args);
+
+                const auto& macro = m_policy.get_compilation_context().macros.at(upper_name);
+                std::string expanded_body = macro.body;
+                std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
+
+                for (const auto& label : macro.local_labels) {
+                    std::string unique_label = "??" + label + "_" + unique_id_str;
+                    size_t pos = 0;
+                    while ((pos = expanded_body.find(label, pos)) != std::string::npos) {
+                        if ((pos == 0 || !isalnum(expanded_body[pos - 1])) && (pos + label.length() >= expanded_body.length() || !isalnum(expanded_body[pos + label.length()]))) {
+                            expanded_body.replace(pos, label.length(), unique_label);
+                            pos += unique_label.length();
+                        } else
+                            pos += label.length();
+                    }
+                }
+                for (size_t i = 0; i < macro.arg_names.size(); ++i) {
+                    std::string value = (i < args.size()) ? args[i] : "";
+                    StringHelper::replace_all(expanded_body, "{" + macro.arg_names[i] + "}", value);
+                }
+                for (size_t i = 0; i < args.size(); ++i) {
+                    const std::string& value = args[i];
+                    StringHelper::replace_all(expanded_body, "\\" + std::to_string(i + 1), value);
+                }
+                line = expanded_body;
                 return true;
             }
             return false;
@@ -2476,7 +2508,6 @@ private:
             StringHelper::trim_whitespace(trimmed_line);
             std::string upper_trimmed_line = trimmed_line;
             StringHelper::to_upper(upper_trimmed_line);
-
             if (upper_trimmed_line.rfind("IF ", 0) == 0) {
                 if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
                     return false;
@@ -2794,43 +2825,6 @@ private:
         }
         bool is_skipping() const {
             return !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
-        }
-        std::string expand_macro(const std::string& name, const std::vector<std::string>& args) {
-            StringHelper::to_upper(const_cast<std::string&>(name));
-            const auto& macro = m_policy.get_compilation_context().macros.at(name);
-            std::string expanded_body = macro.body;
-            std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
-
-            for (const auto& label : macro.local_labels) {
-                std::string unique_label = "??" + label + "_" + unique_id_str;
-                size_t pos = 0;
-                while ((pos = expanded_body.find(label, pos)) != std::string::npos) {
-                    if ((pos == 0 || !isalnum(expanded_body[pos - 1])) && (pos + label.length() >= expanded_body.length() || !isalnum(expanded_body[pos + label.length()]))) {
-                        expanded_body.replace(pos, label.length(), unique_label);
-                        pos += unique_label.length();
-                    } else
-                        pos += label.length();
-                }
-            }
-            for (size_t i = 0; i < macro.arg_names.size(); ++i) {
-                std::string placeholder = "{" + macro.arg_names[i] + "}";
-                std::string value = (i < args.size()) ? args[i] : "";
-                size_t pos = 0;
-                while ((pos = expanded_body.find(placeholder, pos)) != std::string::npos) {
-                    expanded_body.replace(pos, placeholder.length(), value);
-                    pos += value.length();
-                }
-            }
-            for (size_t i = 0; i < args.size(); ++i) {
-                std::string placeholder = "\\" + std::to_string(i + 1);
-                const std::string& value = args[i];
-                size_t pos = 0;
-                while ((pos = expanded_body.find(placeholder, pos)) != std::string::npos) {
-                    expanded_body.replace(pos, placeholder.length(), value);
-                    pos += value.length();
-                }
-            }
-            return expanded_body;
         }
         IAssemblyPolicy& m_policy;
         struct ConditionalState {
