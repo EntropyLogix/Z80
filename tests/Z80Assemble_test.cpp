@@ -1104,6 +1104,52 @@ TEST_CASE(EqualsAsSetDirective) {
     ASSERT_COMPILE_FAILS("VAL = 1\nVAL EQU 2");
 }
 
+TEST_CASE(EqualsAsEquDirective) {
+    // 1. Basic usage of '=' as EQU
+    ASSERT_CODE(R"(
+        VALUE = 15
+        LD A, VALUE
+    )", {0x3E, 15});
+
+    // 2. Redefinition using '=' should fail
+    ASSERT_COMPILE_FAILS(R"(
+        VALUE = 10
+        VALUE = 20
+    )");
+
+    // 3. Mixing SET and '=' should fail on redefinition
+    ASSERT_COMPILE_FAILS("VALUE SET 5\nVALUE = 10");
+    ASSERT_COMPILE_FAILS("VALUE = 10\nVALUE SET 5");
+
+    // 4. Using '==' (comparison) in an IF directive (true case)
+    ASSERT_CODE(R"(
+        VAL1 EQU 10
+        VAL2 SET 10
+        IF VAL1 == VAL2
+            LD A, 1
+        ELSE
+            LD A, 0
+        ENDIF
+    )", {0x3E, 1});
+
+    // 5. Using '==' (comparison) in an IF directive (false case)
+    ASSERT_CODE(R"(
+        VAL1 EQU 10
+        VAL2 SET 11
+        IF VAL1 == VAL2
+            LD A, 1
+        ELSE
+            LD A, 0
+        ENDIF
+    )", {0x3E, 0});
+
+    // 6. Using '==' (comparison) directly in a constant definition
+    ASSERT_CODE(R"(
+        IS_EQUAL EQU (10 == 10)
+        LD A, IS_EQUAL
+    )", {0x3E, 1});
+}
+
 TEST_CASE(AdvancedConstantsAndExpressions) {
     // 1. SET based on an EQU constant
     ASSERT_CODE(R"(
@@ -1120,34 +1166,6 @@ TEST_CASE(AdvancedConstantsAndExpressions) {
         LD A, CONST_EQU
         LD B, VAR_SET
     )", {0x3E, 100, 0x06, 60});
-
-    // 3. Using '==' in an IF directive (true case)
-    ASSERT_CODE(R"(
-        VAL1 EQU 10
-        VAL2 SET 10
-        IF VAL1 == VAL2
-            LD A, 1
-        ELSE
-            LD A, 0
-        ENDIF
-    )", {0x3E, 1});
-
-    // 4. Using '==' in an IF directive (false case)
-    ASSERT_CODE(R"(
-        VAL1 EQU 10
-        VAL2 SET 11
-        IF VAL1 == VAL2
-            LD A, 1
-        ELSE
-            LD A, 0
-        ENDIF
-    )", {0x3E, 0});
-
-    // 5. Using '==' directly in a constant definition
-    ASSERT_CODE(R"(
-        IS_EQUAL EQU (10 == 10)
-        LD A, IS_EQUAL
-    )", {0x3E, 1});
 }
 
 TEST_CASE(Comments) {
