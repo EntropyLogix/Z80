@@ -109,7 +109,8 @@ public:
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
         SymbolsBuilding symbols_building(m_context, m_context.options.compilation.max_passes);
-        CodeGeneration code_generation(m_context, start_addr);
+        m_context.start_addr = start_addr;
+        CodeGeneration code_generation(m_context);
         std::vector<IAssemblyPolicy*> m_phases = {&symbols_building, &code_generation};
         for (auto& phase : m_phases) {
             if (!phase)
@@ -119,9 +120,6 @@ public:
             m_context.current_pass = 1;
             do {
                 phase->on_pass_begin();
-                m_context.current_logical_address = start_addr;
-                m_context.current_physical_address = start_addr;
-                m_context.current_line_number = 0;
                 LineProcessor line_processor(*phase);
                 line_processor.initialize();
                 for (size_t i = 0; i < source_lines.size(); ++i) {
@@ -164,6 +162,7 @@ private:
         TMemory* memory = nullptr;
         ISourceProvider* source_provider = nullptr;
         uint16_t current_logical_address = 0;
+        uint16_t start_addr = 0;
         uint16_t current_physical_address = 0;
         size_t current_line_number = 0;
         size_t current_pass = 0;
@@ -866,7 +865,12 @@ private:
         virtual CompilationContext& get_compilation_context() override { return m_context; }
         virtual void on_initialize() override {}
         virtual void on_finalize() override {}
-        virtual void on_pass_begin() override { m_context.unique_macro_id_counter = 0; }
+        virtual void on_pass_begin() override {
+            m_context.current_logical_address = m_context.start_addr;
+            m_context.current_physical_address = m_context.start_addr;
+            m_context.current_line_number = 0;
+            m_context.unique_macro_id_counter = 0;
+        }
         virtual bool on_pass_end() override { return true; }
         virtual void on_pass_next() override {}
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
@@ -1249,7 +1253,7 @@ private:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
         
-        CodeGeneration(CompilationContext& context, uint16_t start_addr) : DefaultAssemblyPolicy(context), m_start_addr(start_addr) {}
+        CodeGeneration(CompilationContext& context) : DefaultAssemblyPolicy(context) {}
         virtual ~CodeGeneration() = default;
 
         virtual void on_initialize() override {
@@ -1261,7 +1265,7 @@ private:
         virtual void on_pass_begin() override {
             DefaultAssemblyPolicy::on_pass_begin();
             this->m_last_global_label.clear();
-            m_blocks.push_back({m_start_addr, 0});
+            m_blocks.push_back({this->m_context.start_addr, 0});
         }
         virtual bool on_pass_end() override {
             for (auto& block : m_blocks) {
@@ -1346,7 +1350,6 @@ private:
                     symbol->index++;
             }
         };
-        uint16_t m_start_addr;
         std::vector<std::pair<uint16_t, uint16_t>> m_blocks;
     };
     class Keywords {
