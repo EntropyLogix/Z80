@@ -144,21 +144,41 @@ public:
     const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
 
 private:
-    struct CompilationContext;
-    class StringHelper;
-    class IAssemblyPolicy;
-    class SymbolsBuilding;
-    class Expressions;
+    struct CompilationContext {
+        struct Macro {
+            std::vector<std::string> arg_names;
+            std::string body;
+            std::vector<std::string> local_labels;
+        };
+        struct Symbol {
+            bool redefinable;
+            int index;
+            std::vector<int32_t> value;
+            std::vector<bool> undefined;
+            bool used;
+        };
+        CompilationContext(const Options& opts) : options(opts) {}
+        CompilationContext(const CompilationContext& other) = delete;
+        CompilationContext& operator=(const CompilationContext& other) = delete;
 
-    struct Macro {
-        std::vector<std::string> arg_names;
-        std::string body;
-        std::vector<std::string> local_labels;
-    };
-
-
-    class Preprocessor { public:
+        const Options& options;
+        TMemory* memory = nullptr;
+        ISourceProvider* source_provider = nullptr;
+        uint16_t current_logical_address = 0;
+        uint16_t current_physical_address = 0;
+        size_t current_line_number = 0;
+        size_t current_pass = 0;
+        std::string last_global_label;
+        std::map<std::string, Symbol*> symbols;
         std::map<std::string, Macro> m_macros;
+        struct Results {
+            std::map<std::string, SymbolInfo> symbols_table;
+            std::vector<BlockInfo> blocks_table;
+        } results;
+        std::map<std::string, Macro> macros;
+        int unique_macro_id_counter = 0;
+    };
+    class Preprocessor { public:
         int m_unique_macro_id_counter = 0;
         Preprocessor(CompilationContext& context) : m_context(context) {}
 
@@ -167,7 +187,6 @@ private:
             return process_file(main_file_path, output_source, included_files);
         }
     private:
-
         void remove_block_comments(std::string& source_str, const std::string& identifier) {
             size_t start_pos = source_str.find("/*");
             while (start_pos != std::string::npos) {
@@ -196,7 +215,7 @@ private:
 
             bool in_macro_def = false;
             std::string current_macro_name;
-            Macro current_macro;
+            typename CompilationContext::Macro current_macro;
 
             std::vector<std::string> lines_to_process;
             while (std::getline(source_stream, original_line))
@@ -268,9 +287,7 @@ private:
         }
         CompilationContext& m_context;
     };
-
     class IAssemblyPolicy;
-    //Operands
     class OperandParser {
     public:
         OperandParser(IAssemblyPolicy& policy) : m_policy(policy) {}
@@ -366,7 +383,6 @@ private:
             m_policy.on_unknown_operand(operand_string);
             return operand;
         }
-
     private:
         inline bool is_reg8(const std::string& s) const { return reg8_names().count(s);}
         inline bool is_reg16(const std::string& s) const { return reg16_names().count(s); }
@@ -387,10 +403,8 @@ private:
             static const std::set<std::string> s_condition_names = {"NZ", "Z", "NC", "C", "PO", "PE", "P", "M"};
             return s_condition_names;
         }
-
         IAssemblyPolicy& m_policy;
     };
-    //Expressions
     class Expressions {
     public:
         Expressions(IAssemblyPolicy& policy) : m_policy(policy){}
@@ -786,7 +800,6 @@ private:
                     auto it = get_operator_map().find(token.s_val);
                     if (it == get_operator_map().end())
                         throw std::runtime_error("Unknown operator in RPN evaluation: " + token.s_val);
-                    
                     const auto& op_info = it->second;
                     if (op_info.is_unary) {
                         if (val_stack.size() < 1)
@@ -811,40 +824,6 @@ private:
             return true;
         }
         IAssemblyPolicy& m_policy;
-    };
-    //Policy
-    struct CompilationContext {
-
-        CompilationContext(const Options& opts) : options(opts) {}
-
-        CompilationContext(const CompilationContext& other) = delete;
-        CompilationContext& operator=(const CompilationContext& other) = delete;
-
-        const Options& options;
-
-        TMemory* memory = nullptr;
-        ISourceProvider* source_provider = nullptr;
-
-        uint16_t current_logical_address = 0;
-        uint16_t current_physical_address = 0;
-        size_t current_line_number = 0;
-        size_t current_pass = 0;
-        std::string last_global_label;
-        struct Symbol {
-            bool redefinable;
-            int index;
-            std::vector<int32_t> value;
-            std::vector<bool> undefined;
-            bool used;
-        };
-        std::map<std::string, Symbol*> symbols;
-        struct Results {
-            std::map<std::string, SymbolInfo> symbols_table;
-            std::vector<BlockInfo> blocks_table;
-        } results;
-
-        std::map<std::string, Macro> macros;
-        int unique_macro_id_counter = 0;
     };
     class IAssemblyPolicy {
     public:
@@ -925,8 +904,10 @@ private:
         void on_incbin_directive(const std::string& filename) override {
             if (!this->m_context.options.directives.allow_incbin) return;
             std::vector<uint8_t> data;
-            if (this->m_context.source_provider->get_source(filename, data)) on_assemble(data);
-            else throw std::runtime_error("Could not open file for INCBIN: " + filename);
+            if (this->m_context.source_provider->get_source(filename, data))
+                on_assemble(data);
+            else
+                throw std::runtime_error("Could not open file for INCBIN: " + filename);
         }
         void on_unknown_operand(const std::string& operand) override {}
         void on_proc_begin(const std::string& name) override {
@@ -957,7 +938,7 @@ private:
                 current_scope.local_symbols.insert(symbol);
             }
         }
-        bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; } // Now Operand and OperandType are known
+        bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
         void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
         void on_assemble(std::vector<uint8_t> bytes) override {}
     protected:
@@ -997,7 +978,6 @@ private:
         std::vector<std::string> m_proc_stack;
         CompilationContext& m_context;
     };
-    // Helpers
     class StringHelper {
     public:
         static void trim_whitespace(std::string& s) {
@@ -1194,7 +1174,6 @@ private:
         virtual void on_dephase_directive() override {
             this->m_context.current_logical_address = this->m_context.current_physical_address;
         }
-
         virtual bool on_operand_not_matching(const Operand& operand, typename OperandParser::OperandType expected) override {
             if (operand.type == OperandType::UNKNOWN)
                 return expected == OperandType::IMMEDIATE || expected == OperandType::MEM_IMMEDIATE;
@@ -2439,17 +2418,6 @@ private:
             if (!m_rept_stack.empty())
                 throw std::runtime_error("Unterminated REPT block (missing ENDR).");
         }
-        bool process_rept_block() {
-            if (m_rept_stack.empty() || m_rept_stack.back().recording)
-                return false;
-            ReptState rept_block = m_rept_stack.back();
-            m_rept_stack.pop_back();
-            for (int i = 0; i < rept_block.count; ++i) {
-                for (const auto& body_line : rept_block.body)
-                    process(body_line);
-            }
-            return true;
-        }
         bool process(const std::string& source_line) {
             std::string line = source_line;
             if (m_policy.get_compilation_context().options.comments.enabled)
@@ -2489,8 +2457,6 @@ private:
             }
             return false;
         }
-
-
         bool process_comments(std::string& line) {
             if (m_policy.get_compilation_context().options.comments.allow_semicolon) {
                 size_t comment_pos = line.find(';');
@@ -2773,18 +2739,26 @@ private:
             }
             return false;
         }
+        bool process_rept_block() {
+            if (m_rept_stack.empty() || m_rept_stack.back().recording)
+                return false;
+            ReptState rept_block = m_rept_stack.back();
+            m_rept_stack.pop_back();
+            for (int i = 0; i < rept_block.count; ++i) {
+                for (const auto& body_line : rept_block.body)
+                    process(body_line);
+            }
+            return true;
+        }
         bool process_instruction(std::string& line) {
             StringHelper::trim_whitespace(line);
             if (!line.empty()) {
                 std::string mnemonic;
-
                 std::stringstream instruction_stream(line);
                 instruction_stream >> mnemonic;
                 StringHelper::to_upper(mnemonic);
-
                 OperandParser operand_parser(m_policy);
                 std::vector<typename OperandParser::Operand> operands;
-
                 std::string ops;
                 if (std::getline(instruction_stream, ops)) {
                     StringHelper::trim_whitespace(ops);
@@ -2818,7 +2792,6 @@ private:
             }
             return true;
         }
-
         bool is_skipping() const {
             return !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
         }
@@ -2859,7 +2832,6 @@ private:
             }
             return expanded_body;
         }
-
         IAssemblyPolicy& m_policy;
         struct ConditionalState {
             bool is_active;
@@ -2871,7 +2843,6 @@ private:
             REPT,
             PROCEDURE
         };
-
         struct ReptState {
             int count;
             int current_iteration;
@@ -2882,7 +2853,6 @@ private:
         std::vector<ReptState> m_rept_stack;
         std::vector<ControlBlockType> m_control_flow_stack;
     };
-
     CompilationContext m_context;
 };
 
