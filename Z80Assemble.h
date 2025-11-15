@@ -55,8 +55,9 @@ public:
         const std::string& original() const { return m_original; }
         const std::string& upper() const {
             if (m_upper.empty() && !m_original.empty()) {
-                m_upper = m_original;
-                std::transform(m_upper.begin(), m_upper.end(), m_upper.begin(), [](unsigned char c){ return std::toupper(c); });
+                m_upper.reserve(m_original.length());
+                std::transform(m_original.begin(), m_original.end(), std::back_inserter(m_upper),
+                               [](unsigned char c){ return std::toupper(c); });
             }
             return m_upper;
         }
@@ -142,7 +143,6 @@ public:
     private:
         std::vector<TextToken> m_tokens;
     };
-
     struct Options {
         struct LabelOptions {
             bool enabled = true;
@@ -2642,11 +2642,9 @@ private:
             }
             return false;
         }
-
         IAssemblyPolicy& m_policy;
         LineProcessor m_line_processor;
     };
-
     class LineProcessor {
     public:
         LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
