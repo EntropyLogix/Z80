@@ -108,22 +108,31 @@ public:
             std::string current_token;
             bool in_string = false;
             int paren_level = 0;
-            for (char c : line) {
-                if (c == '"')
+
+            for (size_t i = 0; i < line.length(); ++i) {
+                char c = line[i];
+                if (c == '"') {
                     in_string = !in_string;
-                else if (!in_string) {
-                    if (c == '(')
-                        paren_level++;
-                    else if (c == ')')
-                        paren_level--;
-                }
-                if (isspace(c) && !in_string && paren_level == 0) {
-                    if (!current_token.empty()) {
-                        m_tokens.emplace_back(current_token);
-                        current_token.clear();
-                    }
-                } else
                     current_token += c;
+                } else if (!in_string && c == '(') {
+                    paren_level++;
+                    current_token += c;
+                } else if (!in_string && c == ')') {
+                    paren_level--;
+                    current_token += c;
+                } else if (isspace(c) && !in_string && paren_level == 0) {
+                    if (!current_token.empty()) {
+                        size_t last_char_pos = current_token.find_last_not_of(" \t");
+                        if (last_char_pos == std::string::npos || current_token[last_char_pos] != ',') {
+                            m_tokens.emplace_back(current_token);
+                            current_token.clear();
+                        } else {
+                            current_token += c;
+                        }
+                    }
+                } else {
+                    current_token += c;
+                }
             }
             if (!current_token.empty()) {
                 m_tokens.emplace_back(current_token);
@@ -332,70 +341,49 @@ private:
             std::stringstream source_stream(source_content);
             std::string line, original_line;
             size_t line_number = 0;
-
             bool in_macro_def = false;
             std::string current_macro_name;
             typename CompilationContext::Macro current_macro;
-
             std::vector<std::string> lines_to_process;
             while (std::getline(source_stream, original_line))
                 lines_to_process.push_back(original_line);
             for (size_t i = 0; i < lines_to_process.size(); ++i) {
                 line = lines_to_process[i];
                 line_number++;
-                std::string trimmed_line = line;
-                StringHelper::trim_whitespace(trimmed_line);
-                std::string upper_trimmed_line = trimmed_line;
-                StringHelper::to_upper(upper_trimmed_line);
+                LineTokens tokens(line);
                 if (in_macro_def) {
-                    if (upper_trimmed_line == "ENDM" || upper_trimmed_line == "MEND") {
+                    if (tokens.count() == 1 && (tokens[0].upper() == "ENDM" || tokens[0].upper() == "MEND")) {
                         in_macro_def = false;
                         m_context.macros[current_macro_name] = current_macro;
                     } else {
-                        std::string temp_line = line;
-                        StringHelper::trim_whitespace(temp_line);
-                        std::string temp_line_upper = temp_line;
-                        StringHelper::to_upper(temp_line_upper);
-                        if (temp_line_upper.rfind("LOCAL ", 0) == 0) {
-                            std::string symbols_str = temp_line.substr(6);
-                            std::stringstream ss(symbols_str);
-                            std::string symbol;
-                            while (std::getline(ss, symbol, ',')) {
-                                StringHelper::trim_whitespace(symbol);
-                                if (!symbol.empty())
-                                    current_macro.local_labels.push_back(symbol);
-                            }
+                        if (tokens.count() > 1 && tokens[0].upper() == "LOCAL") {
+                            auto args = tokens[1].to_arguments();
+                            for(const auto& arg : args)
+                                current_macro.local_labels.push_back(arg.original());
                         } else
                             current_macro.body.append(line).append("\n");
                     }
                     continue;
                 }
-                std::string upper_trimmed_line_copy = upper_trimmed_line;
-                size_t macro_keyword_pos = upper_trimmed_line_copy.find(" MACRO");
-                if (macro_keyword_pos == std::string::npos) macro_keyword_pos = upper_trimmed_line_copy.find("\tMACRO");
-                if (macro_keyword_pos != std::string::npos && (macro_keyword_pos == 0 || upper_trimmed_line_copy[macro_keyword_pos-1] != ' ')) {
-                    std::string name_part = trimmed_line.substr(0, macro_keyword_pos);
-                    StringHelper::trim_whitespace(name_part);
-                    if (!name_part.empty() && name_part.find_first_of(" \t") == std::string::npos) {
-                        current_macro_name = name_part;
-                        in_macro_def = true;
-                        current_macro = {};
-                        std::string args_part = trimmed_line.substr(macro_keyword_pos + 6);
-                        StringHelper::trim_whitespace(args_part);
-                        current_macro.arg_names = StringHelper::parse_argument_list(args_part);
-                        for(auto& arg : current_macro.arg_names)
-                            StringHelper::trim_whitespace(arg);
-                        continue;
+                if (tokens.count() >= 2 && tokens[1].upper() == "MACRO") {
+                    current_macro_name = tokens[0].original();
+                    in_macro_def = true;
+                    current_macro = {};
+                    if (tokens.count() > 2) {
+                        auto arg_tokens = tokens[2].to_arguments();
+                        for (const auto& arg_token : arg_tokens)
+                            current_macro.arg_names.push_back(arg_token.original());
                     }
+                    continue;
                 }
                 if (m_context.options.directives.allow_includes) {
-                    if (upper_trimmed_line.rfind("INCLUDE ", 0) == 0) {
-                        size_t first_quote = trimmed_line.find('"');
-                        size_t last_quote = trimmed_line.find('"', first_quote + 1);
-                        if (first_quote == std::string::npos || last_quote == std::string::npos)
+                    if (tokens.count() == 2 && tokens[0].upper() == "INCLUDE") {
+                        const auto& filename_token = tokens[1];
+                        if (filename_token.original().length() > 1 && filename_token.original().front() == '"' && filename_token.original().back() == '"') {
+                            std::string include_filename = filename_token.original().substr(1, filename_token.original().length() - 2);
+                            process_file(include_filename, output_source, included_files);
+                        } else
                             throw std::runtime_error("Malformed INCLUDE directive in " + identifier + " at line " + std::to_string(line_number));
-                        std::string include_filename = trimmed_line.substr(first_quote + 1, last_quote - first_quote - 1);
-                        process_file(include_filename, output_source, included_files);
                         continue;
                     }
                 }
@@ -2585,15 +2573,10 @@ private:
                     for (const auto& label : macro.local_labels)
                         StringHelper::replace_all(expanded_body, label, "??" + label + "_" + unique_id_str);
                 }
-                for (size_t i = 0; i < macro.arg_names.size(); ++i) {
-                    std::string value = (i < args.size()) ? args[i] : "";
-                    StringHelper::replace_all(expanded_body, "{" + macro.arg_names[i] + "}", value);
-                }
                 //SHIFT tutaj
                 std::string final_body;
                 final_body.reserve(expanded_body.length());
-                for (size_t i = 0; i < expanded_body.length(); ++i)
-                {
+                for (size_t i = 0; i < expanded_body.length(); ++i) {
                     if (expanded_body[i] == '\\' && i + 1 < expanded_body.length()) {
                         if (isdigit(expanded_body[i + 1])) {
                             size_t j = i + 1;
@@ -2627,8 +2610,22 @@ private:
                                 }
                             } else
                                 final_body += expanded_body[i];
-                        } else
+                        } else {
                             final_body += expanded_body[i];
+                        }
+                    } else if (expanded_body[i] == '{') {
+                        size_t end_brace = expanded_body.find('}', i + 1);
+                        if (end_brace != std::string::npos) {
+                            std::string arg_name = expanded_body.substr(i + 1, end_brace - i - 1);
+                            auto it = std::find(macro.arg_names.begin(), macro.arg_names.end(), arg_name);
+                            if (it != macro.arg_names.end()) {
+                                size_t arg_index = std::distance(macro.arg_names.begin(), it);
+                                if (arg_index < args.size()) final_body += args[arg_index];
+                                i = end_brace;
+                                continue;
+                            }
+                        }
+                        final_body += expanded_body[i];
                     } else
                         final_body += expanded_body[i];
                 }
