@@ -2849,6 +2849,70 @@ TEST_CASE(MacroWithMoreThanNineParamsAndMissing) {
     )", {1, 2}); // Expects DB 1, 2 (since \10 is replaced by nothing)
 }
 
+TEST_CASE(MacroWithBracedParams) {
+    // Test 1: Basic braced parameter to solve ambiguity
+    ASSERT_CODE(R"(
+        ADD_SUFFIX MACRO value
+            DB \{1}0
+        ENDM
+
+        ADD_SUFFIX 5
+    )", {0x32}); // DB 5, '0'
+
+    // Test 2: Multi-digit braced parameter
+    ASSERT_CODE(R"(
+        TENTH_PARAM MACRO
+            DB \{10}
+        ENDM
+
+        TENTH_PARAM 1,2,3,4,5,6,7,8,9,99
+    )", {99});
+
+    // Test 3: Mix of braced and non-braced parameters
+    ASSERT_CODE(R"(
+        MIXED_MACRO MACRO
+            DB \1, \{2}, \3
+        ENDM
+
+        MIXED_MACRO 10, 20, 30
+    )", {10, 20, 30});
+
+    // Test 4: Braced parameter next to another number, which would be ambiguous otherwise
+    ASSERT_CODE(R"(
+        AMBIGUOUS MACRO
+            DW \{1}1
+        ENDM
+
+        AMBIGUOUS 0x12
+    )", {0x21, 0x01});
+
+    // Test 5: Unmatched opening brace should fail
+    ASSERT_COMPILE_FAILS(R"(
+        BAD_MACRO MACRO
+            DB \{1
+        ENDM
+        BAD_MACRO 1
+    )");
+
+    // Test 6: Braced parameter with no number inside (should not be substituted)
+    ASSERT_CODE(R"(
+        EMPTY_BRACE MACRO
+            DB "\{}"
+        ENDM
+        EMPTY_BRACE
+    )", {0x5C, 0x7B, 0x7D}); // DB "\{}"
+}
+
+TEST_CASE(MacroSpecialParamZero) {
+    // Test \0 to get argument count
+    ASSERT_CODE(R"(
+        ARG_COUNT MACRO
+            DB \0
+        ENDM
+        ARG_COUNT 1, "hello", (1+2)
+    )", {3}); // 3 arguments provided
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";

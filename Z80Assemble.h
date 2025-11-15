@@ -2497,20 +2497,44 @@ private:
                 }
                 std::string final_body;
                 final_body.reserve(expanded_body.length());
-                for (size_t i = 0; i < expanded_body.length(); ++i) {
-                    if (expanded_body[i] == '\\' && i + 1 < expanded_body.length() && isdigit(expanded_body[i + 1])) {
-                        size_t j = i + 1;
-                        int param_num = 0;
-                        while (j < expanded_body.length() && isdigit(expanded_body[j])) {
-                            param_num = param_num * 10 + (expanded_body[j] - '0');
-                            j++;
-                        }
-                        if (param_num == 0)
-                            final_body += std::to_string(args.size());
-                        else if (param_num > 0 && (size_t)param_num <= args.size())
-                            final_body += args[param_num - 1];
-                        i = j - 1;
-                    } else 
+                for (size_t i = 0; i < expanded_body.length(); ++i)
+                {
+                    if (expanded_body[i] == '\\' && i + 1 < expanded_body.length()) {
+                        if (isdigit(expanded_body[i + 1])) {
+                            size_t j = i + 1;
+                            int param_num = 0;
+                            while (j < expanded_body.length() && isdigit(expanded_body[j])) {
+                                param_num = param_num * 10 + (expanded_body[j] - '0');
+                                j++;
+                            }
+                            if (param_num == 0)
+                                final_body += std::to_string(args.size());
+                            else if (param_num > 0 && (size_t)param_num <= args.size())
+                                final_body += args[param_num - 1];
+                            i = j - 1;
+                        } else if (expanded_body[i + 1] == '{') {
+                            size_t start_num = i + 2;
+                            size_t end_brace = expanded_body.find('}', start_num);
+                            if (end_brace != std::string::npos) {
+                                std::string num_str = expanded_body.substr(start_num, end_brace - start_num);
+                                int param_num = 0;
+                                const char* start_ptr = num_str.c_str();
+                                const char* end_ptr = start_ptr + num_str.length();
+                                auto result = std::from_chars(start_ptr, end_ptr, param_num);
+                                if (result.ec == std::errc()) {
+                                    if (param_num > 0 && (size_t)param_num <= args.size())
+                                        final_body += args[param_num - 1];
+                                    final_body += std::string(result.ptr, end_ptr);
+                                    i = end_brace;
+                                } else {
+                                    final_body += expanded_body.substr(i, end_brace - i + 1);
+                                    i = end_brace;
+                                }
+                            } else
+                                final_body += expanded_body[i];
+                        } else
+                            final_body += expanded_body[i];
+                    } else
                         final_body += expanded_body[i];
                 }
                 line = final_body;
@@ -2553,25 +2577,20 @@ private:
                 return process_instruction(line);
             return true;
         }
-
     private:
         bool process_directives(const std::string& line) {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
-
             if (process_conditional_directives(line))
                 return true;
             if (process_constant_directives(line))
                 return true;
-
             if (is_skipping())
                 return true;
-
             if (process_control_flow_directives(line))
                 return true;
             if (process_memory_directives(line))
                 return true;
-
             return false;
         }
         bool process_label(std::string& line) {
