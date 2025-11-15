@@ -31,6 +31,7 @@
 #include <map>
 #include <functional>
 #include <random>
+#include <regex>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -45,8 +46,99 @@ public:
 	virtual ~ISourceProvider() = default;
 	virtual bool get_source(const std::string& identifier, std::vector<uint8_t>& data) = 0;
 };
+
 template <typename TMemory> class Z80Assembler {
 public:
+    class TextToken {
+    public:
+        TextToken(std::string_view text) : m_original(text) {}
+        const std::string& original() const { return m_original; }
+        const std::string& upper() const {
+            if (m_upper.empty() && !m_original.empty()) {
+                m_upper = m_original;
+                std::transform(m_upper.begin(), m_upper.end(), m_upper.begin(), [](unsigned char c){ return std::toupper(c); });
+            }
+            return m_upper;
+        }
+        bool matches(const std::function<bool(char)>& predicate) const {
+            if (m_original.empty())
+                return false;
+            return std::all_of(m_original.begin(), m_original.end(), predicate);
+        }
+        bool matches_regex(const std::regex& re) const {
+            if (m_original.empty())
+                return false;
+            return std::regex_match(m_original, re);
+        }
+        bool to_number(int32_t& out_value) const { return StringHelper::is_number(m_original, out_value); }
+        std::vector<TextToken> to_arguments() const {
+            std::vector<TextToken> args;
+            if (m_original.empty())
+                return args;
+            std::string current_arg;
+            bool in_string = false;
+            int paren_level = 0;
+            for (char c : m_original) {
+                if (c == '"')
+                    in_string = !in_string;
+                else if (!in_string) {
+                    if (c == '(')
+                        paren_level++;
+                    else if (c == ')')
+                        paren_level--;
+                }
+                if (c == ',' && paren_level == 0 && !in_string) {
+                    current_arg.erase(0, current_arg.find_first_not_of(" \t"));
+                    current_arg.erase(current_arg.find_last_not_of(" \t") + 1);
+                    args.emplace_back(current_arg);
+                    current_arg.clear();
+                } else
+                    current_arg += c;
+            }
+            current_arg.erase(0, current_arg.find_first_not_of(" \t"));
+            current_arg.erase(current_arg.find_last_not_of(" \t") + 1);
+            if (!current_arg.empty())
+                args.emplace_back(current_arg);
+            else if (args.empty())
+                args.push_back(*this);
+            return args;
+        }
+        bool empty() const { return m_original.empty(); }
+    private:
+        std::string m_original;
+        mutable std::string m_upper;
+    };
+    class LineTokens {
+    public:
+        LineTokens(const std::string& line) {
+            std::stringstream ss(line);
+            std::string part;
+            while (ss >> part)
+                m_tokens.emplace_back(part);
+        }
+        size_t count() const { return m_tokens.size(); }
+        const TextToken& operator[](size_t index) const {
+            if (index >= m_tokens.size()) {
+                static const TextToken empty_token("");
+                return empty_token;
+            }
+            return m_tokens[index];
+        }
+        TextToken slice(size_t start_index = 0) const {
+            if (start_index >= m_tokens.size())
+                return TextToken("");
+            std::string result;
+            for (size_t i = start_index; i < m_tokens.size(); ++i) {
+                result += m_tokens[i].original();
+                if (i < m_tokens.size() - 1)
+                    result += " ";
+            }
+            return TextToken(result);
+        }
+    private:
+        std::vector<TextToken> m_tokens;
+    };
+
     struct Options {
         struct LabelOptions {
             bool enabled = true;
@@ -2486,15 +2578,19 @@ private:
                 std::string args_str = line.substr(potential_macro_name.length());
                 StringHelper::trim_whitespace(args_str);
                 std::vector<std::string> args = StringHelper::parse_argument_list(args_str);
-                const auto& macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
+                auto macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
                 std::string expanded_body = macro.body;
-                std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
-                for (const auto& label : macro.local_labels)
-                    StringHelper::replace_all(expanded_body, label, "??" + label + "_" + unique_id_str);
+
+                if (!macro.local_labels.empty()) {
+                    std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
+                    for (const auto& label : macro.local_labels)
+                        StringHelper::replace_all(expanded_body, label, "??" + label + "_" + unique_id_str);
+                }
                 for (size_t i = 0; i < macro.arg_names.size(); ++i) {
                     std::string value = (i < args.size()) ? args[i] : "";
                     StringHelper::replace_all(expanded_body, "{" + macro.arg_names[i] + "}", value);
                 }
+                //SHIFT tutaj
                 std::string final_body;
                 final_body.reserve(expanded_body.length());
                 for (size_t i = 0; i < expanded_body.length(); ++i)
