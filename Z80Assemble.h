@@ -70,15 +70,49 @@ public:
                 return false;
             return std::regex_match(m_original, re);
         }
-        bool to_number(int32_t& out_value) const { return StringHelper::is_number(m_original, out_value); }
+        bool to_number(int32_t& out_value) const {
+            return StringHelper::is_number(m_original, out_value);
+        }
         std::vector<TextToken> to_arguments() const {
             std::vector<TextToken> args;
-            if (m_original.empty())
-                return args;
-            std::string current_arg;
             bool in_string = false;
             int paren_level = 0;
-            for (char c : m_original) {
+            size_t start = 0;
+            for (size_t i = 0; i <= m_original.length(); ++i) {
+                if (i < m_original.length()) {
+                    char c = m_original[i];
+                    if (c == '"') 
+                        in_string = !in_string;
+                    else if (!in_string) {
+                        if (c == '(')
+                            paren_level++;
+                        else
+                            if (c == ')') paren_level--;
+                    }
+                    if (c != ',' || in_string || paren_level != 0)
+                        continue;
+                }
+                std::string_view arg_sv = std::string_view(m_original).substr(start, i - start);
+                size_t first = arg_sv.find_first_not_of(" \t");
+                if (first != std::string_view::npos) {
+                    size_t last = arg_sv.find_last_not_of(" \t");
+                    args.emplace_back(arg_sv.substr(first, last - first + 1));
+                }
+                start = i + 1;
+            }
+            return args;
+        }
+    private:
+        std::string m_original;
+        mutable std::string m_upper;
+    };
+    class LineTokens {
+    public:
+        LineTokens(const std::string& line) {
+            std::string current_token;
+            bool in_string = false;
+            int paren_level = 0;
+            for (char c : line) {
                 if (c == '"')
                     in_string = !in_string;
                 else if (!in_string) {
@@ -87,53 +121,23 @@ public:
                     else if (c == ')')
                         paren_level--;
                 }
-                if (c == ',' && paren_level == 0 && !in_string) {
-                    current_arg.erase(0, current_arg.find_first_not_of(" \t"));
-                    current_arg.erase(current_arg.find_last_not_of(" \t") + 1);
-                    args.emplace_back(current_arg);
-                    current_arg.clear();
+                if (isspace(c) && !in_string && paren_level == 0) {
+                    if (!current_token.empty()) {
+                        m_tokens.emplace_back(current_token);
+                        current_token.clear();
+                    }
                 } else
-                    current_arg += c;
+                    current_token += c;
             }
-            current_arg.erase(0, current_arg.find_first_not_of(" \t"));
-            current_arg.erase(current_arg.find_last_not_of(" \t") + 1);
-            if (!current_arg.empty())
-                args.emplace_back(current_arg);
-            else if (args.empty())
-                args.push_back(*this);
-            return args;
-        }
-        bool empty() const { return m_original.empty(); }
-    private:
-        std::string m_original;
-        mutable std::string m_upper;
-    };
-    class LineTokens {
-    public:
-        LineTokens(const std::string& line) {
-            std::stringstream ss(line);
-            std::string part;
-            while (ss >> part)
-                m_tokens.emplace_back(part);
+            if (!current_token.empty()) {
+                m_tokens.emplace_back(current_token);
+            }
         }
         size_t count() const { return m_tokens.size(); }
         const TextToken& operator[](size_t index) const {
-            if (index >= m_tokens.size()) {
-                static const TextToken empty_token("");
-                return empty_token;
-            }
+            if (index >= m_tokens.size())
+                throw std::out_of_range("LineTokens: index out of range.");
             return m_tokens[index];
-        }
-        TextToken slice(size_t start_index = 0) const {
-            if (start_index >= m_tokens.size())
-                return TextToken("");
-            std::string result;
-            for (size_t i = start_index; i < m_tokens.size(); ++i) {
-                result += m_tokens[i].original();
-                if (i < m_tokens.size() - 1)
-                    result += " ";
-            }
-            return TextToken(result);
         }
     private:
         std::vector<TextToken> m_tokens;
