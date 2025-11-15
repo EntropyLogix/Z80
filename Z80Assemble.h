@@ -39,6 +39,7 @@
 #include <sys/types.h>
 #include <system_error>
 #include <utility>
+#include <optional>
 #include <vector>
 
 class ISourceProvider {
@@ -46,103 +47,8 @@ public:
 	virtual ~ISourceProvider() = default;
 	virtual bool get_source(const std::string& identifier, std::vector<uint8_t>& data) = 0;
 };
-
 template <typename TMemory> class Z80Assembler {
 public:
-    class TextToken {
-    public:
-        TextToken(const std::string& text) : m_original(text) {}
-        const std::string& original() const { return m_original; }
-        const std::string& upper() const {
-            if (m_upper.empty()) {
-                m_upper.reserve(m_original.length());
-                std::transform(m_original.begin(), m_original.end(), std::back_inserter(m_upper), [](unsigned char c){ return std::toupper(c); });
-            }
-            return m_upper;
-        }
-        bool matches(const std::function<bool(char)>& predicate) const {
-            return std::all_of(m_original.begin(), m_original.end(), predicate);
-        }
-        bool matches_regex(const std::regex& re) const {
-            return std::regex_match(m_original, re);
-        }
-        bool to_number(int32_t& out_value) const {
-            return StringHelper::is_number(m_original, out_value);
-        }
-        std::vector<TextToken> to_arguments() const {
-            std::vector<TextToken> args;
-            bool in_string = false;
-            int paren_level = 0;
-            size_t start = 0;
-            for (size_t i = 0; i <= m_original.length(); ++i) {
-                if (i < m_original.length()) {
-                    char c = m_original[i];
-                    if (c == '"') 
-                        in_string = !in_string;
-                    else if (!in_string) {
-                        if (c == '(')
-                            paren_level++;
-                        else
-                            if (c == ')') paren_level--;
-                    }
-                    if (c != ',' || in_string || paren_level != 0)
-                        continue;
-                }
-                std::string arg_str = m_original.substr(start, i - start);
-                size_t first = arg_str.find_first_not_of(" \t");
-                if (first != std::string::npos) {
-                    size_t last = arg_str.find_last_not_of(" \t");
-                    args.emplace_back(arg_str.substr(first, last - first + 1));
-                }
-                start = i + 1;
-            }
-            return args;
-        }
-    private:
-        std::string m_original;
-        mutable std::string m_upper;
-    };
-    class LineTokens {
-    public:
-        LineTokens(const std::string& line) {
-            std::string current_token;
-            bool in_string = false;
-            int paren_level = 0;
-            for (size_t i = 0; i < line.length(); ++i) {
-                char c = line[i];
-                if (c == '"') {
-                    in_string = !in_string;
-                    current_token += c;
-                } else if (!in_string && c == '(') {
-                    paren_level++;
-                    current_token += c;
-                } else if (!in_string && c == ')') {
-                    paren_level--;
-                    current_token += c;
-                } else if (isspace(c) && !in_string && paren_level == 0) {
-                    if (!current_token.empty()) {
-                        size_t last_char_pos = current_token.find_last_not_of(" \t");
-                        if (last_char_pos == std::string::npos || current_token[last_char_pos] != ',') {
-                            m_tokens.emplace_back(current_token);
-                            current_token.clear();
-                        } else
-                            current_token += c;
-                    }
-                } else
-                    current_token += c;
-            }
-            if (!current_token.empty())
-                m_tokens.emplace_back(current_token);
-        }
-        size_t count() const { return m_tokens.size(); }
-        const TextToken& operator[](size_t index) const {
-            if (index >= m_tokens.size())
-                throw std::out_of_range("LineTokens: index out of range.");
-            return m_tokens[index];
-        }
-    private:
-        std::vector<TextToken> m_tokens;
-    };
     struct Options {
         struct LabelOptions {
             bool enabled = true;
@@ -275,6 +181,116 @@ private:
         std::map<std::string, Macro> macros;
         int unique_macro_id_counter = 0;
     };
+    class LineTokenizer {
+    public:
+        class Token {
+        public:
+            Token(const std::string& text) : m_original(text) {}
+            const std::string& original() const { return m_original; }
+            const std::string& upper() const {
+                if (m_upper.empty()) {
+                    m_upper.reserve(m_original.length());
+                    std::transform(m_original.begin(), m_original.end(), std::back_inserter(m_upper), [](unsigned char c){ return std::toupper(c); });
+                }
+                return m_upper;
+            }
+            bool matches(const std::function<bool(char)>& predicate) const {
+                return std::all_of(m_original.begin(), m_original.end(), predicate);
+            }
+            bool matches_regex(const std::regex& re) const {
+                return std::regex_match(m_original, re);
+            }
+            bool to_number(int32_t& out_value) const {
+                if (!m_number_val.has_value()) {
+                    int32_t val;
+                    if (StringHelper::is_number(m_original, val))
+                        m_number_val = val;
+                    else 
+                        m_number_val = std::nullopt;
+                }
+                if (m_number_val.has_value()) {
+                    out_value = *m_number_val;
+                    return true;
+                }
+                return false;
+            }
+            std::vector<Token> to_arguments() const {
+                if (!m_arguments.has_value()) {
+                    std::vector<Token> args;
+                    bool in_string = false;
+                    int paren_level = 0;
+                    size_t start = 0;
+                    for (size_t i = 0; i <= m_original.length(); ++i) {
+                        if (i < m_original.length()) {
+                            char c = m_original[i];
+                            if (c == '"') 
+                                in_string = !in_string;
+                            else if (!in_string) {
+                                if (c == '(')
+                                    paren_level++;
+                                else if (c == ')') 
+                                    paren_level--;
+                            }
+                            if (c != ',' || in_string || paren_level != 0)
+                                continue;
+                        }
+                        std::string arg_str = m_original.substr(start, i - start);
+                        size_t first = arg_str.find_first_not_of(" \t");
+                        if (first != std::string::npos) {
+                            size_t last = arg_str.find_last_not_of(" \t");
+                            args.emplace_back(arg_str.substr(first, last - first + 1));
+                        }
+                        start = i + 1;
+                    }
+                    m_arguments = std::move(args);
+                }
+                return *m_arguments;
+            }
+        private:
+            std::string m_original;
+            mutable std::string m_upper;
+            mutable std::optional<int32_t> m_number_val;
+            mutable std::optional<std::vector<Token>> m_arguments;
+        };
+        LineTokenizer(const std::string& line) {
+            std::string current_token;
+            bool in_string = false;
+            int paren_level = 0;
+            for (size_t i = 0; i < line.length(); ++i) {
+                char c = line[i];
+                if (c == '"') {
+                    in_string = !in_string;
+                    current_token += c;
+                } else if (!in_string && c == '(') {
+                    paren_level++;
+                    current_token += c;
+                } else if (!in_string && c == ')') {
+                    paren_level--;
+                    current_token += c;
+                } else if (isspace(c) && !in_string && paren_level == 0) {
+                    if (!current_token.empty()) {
+                        size_t last_char_pos = current_token.find_last_not_of(" \t");
+                        if (last_char_pos == std::string::npos || current_token[last_char_pos] != ',') {
+                            m_tokens.emplace_back(current_token);
+                            current_token.clear();
+                        } else
+                            current_token += c;
+                    }
+                } else
+                    current_token += c;
+            }
+            if (!current_token.empty())
+                m_tokens.emplace_back(current_token);
+        }
+        size_t count() const { return m_tokens.size(); }
+        const Token& operator[](size_t index) const {
+            if (index >= m_tokens.size())
+                throw std::out_of_range("LineTokens: index out of range.");
+            return m_tokens[index];
+        }
+    private:
+        std::vector<Token> m_tokens;
+    };
     class Preprocessor { public:
         int m_unique_macro_id_counter = 0;
         Preprocessor(CompilationContext& context) : m_context(context) {}
@@ -346,7 +362,7 @@ private:
             for (size_t i = 0; i < lines_to_process.size(); ++i) {
                 line = lines_to_process[i];
                 line_number++;
-                LineTokens tokens(line);
+                LineTokenizer tokens(line);
                 if (in_macro_def) {
                     if (tokens.count() == 1 && (tokens[0].upper() == "ENDM" || tokens[0].upper() == "MEND")) {
                         in_macro_def = false;
@@ -959,7 +975,6 @@ private:
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
-
     class DefaultAssemblyPolicy : public IAssemblyPolicy {
     public:
         using Operand = typename IAssemblyPolicy::Operand;
