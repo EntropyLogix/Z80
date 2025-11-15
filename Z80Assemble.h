@@ -54,21 +54,16 @@ public:
         TextToken(std::string_view text) : m_original(text) {}
         const std::string& original() const { return m_original; }
         const std::string& upper() const {
-            if (m_upper.empty() && !m_original.empty()) {
+            if (m_upper.empty()) {
                 m_upper.reserve(m_original.length());
-                std::transform(m_original.begin(), m_original.end(), std::back_inserter(m_upper),
-                               [](unsigned char c){ return std::toupper(c); });
+                std::transform(m_original.begin(), m_original.end(), std::back_inserter(m_upper), [](unsigned char c){ return std::toupper(c); });
             }
             return m_upper;
         }
         bool matches(const std::function<bool(char)>& predicate) const {
-            if (m_original.empty())
-                return false;
             return std::all_of(m_original.begin(), m_original.end(), predicate);
         }
         bool matches_regex(const std::regex& re) const {
-            if (m_original.empty())
-                return false;
             return std::regex_match(m_original, re);
         }
         bool to_number(int32_t& out_value) const {
