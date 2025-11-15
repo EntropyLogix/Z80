@@ -123,13 +123,13 @@ public:
             m_context.current_pass = 1;
             do {
                 phase->on_pass_begin();
-                LineProcessor line_processor(*phase);
-                line_processor.initialize();
+                SourceProcessor source_processor(*phase);
+                source_processor.initialize();
                 for (size_t i = 0; i < source_lines.size(); ++i) {
                     m_context.current_line_number = i + 1;
-                    line_processor.process(source_lines[i]);
+                    source_processor.process_line(source_lines[i]);
                 }
-                line_processor.finalize();
+                source_processor.finalize();
                 if (phase->on_pass_end())
                     end_phase = true;
                 else {
@@ -2449,43 +2449,32 @@ private:
 
         IAssemblyPolicy& m_policy;
     };
-    class LineProcessor {
+    class LineProcessor;
+    class SourceProcessor {
     public:
-        LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
+        SourceProcessor(IAssemblyPolicy& policy) : m_policy(policy), m_line_processor(policy) {}
         void initialize() {
-            m_conditional_stack.clear();
-            m_control_flow_stack.clear();
-            m_rept_stack.clear();
+            m_line_processor.initialize();
         }
-        void finalize() const {
-            if (!m_control_flow_stack.empty()) {
-                switch (m_control_flow_stack.back()) {
-                    case ControlBlockType::CONDITIONAL:
-                        throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
-                    case ControlBlockType::REPT:
-                        throw std::runtime_error("Unterminated REPT block (missing ENDR).");
-                    case ControlBlockType::PROCEDURE:
-                        throw std::runtime_error("Unterminated procedure block (missing ENDP).");
-                }
-            }
+        void finalize() {
+            m_line_processor.finalize();
         }
-        bool process(const std::string& source_line) {
-            std::string line = source_line;
-            if (process_directives(line))
-                return true;
-            if (process_macro(line)) {
-                std::stringstream expansion_stream(line);
-                std::string expansion_line;
-                while (std::getline(expansion_stream, expansion_line))
-                    process(expansion_line);
-                return true;
+        bool process_line(const std::string& source_line) {
+            std::vector<std::string> lines_to_process;
+            lines_to_process.push_back(source_line);
+            while (!lines_to_process.empty()) {
+                std::string current_line = lines_to_process.back();
+                lines_to_process.pop_back();
+                if (process_macro(current_line)) {
+                    std::stringstream expansion_stream(current_line);
+                    std::vector<std::string> new_lines;
+                    std::string expansion_line;
+                    while (std::getline(expansion_stream, expansion_line))
+                        new_lines.push_back(expansion_line);
+                    lines_to_process.insert(lines_to_process.end(), new_lines.rbegin(), new_lines.rend());
+                } else 
+                    m_line_processor.process(current_line);
             }
-            if (is_skipping())
-                return true;
-            if (m_policy.get_compilation_context().options.labels.enabled)
-                process_label(line);
-            if (!line.empty()) 
-                return process_instruction(line);
             return true;
         }
 
@@ -2503,22 +2492,13 @@ private:
                 std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
 
                 for (const auto& label : macro.local_labels) {
-                    std::string unique_label = "??" + label + "_" + unique_id_str;
-                    size_t pos = 0;
-                    while ((pos = expanded_body.find(label, pos)) != std::string::npos) {
-                        if ((pos == 0 || !isalnum(expanded_body[pos - 1])) && (pos + label.length() >= expanded_body.length() || !isalnum(expanded_body[pos + label.length()]))) {
-                            expanded_body.replace(pos, label.length(), unique_label);
-                            pos += unique_label.length();
-                        } else
-                            pos += label.length();
-                    }
+                    StringHelper::replace_all(expanded_body, label, "??" + label + "_" + unique_id_str);
                 }
                 for (size_t i = 0; i < macro.arg_names.size(); ++i) {
                     std::string value = (i < args.size()) ? args[i] : "";
                     StringHelper::replace_all(expanded_body, "{" + macro.arg_names[i] + "}", value);
                 }
 
-                // Efficiently parse and replace positional parameters like \1, \10, etc.
                 std::string final_body;
                 final_body.reserve(expanded_body.length());
                 for (size_t i = 0; i < expanded_body.length(); ++i) {
@@ -2543,6 +2523,43 @@ private:
             }
             return false;
         }
+
+        IAssemblyPolicy& m_policy;
+        LineProcessor m_line_processor;
+    };
+
+    class LineProcessor {
+    public:
+        LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
+        void initialize() {
+            m_conditional_stack.clear();
+            m_control_flow_stack.clear();
+            m_rept_stack.clear();
+        }
+        void finalize() const {
+            if (!m_control_flow_stack.empty()) {
+                switch (m_control_flow_stack.back()) {
+                    case ControlBlockType::CONDITIONAL:
+                        throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
+                    case ControlBlockType::REPT:
+                        throw std::runtime_error("Unterminated REPT block (missing ENDR).");
+                    case ControlBlockType::PROCEDURE:
+                        throw std::runtime_error("Unterminated procedure block (missing ENDP).");
+                }
+            }
+        }
+        bool process(const std::string& source_line) {
+            std::string line = source_line;
+            if (process_directives(line))
+                return true;
+            if (m_policy.get_compilation_context().options.labels.enabled)
+                process_label(line);
+            if (!line.empty()) 
+                return process_instruction(line);
+            return true;
+        }
+
+    private:
         bool process_directives(const std::string& line) {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
