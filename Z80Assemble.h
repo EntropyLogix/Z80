@@ -51,7 +51,7 @@ template <typename TMemory> class Z80Assembler {
 public:
     class TextToken {
     public:
-        TextToken(std::string_view text) : m_original(text) {}
+        TextToken(const std::string& text) : m_original(text) {}
         const std::string& original() const { return m_original; }
         const std::string& upper() const {
             if (m_upper.empty()) {
@@ -88,11 +88,11 @@ public:
                     if (c != ',' || in_string || paren_level != 0)
                         continue;
                 }
-                std::string_view arg_sv = std::string_view(m_original).substr(start, i - start);
-                size_t first = arg_sv.find_first_not_of(" \t");
-                if (first != std::string_view::npos) {
-                    size_t last = arg_sv.find_last_not_of(" \t");
-                    args.emplace_back(arg_sv.substr(first, last - first + 1));
+                std::string arg_str = m_original.substr(start, i - start);
+                size_t first = arg_str.find_first_not_of(" \t");
+                if (first != std::string::npos) {
+                    size_t last = arg_str.find_last_not_of(" \t");
+                    args.emplace_back(arg_str.substr(first, last - first + 1));
                 }
                 start = i + 1;
             }
@@ -108,7 +108,6 @@ public:
             std::string current_token;
             bool in_string = false;
             int paren_level = 0;
-
             for (size_t i = 0; i < line.length(); ++i) {
                 char c = line[i];
                 if (c == '"') {
@@ -126,17 +125,14 @@ public:
                         if (last_char_pos == std::string::npos || current_token[last_char_pos] != ',') {
                             m_tokens.emplace_back(current_token);
                             current_token.clear();
-                        } else {
+                        } else
                             current_token += c;
-                        }
                     }
-                } else {
+                } else
                     current_token += c;
-                }
             }
-            if (!current_token.empty()) {
+            if (!current_token.empty())
                 m_tokens.emplace_back(current_token);
-            }
         }
         size_t count() const { return m_tokens.size(); }
         const TextToken& operator[](size_t index) const {
