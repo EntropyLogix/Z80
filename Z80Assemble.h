@@ -2486,19 +2486,15 @@ private:
                 std::string args_str = line.substr(potential_macro_name.length());
                 StringHelper::trim_whitespace(args_str);
                 std::vector<std::string> args = StringHelper::parse_argument_list(args_str);
-
                 const auto& macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
                 std::string expanded_body = macro.body;
                 std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
-
-                for (const auto& label : macro.local_labels) {
+                for (const auto& label : macro.local_labels)
                     StringHelper::replace_all(expanded_body, label, "??" + label + "_" + unique_id_str);
-                }
                 for (size_t i = 0; i < macro.arg_names.size(); ++i) {
                     std::string value = (i < args.size()) ? args[i] : "";
                     StringHelper::replace_all(expanded_body, "{" + macro.arg_names[i] + "}", value);
                 }
-
                 std::string final_body;
                 final_body.reserve(expanded_body.length());
                 for (size_t i = 0; i < expanded_body.length(); ++i) {
@@ -2509,14 +2505,13 @@ private:
                             param_num = param_num * 10 + (expanded_body[j] - '0');
                             j++;
                         }
-                        if (param_num > 0 && (size_t)param_num <= args.size()) {
+                        if (param_num == 0)
+                            final_body += std::to_string(args.size());
+                        else if (param_num > 0 && (size_t)param_num <= args.size())
                             final_body += args[param_num - 1];
-                        }
-                        // If param_num is out of bounds, it's replaced with an empty string by not appending anything.
-                        i = j - 1; // Move index past the processed digits
-                    } else {
+                        i = j - 1;
+                    } else 
                         final_body += expanded_body[i];
-                    }
                 }
                 line = final_body;
                 return true;
