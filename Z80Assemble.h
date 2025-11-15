@@ -2546,257 +2546,20 @@ private:
         bool process_directives(const std::string& line) {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
-            std::string line_upper = line;
-            StringHelper::to_upper(line_upper);
-            std::string trimmed_line = line;
-            StringHelper::trim_whitespace(trimmed_line);
-            std::string upper_trimmed_line = trimmed_line;
-            StringHelper::to_upper(upper_trimmed_line);
-            if (upper_trimmed_line.rfind("DEFINE ", 0) == 0) {
-                const auto& constants_options = m_policy.get_compilation_context().options.directives.constants;
-                if (constants_options.enabled && constants_options.allow_define) {
-                    std::stringstream ss(trimmed_line.substr(7));
-                    std::string label, value;
-                    ss >> label;
-                    if (!Keywords::is_valid_label_name(label))
-                        throw std::runtime_error("Invalid label name for DEFINE directive: '" + label + "'");
-                    std::getline(ss, value);
-                    StringHelper::trim_whitespace(value);
-                    if (value.empty())
-                        throw std::runtime_error("DEFINE directive requires a value.");
-                    m_policy.on_set_directive(label, value);
-                    return true;
-                }
-                return false;
-            }
-            if (upper_trimmed_line.rfind("IF ", 0) == 0) {
-                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    return false;
-                std::string expr_str = trimmed_line.substr(3);
-                bool condition_result = false;
-                if (!is_skipping()) {
-                    Expressions expression(m_policy);
-                    int32_t value;
-                    if (expression.evaluate(expr_str, value))
-                        condition_result = (value != 0);
-                }
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
-                m_conditional_stack.push_back({!is_skipping() && condition_result, false});
+
+            if (process_conditional_directives(line))
                 return true;
-            } else if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
-                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    return false;
-                std::string symbol = trimmed_line.substr(6);
-                StringHelper::trim_whitespace(symbol);
-                int32_t dummy;
-                bool condition_result = !is_skipping() && m_policy.on_symbol_resolve(symbol, dummy);
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
-                m_conditional_stack.push_back({condition_result, false});
+            if (process_constant_directives(line))
                 return true;
-            } else if (upper_trimmed_line.rfind("IFNDEF ", 0) == 0) {
-                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    return false;
-                std::string symbol = trimmed_line.substr(7);
-                StringHelper::trim_whitespace(symbol);
-                int32_t dummy;
-                bool condition_result = !is_skipping() && !m_policy.on_symbol_resolve(symbol, dummy);
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
-                m_conditional_stack.push_back({condition_result, false});
-                return true;
-            } else if (upper_trimmed_line == "ELSE") {
-                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    return false;
-                if (m_conditional_stack.empty())
-                    throw std::runtime_error("ELSE without IF");
-                if (m_conditional_stack.back().else_seen)
-                    throw std::runtime_error("Multiple ELSE directives for the same IF");
-                m_conditional_stack.back().else_seen = true;
-                bool parent_is_skipping = m_conditional_stack.size() > 1 && !m_conditional_stack[m_conditional_stack.size() - 2].is_active;
-                if (!parent_is_skipping)
-                    m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
-                return true;
-            } else if (upper_trimmed_line == "ENDIF") {
-                if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
-                    return false;
-                if (m_conditional_stack.empty())
-                    throw std::runtime_error("ENDIF without IF");
-                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL)
-                    throw std::runtime_error("Mismatched ENDIF. An ENDR might be missing.");
-                m_control_flow_stack.pop_back();
-                m_conditional_stack.pop_back();
-                return true;
-            }
-            std::string temp_line_upper = line;
-            StringHelper::to_upper(temp_line_upper);
-            if (temp_line_upper.find(" EQU ") == std::string::npos && temp_line_upper.find(" SET ") == std::string::npos && temp_line_upper.find(" DEFL ") == std::string::npos) {
-                size_t equals_pos = line.find('=');
-                if (equals_pos != std::string::npos) {
-                    std::string label = line.substr(0, equals_pos);
-                    StringHelper::trim_whitespace(label);
-                    std::string value = line.substr(equals_pos + 1);
-                    StringHelper::trim_whitespace(value);
-                    const auto& const_opts = m_policy.get_compilation_context().options.directives.constants;
-                    if (const_opts.enabled) {
-                        if (Keywords::is_valid_label_name(label) && !Keywords::is_mnemonic(label)) {
-                            if (const_opts.equals_as_set && const_opts.allow_set) {
-                                m_policy.on_set_directive(label, value);
-                            } else if (const_opts.allow_equ) {
-                            m_policy.on_equ_directive(label, value);
-                            }
-                            return true;
-                        }
-                    }
-                }
-            }
+
             if (is_skipping())
                 return true;
-            size_t rept_pos = line_upper.find("REPT ");
-            if (rept_pos != std::string::npos && line_upper.substr(0, rept_pos).find_first_not_of(" \t") == std::string::npos) {
-                if (!m_policy.get_compilation_context().options.directives.allow_repeat)
-                    return false;
-                std::string expr_str = line.substr(rept_pos + 5);
-                StringHelper::trim_whitespace(expr_str);
-                Expressions expression(m_policy);
-                m_control_flow_stack.push_back(ControlBlockType::REPT);
-                int32_t count;
-                if (expression.evaluate(expr_str, count)) {
-                    if (count < 0)
-                        throw std::runtime_error("REPT count cannot be negative.");
-                    m_rept_stack.push_back({count, 0, {}, true});
-                } else
-                    m_rept_stack.push_back({0, 0, {}, true});
+
+            if (process_control_flow_directives(line))
                 return true;
-            }
-            if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
-                std::string trimmed_line = line;
-                StringHelper::trim_whitespace(trimmed_line);
-                std::string upper_trimmed_line = trimmed_line;
-                StringHelper::to_upper(upper_trimmed_line);
-                if (upper_trimmed_line == "ENDR") {
-                    m_rept_stack.back().recording = false;
-                    if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
-                        throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
-                    m_control_flow_stack.pop_back();
-                    process_rept_block();
-                } else
-                    m_rept_stack.back().body.push_back(line);
+            if (process_memory_directives(line))
                 return true;
-            }
-            std::stringstream line_stream(line);
-            std::string label, directive, value;
-            line_stream >> label >> directive;
-            if (!line_stream.fail()) {
-                StringHelper::to_upper(directive);
-                const auto& constants_options = m_policy.get_compilation_context().options.directives.constants;
-                if (constants_options.enabled && (directive == "EQU" || directive == "SET" || directive == "DEFL")) {
-                    if (!Keywords::is_valid_label_name(label))
-                        throw std::runtime_error("Invalid label name for directive: '" + label + "'");
-                    std::getline(line_stream, value);
-                    StringHelper::trim_whitespace(value);
-                    if ((directive == "SET" || directive == "DEFL") && constants_options.allow_set)
-                        m_policy.on_set_directive(label, value);
-                    else if (directive == "EQU" && constants_options.allow_equ) 
-                        m_policy.on_equ_directive(label, value);
-                    else
-                        throw std::runtime_error("Directive '" + directive + "' is unknown.");
-                    return true;
-                }
-            }
-            size_t org_pos = line_upper.find("ORG ");
-            if (org_pos != std::string::npos && line_upper.substr(0, org_pos).find_first_not_of(" \t") == std::string::npos) {
-                if (m_policy.get_compilation_context().options.directives.allow_org) {
-                    std::string org_value_str = line.substr(org_pos + 4);
-                    StringHelper::trim_whitespace(org_value_str);
-                    m_policy.on_org_directive(org_value_str);
-                } else
-                    return false;
-                return true;
-            }
-            size_t align_pos = line_upper.find("ALIGN ");
-            if (align_pos != std::string::npos && line_upper.substr(0, align_pos).find_first_not_of(" \t") == std::string::npos) {
-                if (m_policy.get_compilation_context().options.directives.allow_align) {
-                    std::string align_value_str = line.substr(align_pos + 6);
-                    StringHelper::trim_whitespace(align_value_str);
-                    m_policy.on_align_directive(align_value_str);
-                } else
-                    return false;
-                return true;
-            }        
-            size_t incbin_pos = line_upper.find("INCBIN ");
-            if (incbin_pos != std::string::npos && line_upper.substr(0, incbin_pos).find_first_not_of(" \t") == std::string::npos) {
-                std::string filename_str = line.substr(incbin_pos + 7);
-                if (!m_policy.get_compilation_context().options.directives.allow_incbin)
-                    return false;
-                StringHelper::trim_whitespace(filename_str);
-                if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
-                    m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
-                else
-                    throw std::runtime_error("INCBIN filename must be in double quotes.");
-                return true;
-            }
-            size_t phase_pos = line_upper.find("PHASE ");
-            if (phase_pos != std::string::npos && line_upper.substr(0, phase_pos).find_first_not_of(" \t") == std::string::npos) {
-                if (!m_policy.get_compilation_context().options.directives.allow_phase)
-                    return false;
-                std::string address_str = line.substr(phase_pos + 6);
-                StringHelper::trim_whitespace(address_str);
-                m_policy.on_phase_directive(address_str);
-                return true;
-            }
-            std::string trimmed_upper = line_upper;
-            StringHelper::trim_whitespace(trimmed_upper);
-            if (trimmed_upper == "DEPHASE") {
-                if (!m_policy.get_compilation_context().options.directives.allow_phase)
-                    return false;
-                m_policy.on_dephase_directive();
-                return true;
-            }
-            size_t proc_pos = line_upper.rfind(" PROC");
-            if (proc_pos != std::string::npos) {
-                std::string proc_name = line.substr(0, proc_pos);
-                StringHelper::trim_whitespace(proc_name);
-                if (!m_policy.get_compilation_context().options.directives.allow_proc)
-                    return false;
-                StringHelper::trim_whitespace(proc_name);
-                if (proc_name.empty())
-                    throw std::runtime_error("PROC directive requires a name.");
-                if (Keywords::is_mnemonic(proc_name))
-                    return false;
-                if (Keywords::is_reserved(proc_name))
-                    throw std::runtime_error("Invalid procedure name: '" + proc_name + "' is a reserved keyword.");
-                if (!Keywords::is_valid_label_name(proc_name))
-                    throw std::runtime_error("Invalid procedure name: '" + proc_name + "'");
-                m_policy.on_proc_begin(proc_name);
-                m_control_flow_stack.push_back(ControlBlockType::PROCEDURE);
-                return true;
-            }
-            size_t endp_pos = line_upper.rfind("ENDP");
-            if (endp_pos != std::string::npos) {
-                std::string after_endp = line_upper.substr(endp_pos + 4);
-                if (after_endp.find_first_not_of(" \t") != std::string::npos)
-                    return false;
-                if (!m_policy.get_compilation_context().options.directives.allow_proc) return false;
-                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::PROCEDURE)
-                     throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
-                m_policy.on_proc_end();
-                m_control_flow_stack.pop_back();
-                return true;
-            }
-            size_t local_pos = line_upper.find("LOCAL ");
-            if (local_pos != std::string::npos && line_upper.substr(0, local_pos).find_first_not_of(" \t") == std::string::npos) {
-                if (!m_policy.get_compilation_context().options.directives.allow_proc) return false;
-                std::string symbols_str = line.substr(local_pos + 6);
-                std::vector<std::string> symbols;
-                std::stringstream ss(symbols_str);
-                std::string symbol;
-                while (std::getline(ss, symbol, ',')) {
-                    StringHelper::trim_whitespace(symbol);
-                    if (!symbol.empty())
-                        symbols.push_back(symbol);
-                }
-                m_policy.on_local_directive(symbols);
-                return true;
-            }
+
             return false;
         }
         bool process_label(std::string& line) {
@@ -2911,6 +2674,224 @@ private:
         std::vector<ConditionalState> m_conditional_stack;
         std::vector<ReptState> m_rept_stack;
         std::vector<ControlBlockType> m_control_flow_stack;
+
+    private:
+        bool process_conditional_directives(const std::string& line) {
+            if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
+                return false;
+            std::string trimmed_line = line;
+            StringHelper::trim_whitespace(trimmed_line);
+            std::string upper_trimmed_line = trimmed_line;
+            StringHelper::to_upper(upper_trimmed_line);
+            if (upper_trimmed_line.rfind("IF ", 0) == 0) {
+                std::string expr_str = trimmed_line.substr(3);
+                bool condition_result = false;
+                if (!is_skipping()) {
+                    Expressions expression(m_policy);
+                    int32_t value;
+                    if (expression.evaluate(expr_str, value))
+                        condition_result = (value != 0);
+                }
+                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
+                m_conditional_stack.push_back({!is_skipping() && condition_result, false});
+                return true;
+            }
+            if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
+                std::string symbol = trimmed_line.substr(6);
+                StringHelper::trim_whitespace(symbol);
+                int32_t dummy;
+                bool condition_result = !is_skipping() && m_policy.on_symbol_resolve(symbol, dummy);
+                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
+                m_conditional_stack.push_back({condition_result, false});
+                return true;
+            }
+            if (upper_trimmed_line.rfind("IFNDEF ", 0) == 0) {
+                std::string symbol = trimmed_line.substr(7);
+                StringHelper::trim_whitespace(symbol);
+                int32_t dummy;
+                bool condition_result = !is_skipping() && !m_policy.on_symbol_resolve(symbol, dummy);
+                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
+                m_conditional_stack.push_back({condition_result, false});
+                return true;
+            }
+            if (upper_trimmed_line == "ELSE") {
+                if (m_conditional_stack.empty())
+                    throw std::runtime_error("ELSE without IF");
+                if (m_conditional_stack.back().else_seen)
+                    throw std::runtime_error("Multiple ELSE directives for the same IF");
+                m_conditional_stack.back().else_seen = true;
+                bool parent_is_skipping = m_conditional_stack.size() > 1 && !m_conditional_stack[m_conditional_stack.size() - 2].is_active;
+                if (!parent_is_skipping)
+                    m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
+                return true;
+            }
+            if (upper_trimmed_line == "ENDIF") {
+                if (m_conditional_stack.empty())
+                    throw std::runtime_error("ENDIF without IF");
+                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL)
+                    throw std::runtime_error("Mismatched ENDIF. An ENDR might be missing.");
+                m_control_flow_stack.pop_back();
+                m_conditional_stack.pop_back();
+                return true;
+            }
+            return false;
+        }
+        bool process_constant_directives(const std::string& line) {
+            const auto& const_opts = m_policy.get_compilation_context().options.directives.constants;
+            if (!const_opts.enabled)
+                return false;
+            std::string trimmed_line = line;
+            StringHelper::trim_whitespace(trimmed_line);
+            std::string upper_trimmed_line = trimmed_line;
+            StringHelper::to_upper(upper_trimmed_line);
+            if (const_opts.allow_define && upper_trimmed_line.rfind("DEFINE ", 0) == 0) {
+                std::stringstream ss(trimmed_line.substr(7));
+                std::string label, value;
+                ss >> label;
+                if (!Keywords::is_valid_label_name(label))
+                    throw std::runtime_error("Invalid label name for DEFINE directive: '" + label + "'");
+                std::getline(ss, value);
+                StringHelper::trim_whitespace(value);
+                if (value.empty())
+                    throw std::runtime_error("DEFINE directive requires a value.");
+                m_policy.on_set_directive(label, value);
+                return true;
+            }
+            std::string temp_line_upper = line;
+            StringHelper::to_upper(temp_line_upper);
+            if (temp_line_upper.find(" EQU ") == std::string::npos && temp_line_upper.find(" SET ") == std::string::npos && temp_line_upper.find(" DEFL ") == std::string::npos) {
+                size_t equals_pos = line.find('=');
+                if (equals_pos != std::string::npos && line.find("==") != equals_pos) {
+                    std::string label = line.substr(0, equals_pos);
+                    StringHelper::trim_whitespace(label);
+                    std::string value = line.substr(equals_pos + 1);
+                    StringHelper::trim_whitespace(value);
+                    if (Keywords::is_valid_label_name(label) && !Keywords::is_mnemonic(label)) {
+                        if (const_opts.equals_as_set && const_opts.allow_set)
+                            m_policy.on_set_directive(label, value);
+                        else if (const_opts.allow_equ)
+                            m_policy.on_equ_directive(label, value);
+                        return true;
+                    }
+                }
+            }
+            std::stringstream line_stream(line);
+            std::string label, directive, value;
+            line_stream >> label >> directive;
+            if (!line_stream.fail()) {
+                StringHelper::to_upper(directive);
+                if (directive == "EQU" || directive == "SET" || directive == "DEFL") {
+                    if (!Keywords::is_valid_label_name(label))
+                        throw std::runtime_error("Invalid label name for directive: '" + label + "'");
+                    std::getline(line_stream, value);
+                    StringHelper::trim_whitespace(value);
+                    if ((directive == "SET" || directive == "DEFL") && const_opts.allow_set)
+                        m_policy.on_set_directive(label, value);
+                    else if (directive == "EQU" && const_opts.allow_equ)
+                        m_policy.on_equ_directive(label, value);
+                    else
+                        throw std::runtime_error("Directive '" + directive + "' is unknown or disabled.");
+                    return true;
+                }
+            }
+            return false;
+        }
+        bool process_control_flow_directives(const std::string& line) {
+            std::string trimmed_line = line;
+            StringHelper::trim_whitespace(trimmed_line);
+            std::string upper_trimmed_line = trimmed_line;
+            StringHelper::to_upper(upper_trimmed_line);
+            if (m_policy.get_compilation_context().options.directives.allow_repeat) {
+                if (upper_trimmed_line.rfind("REPT ", 0) == 0) {
+                    std::string expr_str = trimmed_line.substr(5);
+                    Expressions expression(m_policy);
+                    m_control_flow_stack.push_back(ControlBlockType::REPT);
+                    int32_t count;
+                    if (expression.evaluate(expr_str, count)) {
+                        if (count < 0)
+                            throw std::runtime_error("REPT count cannot be negative.");
+                        m_rept_stack.push_back({count, 0, {}, true});
+                    } else
+                        m_rept_stack.push_back({0, 0, {}, true});
+                    return true;
+                }
+                if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
+                    if (upper_trimmed_line == "ENDR") {
+                        m_rept_stack.back().recording = false;
+                        if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
+                            throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
+                        m_control_flow_stack.pop_back();
+                        process_rept_block();
+                    } else
+                        m_rept_stack.back().body.push_back(line);
+                    return true;
+                }
+            }
+            if (m_policy.get_compilation_context().options.directives.allow_proc) {
+                size_t proc_pos = upper_trimmed_line.rfind(" PROC");
+                if (proc_pos != std::string::npos && upper_trimmed_line.length() == proc_pos + 5) {
+                    std::string proc_name = trimmed_line.substr(0, proc_pos);
+                    if (Keywords::is_valid_label_name(proc_name) && !Keywords::is_mnemonic(proc_name)) {
+                        m_policy.on_proc_begin(proc_name);
+                        m_control_flow_stack.push_back(ControlBlockType::PROCEDURE);
+                        return true;
+                    }
+                }
+                if (upper_trimmed_line == "ENDP") {
+                    if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::PROCEDURE) throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
+                    m_policy.on_proc_end();
+                    m_control_flow_stack.pop_back();
+                    return true;
+                }
+                if (upper_trimmed_line.rfind("LOCAL ", 0) == 0) {
+                    std::string symbols_str = trimmed_line.substr(6);
+                    std::vector<std::string> symbols;
+                    std::stringstream ss(symbols_str);
+                    std::string symbol;
+                    while (std::getline(ss, symbol, ',')) {
+                        StringHelper::trim_whitespace(symbol);
+                        if (!symbol.empty())
+                            symbols.push_back(symbol);
+                    }
+                    m_policy.on_local_directive(symbols);
+                    return true;
+                }
+            }
+            return false;
+        }
+        bool process_memory_directives(const std::string& line) {
+            std::string trimmed_line = line;
+            StringHelper::trim_whitespace(trimmed_line);
+            std::string upper_trimmed_line = trimmed_line;
+            StringHelper::to_upper(upper_trimmed_line);
+            if (m_policy.get_compilation_context().options.directives.allow_org && upper_trimmed_line.rfind("ORG ", 0) == 0) {
+                m_policy.on_org_directive(trimmed_line.substr(4));
+                return true;
+            }
+            if (m_policy.get_compilation_context().options.directives.allow_align && upper_trimmed_line.rfind("ALIGN ", 0) == 0) {
+                m_policy.on_align_directive(trimmed_line.substr(6));
+                return true;
+            }
+            if (m_policy.get_compilation_context().options.directives.allow_incbin && upper_trimmed_line.rfind("INCBIN ", 0) == 0) {
+                std::string filename_str = trimmed_line.substr(7);
+                if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
+                    m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
+                else
+                    throw std::runtime_error("INCBIN filename must be in double quotes.");
+                return true;
+            }
+            if (m_policy.get_compilation_context().options.directives.allow_phase) {
+                if (upper_trimmed_line.rfind("PHASE ", 0) == 0) {
+                    m_policy.on_phase_directive(trimmed_line.substr(6));
+                    return true;
+                }
+                if (upper_trimmed_line == "DEPHASE") {
+                    m_policy.on_dephase_directive();
+                    return true;
+                }
+            }
+            return false;
+        }
     };
     CompilationContext m_context;
 };
