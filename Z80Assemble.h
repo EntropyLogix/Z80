@@ -57,6 +57,7 @@ public:
             bool enabled = true;
             bool allow_semicolon = true;
             bool allow_block = true;
+            bool allow_cpp_style = true;
         } comments;
         struct DirectiveOptions {
             bool enabled = true;
@@ -64,6 +65,7 @@ public:
                 bool enabled = true;
                 bool allow_equ = true;
                 bool allow_set = true;
+                bool equals_as_set = false;
             } constants;
             bool allow_org = true;
             bool allow_align = true;
@@ -195,6 +197,30 @@ private:
                 start_pos = source_str.find("/*");
             }
         }
+        void remove_semicolon_comments(std::string& source_str) {
+            std::stringstream input(source_str);
+            std::string output;
+            std::string line;
+            while (std::getline(input, line)) {
+                size_t comment_pos = line.find(';');
+                if (comment_pos != std::string::npos)
+                    line.erase(comment_pos);
+                output.append(line).append("\n");
+            }
+            source_str = output;
+        }
+        void remove_cpp_style_comments(std::string& source_str) {
+            std::stringstream input(source_str);
+            std::string output;
+            std::string line;
+            while (std::getline(input, line)) {
+                size_t comment_pos = line.find("//");
+                if (comment_pos != std::string::npos)
+                    line.erase(comment_pos);
+                output.append(line).append("\n");
+            }
+            source_str = output;
+        }
         bool process_file(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
             if (included_files.count(identifier))
                 throw std::runtime_error("Circular or duplicate include detected: " + identifier);
@@ -206,6 +232,10 @@ private:
             if (m_context.options.comments.enabled) {
                 if (m_context.options.comments.allow_block)
                     remove_block_comments(source_content, identifier);
+                if (m_context.options.comments.allow_semicolon)
+                    remove_semicolon_comments(source_content);
+                if (m_context.options.comments.allow_cpp_style)
+                    remove_cpp_style_comments(source_content);
             }
             std::stringstream source_stream(source_content);
             std::string line, original_line;
@@ -2440,8 +2470,6 @@ private:
         }
         bool process(const std::string& source_line) {
             std::string line = source_line;
-            if (m_policy.get_compilation_context().options.comments.enabled)
-                process_comments(line);
             if (process_directives(line))
                 return true;
             if (process_macro(line)) {
@@ -2511,16 +2539,6 @@ private:
                 }
                 line = final_body;
                 return true;
-            }
-            return false;
-        }
-        bool process_comments(std::string& line) {
-            if (m_policy.get_compilation_context().options.comments.allow_semicolon) {
-                size_t comment_pos = line.find(';');
-                if (comment_pos != std::string::npos) {
-                    line.erase(comment_pos);
-                    return true;
-                }
             }
             return false;
         }
@@ -2599,10 +2617,14 @@ private:
                     StringHelper::trim_whitespace(label);
                     std::string value = line.substr(equals_pos + 1);
                     StringHelper::trim_whitespace(value);
-                    const auto& constants_options = m_policy.get_compilation_context().options.directives.constants;
-                    if (constants_options.enabled && constants_options.allow_equ) {
+                    const auto& const_opts = m_policy.get_compilation_context().options.directives.constants;
+                    if (const_opts.enabled) {
                         if (Keywords::is_valid_label_name(label) && !Keywords::is_mnemonic(label)) {
+                            if (const_opts.equals_as_set && const_opts.allow_set) {
+                                m_policy.on_set_directive(label, value);
+                            } else if (const_opts.allow_equ) {
                             m_policy.on_equ_directive(label, value);
+                            }
                             return true;
                         }
                     }

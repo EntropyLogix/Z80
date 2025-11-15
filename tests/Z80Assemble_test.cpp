@@ -1077,49 +1077,55 @@ TEST_CASE(SETDirective) {
 }
 
 TEST_CASE(EqualsAsSetDirective) {
+    Z80Assembler<Z80DefaultBus>::Options options;
+    options.directives.constants.equals_as_set = true;
+
     // 1. Basic usage of '=' as SET
-    ASSERT_CODE(R"(
+    ASSERT_CODE_WITH_OPTS(R"(
         VALUE = 15
         LD A, VALUE
-    )", {0x3E, 15});
+    )", {0x3E, 15}, options);
 
     // 2. Redefinition using '='
-    ASSERT_CODE(R"(
+    ASSERT_CODE_WITH_OPTS(R"(
         VALUE = 10
         VALUE = 20
         LD A, VALUE
-    )", {0x3E, 20});
+    )", {0x3E, 20}, options);
 
     // 3. Mixing SET and '='
-    ASSERT_CODE(R"(
+    ASSERT_CODE_WITH_OPTS(R"(
         VALUE SET 5
         VALUE = 10 ; Redefine with =
         LD A, VALUE
         VALUE SET 15 ; Redefine with SET
         LD B, VALUE
-    )", {0x3E, 10, 0x06, 15});
+    )", {0x3E, 10, 0x06, 15}, options);
 
     // 4. Mixing EQU and '=' (should fail)
-    ASSERT_COMPILE_FAILS("VAL EQU 1\nVAL = 2");
-    ASSERT_COMPILE_FAILS("VAL = 1\nVAL EQU 2");
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VAL EQU 1\nVAL = 2", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VAL = 1\nVAL EQU 2", options);
 }
 
 TEST_CASE(EqualsAsEquDirective) {
+    Z80Assembler<Z80DefaultBus>::Options options;
+    options.directives.constants.equals_as_set = false; // Default behavior
+
     // 1. Basic usage of '=' as EQU
-    ASSERT_CODE(R"(
+    ASSERT_CODE_WITH_OPTS(R"(
         VALUE = 15
         LD A, VALUE
-    )", {0x3E, 15});
+    )", {0x3E, 15}, options);
 
     // 2. Redefinition using '=' should fail
-    ASSERT_COMPILE_FAILS(R"(
+    ASSERT_COMPILE_FAILS_WITH_OPTS(R"(
         VALUE = 10
         VALUE = 20
-    )");
+    )", options);
 
     // 3. Mixing SET and '=' should fail on redefinition
-    ASSERT_COMPILE_FAILS("VALUE SET 5\nVALUE = 10");
-    ASSERT_COMPILE_FAILS("VALUE = 10\nVALUE SET 5");
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 5\nVALUE = 10", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE = 10\nVALUE SET 5", options);
 
     // 4. Using '==' (comparison) in an IF directive (true case)
     ASSERT_CODE(R"(
