@@ -65,6 +65,7 @@ public:
                 bool enabled = true;
                 bool allow_equ = true;
                 bool allow_set = true;
+                bool allow_define = true;
                 bool equals_as_set = false;
             } constants;
             bool allow_org = true;
@@ -1417,7 +1418,7 @@ private:
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "SET", "DEFL", "ORG", 
-                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL",
+                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE",
                 "PROC", "ENDP"
             };
             return directives;
@@ -2551,6 +2552,23 @@ private:
             StringHelper::trim_whitespace(trimmed_line);
             std::string upper_trimmed_line = trimmed_line;
             StringHelper::to_upper(upper_trimmed_line);
+            if (upper_trimmed_line.rfind("DEFINE ", 0) == 0) {
+                const auto& constants_options = m_policy.get_compilation_context().options.directives.constants;
+                if (constants_options.enabled && constants_options.allow_define) {
+                    std::stringstream ss(trimmed_line.substr(7));
+                    std::string label, value;
+                    ss >> label;
+                    if (!Keywords::is_valid_label_name(label))
+                        throw std::runtime_error("Invalid label name for DEFINE directive: '" + label + "'");
+                    std::getline(ss, value);
+                    StringHelper::trim_whitespace(value);
+                    if (value.empty())
+                        throw std::runtime_error("DEFINE directive requires a value.");
+                    m_policy.on_set_directive(label, value);
+                    return true;
+                }
+                return false;
+            }
             if (upper_trimmed_line.rfind("IF ", 0) == 0) {
                 if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
                     return false;

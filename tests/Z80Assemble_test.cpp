@@ -1076,6 +1076,58 @@ TEST_CASE(SETDirective) {
     ASSERT_COMPILE_FAILS("VAL SET 1\nVAL EQU 2");
 }
 
+TEST_CASE(DefineDirective) {
+    // 0. Test that DEFINE is disabled by option
+    Z80Assembler<Z80DefaultBus>::Options options_disabled;
+    options_disabled.directives.constants.allow_define = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS(R"(
+        DEFINE VALUE 10
+    )", options_disabled);
+
+    // 1. Basic DEFINE
+    ASSERT_CODE(R"(
+        DEFINE VALUE 10
+        LD A, VALUE
+    )", {0x3E, 10});
+
+    // 2. Redefinition with DEFINE
+    ASSERT_CODE(R"(
+        DEFINE VALUE 10
+        DEFINE VALUE 20
+        LD A, VALUE
+    )", {0x3E, 20});
+
+    // 3. Mixing SET and DEFINE
+    ASSERT_CODE(R"(
+        VALUE SET 5
+        DEFINE VALUE 10 ; Redefine with DEFINE
+        LD A, VALUE
+        VALUE SET 15 ; Redefine with SET
+        LD B, VALUE
+    )", {0x3E, 10, 0x06, 15});
+
+    // 4. Mixing EQU and DEFINE (should fail if EQU is redefined)
+    ASSERT_COMPILE_FAILS("VAL EQU 1\nDEFINE VAL 2");
+    ASSERT_COMPILE_FAILS("DEFINE VAL 1\nVAL EQU 2");
+
+    // 5. Case-insensitivity of the directive itself
+    ASSERT_CODE(R"(
+        define VALUE 10
+        LD A, VALUE
+    )", {0x3E, 10});
+    ASSERT_CODE(R"(
+        Define VALUE 20
+        LD A, VALUE
+    )", {0x3E, 20});
+
+    // 6. Case-sensitivity of the symbol name
+    ASSERT_CODE(R"(
+        DEFINE MyValue 123
+        LD A, MyValue
+    )", {0x3E, 123});
+    ASSERT_COMPILE_FAILS("DEFINE MyValue 1\nLD A, myvalue");
+}
+
 TEST_CASE(EqualsAsSetDirective) {
     Z80Assembler<Z80DefaultBus>::Options options;
     options.directives.constants.equals_as_set = true;
