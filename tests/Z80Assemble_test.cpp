@@ -1652,32 +1652,38 @@ TEST_CASE(FloatingPointAndVariadicExpressions) {
 TEST_CASE(CommentOptions) {
     Z80Assembler<Z80DefaultBus>::Options options;
 
-    // 1. Comments completely disabled
+    // 1. Test: Comments completely disabled
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.comments.enabled = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options); // Semicolon comment should be treated as code
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options); // Block comment should be treated as code
-    ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, options); // Regular instruction should pass
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style comment should be treated as code
+    ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, options); // Regular instruction without comments should pass
 
     // 2. Semicolon comments disabled, block comments disabled (even if comments.enabled is true)
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.comments.allow_semicolon = false;
     options.comments.allow_block = false;
+    options.comments.allow_cpp_style = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options);
     ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, options);
 
-    // 3. Only semicolon comments allowed
+    // 3. Test: Only semicolon comments allowed
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.comments.allow_semicolon = true;
     options.comments.allow_block = false;
+    options.comments.allow_cpp_style = false;
     ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, options); // Semicolon comment should pass
     ASSERT_CODE_WITH_OPTS("; ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A}, options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options); // Block comment should fail
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style comment should fail
 
-    // 4. Only block comments allowed
+    // 4. Test: Only block comments allowed
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.comments.allow_semicolon = false;
+    options.comments.allow_cpp_style = false;
     options.comments.allow_block = true;
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options); // Semicolon comment should fail
     ASSERT_CODE_WITH_OPTS(R"(
@@ -1686,30 +1692,42 @@ TEST_CASE(CommentOptions) {
         LD C, 3       */ LD D, 4
     )", {0x3E, 0x01, 0x16, 0x04}, options); // Block comment should pass
     ASSERT_CODE_WITH_OPTS("LD A, 5 /* comment */", {0x3E, 0x05}, options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style comment should fail
 
-    // 5. Default behavior: both allowed
-    options = Z80Assembler<Z80DefaultBus>::get_default_options(); // Default has both enabled
+    // 5. Test: Only C++ style comments allowed
+    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options.comments.allow_semicolon = false;
+    options.comments.allow_block = false;
+    options.comments.allow_cpp_style = true;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options);
+    ASSERT_CODE_WITH_OPTS("LD A, 5 // This is a cpp comment", {0x3E, 0x05}, options);
+    ASSERT_CODE_WITH_OPTS("// ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A}, options);
+
+    // 6. Test: Default behavior (all comment types allowed)
+    options = Z80Assembler<Z80DefaultBus>::get_default_options(); // Default has all enabled
     ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, options);
+    ASSERT_CODE_WITH_OPTS("LD A, 6 // This is a cpp comment", {0x3E, 0x06}, options);
     ASSERT_CODE_WITH_OPTS(R"(
         LD A, 1 /* Start comment */ LD B, 2
     )", {0x3E, 0x01, 0x06, 0x02}, options);
     ASSERT_CODE_WITH_OPTS(R"(
         LD A, 1       /* Start comment
         LD B, 2       This is all commented out
-        LD C, 3       */ LD D, 4 ; Another comment
-    )", {0x3E, 0x01, 0x16, 0x04}, options);
+        LD C, 3       */ LD D, 4 ; Another comment // And another one
+    )", {0x3E, 0x01, 0x16, 0x04}, options); // Only LD A, 1 and LD D, 4 should be assembled
 
-    // 6. Test unterminated block comment (should always fail if allow_block is true)
+    // 7. Test: Unterminated block comment (should always fail if allow_block is true)
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.comments.allow_block = true;
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1 /* This comment is not closed", options);
 
-    // 7. Test block comment with no content
+    // 8. Test: Block comment with no content
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.comments.allow_block = true;
     ASSERT_CODE_WITH_OPTS("LD A, 1 /**/ LD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
 
-    // 8. Test block comment spanning multiple lines
+    // 9. Test: Block comment spanning multiple lines
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.comments.allow_block = true;
     ASSERT_CODE_WITH_OPTS(R"(
