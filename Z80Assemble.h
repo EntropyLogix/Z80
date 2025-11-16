@@ -2785,28 +2785,6 @@ private:
         bool is_skipping() const {
             return !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
         }
-        IAssemblyPolicy& m_policy;
-        struct ConditionalState {
-            bool is_active;
-            bool else_seen;
-        };
-        enum class ControlBlockType {
-            NONE,
-            CONDITIONAL,
-            REPT,
-            PROCEDURE
-        };
-        struct ReptState {
-            int count;
-            int current_iteration;
-            std::vector<std::string> body;
-            bool recording;
-        };
-        std::vector<ConditionalState> m_conditional_stack;
-        std::vector<ReptState> m_rept_stack;
-        std::vector<ControlBlockType> m_control_flow_stack;
-
-    private:
         bool process_conditional_directives(const std::string& line) {
             if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
                 return false;
@@ -3023,6 +3001,26 @@ private:
             }
             return false;
         }
+        IAssemblyPolicy& m_policy;
+        struct ConditionalState {
+            bool is_active;
+            bool else_seen;
+        };
+        enum class ControlBlockType {
+            NONE,
+            CONDITIONAL,
+            REPT,
+            PROCEDURE
+        };
+        struct ReptState {
+            int count;
+            int current_iteration;
+            std::vector<std::string> body;
+            bool recording;
+        };
+        std::vector<ConditionalState> m_conditional_stack;
+        std::vector<ReptState> m_rept_stack;
+        std::vector<ControlBlockType> m_control_flow_stack;
     };
     CompilationContext m_context;
 };
