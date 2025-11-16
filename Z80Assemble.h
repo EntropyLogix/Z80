@@ -2588,13 +2588,20 @@ private:
             return true;
         }
     private:
-        bool process_macro(std::string& line) {
-            StringHelper::trim_whitespace(line);
-            std::string potential_macro_name = line.substr(0, line.find_first_of(" \t"));
+        bool process_macro(std::string& expanded_line) {
+            if (m_tokens.count() == 0)
+                return false;
+            const auto& potential_macro_name = m_tokens[0].original();
             if (m_policy.get_compilation_context().macros.count(potential_macro_name)) {
-                std::string args_str = line.substr(potential_macro_name.length());
-                StringHelper::trim_whitespace(args_str);
-                std::vector<std::string> args = StringHelper::parse_argument_list(args_str);
+                std::vector<std::string> args;
+                if (m_tokens.count() > 1) {
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    auto arg_tokens = m_tokens[1].to_arguments();
+                    args.reserve(arg_tokens.size());
+                    for (const auto& token : arg_tokens) {
+                        args.push_back(token.original());
+                    }
+                }
                 auto macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
                 std::string expanded_body = macro.body;
 
@@ -2659,7 +2666,7 @@ private:
                     } else
                         final_body += expanded_body[i];
                 }
-                line = final_body;
+                expanded_line = final_body;
                 return true;
             }
             return false;
