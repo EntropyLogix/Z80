@@ -2572,16 +2572,13 @@ private:
                     m_lines_to_process.insert(m_lines_to_process.end(), new_lines.rbegin(), new_lines.rend());
                     continue;
                 }
-                if (process_directives(line_content)) // TODO: Refactor to use tokens
+                if (process_directives(line_content))
                     continue;
 
                 if (m_policy.get_compilation_context().options.labels.enabled) {
-                    if (process_label(line_content)) {
-                        // Etykieta została przetworzona, a linia jest pusta, więc kończymy.
+                    if (process_label(line_content))
                         continue;
-                    }
                 }
-
                 if (!line_content.empty())
                     process_instruction(line_content);
             }
@@ -2664,18 +2661,18 @@ private:
             }
             return false;
         }
-        bool process_directives(const std::string& line) {
+        bool process_directives(std::string& line) {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
             if (process_conditional_directives(line))
                 return true;
-            if (process_constant_directives(line))
-                return true;
             if (is_skipping())
+                return true;
+            if (process_constant_directives(line))
                 return true;
             if (process_control_flow_directives(line))
                 return true;
-            if (process_memory_directives(line))
+            if (process_memory_directives())
                 return true;
             return false;
         }
@@ -2713,13 +2710,13 @@ private:
                 }
                 if (Keywords::is_valid_label_name(label_str) && !Keywords::is_mnemonic(first_token.upper()) && !is_label_like_directive) {
                     m_policy.on_label_definition(label_str);
-                    m_token_index++; // Przesuwamy indeks za token etykiety
+                    m_token_index++;
                     if (m_token_index < m_tokens.count()) {
                         line = line.substr(line.find(m_tokens[m_token_index].original()));
-                        return false; // Są dalsze instrukcje do przetworzenia
+                        return false;
                     } else {
                         line.clear();
-                        return true; // Nie ma nic więcej w linii
+                        return true;
                     }
                 }
             }
@@ -2956,34 +2953,54 @@ private:
             }
             return false;
         }
-        bool process_memory_directives(const std::string& line) {
-            std::string trimmed_line = line;
-            StringHelper::trim_whitespace(trimmed_line);
-            std::string upper_trimmed_line = trimmed_line;
-            StringHelper::to_upper(upper_trimmed_line);
-            if (m_policy.get_compilation_context().options.directives.allow_org && upper_trimmed_line.rfind("ORG ", 0) == 0) {
-                m_policy.on_org_directive(trimmed_line.substr(4));
+        bool process_memory_directives() {
+            if (m_token_index >= m_tokens.count())
+                return false;
+            const auto& directive_token = m_tokens[m_token_index];
+            const std::string& directive_upper = directive_token.upper();
+
+            if (m_policy.get_compilation_context().options.directives.allow_org && directive_upper == "ORG") {
+                if (m_tokens.count() <= m_token_index + 1)
+                    throw std::runtime_error("ORG directive requires an address argument.");
+                m_tokens.merge(m_token_index + 1, m_tokens.count() - 1);
+                m_policy.on_org_directive(m_tokens[m_token_index + 1].original());
+                m_token_index = m_tokens.count();
                 return true;
             }
-            if (m_policy.get_compilation_context().options.directives.allow_align && upper_trimmed_line.rfind("ALIGN ", 0) == 0) {
-                m_policy.on_align_directive(trimmed_line.substr(6));
+            if (m_policy.get_compilation_context().options.directives.allow_align && directive_upper == "ALIGN") {
+                if (m_tokens.count() <= m_token_index + 1)
+                    throw std::runtime_error("ALIGN directive requires a boundary argument.");
+                m_tokens.merge(m_token_index + 1, m_tokens.count() - 1);
+                m_policy.on_align_directive(m_tokens[m_token_index + 1].original());
+                m_token_index = m_tokens.count();
                 return true;
             }
-            if (m_policy.get_compilation_context().options.directives.allow_incbin && upper_trimmed_line.rfind("INCBIN ", 0) == 0) {
-                std::string filename_str = trimmed_line.substr(7);
+            if (m_policy.get_compilation_context().options.directives.allow_incbin && directive_upper == "INCBIN") {
+                if (m_tokens.count() != m_token_index + 2)
+                    throw std::runtime_error("INCBIN directive requires exactly one argument.");
+                const auto& filename_token = m_tokens[m_token_index + 1];
+                const std::string& filename_str = filename_token.original();
                 if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
                     m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
                 else
                     throw std::runtime_error("INCBIN filename must be in double quotes.");
+                m_token_index += 2;
                 return true;
             }
             if (m_policy.get_compilation_context().options.directives.allow_phase) {
-                if (upper_trimmed_line.rfind("PHASE ", 0) == 0) {
-                    m_policy.on_phase_directive(trimmed_line.substr(6));
+                if (directive_upper == "PHASE") {
+                    if (m_tokens.count() <= m_token_index + 1)
+                        throw std::runtime_error("PHASE directive requires an address argument.");
+                    m_tokens.merge(m_token_index + 1, m_tokens.count() - 1);
+                    m_policy.on_phase_directive(m_tokens[m_token_index + 1].original());
+                    m_token_index = m_tokens.count();
                     return true;
                 }
-                if (upper_trimmed_line == "DEPHASE") {
+                if (directive_upper == "DEPHASE") {
+                    if (m_tokens.count() > m_token_index + 1)
+                        throw std::runtime_error("DEPHASE directive does not take any arguments.");
                     m_policy.on_dephase_directive();
+                    m_token_index++;
                     return true;
                 }
             }
