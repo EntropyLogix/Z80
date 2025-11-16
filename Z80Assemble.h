@@ -2570,6 +2570,7 @@ private:
                 m_tokens.process(line_content);
                 if (m_tokens.count() == 0)
                     continue;
+                m_token_index = 0;
                 if (process_macro(line_content)) {
                     std::stringstream expansion_stream(line_content);
                     std::vector<std::string> new_lines;
@@ -2579,11 +2580,16 @@ private:
                     m_lines_to_process.insert(m_lines_to_process.end(), new_lines.rbegin(), new_lines.rend());
                     continue;
                 }
-                m_token_index = 0;
-                if (process_directives(line_content))
+                if (process_directives(line_content)) // TODO: Refactor to use tokens
                     continue;
-                if (m_policy.get_compilation_context().options.labels.enabled)
-                    process_label(line_content);
+
+                if (m_policy.get_compilation_context().options.labels.enabled) {
+                    if (process_label(line_content)) {
+                        // Etykieta została przetworzona, a linia jest pusta, więc kończymy.
+                        continue;
+                    }
+                }
+
                 if (!line_content.empty())
                     process_instruction(line_content);
             }
@@ -2683,37 +2689,47 @@ private:
         }
         bool process_label(std::string& line) {
             const auto& label_options = m_policy.get_compilation_context().options.labels;
+            if (m_token_index >= m_tokens.count())
+                return false;
+
+            const auto& first_token = m_tokens[m_token_index];
+            std::string label_str = first_token.original();
+
             if (label_options.allow_colon) {
-                size_t colon_pos = line.find(':');
-                if (colon_pos != std::string::npos) {
-                    std::string label = line.substr(0, colon_pos);
-                    StringHelper::trim_whitespace(label);
-                    if (!label.empty() && label.find_first_of(" \t") == std::string::npos) {
-                        if (!Keywords::is_valid_label_name(label))
-                            throw std::runtime_error("Invalid label name: '" + label + "'");
-                        line.erase(0, colon_pos + 1);
-                        m_policy.on_label_definition(label);
-                        return true;
+                if (!label_str.empty() && label_str.back() == ':') {
+                    label_str.pop_back();
+                    if (!Keywords::is_valid_label_name(label_str))
+                        throw std::runtime_error("Invalid label name: '" + label_str + "'");
+                    m_policy.on_label_definition(label_str);
+                    m_token_index++; // Przesuwamy indeks za token etykiety
+                    if (m_token_index < m_tokens.count()) {
+                        // Jeśli są dalsze tokeny, aktualizujemy `line`, aby zawierała resztę
+                        line = line.substr(line.find(m_tokens[m_token_index].original()));
+                        return false; // Są dalsze instrukcje do przetworzenia
+                    } else {
+                        line.clear();
+                        return true; // Nie ma nic więcej w linii
                     }
                 }
             }
+
             if (label_options.allow_no_colon) {
-                std::string trimmed_line = line;
-                StringHelper::trim_whitespace(trimmed_line);
-                if (trimmed_line.empty() || (!isalpha(trimmed_line[0]) && trimmed_line[0] != '_' && trimmed_line[0] != '.'))
-                    return false;
-                size_t first_space = trimmed_line.find_first_of(" \t");
-                std::string potential_label = (first_space == std::string::npos) ? trimmed_line : trimmed_line.substr(0, first_space);
-                if (Keywords::is_reserved(potential_label))
-                    return false;
-                if (!Keywords::is_valid_label_name(potential_label))
-                    throw std::runtime_error("Invalid label name: '" + potential_label + "'");
-                m_policy.on_label_definition(potential_label);
-                if (first_space == std::string::npos)
-                    line.clear();
-                else
-                    line = line.substr(line.find(potential_label) + potential_label.length());
-                return true;
+                bool is_label_like_directive = false;
+                if (m_tokens.count() > m_token_index + 1) {
+                    const auto& next_token_upper = m_tokens[m_token_index + 1].upper();
+                    is_label_like_directive = (next_token_upper == "EQU" || next_token_upper == "SET" || next_token_upper == "DEFL" || next_token_upper == "MACRO" || next_token_upper.find("PROC") != std::string::npos);
+                }
+                if (Keywords::is_valid_label_name(label_str) && !Keywords::is_mnemonic(first_token.upper()) && !is_label_like_directive) {
+                    m_policy.on_label_definition(label_str);
+                    m_token_index++; // Przesuwamy indeks za token etykiety
+                    if (m_token_index < m_tokens.count()) {
+                        line = line.substr(line.find(m_tokens[m_token_index].original()));
+                        return false; // Są dalsze instrukcje do przetworzenia
+                    } else {
+                        line.clear();
+                        return true; // Nie ma nic więcej w linii
+                    }
+                }
             }
             return false;
         }
