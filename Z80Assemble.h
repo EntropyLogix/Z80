@@ -254,40 +254,31 @@ private:
         };
         void process(const std::string& line) {
             m_tokens.clear();
-            std::string current_token;
-            bool in_string = false;
-            int paren_level = 0;
-            for (size_t i = 0; i < line.length(); ++i) {
-                char c = line[i];
-                if (c == '"') {
-                    in_string = !in_string;
-                    current_token += c;
-                } else if (!in_string && c == '(') {
-                    paren_level++;
-                    current_token += c;
-                } else if (!in_string && c == ')') {
-                    paren_level--;
-                    current_token += c;
-                } else if (isspace(c) && !in_string && paren_level == 0) {
-                    if (!current_token.empty()) {
-                        size_t last_char_pos = current_token.find_last_not_of(" \t");
-                        if (last_char_pos == std::string::npos || current_token[last_char_pos] != ',') {
-                            m_tokens.emplace_back(current_token);
-                            current_token.clear();
-                        } else
-                            current_token += c;
-                    }
-                } else
-                    current_token += c;
-            }
-            if (!current_token.empty())
-                m_tokens.emplace_back(current_token);
+            std::stringstream ss(line);
+            std::string token_str;
+            while (ss >> token_str)
+                m_tokens.emplace_back(token_str);
         }
         size_t count() const { return m_tokens.size(); }
         const Token& operator[](size_t index) const {
             if (index >= m_tokens.size())
                 throw std::out_of_range("LineTokens: index out of range.");
             return m_tokens[index];
+        }
+        void merge(size_t start_index, size_t end_index) {
+            if (start_index >= m_tokens.size() || end_index >= m_tokens.size() || start_index > end_index) {
+                return;
+            }
+            std::stringstream merged_original;
+            for (size_t i = start_index; i <= end_index; ++i) {
+                if (i > start_index) {
+                    merged_original << " ";
+                }
+                merged_original << m_tokens[i].original();
+            }
+            Token merged_token(merged_original.str());
+            m_tokens.erase(m_tokens.begin() + start_index, m_tokens.begin() + end_index + 1);
+            m_tokens.insert(m_tokens.begin() + start_index, merged_token);
         }
     private:
         std::vector<Token> m_tokens;
@@ -384,6 +375,7 @@ private:
                     in_macro_def = true;
                     current_macro = {};
                     if (tokens.count() > 2) {
+                        tokens.merge(2, tokens.count() - 1);
                         auto arg_tokens = tokens[2].to_arguments();
                         for (const auto& arg_token : arg_tokens)
                             current_macro.arg_names.push_back(arg_token.original());
