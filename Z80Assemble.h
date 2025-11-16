@@ -180,6 +180,12 @@ private:
         } results;
         std::map<std::string, Macro> macros;
         int unique_macro_id_counter = 0;
+        enum class ControlBlockType {
+            CONDITIONAL,
+            REPT,
+            PROCEDURE
+        };
+        std::vector<ControlBlockType> m_control_flow_stack;
     };
     class LineTokens {
     public:
@@ -2653,18 +2659,18 @@ private:
     public:
         LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
         void initialize() {
+            m_policy.get_compilation_context().m_control_flow_stack.clear();
             m_conditional_stack.clear();
-            m_control_flow_stack.clear();
             m_rept_stack.clear();
         }
         void finalize() const {
-            if (!m_control_flow_stack.empty()) {
-                switch (m_control_flow_stack.back()) {
-                    case ControlBlockType::CONDITIONAL:
+            if (!m_policy.get_compilation_context().m_control_flow_stack.empty()) {
+                switch (m_policy.get_compilation_context().m_control_flow_stack.back()) {
+                    case CompilationContext::ControlBlockType::CONDITIONAL:
                         throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
-                    case ControlBlockType::REPT:
+                    case CompilationContext::ControlBlockType::REPT:
                         throw std::runtime_error("Unterminated REPT block (missing ENDR).");
-                    case ControlBlockType::PROCEDURE:
+                    case CompilationContext::ControlBlockType::PROCEDURE:
                         throw std::runtime_error("Unterminated procedure block (missing ENDP).");
                 }
             }
@@ -2809,7 +2815,7 @@ private:
                     if (expression.evaluate(expr_str, value))
                         condition_result = (value != 0);
                 }
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
+                m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({!is_skipping() && condition_result, false});
                 return true;
             }
@@ -2818,7 +2824,7 @@ private:
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
                 bool condition_result = !is_skipping() && m_policy.on_symbol_resolve(symbol, dummy);
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
+                m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             }
@@ -2827,7 +2833,7 @@ private:
                 StringHelper::trim_whitespace(symbol);
                 int32_t dummy;
                 bool condition_result = !is_skipping() && !m_policy.on_symbol_resolve(symbol, dummy);
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
+                m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             }
@@ -2845,9 +2851,9 @@ private:
             if (upper_trimmed_line == "ENDIF") {
                 if (m_conditional_stack.empty())
                     throw std::runtime_error("ENDIF without IF");
-                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL)
+                if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != CompilationContext::ControlBlockType::CONDITIONAL)
                     throw std::runtime_error("Mismatched ENDIF. An ENDR might be missing.");
-                m_control_flow_stack.pop_back();
+                m_policy.get_compilation_context().m_control_flow_stack.pop_back();
                 m_conditional_stack.pop_back();
                 return true;
             }
@@ -2922,7 +2928,7 @@ private:
                 if (upper_trimmed_line.rfind("REPT ", 0) == 0) {
                     std::string expr_str = trimmed_line.substr(5);
                     Expressions expression(m_policy);
-                    m_control_flow_stack.push_back(ControlBlockType::REPT);
+                    m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::REPT);
                     int32_t count;
                     if (expression.evaluate(expr_str, count)) {
                         if (count < 0)
@@ -2935,9 +2941,9 @@ private:
                 if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
                     if (upper_trimmed_line == "ENDR") {
                         m_rept_stack.back().recording = false;
-                        if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
+                        if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != CompilationContext::ControlBlockType::REPT)
                             throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
-                        m_control_flow_stack.pop_back();
+                        m_policy.get_compilation_context().m_control_flow_stack.pop_back();
                         process_rept_block();
                     } else
                         m_rept_stack.back().body.push_back(line);
@@ -2950,14 +2956,14 @@ private:
                     std::string proc_name = trimmed_line.substr(0, proc_pos);
                     if (Keywords::is_valid_label_name(proc_name) && !Keywords::is_mnemonic(proc_name)) {
                         m_policy.on_proc_begin(proc_name);
-                        m_control_flow_stack.push_back(ControlBlockType::PROCEDURE);
+                        m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::PROCEDURE);
                         return true;
                     }
                 }
                 if (upper_trimmed_line == "ENDP") {
-                    if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::PROCEDURE) throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
+                    if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != CompilationContext::ControlBlockType::PROCEDURE) throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
                     m_policy.on_proc_end();
-                    m_control_flow_stack.pop_back();
+                    m_policy.get_compilation_context().m_control_flow_stack.pop_back();
                     return true;
                 }
                 if (upper_trimmed_line.rfind("LOCAL ", 0) == 0) {
@@ -3014,12 +3020,6 @@ private:
             bool is_active;
             bool else_seen;
         };
-        enum class ControlBlockType {
-            NONE,
-            CONDITIONAL,
-            REPT,
-            PROCEDURE
-        };
         struct ReptState {
             int count;
             int current_iteration;
@@ -3030,7 +3030,6 @@ private:
         size_t m_token_index;
         std::vector<ConditionalState> m_conditional_stack;
         std::vector<ReptState> m_rept_stack;
-        std::vector<ControlBlockType> m_control_flow_stack;
     };
     CompilationContext m_context;
 };
