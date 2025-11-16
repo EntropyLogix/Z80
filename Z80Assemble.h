@@ -125,13 +125,13 @@ public:
             m_context.current_pass = 1;
             do {
                 phase->on_pass_begin();
-                SourceProcessor source_processor(*phase);
-                source_processor.initialize();
+                Source source(*phase);
+                source.initialize();
                 for (size_t i = 0; i < source_lines.size(); ++i) {
                     m_context.current_line_number = i + 1;
-                    source_processor.process_line(source_lines[i]);
+                    source.process_line(source_lines[i]);
                 }
-                source_processor.finalize();
+                source.finalize();
                 if (phase->on_pass_end())
                     end_phase = true;
                 else {
@@ -2540,26 +2540,9 @@ private:
 
         IAssemblyPolicy& m_policy;
     };
-    class LineProcessor;
-    class SourceProcessor {
+    class Source {
     public:
-        SourceProcessor(IAssemblyPolicy& policy) : m_policy(policy), m_line_processor(policy) {}
-        void initialize() {
-            m_line_processor.initialize();
-        }
-        void finalize() {
-            m_line_processor.finalize();
-        }
-        bool process_line(const std::string& source_line) {
-            m_line_processor.process(source_line);
-            return true;
-        }
-        IAssemblyPolicy& m_policy;
-        LineProcessor m_line_processor;
-    };
-    class LineProcessor {
-    public:
-        LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
+        Source(IAssemblyPolicy& policy) : m_policy(policy) {}
         void initialize() {
             m_conditional_stack.clear();
             m_control_flow_stack.clear();
@@ -2577,7 +2560,7 @@ private:
                 }
             }
         }
-        bool process(const std::string& initial_line) {
+        bool process_line(const std::string& initial_line) {
             m_lines_to_process.clear();
             m_lines_to_process.push_back(initial_line);
             while (!m_lines_to_process.empty()) {
