@@ -2573,6 +2573,9 @@ private:
                 std::string current_line = lines_to_process.back();
                 lines_to_process.pop_back();
 
+                if (process_proc(current_line))
+                    continue;
+
                 if (process_rept(current_line, lines_to_process))
                     continue;
 
@@ -2590,6 +2593,46 @@ private:
         }
 
     private:
+        bool process_proc(const std::string& line) {
+            std::string trimmed_line = line;
+            StringHelper::trim_whitespace(trimmed_line);
+            std::string upper_trimmed_line = trimmed_line;
+            StringHelper::to_upper(upper_trimmed_line);
+
+            if (m_policy.get_compilation_context().options.directives.allow_proc) {
+                size_t proc_pos = upper_trimmed_line.rfind(" PROC");
+                if (proc_pos != std::string::npos && upper_trimmed_line.length() == proc_pos + 5) {
+                    std::string proc_name = trimmed_line.substr(0, proc_pos);
+                    if (Keywords::is_valid_label_name(proc_name) && !Keywords::is_mnemonic(proc_name)) {
+                        m_policy.on_proc_begin(proc_name);
+                        m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::PROCEDURE);
+                        return true;
+                    }
+                }
+                if (upper_trimmed_line == "ENDP") {
+                    if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != CompilationContext::ControlBlockType::PROCEDURE)
+                        throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
+                    m_policy.on_proc_end();
+                    m_policy.get_compilation_context().m_control_flow_stack.pop_back();
+                    return true;
+                }
+                if (upper_trimmed_line.rfind("LOCAL ", 0) == 0) {
+                    std::string symbols_str = trimmed_line.substr(6);
+                    std::vector<std::string> symbols;
+                    std::stringstream ss(symbols_str);
+                    std::string symbol;
+                    while (std::getline(ss, symbol, ',')) {
+                        StringHelper::trim_whitespace(symbol);
+                        if (!symbol.empty())
+                            symbols.push_back(symbol);
+                    }
+                    m_policy.on_local_directive(symbols);
+                    return true;
+                }
+            }
+            return false;
+        }
+
         bool process_rept(std::string& line, std::vector<std::string>& lines_to_process) {
             std::string trimmed_line = line;
             StringHelper::trim_whitespace(trimmed_line);
@@ -2967,38 +3010,8 @@ private:
             std::string trimmed_line = line;
             StringHelper::trim_whitespace(trimmed_line);
             std::string upper_trimmed_line = trimmed_line;
-            StringHelper::to_upper(upper_trimmed_line); // NOLINT
-            if (m_policy.get_compilation_context().options.directives.allow_proc) {
-                size_t proc_pos = upper_trimmed_line.rfind(" PROC");
-                if (proc_pos != std::string::npos && upper_trimmed_line.length() == proc_pos + 5) {
-                    std::string proc_name = trimmed_line.substr(0, proc_pos);
-                    if (Keywords::is_valid_label_name(proc_name) && !Keywords::is_mnemonic(proc_name)) {
-                        m_policy.on_proc_begin(proc_name);
-                        m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::PROCEDURE);
-                        return true;
-                    }
-                }
-                if (upper_trimmed_line == "ENDP") {
-                    if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != CompilationContext::ControlBlockType::PROCEDURE) throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
-                    m_policy.on_proc_end();
-                    m_policy.get_compilation_context().m_control_flow_stack.pop_back();
-                    return true;
-                }
-                if (upper_trimmed_line.rfind("LOCAL ", 0) == 0) {
-                    std::string symbols_str = trimmed_line.substr(6);
-                    std::vector<std::string> symbols;
-                    std::stringstream ss(symbols_str);
-                    std::string symbol;
-                    while (std::getline(ss, symbol, ',')) {
-                        StringHelper::trim_whitespace(symbol);
-                        if (!symbol.empty())
-                            symbols.push_back(symbol);
-                    }
-                    m_policy.on_local_directive(symbols);
-                    return true;
-                }
-            }
-            return false;
+            StringHelper::to_upper(upper_trimmed_line);
+            return false; // PROC handling moved to SourceProcessor
         }
         bool process_memory_directives(const std::string& line) {
             std::string trimmed_line = line;
