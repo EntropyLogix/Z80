@@ -2549,12 +2549,22 @@ private:
     class LineProcessor;
     class SourceProcessor {
     public:
-        SourceProcessor(IAssemblyPolicy& policy) : m_policy(policy), m_line_processor(policy) {}
+        struct ReptState {
+            int count;
+            std::vector<std::string> body;
+            bool recording;
+        };
+
+        SourceProcessor(IAssemblyPolicy& policy) : m_policy(policy), m_line_processor(policy) {
+        }
         void initialize() {
             m_line_processor.initialize();
+            m_rept_stack.clear();
         }
         void finalize() {
-            m_line_processor.finalize();
+             m_line_processor.finalize();
+             if (!m_rept_stack.empty())
+                throw std::runtime_error("Unterminated REPT block (missing ENDR).");
         }
         bool process_line(const std::string& source_line) {
             std::vector<std::string> lines_to_process;
@@ -2562,6 +2572,10 @@ private:
             while (!lines_to_process.empty()) {
                 std::string current_line = lines_to_process.back();
                 lines_to_process.pop_back();
+
+                if (process_rept(current_line, lines_to_process))
+                    continue;
+
                 if (process_macro(current_line)) {
                     std::stringstream expansion_stream(current_line);
                     std::vector<std::string> new_lines;
@@ -2576,6 +2590,46 @@ private:
         }
 
     private:
+        bool process_rept(std::string& line, std::vector<std::string>& lines_to_process) {
+            std::string trimmed_line = line;
+            StringHelper::trim_whitespace(trimmed_line);
+            std::string upper_trimmed_line = trimmed_line;
+            StringHelper::to_upper(upper_trimmed_line);
+
+            if (m_policy.get_compilation_context().options.directives.allow_repeat) {
+                if (upper_trimmed_line.rfind("REPT ", 0) == 0) {
+                    std::string expr_str = trimmed_line.substr(5);
+                    m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::REPT);
+                    Expressions expression(m_policy);
+                    int32_t count;
+                    if (expression.evaluate(expr_str, count)) {
+                        if (count < 0)
+                            throw std::runtime_error("REPT count cannot be negative.");
+                        m_rept_stack.push_back({count, {}, true});
+                    } else {
+                        m_rept_stack.push_back({0, {}, true});
+                    }
+                    return true;
+                }
+                if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
+                    if (upper_trimmed_line == "ENDR") {
+                        if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != CompilationContext::ControlBlockType::REPT)
+                            throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
+                        m_policy.get_compilation_context().m_control_flow_stack.pop_back();
+                        ReptState rept_block = m_rept_stack.back();
+                        m_rept_stack.pop_back();
+                        for (int i = 0; i < rept_block.count; ++i) {
+                            lines_to_process.insert(lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
+                        }
+                    } else {
+                        m_rept_stack.back().body.push_back(line);
+                    }
+                    return true;
+                }
+            }
+            return false;
+        }
+
         bool process_macro(std::string& line) {
             StringHelper::trim_whitespace(line);
             std::string potential_macro_name = line.substr(0, line.find_first_of(" \t"));
@@ -2654,16 +2708,17 @@ private:
         }
         IAssemblyPolicy& m_policy;
         LineProcessor m_line_processor;
+        std::vector<ReptState> m_rept_stack;
     };
     class LineProcessor {
     public:
         LineProcessor(IAssemblyPolicy& policy) : m_policy(policy) {}
-        void initialize() {
+        void initialize() { // NOLINT
             m_policy.get_compilation_context().m_control_flow_stack.clear();
             m_conditional_stack.clear();
-            m_rept_stack.clear();
         }
-        void finalize() const {
+
+        void finalize() const { // NOLINT
             if (!m_policy.get_compilation_context().m_control_flow_stack.empty()) {
                 switch (m_policy.get_compilation_context().m_control_flow_stack.back()) {
                     case CompilationContext::ControlBlockType::CONDITIONAL:
@@ -2742,17 +2797,6 @@ private:
                 return true;
             }
             return false;
-        }
-        bool process_rept_block() {
-            if (m_rept_stack.empty() || m_rept_stack.back().recording)
-                return false;
-            ReptState rept_block = m_rept_stack.back();
-            m_rept_stack.pop_back();
-            for (int i = 0; i < rept_block.count; ++i) {
-                for (const auto& body_line : rept_block.body)
-                    process(body_line);
-            }
-            return true;
         }
         bool process_instruction(std::string& line) {
             StringHelper::trim_whitespace(line);
@@ -2923,33 +2967,7 @@ private:
             std::string trimmed_line = line;
             StringHelper::trim_whitespace(trimmed_line);
             std::string upper_trimmed_line = trimmed_line;
-            StringHelper::to_upper(upper_trimmed_line);
-            if (m_policy.get_compilation_context().options.directives.allow_repeat) {
-                if (upper_trimmed_line.rfind("REPT ", 0) == 0) {
-                    std::string expr_str = trimmed_line.substr(5);
-                    Expressions expression(m_policy);
-                    m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::REPT);
-                    int32_t count;
-                    if (expression.evaluate(expr_str, count)) {
-                        if (count < 0)
-                            throw std::runtime_error("REPT count cannot be negative.");
-                        m_rept_stack.push_back({count, 0, {}, true});
-                    } else
-                        m_rept_stack.push_back({0, 0, {}, true});
-                    return true;
-                }
-                if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
-                    if (upper_trimmed_line == "ENDR") {
-                        m_rept_stack.back().recording = false;
-                        if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != CompilationContext::ControlBlockType::REPT)
-                            throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
-                        m_policy.get_compilation_context().m_control_flow_stack.pop_back();
-                        process_rept_block();
-                    } else
-                        m_rept_stack.back().body.push_back(line);
-                    return true;
-                }
-            }
+            StringHelper::to_upper(upper_trimmed_line); // NOLINT
             if (m_policy.get_compilation_context().options.directives.allow_proc) {
                 size_t proc_pos = upper_trimmed_line.rfind(" PROC");
                 if (proc_pos != std::string::npos && upper_trimmed_line.length() == proc_pos + 5) {
@@ -3020,16 +3038,9 @@ private:
             bool is_active;
             bool else_seen;
         };
-        struct ReptState {
-            int count;
-            int current_iteration;
-            std::vector<std::string> body;
-            bool recording;
-        };
         LineTokens m_tokens;
         size_t m_token_index;
         std::vector<ConditionalState> m_conditional_stack;
-        std::vector<ReptState> m_rept_stack;
     };
     CompilationContext m_context;
 };
