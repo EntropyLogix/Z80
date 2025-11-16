@@ -68,7 +68,7 @@ public:
                 bool allow_equ = true;
                 bool allow_set = true;
                 bool allow_define = true;
-                bool equals_as_set = false;
+                bool assignments_as_eqs = true;
             } constants;
             bool allow_org = true;
             bool allow_align = true;
@@ -409,7 +409,6 @@ private:
     class OperandParser {
     public:
         OperandParser(IAssemblyPolicy& policy) : m_policy(policy) {}
-
         enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, CHAR_LITERAL, STRING_LITERAL, UNKNOWN };
         struct Operand {
             OperandType type = OperandType::UNKNOWN;
@@ -2898,8 +2897,8 @@ private:
                     StringHelper::trim_whitespace(label);
                     std::string value = line.substr(equals_pos + 1);
                     StringHelper::trim_whitespace(value);
-                    if (Keywords::is_valid_label_name(label) && !Keywords::is_mnemonic(label)) {
-                        if (const_opts.equals_as_set && const_opts.allow_set)
+                    if (Keywords::is_valid_label_name(label) && !Keywords::is_reserved(label)) {
+                        if (!const_opts.assignments_as_eqs && const_opts.allow_set)
                             m_policy.on_set_directive(label, value);
                         else if (const_opts.allow_equ)
                             m_policy.on_equ_directive(label, value);
