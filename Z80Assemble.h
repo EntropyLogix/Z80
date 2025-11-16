@@ -2801,59 +2801,44 @@ private:
         }
         bool process_constant_directives(const std::string& line) {
             const auto& const_opts = m_policy.get_compilation_context().options.directives.constants;
-            if (!const_opts.enabled)
+            if (!const_opts.enabled || m_tokens.count() < 2)
                 return false;
-            std::string trimmed_line = line;
-            StringHelper::trim_whitespace(trimmed_line);
-            std::string upper_trimmed_line = trimmed_line;
-            StringHelper::to_upper(upper_trimmed_line);
-            if (const_opts.allow_define && upper_trimmed_line.rfind("DEFINE ", 0) == 0) {
-                std::stringstream ss(trimmed_line.substr(7));
-                std::string label, value;
-                ss >> label;
+            if (const_opts.allow_define && m_tokens[0].upper() == "DEFINE") {
+                if (m_tokens.count() < 3)
+                    throw std::runtime_error("DEFINE directive requires a label and a value.");
+                const std::string& label = m_tokens[1].original();
                 if (!Keywords::is_valid_label_name(label))
                     throw std::runtime_error("Invalid label name for DEFINE directive: '" + label + "'");
-                std::getline(ss, value);
-                StringHelper::trim_whitespace(value);
-                if (value.empty())
-                    throw std::runtime_error("DEFINE directive requires a value.");
-                m_policy.on_set_directive(label, value);
+                m_tokens.merge(2, m_tokens.count() - 1);
+                m_policy.on_set_directive(label, m_tokens[2].original());
                 return true;
             }
-            std::string temp_line_upper = line;
-            StringHelper::to_upper(temp_line_upper);
-            if (temp_line_upper.find(" EQU ") == std::string::npos && temp_line_upper.find(" SET ") == std::string::npos && temp_line_upper.find(" DEFL ") == std::string::npos) {
-                size_t equals_pos = line.find('=');
-                if (equals_pos != std::string::npos && line.find("==") != equals_pos) {
-                    std::string label = line.substr(0, equals_pos);
-                    StringHelper::trim_whitespace(label);
-                    std::string value = line.substr(equals_pos + 1);
-                    StringHelper::trim_whitespace(value);
-                    if (Keywords::is_valid_label_name(label) && !Keywords::is_reserved(label)) {
-                        if (!const_opts.assignments_as_eqs && const_opts.allow_set)
-                            m_policy.on_set_directive(label, value);
-                        else if (const_opts.allow_equ)
-                            m_policy.on_equ_directive(label, value);
-                        return true;
-                    }
+            if (m_tokens.count() >= 3 && m_tokens[1].original() == "=") {
+                const std::string& label = m_tokens[0].original();
+                if (Keywords::is_valid_label_name(label) && !Keywords::is_reserved(m_tokens[0].upper())) {
+                    m_tokens.merge(2, m_tokens.count() - 1);
+                    const std::string& value = m_tokens[2].original();
+                    if (const_opts.assignments_as_eqs && const_opts.allow_equ)
+                        m_policy.on_equ_directive(label, value);
+                    else if (const_opts.allow_set)
+                        m_policy.on_set_directive(label, value);
+                    return true;
                 }
             }
-            std::stringstream line_stream(line);
-            std::string label, directive, value;
-            line_stream >> label >> directive;
-            if (!line_stream.fail()) {
-                StringHelper::to_upper(directive);
+            if (m_tokens.count() >= 3) {
+                const std::string& directive = m_tokens[1].upper();
                 if (directive == "EQU" || directive == "SET" || directive == "DEFL") {
+                    const std::string& label = m_tokens[0].original();
                     if (!Keywords::is_valid_label_name(label))
                         throw std::runtime_error("Invalid label name for directive: '" + label + "'");
-                    std::getline(line_stream, value);
-                    StringHelper::trim_whitespace(value);
+                    m_tokens.merge(2, m_tokens.count() - 1);
+                    const std::string& value = m_tokens[2].original();
                     if ((directive == "SET" || directive == "DEFL") && const_opts.allow_set)
                         m_policy.on_set_directive(label, value);
                     else if (directive == "EQU" && const_opts.allow_equ)
                         m_policy.on_equ_directive(label, value);
                     else
-                        throw std::runtime_error("Directive '" + directive + "' is unknown or disabled.");
+                        return false;
                     return true;
                 }
             }
