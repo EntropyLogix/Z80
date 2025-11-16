@@ -181,7 +181,7 @@ private:
         std::map<std::string, Macro> macros;
         int unique_macro_id_counter = 0;
     };
-    class LineTokenizer {
+    class LineTokens {
     public:
         class Token {
         public:
@@ -252,7 +252,8 @@ private:
             mutable std::optional<int32_t> m_number_val;
             mutable std::optional<std::vector<Token>> m_arguments;
         };
-        LineTokenizer(const std::string& line) {
+        void process(const std::string& line) {
+            m_tokens.clear();
             std::string current_token;
             bool in_string = false;
             int paren_level = 0;
@@ -362,7 +363,8 @@ private:
             for (size_t i = 0; i < lines_to_process.size(); ++i) {
                 line = lines_to_process[i];
                 line_number++;
-                LineTokenizer tokens(line);
+                LineTokens tokens;
+                tokens.process(line);
                 if (in_macro_def) {
                     if (tokens.count() == 1 && (tokens[0].upper() == "ENDM" || tokens[0].upper() == "MEND")) {
                         in_macro_def = false;
@@ -2669,6 +2671,12 @@ private:
         }
         bool process(const std::string& source_line) {
             std::string line = source_line;
+
+            m_tokens.process(source_line);
+            if (m_tokens.count() == 0)
+                return true;
+            m_token_index = 0;
+
             if (process_directives(line))
                 return true;
             if (m_policy.get_compilation_context().options.labels.enabled)
@@ -3018,6 +3026,8 @@ private:
             std::vector<std::string> body;
             bool recording;
         };
+        LineTokens m_tokens;
+        size_t m_token_index;
         std::vector<ConditionalState> m_conditional_stack;
         std::vector<ReptState> m_rept_stack;
         std::vector<ControlBlockType> m_control_flow_stack;
