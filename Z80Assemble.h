@@ -419,7 +419,7 @@ private:
             int16_t offset = 0;
             std::string base_reg;
         };
-        Operand parse(const std::string& operand_string, const std::string& mnemonic = "") {
+        Operand parse(const std::string& operand_string, const std::string& mnemonic) {
             Operand operand;
             operand.str_val = operand_string;
             std::string upper_operand_string = operand_string;
@@ -529,9 +529,7 @@ private:
         Expressions(IAssemblyPolicy& policy) : m_policy(policy){}
         bool evaluate(const std::string& s, int32_t& out_value) const {
             if (!m_policy.get_compilation_context().options.expressions.enabled) {
-                std::string trimmed_s = s;
-                StringHelper::trim_whitespace(trimmed_s);
-                if (StringHelper::is_number(trimmed_s, out_value))
+                if (StringHelper::is_number(s, out_value))
                     return true;
                 return false;
             }
@@ -1157,33 +1155,6 @@ private:
                 out_value = -out_value;
             return success;
         }
-        static std::vector<std::string> parse_argument_list(const std::string& args_str) {
-            std::vector<std::string> args;
-            std::string current_arg;
-            bool in_string = false;
-            int paren_level = 0;
-
-            for (char c : args_str) {
-                if (c == '"')
-                    in_string = !in_string;
-                else if (!in_string) {
-                    if (c == '(')
-                        paren_level++;
-                    else if (c == ')')
-                        paren_level--;
-                }
-                if (c == ',' && !in_string && paren_level == 0) {
-                    trim_whitespace(current_arg);
-                    args.push_back(current_arg);
-                    current_arg.clear();
-                } else
-                    current_arg += c;
-            }
-            trim_whitespace(current_arg);
-            if (!current_arg.empty() || !args.empty())
-                args.push_back(current_arg);
-            return args;
-        }
     };
     class SymbolsBuilding : public DefaultAssemblyPolicy {
     public:
@@ -1480,7 +1451,6 @@ private:
         static bool is_directive(const std::string& s) { return is_in_set(s, directives()); }
         static bool is_register(const std::string& s) { return is_in_set(s, registers()); }
         static bool is_reserved(const std::string& s) { return is_mnemonic(s) || is_directive(s) || is_register(s); }
-
         static bool is_valid_label_name(const std::string& s) {
             if (s.empty() || is_reserved(s))
                 return false;
