@@ -2669,20 +2669,24 @@ private:
                 }
             }
         }
-        bool process(const std::string& source_line) {
-            std::string line = source_line;
-
-            m_tokens.process(source_line);
-            if (m_tokens.count() == 0)
-                return true;
-            m_token_index = 0;
-
-            if (process_directives(line))
-                return true;
-            if (m_policy.get_compilation_context().options.labels.enabled)
-                process_label(line);
-            if (!line.empty()) 
-                return process_instruction(line);
+        bool process(const std::string& initial_line) {
+            m_lines_to_process.clear();
+            m_lines_to_process.push_back(initial_line);
+            while (!m_lines_to_process.empty()) {
+                std::string current_line = m_lines_to_process.back();
+                m_lines_to_process.pop_back();
+                std::string line_content = current_line;
+                m_tokens.process(line_content);
+                if (m_tokens.count() == 0)
+                    continue;
+                m_token_index = 0;
+                if (process_directives(line_content))
+                    continue;
+                if (m_policy.get_compilation_context().options.labels.enabled)
+                    process_label(line_content);
+                if (!line_content.empty())
+                    process_instruction(line_content);
+            }
             return true;
         }
     private:
@@ -2736,17 +2740,6 @@ private:
                 return true;
             }
             return false;
-        }
-        bool process_rept_block() {
-            if (m_rept_stack.empty() || m_rept_stack.back().recording)
-                return false;
-            ReptState rept_block = m_rept_stack.back();
-            m_rept_stack.pop_back();
-            for (int i = 0; i < rept_block.count; ++i) {
-                for (const auto& body_line : rept_block.body)
-                    process(body_line);
-            }
-            return true;
         }
         bool process_instruction(std::string& line) {
             StringHelper::trim_whitespace(line);
@@ -2938,7 +2931,10 @@ private:
                         if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
                             throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
                         m_control_flow_stack.pop_back();
-                        process_rept_block();
+                        ReptState& rept_block = m_rept_stack.back();
+                        for (int i = 0; i < rept_block.count; ++i)
+                            m_lines_to_process.insert(m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
+                        m_rept_stack.pop_back();
                     } else
                         m_rept_stack.back().body.push_back(line);
                     return true;
@@ -3029,6 +3025,7 @@ private:
         LineTokens m_tokens;
         size_t m_token_index;
         std::vector<ConditionalState> m_conditional_stack;
+        std::vector<std::string> m_lines_to_process;
         std::vector<ReptState> m_rept_stack;
         std::vector<ControlBlockType> m_control_flow_stack;
     };
