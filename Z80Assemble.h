@@ -2680,9 +2680,9 @@ private:
                 return true;
             if (is_skipping())
                 return true;
-            if (process_constant_directives(line))
+            if (process_constant_directives())
                 return true;
-            if (process_control_flow_directives(line))
+            if (process_control_flow_directives())
                 return true;
             if (process_memory_directives())
                 return true;
@@ -2797,7 +2797,7 @@ private:
             }
             return false;
         }
-        bool process_constant_directives(const std::string& line) {
+        bool process_constant_directives() {
             const auto& const_opts = m_policy.get_compilation_context().options.directives.constants;
             if (!const_opts.enabled || m_tokens.count() < 2)
                 return false;
@@ -2842,14 +2842,11 @@ private:
             }
             return false;
         }
-        bool process_control_flow_directives(const std::string& line) {
-            std::string trimmed_line = line;
-            StringHelper::trim_whitespace(trimmed_line);
-            std::string upper_trimmed_line = trimmed_line;
-            StringHelper::to_upper(upper_trimmed_line);
+        bool process_control_flow_directives() {
             if (m_policy.get_compilation_context().options.directives.allow_repeat) {
-                if (upper_trimmed_line.rfind("REPT ", 0) == 0) {
-                    std::string expr_str = trimmed_line.substr(5);
+                if (m_tokens.count() >= 2 && m_tokens[0].upper() == "REPT") {
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    const std::string& expr_str = m_tokens[1].original();
                     Expressions expression(m_policy);
                     m_control_flow_stack.push_back(ControlBlockType::REPT);
                     int32_t count;
@@ -2862,7 +2859,7 @@ private:
                     return true;
                 }
                 if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
-                    if (upper_trimmed_line == "ENDR") {
+                    if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
                         m_rept_stack.back().recording = false;
                         if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
                             throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
@@ -2872,28 +2869,28 @@ private:
                             m_lines_to_process.insert(m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
                         m_rept_stack.pop_back();
                     } else
-                        m_rept_stack.back().body.push_back(line);
+                        m_rept_stack.back().body.push_back(m_tokens.get_original_line());
                     return true;
                 }
             }
             if (m_policy.get_compilation_context().options.directives.allow_proc) {
-                size_t proc_pos = upper_trimmed_line.rfind(" PROC");
-                if (proc_pos != std::string::npos && upper_trimmed_line.length() == proc_pos + 5) {
-                    std::string proc_name = trimmed_line.substr(0, proc_pos);
-                    if (Keywords::is_valid_label_name(proc_name) && !Keywords::is_mnemonic(proc_name)) {
+                if (m_tokens.count() == 2 && m_tokens[1].upper() == "PROC") {
+                    const std::string& proc_name = m_tokens[0].original();
+                    if (Keywords::is_valid_label_name(proc_name)) {
                         m_policy.on_proc_begin(proc_name);
                         m_control_flow_stack.push_back(ControlBlockType::PROCEDURE);
                         return true;
                     }
                 }
-                if (upper_trimmed_line == "ENDP") {
+                if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDP") {
                     if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::PROCEDURE) throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
                     m_policy.on_proc_end();
                     m_control_flow_stack.pop_back();
                     return true;
                 }
-                if (upper_trimmed_line.rfind("LOCAL ", 0) == 0) {
-                    std::string symbols_str = trimmed_line.substr(6);
+                if (m_tokens.count() >= 2 && m_tokens[0].upper() == "LOCAL") {
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    const std::string& symbols_str = m_tokens[1].original();
                     std::vector<std::string> symbols;
                     std::stringstream ss(symbols_str);
                     std::string symbol;
