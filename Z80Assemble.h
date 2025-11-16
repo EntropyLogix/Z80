@@ -252,7 +252,9 @@ private:
             mutable std::optional<int32_t> m_number_val;
             mutable std::optional<std::vector<Token>> m_arguments;
         };
+        const std::string& get_original_line() const { return m_original_line; }
         void process(const std::string& line) {
+            m_original_line = line;
             m_tokens.clear();
             std::stringstream ss(line);
             std::string token_str;
@@ -281,6 +283,7 @@ private:
             m_tokens.insert(m_tokens.begin() + start_index, merged_token);
         }
     private:
+        std::string m_original_line;
         std::vector<Token> m_tokens;
     };
     class Preprocessor { public:
