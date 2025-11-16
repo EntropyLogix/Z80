@@ -282,6 +282,11 @@ private:
             m_tokens.erase(m_tokens.begin() + start_index, m_tokens.begin() + end_index + 1);
             m_tokens.insert(m_tokens.begin() + start_index, merged_token);
         }
+        void remove(size_t index) {
+            if (index >= m_tokens.size())
+                return;
+            m_tokens.erase(m_tokens.begin() + index);
+        }
     private:
         std::string m_original_line;
         std::vector<Token> m_tokens;
@@ -2565,7 +2570,6 @@ private:
                 m_tokens.process(line_content);
                 if (m_tokens.count() == 0)
                     continue;
-                m_token_index = 0;
                 if (process_macro(line_content)) {
                     std::stringstream expansion_stream(line_content);
                     std::vector<std::string> new_lines;
@@ -2577,13 +2581,11 @@ private:
                 }
                 if (process_directives(line_content))
                     continue;
-
                 if (m_policy.get_compilation_context().options.labels.enabled) {
-                    if (process_label(line_content))
+                    if (process_label())
                         continue;
                 }
-                if (!line_content.empty())
-                    process_instruction(line_content);
+                process_instruction();
             }
             return true;
         }
@@ -2686,91 +2688,51 @@ private:
                 return true;
             return false;
         }
-        bool process_label(std::string& line) {
-            const auto& label_options = m_policy.get_compilation_context().options.labels;
-            if (m_token_index >= m_tokens.count())
+        bool process_label() {
+            if (m_tokens.count() == 0)
                 return false;
 
-            const auto& first_token = m_tokens[m_token_index];
+            const auto& label_options = m_policy.get_compilation_context().options.labels;
+            const auto& first_token = m_tokens[0];
             std::string label_str = first_token.original();
+            bool is_label = false;
 
             if (label_options.allow_colon) {
-                if (!label_str.empty() && label_str.back() == ':') {
+                if (label_str.length() > 1 && label_str.back() == ':') {
                     label_str.pop_back();
-                    if (!Keywords::is_valid_label_name(label_str))
-                        throw std::runtime_error("Invalid label name: '" + label_str + "'");
-                    m_policy.on_label_definition(label_str);
-                    m_token_index++; // Przesuwamy indeks za token etykiety
-                    if (m_token_index < m_tokens.count()) {
-                        // Jeśli są dalsze tokeny, aktualizujemy `line`, aby zawierała resztę
-                        line = line.substr(line.find(m_tokens[m_token_index].original()));
-                        return false; // Są dalsze instrukcje do przetworzenia
-                    } else {
-                        line.clear();
-                        return true; // Nie ma nic więcej w linii
-                    }
+                    is_label = true;
                 }
             }
 
-            if (label_options.allow_no_colon) {
-                bool is_label_like_directive = false;
-                if (m_tokens.count() > m_token_index + 1) {
-                    const auto& next_token_upper = m_tokens[m_token_index + 1].upper();
-                    is_label_like_directive = (next_token_upper == "EQU" || next_token_upper == "SET" || next_token_upper == "DEFL" || next_token_upper == "MACRO" || next_token_upper.find("PROC") != std::string::npos);
-                }
-                if (Keywords::is_valid_label_name(label_str) && !Keywords::is_mnemonic(first_token.upper()) && !is_label_like_directive) {
-                    m_policy.on_label_definition(label_str);
-                    m_token_index++;
-                    if (m_token_index < m_tokens.count()) {
-                        line = line.substr(line.find(m_tokens[m_token_index].original()));
-                        return false;
-                    } else {
-                        line.clear();
-                        return true;
-                    }
-                }
+            if (!is_label && label_options.allow_no_colon) {
+                if (!Keywords::is_reserved(first_token.upper()))
+                    is_label = true;
             }
+
+            if (is_label) {
+                if (!Keywords::is_valid_label_name(label_str))
+                    throw std::runtime_error("Invalid label name: '" + label_str + "'");
+                m_policy.on_label_definition(label_str);
+                m_tokens.remove(0);
+                return m_tokens.count() == 0;
+            }
+
             return false;
         }
-        bool process_instruction(std::string& line) {
-            StringHelper::trim_whitespace(line);
-            if (!line.empty()) {
-                std::string mnemonic;
-                std::stringstream instruction_stream(line);
-                instruction_stream >> mnemonic;
-                StringHelper::to_upper(mnemonic);
+        bool process_instruction() {
+            if (m_tokens.count() > 0) {
+                std::string mnemonic = m_tokens[0].upper();
                 OperandParser operand_parser(m_policy);
                 std::vector<typename OperandParser::Operand> operands;
-                std::string ops;
-                if (std::getline(instruction_stream, ops)) {
-                    StringHelper::trim_whitespace(ops);
-                    if (!ops.empty()) {
-                        std::string current_operand;
-                        bool in_string = false;
-                        int paren_level = 0;
-                        for (char c : ops) {
-                            if (c == '"')
-                                in_string = !in_string;
-                            else if (c == '(' && !in_string)
-                                paren_level++;
-                            else if (c == ')' && !in_string)
-                                paren_level--;
-                            if (c == ',' && !in_string && paren_level == 0) {
-                                StringHelper::trim_whitespace(current_operand);
-                                if (!current_operand.empty())
-                                    operands.push_back(operand_parser.parse(current_operand, mnemonic));
-                                current_operand.clear();
-                            } else 
-                                current_operand += c;
-                        }
-                        StringHelper::trim_whitespace(current_operand);
-                        if (!current_operand.empty()) {
-                            operands.push_back(operand_parser.parse(current_operand, mnemonic));
-                        }
+                if (m_tokens.count() > 1) {
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    auto arg_tokens = m_tokens[1].to_arguments();
+                    for (const auto& arg_token : arg_tokens) {
+                        operands.push_back(operand_parser.parse(arg_token.original(), mnemonic));
                     }
                 }
                 InstructionEncoder encoder(m_policy);
-                return encoder.encode(mnemonic, operands);
+                encoder.encode(mnemonic, operands);
             }
             return true;
         }
@@ -2964,53 +2926,49 @@ private:
             return false;
         }
         bool process_memory_directives() {
-            if (m_token_index >= m_tokens.count())
+            if (m_tokens.count() == 0)
                 return false;
-            const auto& directive_token = m_tokens[m_token_index];
+            const auto& directive_token = m_tokens[0];
             const std::string& directive_upper = directive_token.upper();
 
             if (m_policy.get_compilation_context().options.directives.allow_org && directive_upper == "ORG") {
-                if (m_tokens.count() <= m_token_index + 1)
+                if (m_tokens.count() <= 1)
                     throw std::runtime_error("ORG directive requires an address argument.");
-                m_tokens.merge(m_token_index + 1, m_tokens.count() - 1);
-                m_policy.on_org_directive(m_tokens[m_token_index + 1].original());
-                m_token_index = m_tokens.count();
+                m_tokens.merge(1, m_tokens.count() - 1);
+                m_policy.on_org_directive(m_tokens[1].original());
                 return true;
             }
             if (m_policy.get_compilation_context().options.directives.allow_align && directive_upper == "ALIGN") {
-                if (m_tokens.count() <= m_token_index + 1)
+                if (m_tokens.count() <= 1)
                     throw std::runtime_error("ALIGN directive requires a boundary argument.");
-                m_tokens.merge(m_token_index + 1, m_tokens.count() - 1);
-                m_policy.on_align_directive(m_tokens[m_token_index + 1].original());
-                m_token_index = m_tokens.count();
+                m_tokens.merge(1, m_tokens.count() - 1);
+                m_policy.on_align_directive(m_tokens[1].original());
                 return true;
             }
             if (m_policy.get_compilation_context().options.directives.allow_incbin && directive_upper == "INCBIN") {
-                if (m_tokens.count() != m_token_index + 2)
+                if (m_tokens.count() != 2)
                     throw std::runtime_error("INCBIN directive requires exactly one argument.");
-                const auto& filename_token = m_tokens[m_token_index + 1];
+                const auto& filename_token = m_tokens[1];
                 const std::string& filename_str = filename_token.original();
                 if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
                     m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
                 else
                     throw std::runtime_error("INCBIN filename must be in double quotes.");
-                m_token_index += 2;
                 return true;
             }
             if (m_policy.get_compilation_context().options.directives.allow_phase) {
                 if (directive_upper == "PHASE") {
-                    if (m_tokens.count() <= m_token_index + 1)
+                    if (m_tokens.count() <= 1)
                         throw std::runtime_error("PHASE directive requires an address argument.");
-                    m_tokens.merge(m_token_index + 1, m_tokens.count() - 1);
-                    m_policy.on_phase_directive(m_tokens[m_token_index + 1].original());
-                    m_token_index = m_tokens.count();
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    m_policy.on_phase_directive(m_tokens[1].original());
                     return true;
                 }
                 if (directive_upper == "DEPHASE") {
-                    if (m_tokens.count() > m_token_index + 1)
+                    if (m_tokens.count() > 1)
                         throw std::runtime_error("DEPHASE directive does not take any arguments.");
                     m_policy.on_dephase_directive();
-                    m_token_index++;
+                    m_tokens.remove(0);
                     return true;
                 }
             }
@@ -3034,7 +2992,6 @@ private:
             bool recording;
         };
         LineTokens m_tokens;
-        size_t m_token_index;
         std::vector<ConditionalState> m_conditional_stack;
         std::vector<std::string> m_lines_to_process;
         std::vector<ReptState> m_rept_stack;
