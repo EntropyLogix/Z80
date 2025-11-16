@@ -2676,7 +2676,7 @@ private:
         bool process_directives(std::string& line) {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
-            if (process_conditional_directives(line))
+            if (process_conditional_directives())
                 return true;
             if (is_skipping())
                 return true;
@@ -2739,60 +2739,58 @@ private:
         bool is_skipping() const {
             return !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
         }
-        bool process_conditional_directives(const std::string& line) {
+        bool process_conditional_directives() {
             if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
                 return false;
-            std::string trimmed_line = line;
-            StringHelper::trim_whitespace(trimmed_line);
-            std::string upper_trimmed_line = trimmed_line;
-            StringHelper::to_upper(upper_trimmed_line);
-            if (upper_trimmed_line.rfind("IF ", 0) == 0) {
-                std::string expr_str = trimmed_line.substr(3);
+
+            if (m_tokens.count() == 0)
+                return false;
+
+            const std::string& directive = m_tokens[0].upper();
+
+            if (directive == "IF") {
+                if (m_tokens.count() < 2) throw std::runtime_error("IF directive requires an expression.");
+                m_tokens.merge(1, m_tokens.count() - 1);
+                const std::string& expr_str = m_tokens[1].original();
                 bool condition_result = false;
                 if (!is_skipping()) {
                     Expressions expression(m_policy);
                     int32_t value;
-                    if (expression.evaluate(expr_str, value))
-                        condition_result = (value != 0);
+                    if (expression.evaluate(expr_str, value)) condition_result = (value != 0);
                 }
                 m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({!is_skipping() && condition_result, false});
                 return true;
             }
-            if (upper_trimmed_line.rfind("IFDEF ", 0) == 0) {
-                std::string symbol = trimmed_line.substr(6);
-                StringHelper::trim_whitespace(symbol);
+            if (directive == "IFDEF") {
+                if (m_tokens.count() != 2) throw std::runtime_error("IFDEF requires a single symbol.");
+                const std::string& symbol = m_tokens[1].original();
                 int32_t dummy;
                 bool condition_result = !is_skipping() && m_policy.on_symbol_resolve(symbol, dummy);
                 m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             }
-            if (upper_trimmed_line.rfind("IFNDEF ", 0) == 0) {
-                std::string symbol = trimmed_line.substr(7);
-                StringHelper::trim_whitespace(symbol);
+            if (directive == "IFNDEF") {
+                if (m_tokens.count() != 2) throw std::runtime_error("IFNDEF requires a single symbol.");
+                const std::string& symbol = m_tokens[1].original();
                 int32_t dummy;
                 bool condition_result = !is_skipping() && !m_policy.on_symbol_resolve(symbol, dummy);
                 m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
             }
-            if (upper_trimmed_line == "ELSE") {
-                if (m_conditional_stack.empty())
-                    throw std::runtime_error("ELSE without IF");
-                if (m_conditional_stack.back().else_seen)
-                    throw std::runtime_error("Multiple ELSE directives for the same IF");
+            if (directive == "ELSE") {
+                if (m_conditional_stack.empty()) throw std::runtime_error("ELSE without IF");
+                if (m_conditional_stack.back().else_seen) throw std::runtime_error("Multiple ELSE directives for the same IF");
                 m_conditional_stack.back().else_seen = true;
                 bool parent_is_skipping = m_conditional_stack.size() > 1 && !m_conditional_stack[m_conditional_stack.size() - 2].is_active;
-                if (!parent_is_skipping)
-                    m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
+                if (!parent_is_skipping) m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
                 return true;
             }
-            if (upper_trimmed_line == "ENDIF") {
-                if (m_conditional_stack.empty())
-                    throw std::runtime_error("ENDIF without IF");
-                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL)
-                    throw std::runtime_error("Mismatched ENDIF. An ENDR might be missing.");
+            if (directive == "ENDIF") {
+                if (m_conditional_stack.empty()) throw std::runtime_error("ENDIF without IF");
+                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL) throw std::runtime_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
                 m_control_flow_stack.pop_back();
                 m_conditional_stack.pop_back();
                 return true;
