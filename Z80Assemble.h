@@ -181,7 +181,7 @@ private:
         std::map<std::string, Macro> macros;
         int unique_macro_id_counter = 0;
     };
-    class LineTokens {
+    class StringTokens {
     public:
         class Token {
         public:
@@ -264,18 +264,16 @@ private:
         size_t count() const { return m_tokens.size(); }
         const Token& operator[](size_t index) const {
             if (index >= m_tokens.size())
-                throw std::out_of_range("LineTokens: index out of range.");
+                throw std::out_of_range("StringTokens: index out of range.");
             return m_tokens[index];
         }
         void merge(size_t start_index, size_t end_index) {
-            if (start_index >= m_tokens.size() || end_index >= m_tokens.size() || start_index > end_index) {
+            if (start_index >= m_tokens.size() || end_index >= m_tokens.size() || start_index > end_index)
                 return;
-            }
             std::stringstream merged_original;
             for (size_t i = start_index; i <= end_index; ++i) {
-                if (i > start_index) {
+                if (i > start_index)
                     merged_original << " ";
-                }
                 merged_original << m_tokens[i].original();
             }
             Token merged_token(merged_original.str());
@@ -362,7 +360,7 @@ private:
             for (size_t i = 0; i < lines_to_process.size(); ++i) {
                 line = lines_to_process[i];
                 line_number++;
-                LineTokens tokens;
+                StringTokens tokens;
                 tokens.process(line);
                 if (in_macro_def) {
                     if (tokens.count() == 1 && (tokens[0].upper() == "ENDM" || tokens[0].upper() == "MEND")) {
@@ -2941,7 +2939,7 @@ private:
             std::vector<std::string> body;
             bool recording;
         };
-        LineTokens m_tokens;
+        StringTokens m_tokens;
         std::vector<ConditionalState> m_conditional_stack;
         std::vector<std::string> m_lines_to_process;
         std::vector<ReptState> m_rept_stack;
