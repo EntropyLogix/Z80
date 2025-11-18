@@ -16,24 +16,35 @@
 #include <cassert>
 #include <iostream>
 #include <iomanip>
+#include <chrono>
 
 int tests_passed = 0;
 int tests_failed = 0;
+
+struct TestCase {
+    void (*func)();
+    const char* name;
+};
+std::vector<TestCase>& get_test_cases() {
+    static std::vector<TestCase> tests;
+    return tests;
+}
 
 #define TEST_CASE(name)                                           \
     void test_##name();                                           \
     struct TestRegisterer_##name {                                \
         TestRegisterer_##name() {                                 \
-            std::cout << "--- Running test: " #name " ---\n";     \
-            try {                                                 \
-                test_##name();                                    \
-            } catch (const std::exception& e) {                   \
-                std::cerr << "ERROR: " << e.what() << std::endl;  \
-                tests_failed++;                                   \
-            }                                                     \
+            get_test_cases().push_back({test_##name, #name});     \
         }                                                         \
     } test_registerer_##name;                                     \
     void test_##name()
+
+void run_all_tests() {
+    for (const auto& test : get_test_cases()) {
+        std::cout << "--- Running test: " << test.name << " ---\n";
+        test.func();
+    }
+}
 
 class MockSourceProvider : public ISourceProvider {
 public:
@@ -2918,12 +2929,29 @@ int main() {
     std::cout << "  Running Z80Assembler Tests \n";
     std::cout << "=============================\n";
 
-    // The test cases are automatically registered and run here.
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    try {
+        run_all_tests();
+    } catch (const std::exception& e) {
+        std::cerr << "ERROR: An uncaught exception occurred: " << e.what() << std::endl;
+        tests_failed++;
+    }
+
+    auto end_time = std::chrono::high_resolution_clock::now();
+    long long total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    long long ms = total_ms % 1000;
+    long long total_seconds = total_ms / 1000;
+    long long seconds = total_seconds % 60;
+    long long minutes = total_seconds / 60;
 
     std::cout << "\n=============================\n";
     std::cout << "Test summary:\n";
     std::cout << "  Passed: " << tests_passed << "\n";
     std::cout << "  Failed: " << tests_failed << "\n";
+    std::cout << "  Duration: " << std::setfill('0') << std::setw(2) << minutes << "m "
+              << std::setfill('0') << std::setw(2) << seconds << "s "
+              << std::setw(3) << ms << "ms\n";
     std::cout << "=============================\n";
 
     return (tests_failed > 0) ? 1 : 0;
