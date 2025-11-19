@@ -114,10 +114,10 @@ public:
         std::string line;
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
-        SymbolsBuilding symbols_building(m_context, m_context.options.compilation.max_passes);
+        SymbolsPhase symbols_building(m_context, m_context.options.compilation.max_passes);
         m_context.start_addr = start_addr;
-        CodeGeneration code_generation(m_context);
-        std::vector<IAssemblyPolicy*> m_phases = {&symbols_building, &code_generation};
+        AssemblyPhase code_generation(m_context);
+        std::vector<IPhasePolicy*> m_phases = {&symbols_building, &code_generation};
         for (auto& phase : m_phases) {
             if (!phase)
                 continue;
@@ -147,19 +147,19 @@ public:
     const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
     const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
 private:
+    struct Macro {
+        std::vector<std::string> arg_names;
+        std::vector<std::string> body;
+        std::vector<std::string> local_labels;
+    };
+    struct Symbol {
+        bool redefinable;
+        int index;
+        std::vector<int32_t> value;
+        std::vector<bool> undefined;
+        bool used;
+    };
     struct CompilationContext {
-        struct Macro {
-            std::vector<std::string> arg_names;
-            std::vector<std::string> body;
-            std::vector<std::string> local_labels;
-        };
-        struct Symbol {
-            bool redefinable;
-            int index;
-            std::vector<int32_t> value;
-            std::vector<bool> undefined;
-            bool used;
-        };
         CompilationContext(const Options& opts) : options(opts) {}
         CompilationContext(const CompilationContext& other) = delete;
         CompilationContext& operator=(const CompilationContext& other) = delete;
@@ -174,7 +174,6 @@ private:
         size_t current_pass = 0;
         std::string last_global_label;
         std::map<std::string, Symbol*> symbols;
-        std::map<std::string, Macro> m_macros;
         struct Results {
             std::map<std::string, SymbolInfo> symbols_table;
             std::vector<BlockInfo> blocks_table;
@@ -292,10 +291,9 @@ private:
         std::string m_original_string;
         std::vector<Token> m_tokens;
     };
-    class Preprocessor { public:
-        int m_unique_macro_id_counter = 0;
+    class Preprocessor {
+    public:
         Preprocessor(CompilationContext& context) : m_context(context) {}
-
         bool process(const std::string& main_file_path, std::string& output_source) {
             std::set<std::string> included_files;
             return process_file(main_file_path, output_source, included_files);
@@ -356,7 +354,7 @@ private:
             size_t line_number = 0;
             bool in_macro_def = false;
             std::string current_macro_name;
-            typename CompilationContext::Macro current_macro;
+            Macro current_macro;
             std::vector<std::string> lines_to_process;
             while (std::getline(source_stream, original_line))
                 lines_to_process.push_back(original_line);
@@ -382,11 +380,9 @@ private:
                 if (tokens.count() >= 2 && tokens[1].upper() == "MACRO") {
                     if (!m_context.options.directives.allow_macros)
                         continue;
-
                     current_macro_name = tokens[0].original();
                     if (!Keywords::is_valid_label_name(current_macro_name))
                         throw std::runtime_error("Invalid macro name: '" + current_macro_name + "' at line " + std::to_string(line_number));
-
                     in_macro_def = true;
                     current_macro = {};
                     if (tokens.count() > 2) {
@@ -414,10 +410,10 @@ private:
         }
         CompilationContext& m_context;
     };
-    class IAssemblyPolicy;
+    class IPhasePolicy;
     class OperandParser {
     public:
-        OperandParser(IAssemblyPolicy& policy) : m_policy(policy) {}
+        OperandParser(IPhasePolicy& policy) : m_policy(policy) {}
         enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, CHAR_LITERAL, STRING_LITERAL, UNKNOWN };
         struct Operand {
             OperandType type = OperandType::UNKNOWN;
@@ -529,11 +525,11 @@ private:
             static const std::set<std::string> s_condition_names = {"NZ", "Z", "NC", "C", "PO", "PE", "P", "M"};
             return s_condition_names;
         }
-        IAssemblyPolicy& m_policy;
+        IPhasePolicy& m_policy;
     };
     class Expressions {
     public:
-        Expressions(IAssemblyPolicy& policy) : m_policy(policy){}
+        Expressions(IPhasePolicy& policy) : m_policy(policy){}
         bool evaluate(const std::string& s, int32_t& out_value) const {
             if (!m_policy.get_compilation_context().options.expressions.enabled) {
                 if (StringHelper::is_number(s, out_value))
@@ -947,14 +943,14 @@ private:
             out_value = (int32_t)(val_stack.back());
             return true;
         }
-        IAssemblyPolicy& m_policy;
+        IPhasePolicy& m_policy;
     };
-    class IAssemblyPolicy {
+    class IPhasePolicy {
     public:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
 
-        virtual ~IAssemblyPolicy() = default;
+        virtual ~IPhasePolicy() = default;
 
         virtual void on_initialize() = 0;
         virtual void on_finalize() = 0;
@@ -981,13 +977,13 @@ private:
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
-    class DefaultAssemblyPolicy : public IAssemblyPolicy {
+    class CommonPolicy : public IPhasePolicy {
     public:
-        using Operand = typename IAssemblyPolicy::Operand;
-        using OperandType = typename IAssemblyPolicy::OperandType;
+        using Operand = typename IPhasePolicy::Operand;
+        using OperandType = typename IPhasePolicy::OperandType;
 
-        DefaultAssemblyPolicy(CompilationContext& context) : m_context(context) {}
-        virtual ~DefaultAssemblyPolicy() {}
+        CommonPolicy(CompilationContext& context) : m_context(context) {}
+        virtual ~CommonPolicy() {}
 
         virtual CompilationContext& get_compilation_context() override { return m_context; }
         virtual void on_initialize() override {}
@@ -1078,7 +1074,7 @@ private:
         }
         void reset_symbols_index() {
             for (auto& symbol_pair : this->m_context.symbols) {
-                typename CompilationContext::Symbol* symbol = symbol_pair.second;
+                Symbol* symbol = symbol_pair.second;
                 if (symbol)
                     symbol->index = -1;
             }
@@ -1163,12 +1159,14 @@ private:
             return success;
         }
     };
-    class SymbolsBuilding : public DefaultAssemblyPolicy {
+    class SymbolsPhase : public CommonPolicy {
     public:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
 
-        SymbolsBuilding(CompilationContext& context, int max_pass) : DefaultAssemblyPolicy(context), m_max_pass(max_pass) {}
+        SymbolsPhase(CompilationContext& context, int max_pass) : CommonPolicy(context), m_max_pass(max_pass) {}
+        virtual ~SymbolsPhase() {}
+
         virtual void on_initialize() override {
             this->clear_symbols();
         }
@@ -1177,7 +1175,7 @@ private:
                 throw std::runtime_error("Unterminated procedure block (missing ENDP).");
         }
         virtual void on_pass_begin() override {
-            DefaultAssemblyPolicy::on_pass_begin();
+            CommonPolicy::on_pass_begin();
             m_symbols_stable = true;
         }
         virtual bool on_pass_end() override {
@@ -1187,7 +1185,7 @@ private:
                 if (m_symbols_stable) {
                     this->m_context.results.symbols_table.clear();
                     for (const auto& symbol_pair : this->m_context.symbols) {
-                        typename CompilationContext::Symbol* symbol = symbol_pair.second;
+                        Symbol* symbol = symbol_pair.second;
                         if (symbol) {
                             int index = symbol->index;
                             if (!symbol->undefined[index])
@@ -1214,7 +1212,7 @@ private:
                     error_msg += " Undefined symbol(s): ";
                     bool first = true;
                     for (const auto& symbol_pair : this->m_context.symbols) {
-                        typename CompilationContext::Symbol* symbol = symbol_pair.second;
+                        Symbol* symbol = symbol_pair.second;
                         if (symbol) {
                             int index = symbol->index;
                             if (symbol->undefined[index]) {
@@ -1230,13 +1228,13 @@ private:
             this->reset_symbols_index();
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
-            if (DefaultAssemblyPolicy::on_symbol_resolve(symbol, out_value))
+            if (CommonPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             bool resolved = false;
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
             auto it = this->m_context.symbols.find(actual_symbol_name);
             if (it != this->m_context.symbols.end()) {
-                typename CompilationContext::Symbol *symbol = it->second;
+                Symbol *symbol = it->second;
                 if (symbol) {
                     symbol->used = true;
                     int index = symbol->index;
@@ -1249,7 +1247,7 @@ private:
             return resolved;
         }
         virtual void on_label_definition(const std::string& label) override {
-            DefaultAssemblyPolicy::on_label_definition(label);
+            CommonPolicy::on_label_definition(label);
             update_symbol(label, this->m_context.current_logical_address, false, false);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
@@ -1304,7 +1302,7 @@ private:
         bool all_used_symbols_defined() const {
             bool all_used_defined = true;
             for (const auto& symbol_pair : this->m_context.symbols) {
-                typename CompilationContext::Symbol* symbol = symbol_pair.second;
+                Symbol* symbol = symbol_pair.second;
                 if (symbol) {
                     if (symbol->used && symbol->undefined[symbol->index]) {
                         all_used_defined = false;
@@ -1318,11 +1316,11 @@ private:
             std::string actual_name = this->get_absolute_symbol_name(name);
             auto it = this->m_context.symbols.find(actual_name);
             if (it == this->m_context.symbols.end()) {
-                typename CompilationContext::Symbol* new_symbol = new typename CompilationContext::Symbol{redefinable, 0, {value}, {is_undefined}};
+                Symbol* new_symbol = new Symbol{redefinable, 0, {value}, {is_undefined}};
                 this->m_context.symbols[actual_name] = new_symbol;
                 m_symbols_stable = false;
             } else {
-                typename CompilationContext::Symbol *symbol = it->second;
+                Symbol *symbol = it->second;
                 if (symbol) {
                     if (!symbol->redefinable && redefinable)
                         throw std::runtime_error("Cannot redefine constant symbol: " + actual_name);
@@ -1348,13 +1346,13 @@ private:
         bool m_final_pass_scheduled = false;
         int m_max_pass = 0;
     };
-    class CodeGeneration : public DefaultAssemblyPolicy {
+    class AssemblyPhase : public CommonPolicy {
     public:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
         
-        CodeGeneration(CompilationContext& context) : DefaultAssemblyPolicy(context) {}
-        virtual ~CodeGeneration() = default;
+        AssemblyPhase(CompilationContext& context) : CommonPolicy(context) {}
+        virtual ~AssemblyPhase() = default;
 
         virtual void on_initialize() override {
             this->reset_symbols_index();
@@ -1363,7 +1361,7 @@ private:
             this->clear_symbols();
         }
         virtual void on_pass_begin() override {
-            DefaultAssemblyPolicy::on_pass_begin();
+            CommonPolicy::on_pass_begin();
             this->m_last_global_label.clear();
             m_blocks.push_back({this->m_context.start_addr, 0});
         }
@@ -1375,12 +1373,12 @@ private:
             return true;
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
-            if (DefaultAssemblyPolicy::on_symbol_resolve(symbol, out_value))
+            if (CommonPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
             auto it = this->m_context.symbols.find(actual_symbol_name);
             if (it != this->m_context.symbols.end()) {
-                typename CompilationContext::Symbol *symbol = it->second;
+                Symbol *symbol = it->second;
                 if (symbol) {
                     int index = symbol->index;
                     if (index == -1)
@@ -1392,7 +1390,7 @@ private:
             return false;
         }
         virtual void on_label_definition(const std::string& label) override {
-            DefaultAssemblyPolicy::on_label_definition(label);
+            CommonPolicy::on_label_definition(label);
             update_symbol_index(label);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
@@ -1445,7 +1443,7 @@ private:
             std::string actual_name = this->get_absolute_symbol_name(label);
             auto it = this->m_context.symbols.find(actual_name);
             if (it != this->m_context.symbols.end()) {
-                typename CompilationContext::Symbol *symbol = it->second;
+                Symbol *symbol = it->second;
                 if (symbol)
                     symbol->index++;
             }
@@ -1500,9 +1498,9 @@ private:
             return registers;
         }
     };
-    class InstructionEncoder {
+    class Instructions{
     public:
-        InstructionEncoder(IAssemblyPolicy& policy) : m_policy(policy) {}
+        Instructions(IPhasePolicy& policy) : m_policy(policy) {}
 
         bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
             if (Keywords::is_directive(mnemonic)) {
@@ -2518,12 +2516,11 @@ private:
             }
             return false;
         }
-
-        IAssemblyPolicy& m_policy;
+        IPhasePolicy& m_policy;
     };
     class Source {
     public:
-        Source(IAssemblyPolicy& policy) : m_policy(policy) {}
+        Source(IPhasePolicy& policy) : m_policy(policy) {}
         void initialize() {
             m_conditional_stack.clear();
             m_control_flow_stack.clear();
@@ -2550,8 +2547,8 @@ private:
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
-                if (process_macro())
-                    continue;
+                //if (process_macro())
+                    //continue;
                 if (process_label())
                     continue;
                 if (process_directives())
@@ -2561,6 +2558,7 @@ private:
             return true;
         }
     private:
+        /*
         bool process_macro() {
             if (m_tokens.count() == 0)
                 return false;
@@ -2659,7 +2657,7 @@ private:
                 return true;
             }
             return false;
-        }
+        }*/
         bool process_directives() {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
@@ -2720,8 +2718,8 @@ private:
                     for (const auto& arg_token : arg_tokens)
                         operands.push_back(operand_parser.parse(arg_token.original(), mnemonic));
                 }
-                InstructionEncoder encoder(m_policy);
-                encoder.encode(mnemonic, operands);
+                Instructions instructions(m_policy);
+                instructions.encode(mnemonic, operands);
             }
             return true;
         }
@@ -2948,7 +2946,7 @@ private:
             }
             return false;
         }
-        IAssemblyPolicy& m_policy;
+        IPhasePolicy& m_policy;
         struct ConditionalState {
             bool is_active;
             bool else_seen;
@@ -2964,6 +2962,9 @@ private:
             int current_iteration;
             std::vector<std::string> body;
             bool recording;
+        };
+        struct MacroState {
+            typename CompilationContext::Macro macro;
         };
         StringTokens m_tokens;
         std::vector<ConditionalState> m_conditional_stack;
