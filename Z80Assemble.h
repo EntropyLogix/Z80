@@ -381,7 +381,11 @@ private:
                 if (tokens.count() >= 2 && tokens[1].upper() == "MACRO") {
                     if (!m_context.options.directives.allow_macros)
                         continue;
+
                     current_macro_name = tokens[0].original();
+                    if (!Keywords::is_valid_label_name(current_macro_name))
+                        throw std::runtime_error("Invalid macro name: '" + current_macro_name + "' at line " + std::to_string(line_number));
+
                     in_macro_def = true;
                     current_macro = {};
                     if (tokens.count() > 2) {
