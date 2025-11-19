@@ -186,6 +186,7 @@ private:
         class Token {
         public:
             Token(const std::string& text) : m_original(text) {}
+            Token(std::string&& text) : m_original(std::move(text)) {}
             const std::string& original() const { return m_original; }
             const std::string& upper() const {
                 if (m_upper.empty()) {
@@ -252,16 +253,14 @@ private:
             mutable std::optional<int32_t> m_number_val;
             mutable std::optional<std::vector<Token>> m_arguments;
         };
-        StringTokens() : m_original_string(nullptr) {}
-        const std::string& get_original_string() const { return *m_original_string; }
-        void process(std::string* string) {
-            if (!string)
-                return;
+        const std::string& get_original_string() const { return m_original_string; }
+        void process(const std::string& string) {
+            m_original_string = string;
             m_tokens.clear();
-            std::stringstream ss(*string);
+            std::stringstream ss(string);
             std::string token_str;
             while (ss >> token_str)
-                m_tokens.emplace_back(token_str);
+                m_tokens.emplace_back(std::move(token_str));
         }
         size_t count() const { return m_tokens.size(); }
         const Token& operator[](size_t index) const {
@@ -272,13 +271,13 @@ private:
         void merge(size_t start_index, size_t end_index) {
             if (start_index >= m_tokens.size() || end_index >= m_tokens.size() || start_index > end_index)
                 return;
-            std::stringstream merged_original;
+            std::string merged;
             for (size_t i = start_index; i <= end_index; ++i) {
                 if (i > start_index)
-                    merged_original << " ";
-                merged_original << m_tokens[i].original();
+                    merged += " ";
+                merged += m_tokens[i].original();
             }
-            Token merged_token(merged_original.str());
+            Token merged_token(std::move(merged));
             m_tokens.erase(m_tokens.begin() + start_index, m_tokens.begin() + end_index + 1);
             m_tokens.insert(m_tokens.begin() + start_index, merged_token);
         }
@@ -288,7 +287,7 @@ private:
             m_tokens.erase(m_tokens.begin() + index);
         }
     private:
-        std::string* m_original_string;
+        std::string m_original_string;
         std::vector<Token> m_tokens;
     };
     class Preprocessor { public:
@@ -363,7 +362,7 @@ private:
                 line = lines_to_process[i];
                 line_number++;
                 StringTokens tokens;
-                tokens.process(&line);
+                tokens.process(line);
                 if (in_macro_def) {
                     if (tokens.count() == 1 && (tokens[0].upper() == "ENDM" || tokens[0].upper() == "MEND")) {
                         in_macro_def = false;
@@ -2537,7 +2536,7 @@ private:
                 std::string current_line = m_lines_to_process.back();
                 m_lines_to_process.pop_back();
                 std::string line_content = current_line;
-                m_tokens.process(&line_content);
+                m_tokens.process(line_content);
                 if (m_tokens.count() == 0)
                     continue;
                 if (process_macro(line_content)) {
@@ -2712,12 +2711,9 @@ private:
         bool process_conditional_directives() {
             if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
                 return false;
-
             if (m_tokens.count() == 0)
                 return false;
-
             const std::string& directive = m_tokens[0].upper();
-
             if (directive == "IF") {
                 if (m_tokens.count() < 2) throw std::runtime_error("IF directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
