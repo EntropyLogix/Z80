@@ -2924,6 +2924,26 @@ TEST_CASE(MacroSpecialParamZero) {
     )", {3}); // 3 arguments provided
 }
 
+TEST_CASE(MacroShift) {
+    ASSERT_CODE(R"(
+        ORG 0x8000
+        TEST_SHIFT MACRO v1, v2, v3
+            ; 1. POCZĄTEK: Zapisz \1 i \2 (Stan: 1, 2)
+            DEFB \1
+            DEFB \2
+            ; --- Wykonanie SHIFT ---
+            SHIFT
+            ; 2. PO 1. SHIFT: Zapisz nowe \1 (powinno być 2)
+            DEFB \1
+            ; --- Wykonanie SHIFT ---
+            SHIFT
+            ; 3. PO 2. SHIFT: Zapisz nowe \1 (powinno być 3)
+            DEFB \1
+        ENDM
+        TEST_SHIFT 1, 2, 3
+    )", {1, 2, 2, 3});
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";

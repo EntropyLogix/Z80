@@ -1489,7 +1489,7 @@ private:
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "SET", "DEFL", "ORG", 
-                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE", "PROC", "ENDP",
+                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF",
                 "REPT", "ENDR"
             };
@@ -2576,7 +2576,7 @@ private:
                     for (const auto& token : arg_tokens)
                         args.push_back(token.original());
                 }
-                auto macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
+                typename CompilationContext::Macro macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
                 std::vector<std::string> expanded_body_lines = macro.body;
                 if (!macro.local_labels.empty()) {
                     std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
@@ -2586,10 +2586,18 @@ private:
                         }
                     }
                 }
-                //SHIFT tutaj
                 std::vector<std::string> final_body_lines;
                 for (const auto& line : expanded_body_lines) {
                     std::string final_line;
+                    StringTokens line_tokens;
+                    line_tokens.process(line);
+                    if (line_tokens.count() == 1 && line_tokens[0].upper() == "SHIFT") {
+                        if (!args.empty()) {
+                            args.erase(args.begin());
+                        }
+                        continue;
+                    }
+
                     final_line.reserve(line.length());
                     for (size_t i = 0; i < line.length(); ++i) {
                         if (line[i] == '\\' && i + 1 < line.length()) {
