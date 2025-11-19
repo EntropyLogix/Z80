@@ -79,6 +79,7 @@ public:
             bool allow_repeat = true;
             bool allow_phase = true;
             bool allow_proc = true;
+            bool allow_macros = true;
         } directives;
         struct ExpressionOptions {
             bool enabled = true;
@@ -378,6 +379,8 @@ private:
                     continue;
                 }
                 if (tokens.count() >= 2 && tokens[1].upper() == "MACRO") {
+                    if (!m_context.options.directives.allow_macros)
+                        continue;
                     current_macro_name = tokens[0].original();
                     in_macro_def = true;
                     current_macro = {};
@@ -2553,6 +2556,8 @@ private:
     private:
         bool process_macro() {
             if (m_tokens.count() == 0)
+                return false;
+            if (!m_policy.get_compilation_context().options.directives.allow_macros)
                 return false;
             const auto& potential_macro_name = m_tokens[0].original();
             if (m_policy.get_compilation_context().macros.count(potential_macro_name)) {
