@@ -252,11 +252,11 @@ private:
             mutable std::optional<int32_t> m_number_val;
             mutable std::optional<std::vector<Token>> m_arguments;
         };
-        const std::string& get_original_line() const { return m_original_line; }
-        void process(const std::string& line) {
+        const std::string& get_original_line() const { return *m_original_line; }
+        void process(std::string* line) {
             m_original_line = line;
             m_tokens.clear();
-            std::stringstream ss(line);
+            std::stringstream ss(*line);
             std::string token_str;
             while (ss >> token_str)
                 m_tokens.emplace_back(token_str);
@@ -286,7 +286,7 @@ private:
             m_tokens.erase(m_tokens.begin() + index);
         }
     private:
-        std::string m_original_line;
+        std::string* m_original_line;
         std::vector<Token> m_tokens;
     };
     class Preprocessor { public:
@@ -361,7 +361,7 @@ private:
                 line = lines_to_process[i];
                 line_number++;
                 StringTokens tokens;
-                tokens.process(line);
+                tokens.process(&line);
                 if (in_macro_def) {
                     if (tokens.count() == 1 && (tokens[0].upper() == "ENDM" || tokens[0].upper() == "MEND")) {
                         in_macro_def = false;
@@ -2535,7 +2535,7 @@ private:
                 std::string current_line = m_lines_to_process.back();
                 m_lines_to_process.pop_back();
                 std::string line_content = current_line;
-                m_tokens.process(line_content);
+                m_tokens.process(&line_content);
                 if (m_tokens.count() == 0)
                     continue;
                 if (process_macro(line_content)) {
