@@ -1485,8 +1485,9 @@ private:
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "SET", "DEFL", "ORG", 
-                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE",
-                "PROC", "ENDP"
+                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE", "PROC", "ENDP",
+                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF",
+                "REPT", "ENDR"
             };
             return directives;
         }
@@ -2547,12 +2548,12 @@ private:
                     continue;
                 if (process_macro())
                     continue;
-                if (process_directives())
-                    continue;
                 if (m_policy.get_compilation_context().options.labels.enabled) {
                     if (process_label())
                         continue;
                 }
+                if (process_directives())
+                    continue;
                 process_instruction();
             }
             return true;
@@ -2674,8 +2675,14 @@ private:
                 }
             }
             if (!is_label && label_options.allow_no_colon) {
-                if (!Keywords::is_reserved(first_token.upper()))
-                    is_label = true;
+                if (!Keywords::is_reserved(first_token.upper())) {
+                    if (m_tokens.count() > 1) {
+                        const std::string& next_token = m_tokens[1].upper();
+                        if (next_token != "EQU" && next_token != "SET" && next_token != "DEFL" && next_token != "=" && next_token != "PROC")
+                            is_label = true;
+                    } else
+                        is_label = true;
+                }
             }
             if (is_label) {
                 if (!Keywords::is_valid_label_name(label_str))
