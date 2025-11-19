@@ -252,11 +252,13 @@ private:
             mutable std::optional<int32_t> m_number_val;
             mutable std::optional<std::vector<Token>> m_arguments;
         };
-        const std::string& get_original_line() const { return *m_original_line; }
-        void process(std::string* line) {
-            m_original_line = line;
+        StringTokens() : m_original_string(nullptr) {}
+        const std::string& get_original_string() const { return *m_original_string; }
+        void process(std::string* string) {
+            if (!string)
+                return;
             m_tokens.clear();
-            std::stringstream ss(*line);
+            std::stringstream ss(*string);
             std::string token_str;
             while (ss >> token_str)
                 m_tokens.emplace_back(token_str);
@@ -286,7 +288,7 @@ private:
             m_tokens.erase(m_tokens.begin() + index);
         }
     private:
-        std::string* m_original_line;
+        std::string* m_original_string;
         std::vector<Token> m_tokens;
     };
     class Preprocessor { public:
@@ -2837,7 +2839,7 @@ private:
                             m_lines_to_process.insert(m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
                         m_rept_stack.pop_back();
                     } else
-                        m_rept_stack.back().body.push_back(m_tokens.get_original_line());
+                        m_rept_stack.back().body.push_back(m_tokens.get_original_string());
                     return true;
                 }
             }
