@@ -2535,20 +2535,12 @@ private:
             while (!m_lines_to_process.empty()) {
                 std::string current_line = m_lines_to_process.back();
                 m_lines_to_process.pop_back();
-                std::string line_content = current_line;
-                m_tokens.process(line_content);
+                m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
-                if (process_macro(line_content)) {
-                    std::stringstream expansion_stream(line_content);
-                    std::vector<std::string> new_lines;
-                    std::string expansion_line;
-                    while (std::getline(expansion_stream, expansion_line))
-                        new_lines.push_back(expansion_line);
-                    m_lines_to_process.insert(m_lines_to_process.end(), new_lines.rbegin(), new_lines.rend());
+                if (process_macro())
                     continue;
-                }
-                if (process_directives(line_content))
+                if (process_directives())
                     continue;
                 if (m_policy.get_compilation_context().options.labels.enabled) {
                     if (process_label())
@@ -2559,7 +2551,7 @@ private:
             return true;
         }
     private:
-        bool process_macro(std::string& expanded_line) {
+        bool process_macro() {
             if (m_tokens.count() == 0)
                 return false;
             const auto& potential_macro_name = m_tokens[0].original();
@@ -2569,13 +2561,11 @@ private:
                     m_tokens.merge(1, m_tokens.count() - 1);
                     auto arg_tokens = m_tokens[1].to_arguments();
                     args.reserve(arg_tokens.size());
-                    for (const auto& token : arg_tokens) {
+                    for (const auto& token : arg_tokens)
                         args.push_back(token.original());
-                    }
                 }
                 auto macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
                 std::string expanded_body = macro.body;
-
                 if (!macro.local_labels.empty()) {
                     std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
                     for (const auto& label : macro.local_labels)
@@ -2618,9 +2608,8 @@ private:
                                 }
                             } else
                                 final_body += expanded_body[i];
-                        } else {
+                        } else
                             final_body += expanded_body[i];
-                        }
                     } else if (expanded_body[i] == '{') {
                         size_t end_brace = expanded_body.find('}', i + 1);
                         if (end_brace != std::string::npos) {
@@ -2637,12 +2626,17 @@ private:
                     } else
                         final_body += expanded_body[i];
                 }
-                expanded_line = final_body;
+                std::stringstream expansion_stream(final_body);
+                std::vector<std::string> new_lines;
+                std::string expansion_line;
+                while (std::getline(expansion_stream, expansion_line))
+                    new_lines.push_back(expansion_line);
+                m_lines_to_process.insert(m_lines_to_process.end(), new_lines.rbegin(), new_lines.rend());
                 return true;
             }
             return false;
         }
-        bool process_directives(std::string& line) {
+        bool process_directives() {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
             if (process_conditional_directives())
@@ -2660,24 +2654,20 @@ private:
         bool process_label() {
             if (m_tokens.count() == 0)
                 return false;
-
             const auto& label_options = m_policy.get_compilation_context().options.labels;
             const auto& first_token = m_tokens[0];
             std::string label_str = first_token.original();
             bool is_label = false;
-
             if (label_options.allow_colon) {
                 if (label_str.length() > 1 && label_str.back() == ':') {
                     label_str.pop_back();
                     is_label = true;
                 }
             }
-
             if (!is_label && label_options.allow_no_colon) {
                 if (!Keywords::is_reserved(first_token.upper()))
                     is_label = true;
             }
-
             if (is_label) {
                 if (!Keywords::is_valid_label_name(label_str))
                     throw std::runtime_error("Invalid label name: '" + label_str + "'");
@@ -2685,7 +2675,6 @@ private:
                 m_tokens.remove(0);
                 return m_tokens.count() == 0;
             }
-
             return false;
         }
         bool process_instruction() {
@@ -2696,9 +2685,8 @@ private:
                 if (m_tokens.count() > 1) {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     auto arg_tokens = m_tokens[1].to_arguments();
-                    for (const auto& arg_token : arg_tokens) {
+                    for (const auto& arg_token : arg_tokens)
                         operands.push_back(operand_parser.parse(arg_token.original(), mnemonic));
-                    }
                 }
                 InstructionEncoder encoder(m_policy);
                 encoder.encode(mnemonic, operands);
@@ -2715,21 +2703,24 @@ private:
                 return false;
             const std::string& directive = m_tokens[0].upper();
             if (directive == "IF") {
-                if (m_tokens.count() < 2) throw std::runtime_error("IF directive requires an expression.");
+                if (m_tokens.count() < 2)
+                    throw std::runtime_error("IF directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 const std::string& expr_str = m_tokens[1].original();
                 bool condition_result = false;
                 if (!is_skipping()) {
                     Expressions expression(m_policy);
                     int32_t value;
-                    if (expression.evaluate(expr_str, value)) condition_result = (value != 0);
+                    if (expression.evaluate(expr_str, value))
+                        condition_result = (value != 0);
                 }
                 m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({!is_skipping() && condition_result, false});
                 return true;
             }
             if (directive == "IFDEF") {
-                if (m_tokens.count() != 2) throw std::runtime_error("IFDEF requires a single symbol.");
+                if (m_tokens.count() != 2)
+                    throw std::runtime_error("IFDEF requires a single symbol.");
                 const std::string& symbol = m_tokens[1].original();
                 int32_t dummy;
                 bool condition_result = !is_skipping() && m_policy.on_symbol_resolve(symbol, dummy);
@@ -2738,7 +2729,8 @@ private:
                 return true;
             }
             if (directive == "IFNDEF") {
-                if (m_tokens.count() != 2) throw std::runtime_error("IFNDEF requires a single symbol.");
+                if (m_tokens.count() != 2)
+                    throw std::runtime_error("IFNDEF requires a single symbol.");
                 const std::string& symbol = m_tokens[1].original();
                 int32_t dummy;
                 bool condition_result = !is_skipping() && !m_policy.on_symbol_resolve(symbol, dummy);
@@ -2747,16 +2739,21 @@ private:
                 return true;
             }
             if (directive == "ELSE") {
-                if (m_conditional_stack.empty()) throw std::runtime_error("ELSE without IF");
-                if (m_conditional_stack.back().else_seen) throw std::runtime_error("Multiple ELSE directives for the same IF");
+                if (m_conditional_stack.empty())
+                    throw std::runtime_error("ELSE without IF");
+                if (m_conditional_stack.back().else_seen)
+                    throw std::runtime_error("Multiple ELSE directives for the same IF");
                 m_conditional_stack.back().else_seen = true;
                 bool parent_is_skipping = m_conditional_stack.size() > 1 && !m_conditional_stack[m_conditional_stack.size() - 2].is_active;
-                if (!parent_is_skipping) m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
+                if (!parent_is_skipping)
+                    m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
                 return true;
             }
             if (directive == "ENDIF") {
-                if (m_conditional_stack.empty()) throw std::runtime_error("ENDIF without IF");
-                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL) throw std::runtime_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
+                if (m_conditional_stack.empty())
+                    throw std::runtime_error("ENDIF without IF");
+                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL)
+                    throw std::runtime_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
                 m_control_flow_stack.pop_back();
                 m_conditional_stack.pop_back();
                 return true;
@@ -2876,7 +2873,6 @@ private:
                 return false;
             const auto& directive_token = m_tokens[0];
             const std::string& directive_upper = directive_token.upper();
-
             if (m_policy.get_compilation_context().options.directives.allow_org && directive_upper == "ORG") {
                 if (m_tokens.count() <= 1)
                     throw std::runtime_error("ORG directive requires an address argument.");
