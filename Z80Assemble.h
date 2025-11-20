@@ -1111,13 +1111,20 @@ private:
         static void to_upper(std::string& s) {
             std::transform(s.begin(), s.end(), s.begin(), ::toupper);
         }
-        static void replace_all(std::string& str, const std::string& from, const std::string& to) {
+        static void replace_words(std::string& str, const std::string& from, const std::string& to) {
             if (from.empty())
                 return;
             size_t start_pos = 0;
             while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
-                str.replace(start_pos, from.length(), to);
-                start_pos += to.length();
+                bool prefix_ok = (start_pos == 0) || std::isspace(str[start_pos - 1]);
+                bool suffix_ok = (start_pos + from.length() == str.length()) || std::isspace(str[start_pos + from.length()]);
+
+                if (prefix_ok && suffix_ok) {
+                    str.replace(start_pos, from.length(), to);
+                    start_pos += to.length();
+                } else {
+                    start_pos += 1;
+                }
             }
         }
         static bool is_number(const std::string& s, int32_t& out_value) {
@@ -2547,8 +2554,8 @@ private:
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
-                //if (process_macro())
-                    //continue;
+                if (process_macro())
+                    continue;
                 if (process_label())
                     continue;
                 if (process_directives())
@@ -2558,6 +2565,94 @@ private:
             return true;
         }
     private:
+        static constexpr const char* NEXT_MACRO_LINE_MARKER = "%%NEXT_MACRO_LINE%%";
+        bool process_macro() {
+            if (!m_policy.get_compilation_context().options.directives.allow_macros)
+                return false;
+            if (m_tokens.count() == 0)
+                return false;
+            if (m_tokens[0].original() == NEXT_MACRO_LINE_MARKER) {
+                process_macro_line();
+                return true;
+            }
+            const auto& potential_macro_name = m_tokens[0].original();
+            if (m_policy.get_compilation_context().macros.count(potential_macro_name)) {
+                std::vector<std::string> args;
+                if (m_tokens.count() > 1) {
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    auto arg_tokens = m_tokens[1].to_arguments();
+                    args.reserve(arg_tokens.size());
+                    for (const auto& token : arg_tokens)
+                        args.push_back(token.original());
+                }
+                Macro macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
+                if (!macro.local_labels.empty()) {
+                    std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
+                    for (auto& line : macro.body) {
+                        for (const auto& label : macro.local_labels)
+                            StringHelper::replace_words(line, label, "??" + label + "_" + unique_id_str);
+                    }
+                }                
+                m_macros_stack.push_back({macro, args, 0});
+                process_macro_line();
+                return true;
+            }
+            return false;            
+        }
+        void process_macro_line() {
+            if (m_macros_stack.empty())
+                return;
+            m_lines_to_process.push_back(NEXT_MACRO_LINE_MARKER);
+            MacroState& current_macro_state = m_macros_stack.back();
+            if (current_macro_state.next_line_index < current_macro_state.macro.body.size()) {
+                std::string line = current_macro_state.macro.body[current_macro_state.next_line_index++];
+                process_macro_parameters(line);
+                m_lines_to_process.push_back(line);
+            } else
+                m_macros_stack.pop_back();
+        }
+        void process_macro_parameters(std::string& line) {
+            MacroState& current_macro_state = m_macros_stack.back();
+            std::string final_line;
+            final_line.reserve(line.length());
+            for (size_t i = 0; i < line.length(); ++i) {
+                if (line[i] == '\\' && i + 1 < line.length()) {
+                    char next_char = line[i + 1];
+                    if (isdigit(next_char)) {
+                        size_t j = i + 1;
+                        int param_num = 0;
+                        while (j < line.length() && isdigit(line[j])) {
+                            param_num = param_num * 10 + (line[j] - '0');
+                            j++;
+                        }
+                        if (param_num == 0) {
+                            final_line += std::to_string(current_macro_state.parameters.size());
+                        } else if (param_num > 0 && (size_t)param_num <= current_macro_state.parameters.size()) {
+                            final_line += current_macro_state.parameters[param_num - 1];
+                        }
+                        i = j - 1;
+                        continue;
+                    } else if (next_char == '{') {
+                        size_t start_num = i + 2;
+                        size_t end_brace = line.find('}', start_num);
+                        if (end_brace != std::string::npos) {
+                            std::string_view num_sv(line.data() + start_num, end_brace - start_num);
+                            int param_num;
+                            auto result = std::from_chars(num_sv.data(), num_sv.data() + num_sv.size(), param_num);
+                            if (result.ec == std::errc() && result.ptr == num_sv.data() + num_sv.size()) {
+                                if (param_num > 0 && (size_t)param_num <= current_macro_state.parameters.size()) {
+                                    final_line += current_macro_state.parameters[param_num - 1];
+                                    i = end_brace;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+                final_line += line[i];
+            }
+            line = final_line;
+        }
         /*
         bool process_macro() {
             if (m_tokens.count() == 0)
@@ -2964,10 +3059,13 @@ private:
             bool recording;
         };
         struct MacroState {
-            typename CompilationContext::Macro macro;
+            Macro macro;
+            std::vector<std::string> parameters;
+            size_t next_line_index;
         };
         StringTokens m_tokens;
         std::vector<ConditionalState> m_conditional_stack;
+        std::vector<MacroState> m_macros_stack;
         std::vector<std::string> m_lines_to_process;
         std::vector<ReptState> m_rept_stack;
         std::vector<ControlBlockType> m_control_flow_stack;
