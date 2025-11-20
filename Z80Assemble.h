@@ -2602,13 +2602,20 @@ private:
         void process_macro_line() {
             if (m_macros_stack.empty())
                 return;
-            m_lines_to_process.push_back(NEXT_MACRO_LINE_MARKER);
             MacroState& current_macro_state = m_macros_stack.back();
             if (current_macro_state.next_line_index < current_macro_state.macro.body.size()) {
+                m_lines_to_process.push_back(NEXT_MACRO_LINE_MARKER);
                 std::string line = current_macro_state.macro.body[current_macro_state.next_line_index++];
+                StringTokens tokens;
+                tokens.process(line);
+                if (tokens.count() == 1 && tokens.count() > 0 && tokens[0].upper() == "SHIFT") {
+                    if (!current_macro_state.parameters.empty())
+                        current_macro_state.parameters.erase(current_macro_state.parameters.begin());
+                    return;
+                }
                 process_macro_parameters(line);
                 m_lines_to_process.push_back(line);
-            } else
+            } else 
                 m_macros_stack.pop_back();
         }
         void process_macro_parameters(std::string& line) {
@@ -2625,11 +2632,10 @@ private:
                             param_num = param_num * 10 + (line[j] - '0');
                             j++;
                         }
-                        if (param_num == 0) {
+                        if (param_num == 0)
                             final_line += std::to_string(current_macro_state.parameters.size());
-                        } else if (param_num > 0 && (size_t)param_num <= current_macro_state.parameters.size()) {
+                        else if (param_num > 0 && (size_t)param_num <= current_macro_state.parameters.size())
                             final_line += current_macro_state.parameters[param_num - 1];
-                        }
                         i = j - 1;
                         continue;
                     } else if (next_char == '{') {
