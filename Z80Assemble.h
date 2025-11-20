@@ -2649,110 +2649,25 @@ private:
                         }
                     }
                 }
+                if (line[i] == '{') {
+                    size_t end_brace = line.find('}', i + 1);
+                    if (end_brace != std::string::npos) {
+                        std::string arg_name = line.substr(i + 1, end_brace - i - 1);
+                        auto it = std::find(current_macro_state.macro.arg_names.begin(), current_macro_state.macro.arg_names.end(), arg_name);
+                        if (it != current_macro_state.macro.arg_names.end()) {
+                            size_t arg_index = std::distance(current_macro_state.macro.arg_names.begin(), it);
+                            if (arg_index < current_macro_state.parameters.size()) {
+                                final_line += current_macro_state.parameters[arg_index];
+                                i = end_brace;
+                                continue;
+                            }
+                        }
+                    }
+                }
                 final_line += line[i];
             }
             line = final_line;
         }
-        /*
-        bool process_macro() {
-            if (m_tokens.count() == 0)
-                return false;
-            if (!m_policy.get_compilation_context().options.directives.allow_macros)
-                return false;
-            const auto& potential_macro_name = m_tokens[0].original();
-            if (m_policy.get_compilation_context().macros.count(potential_macro_name)) {
-                std::vector<std::string> args;
-                if (m_tokens.count() > 1) {
-                    m_tokens.merge(1, m_tokens.count() - 1);
-                    auto arg_tokens = m_tokens[1].to_arguments();
-                    args.reserve(arg_tokens.size());
-                    for (const auto& token : arg_tokens)
-                        args.push_back(token.original());
-                }
-                typename CompilationContext::Macro macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
-                std::vector<std::string> expanded_body_lines = macro.body;
-                if (!macro.local_labels.empty()) {
-                    std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
-                    for (auto& line : expanded_body_lines) {
-                        for (const auto& label : macro.local_labels) {
-                            StringHelper::replace_all(line, label, "??" + label + "_" + unique_id_str);
-                        }
-                    }
-                }
-                std::vector<std::string> final_body_lines;
-                for (const auto& line : expanded_body_lines) {
-                    std::string final_line;
-                    StringTokens line_tokens;
-                    line_tokens.process(line);
-                    if (line_tokens.count() == 1 && line_tokens[0].upper() == "SHIFT") {
-                        if (!args.empty()) {
-                            args.erase(args.begin());
-                        }
-                        continue;
-                    }
-
-                    final_line.reserve(line.length());
-                    for (size_t i = 0; i < line.length(); ++i) {
-                        if (line[i] == '\\' && i + 1 < line.length()) {
-                            if (isdigit(line[i + 1])) {
-                                size_t j = i + 1;
-                                int param_num = 0;
-                                while (j < line.length() && isdigit(line[j])) {
-                                    param_num = param_num * 10 + (line[j] - '0');
-                                    j++;
-                                }
-                                if (param_num == 0)
-                                    final_line += std::to_string(args.size());
-                                else if (param_num > 0 && (size_t)param_num <= args.size())
-                                    final_line += args[param_num - 1];
-                                i = j - 1;
-                            } else if (line[i + 1] == '{') {
-                                size_t start_num = i + 2;
-                                size_t end_brace = line.find('}', start_num);
-                                if (end_brace != std::string::npos) {
-                                    std::string num_str = line.substr(start_num, end_brace - start_num);
-                                    int param_num = 0;
-                                    const char* start_ptr = num_str.c_str();
-                                    const char* end_ptr = start_ptr + num_str.length();
-                                    auto result = std::from_chars(start_ptr, end_ptr, param_num);
-                                    if (result.ec == std::errc()) {
-                                        if (param_num > 0 && (size_t)param_num <= args.size())
-                                            final_line += args[param_num - 1];
-                                        final_line += std::string(result.ptr, end_ptr);
-                                        i = end_brace;
-                                    } else {
-                                        final_line += line.substr(i, end_brace - i + 1);
-                                        i = end_brace;
-                                    }
-                                }
-                            } else {
-                                final_line += line[i];
-                            }
-                        } else if (line[i] == '{') {
-                            size_t end_brace = line.find('}', i + 1);
-                            if (end_brace != std::string::npos) {
-                                std::string arg_name = line.substr(i + 1, end_brace - i - 1);
-                                auto it = std::find(macro.arg_names.begin(), macro.arg_names.end(), arg_name);
-                                if (it != macro.arg_names.end()) {
-                                    size_t arg_index = std::distance(macro.arg_names.begin(), it);
-                                    if (arg_index < args.size())
-                                        final_line += args[arg_index];
-                                    i = end_brace;
-                                    continue;
-                                }
-                            }
-                            final_line += line[i];
-                        } else {
-                            final_line += line[i];
-                        }
-                    }
-                    final_body_lines.push_back(final_line);
-                }
-                m_lines_to_process.insert(m_lines_to_process.end(), final_body_lines.rbegin(), final_body_lines.rend());
-                return true;
-            }
-            return false;
-        }*/
         bool process_directives() {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
