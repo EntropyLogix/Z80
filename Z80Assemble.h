@@ -2561,10 +2561,8 @@ private:
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
-                if (!m_rept_stack.empty()) {
-                    process_rept_line(current_line);
+                if (process_repeat(current_line))
                     continue;
-                }
                 if (process_macro())
                     continue;
                 if (process_label())
@@ -2683,9 +2681,9 @@ private:
             }
             line = final_line;
         }
-        void process_rept_line(const std::string& line) {
+        bool process_repeat(const std::string& line) {
             if (m_rept_stack.empty())
-                return;
+                return false;
             if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
                 if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
                     throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
@@ -2702,6 +2700,7 @@ private:
                 m_rept_stack.pop_back();
             } else
                 m_rept_stack.back().body.push_back(line);
+            return true;
         }
         bool process_directives() {
             if (!m_policy.get_compilation_context().options.directives.enabled)
