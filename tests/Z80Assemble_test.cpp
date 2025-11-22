@@ -2961,6 +2961,23 @@ TEST_CASE(MacroShift) {
     )", {1, 2, 2, 3});
 }
 
+TEST_CASE(MacroVariadicReptShift) {
+    ASSERT_CODE(R"(
+        ; Definicja makra, które wypisuje wszystkie podane bajty
+        WRITE_BYTES MACRO
+            ; \0 to liczba argumentów. 
+            ; Jeśli wywołamy z 3 argumentami, pętla wykona się 3 razy.
+            REPT \0
+                DB \1   ; Wypisz BIEŻĄCY pierwszy argument
+                SHIFT   ; Przesuń kolejkę: \2 staje się \1, \3 staje się \2 itd.
+            ENDR
+        ENDM
+
+        ; Wywołanie z 4 różnymi wartościami
+        WRITE_BYTES 0x10, 0x20, 0x30, 0x40
+    )", {0x10, 0x20, 0x30, 0x40});
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
