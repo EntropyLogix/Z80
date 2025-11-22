@@ -2682,6 +2682,22 @@ private:
             line = final_line;
         }
         bool process_repeat(const std::string& line) {
+            if (m_policy.get_compilation_context().options.directives.allow_repeat) {
+                if (m_tokens.count() >= 2 && m_tokens[0].upper() == "REPT") {
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    const std::string& expr_str = m_tokens[1].original();
+                    Expressions expression(m_policy);
+                    m_control_flow_stack.push_back(ControlBlockType::REPT);
+                    int32_t count;
+                    if (expression.evaluate(expr_str, count)) {
+                        if (count < 0)
+                            throw std::runtime_error("REPT count cannot be negative.");
+                        m_rept_stack.push_back({count, 0, {}});
+                    } else
+                        m_rept_stack.push_back({0, 0, {}});
+                    return true;
+                }
+            }
             if (m_rept_stack.empty())
                 return false;
             if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
@@ -2711,7 +2727,7 @@ private:
                 return true;
             if (process_constant_directives())
                 return true;
-            if (process_control_flow_directives())
+            if (process_procedures())
                 return true;
             if (process_memory_directives())
                 return true;
@@ -2879,23 +2895,7 @@ private:
             }
             return false;
         }
-        bool process_control_flow_directives() {
-            if (m_policy.get_compilation_context().options.directives.allow_repeat) {
-                if (m_tokens.count() >= 2 && m_tokens[0].upper() == "REPT") {
-                    m_tokens.merge(1, m_tokens.count() - 1);
-                    const std::string& expr_str = m_tokens[1].original();
-                    Expressions expression(m_policy);
-                    m_control_flow_stack.push_back(ControlBlockType::REPT);
-                    int32_t count;
-                    if (expression.evaluate(expr_str, count)) {
-                        if (count < 0)
-                            throw std::runtime_error("REPT count cannot be negative.");
-                        m_rept_stack.push_back({count, 0, {}});
-                    } else
-                        m_rept_stack.push_back({0, 0, {}});
-                    return true;
-                }
-            }
+        bool process_procedures() {
             if (m_policy.get_compilation_context().options.directives.allow_proc) {
                 if (m_tokens.count() == 2 && m_tokens[1].upper() == "PROC") {
                     const std::string& proc_name = m_tokens[0].original();
