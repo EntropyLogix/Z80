@@ -1127,7 +1127,7 @@ private:
                 }
             }
         }
-        static void replace_label_occurrences(std::string& str, const std::string& label, const std::string& replacement) {
+        static void replace_labels(std::string& str, const std::string& label, const std::string& replacement) {
             if (label.empty())
                 return;
             size_t start_pos = 0;
@@ -2613,7 +2613,7 @@ private:
                     for (auto& line : macro.body) {
                         for (const auto& label : macro.local_labels) {
                             std::string replacement = "??" + label + "_" + unique_id_str;
-                            StringHelper::replace_label_occurrences(line, label, replacement);
+                            StringHelper::replace_labels(line, label, replacement);
                         }
                     }
                 }                
