@@ -1111,10 +1111,40 @@ private:
         static void to_upper(std::string& s) {
             std::transform(s.begin(), s.end(), s.begin(), ::toupper);
         }
-        static std::string regex_escape(const std::string& s) {
-            static const std::regex special_chars{R"([-[\]{}()*+?.,\^$|#\s])"};
-            return std::regex_replace(s, special_chars, R"(\$&)");
+        static void replace_words(std::string& str, const std::string& from, const std::string& to) {
+            if (from.empty())
+                return;
+            size_t start_pos = 0;
+            while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
+                bool prefix_ok = (start_pos == 0) || std::isspace(str[start_pos - 1]);
+                bool suffix_ok = (start_pos + from.length() == str.length()) || std::isspace(str[start_pos + from.length()]);
+
+                if (prefix_ok && suffix_ok) {
+                    str.replace(start_pos, from.length(), to);
+                    start_pos += to.length();
+                } else {
+                    start_pos += 1;
+                }
+            }
         }
+        static void replace_label_occurrences(std::string& str, const std::string& label, const std::string& replacement) {
+            if (label.empty())
+                return;
+            size_t start_pos = 0;
+            while ((start_pos = str.find(label, start_pos)) != std::string::npos) {
+                bool prefix_ok = (start_pos == 0) || !std::isalnum(str[start_pos - 1]);
+                size_t suffix_pos = start_pos + label.length();
+                bool suffix_ok = (suffix_pos == str.length()) || !std::isalnum(str[suffix_pos]);
+
+                if (prefix_ok && suffix_ok) {
+                    str.replace(start_pos, label.length(), replacement);
+                    start_pos += replacement.length();
+                } else {
+                    start_pos += 1;
+                }
+            }
+        }
+
         static bool is_number(const std::string& s, int32_t& out_value) {
             std::string str = s;
             trim_whitespace(str);
@@ -1447,7 +1477,6 @@ private:
     };
     class Keywords {
     public:
-        static constexpr const char* VALID_LABEL_CHARS = "a-zA-Z0-9_.@?";
         static bool is_mnemonic(const std::string& s) { return is_in_set(s, mnemonics()); }
         static bool is_directive(const std::string& s) { return is_in_set(s, directives()); }
         static bool is_register(const std::string& s) { return is_in_set(s, registers()); }
@@ -1458,11 +1487,13 @@ private:
         static bool is_valid_label_name(const std::string& s) {
             if (s.empty() || is_reserved(s))
                 return false;
-            // A label must start with a letter, '_', '@', '?', or '.' followed by a letter or '_'.
-            // It can then contain any of the allowed characters.
-            static const std::regex valid_label_regex(
-                "^([a-zA-Z_@?]|\\.[a-zA-Z_])[" + std::string(VALID_LABEL_CHARS) + "]*$");
-            return std::regex_match(s, valid_label_regex);
+            if (!std::isalpha(s[0]) && s[0] != '_' && s[0] != '.' && s[0] != '@' && s[0] != '?')
+                return false;
+            for (char c : s) {
+                if (!std::isalnum(c) && c != '_' && c != '.' && c != '@' && c != '?')
+                    return false;
+            }
+            return true;
         }
     private:
         static bool is_in_set(const std::string& s, const std::set<std::string>& set) {
@@ -2581,8 +2612,8 @@ private:
                     std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
                     for (auto& line : macro.body) {
                         for (const auto& label : macro.local_labels) {
-                            std::regex re("(^|[^" + std::string(Keywords::VALID_LABEL_CHARS) + "])(" + StringHelper::regex_escape(label) + ")(:)?($|[^" + std::string(Keywords::VALID_LABEL_CHARS) + "])");
-                            line = std::regex_replace(line, re, "$1??" + StringHelper::regex_escape(label) + "_" + unique_id_str + "$3$4");
+                            std::string replacement = "??" + label + "_" + unique_id_str;
+                            StringHelper::replace_label_occurrences(line, label, replacement);
                         }
                     }
                 }                

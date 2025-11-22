@@ -2818,6 +2818,23 @@ TEST_CASE(MacroWithLocalLabels) {
     });
 }
 
+TEST_CASE(MacroWithLocalLabelAndSpecialChars) {
+    // This test ensures that a local label 'loop' is correctly replaced,
+    // but a different label like 'loop@' or 'loop_' is NOT incorrectly replaced.
+    ASSERT_CODE(R"(
+        DELAY MACRO
+            LOCAL loop, loop@
+            LD B, 255
+        loop:
+            DJNZ loop
+        loop@:
+            NOP
+        ENDM
+        DELAY
+        DELAY
+    )", {0x06, 255, 0x10, 0xFE, 0x00, 0x06, 255, 0x10, 0xFE, 0x00});
+}
+
 TEST_CASE(MacroWithMoreThanNineParams) {
     ASSERT_CODE(R"(
         BIG_MACRO MACRO
