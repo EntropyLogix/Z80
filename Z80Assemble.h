@@ -2532,7 +2532,6 @@ private:
             m_conditional_stack.clear();
             m_control_flow_stack.clear();
             m_rept_stack.clear();
-            m_rept_recording = false;
         }
         void finalize() const {
             if (m_in_macro_expansion)
@@ -2562,7 +2561,7 @@ private:
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
-                if (m_rept_recording) {
+                if (!m_rept_stack.empty()) {
                     process_rept_line(current_line);
                     continue;
                 }
@@ -2612,7 +2611,7 @@ private:
             MacroState& current_macro_state = m_macros_stack.back();
             if (current_macro_state.next_line_index < current_macro_state.macro.body.size()) {
                 std::string line = current_macro_state.macro.body[current_macro_state.next_line_index++];
-                if (!m_rept_recording) {                
+                if (m_rept_stack.empty()) {                
                     StringTokens tokens;
                     tokens.process(line);
                     if (tokens.count() == 1 && tokens.count() > 0 && tokens[0].upper() == "SHIFT") {
@@ -2685,10 +2684,9 @@ private:
             line = final_line;
         }
         void process_rept_line(const std::string& line) {
-            if (!m_rept_recording)
+            if (m_rept_stack.empty())
                 return;
             if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
-                m_rept_recording = false;
                 if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
                     throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
                 m_control_flow_stack.pop_back();
@@ -2896,7 +2894,6 @@ private:
                         m_rept_stack.push_back({count, 0, {}});
                     } else
                         m_rept_stack.push_back({0, 0, {}});
-                    m_rept_recording = true;
                     return true;
                 }
             }
@@ -3002,7 +2999,6 @@ private:
             size_t next_line_index;
         };
         bool m_in_macro_expansion = false;
-        bool m_rept_recording = false;
         StringTokens m_tokens;
         std::vector<ConditionalState> m_conditional_stack;
         std::vector<MacroState> m_macros_stack;
