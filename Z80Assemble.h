@@ -180,6 +180,13 @@ private:
         } results;
         std::map<std::string, Macro> macros;
         int unique_macro_id_counter = 0;
+        enum class ControlBlockType {
+            NONE,
+            CONDITIONAL,
+            REPT,
+            PROCEDURE
+        };
+        std::vector<ControlBlockType> m_control_flow_stack;
     };
     CompilationContext m_context;
     class Preprocessor {
@@ -866,6 +873,13 @@ private:
         virtual void on_proc_end() = 0;
         virtual void on_local_directive(const std::vector<std::string>& symbols) = 0;
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
+        virtual void on_if_directive(const std::string& expression) = 0;
+        virtual void on_ifdef_directive(const std::string& symbol) = 0;
+        virtual void on_ifndef_directive(const std::string& symbol) = 0;
+        virtual void on_else_directive() = 0;
+        virtual void on_endif_directive() = 0;
+        virtual bool is_conditional_block_active() const = 0;
+        virtual void check_control_flow_end() const = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
     class CommonPolicy : public IPhasePolicy {
@@ -876,6 +890,12 @@ private:
         CommonPolicy(CompilationContext& context) : m_context(context) {}
         virtual ~CommonPolicy() {}
 
+        struct ConditionalState {
+            bool is_active;
+            bool else_seen;
+        };
+        std::vector<ConditionalState> m_conditional_stack;
+
         virtual CompilationContext& get_compilation_context() override { return m_context; }
         virtual void on_initialize() override {}
         virtual void on_finalize() override {}
@@ -884,6 +904,8 @@ private:
             m_context.current_physical_address = m_context.start_addr;
             m_context.current_line_number = 0;
             m_context.unique_macro_id_counter = 0;
+            m_conditional_stack.clear();
+            m_context.m_control_flow_stack.clear();
         }
         virtual bool on_pass_end() override { return true; }
         virtual void on_pass_next() override {}
@@ -954,6 +976,65 @@ private:
         }
         bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
         void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
+        void on_if_directive(const std::string& expression) override {
+            bool condition_result = false;
+            if (is_conditional_block_active()) {
+                Expressions expr_eval(*this);
+                int32_t value;
+                if (expr_eval.evaluate(expression, value))
+                    condition_result = (value != 0);
+            }
+            m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
+            m_conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
+        }
+        void on_ifdef_directive(const std::string& symbol) override {
+            int32_t dummy;
+            bool condition_result = is_conditional_block_active() && on_symbol_resolve(symbol, dummy);
+            m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
+            m_conditional_stack.push_back({condition_result, false});
+        }
+        void on_ifndef_directive(const std::string& symbol) override {
+            int32_t dummy;
+            bool condition_result = is_conditional_block_active() && !on_symbol_resolve(symbol, dummy);
+            m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
+            m_conditional_stack.push_back({condition_result, false});
+        }
+        void on_else_directive() override {
+            if (m_conditional_stack.empty())
+                throw std::runtime_error("ELSE without IF");
+            if (m_conditional_stack.back().else_seen)
+                throw std::runtime_error("Multiple ELSE directives for the same IF");
+            m_conditional_stack.back().else_seen = true;
+            bool parent_is_skipping = m_conditional_stack.size() > 1 && !m_conditional_stack[m_conditional_stack.size() - 2].is_active;
+            if (!parent_is_skipping)
+                m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
+        }
+        void on_endif_directive() override {
+            if (m_conditional_stack.empty())
+                throw std::runtime_error("ENDIF without IF");
+            if (m_context.m_control_flow_stack.empty() || m_context.m_control_flow_stack.back() != CompilationContext::ControlBlockType::CONDITIONAL)
+                throw std::runtime_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
+            m_context.m_control_flow_stack.pop_back();
+            m_conditional_stack.pop_back();
+        }
+        bool is_conditional_block_active() const override {
+            return m_conditional_stack.empty() || m_conditional_stack.back().is_active;
+        }
+        void check_control_flow_end() const {
+            if (!m_context.m_control_flow_stack.empty()) {
+                switch (m_context.m_control_flow_stack.back()) {
+                    case CompilationContext::ControlBlockType::CONDITIONAL:
+                        throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
+                    case CompilationContext::ControlBlockType::REPT:
+                        throw std::runtime_error("Unterminated REPT block (missing ENDR).");
+                    case CompilationContext::ControlBlockType::PROCEDURE:
+                        // This is checked in SymbolsPhase::on_finalize
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
         void on_assemble(std::vector<uint8_t> bytes) override {}
     protected:
         void clear_symbols() {
@@ -2540,24 +2621,11 @@ private:
     class Source {
     public:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
-        void initialize() {
-            m_conditional_stack.clear();
-            m_control_flow_stack.clear();
-            m_rept_stack.clear();
-        }
+        void initialize() { m_rept_stack.clear(); }
         void finalize() const {
             if (m_in_macro_expansion)
                 throw std::runtime_error("Unterminated macro expansion at end of file.");
-            if (!m_control_flow_stack.empty()) {
-                switch (m_control_flow_stack.back()) {
-                    case ControlBlockType::CONDITIONAL:
-                        throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
-                    case ControlBlockType::REPT:
-                        throw std::runtime_error("Unterminated REPT block (missing ENDR).");
-                    case ControlBlockType::PROCEDURE:
-                        throw std::runtime_error("Unterminated procedure block (missing ENDP).");
-                }
-            }
+            m_policy.check_control_flow_end();
         }
         bool process_line(const std::string& initial_line) {
             m_lines_to_process.clear();
@@ -2700,31 +2768,31 @@ private:
                 if (m_tokens.count() >= 2 && m_tokens[0].upper() == "REPT") {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     const std::string& expr_str = m_tokens[1].original();
+                    m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::REPT);
                     Expressions expression(m_policy);
-                    m_control_flow_stack.push_back(ControlBlockType::REPT);
                     int32_t count;
                     if (expression.evaluate(expr_str, count)) {
                         if (count < 0)
                             throw std::runtime_error("REPT count cannot be negative.");
-                        m_rept_stack.push_back({count, 0, {}});
+                        m_rept_stack.push_back({(size_t)count, {}});
                     } else
-                        m_rept_stack.push_back({0, 0, {}});
+                        m_rept_stack.push_back({0, {}});
                     return true;
                 }
             }
             if (m_rept_stack.empty())
                 return false;
             if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
-                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
+                if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != CompilationContext::ControlBlockType::REPT)
                     throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
-                m_control_flow_stack.pop_back();
+                m_policy.get_compilation_context().m_control_flow_stack.pop_back();
                 ReptState& rept_block = m_rept_stack.back();
                 if (m_in_macro_expansion && !m_macros_stack.empty()) {
                     MacroState& current_macro_state = m_macros_stack.back();
-                    for (int i = 0; i < rept_block.count; ++i)
+                    for (size_t i = 0; i < rept_block.count; ++i)
                         current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
                 } else {
-                    for (int i = 0; i < rept_block.count; ++i)
+                    for (size_t i = 0; i < rept_block.count; ++i)
                         m_lines_to_process.insert(m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
                 }
                 m_rept_stack.pop_back();
@@ -2737,7 +2805,7 @@ private:
                 return false;
             if (process_conditional_directives())
                 return true;
-            if (!is_conditional_block_active())
+            if (!m_policy.is_conditional_block_active())
                 return true;
             if (process_constant_directives())
                 return true;
@@ -2797,9 +2865,7 @@ private:
             }
             return true;
         }
-        bool is_conditional_block_active() const {
-            return m_conditional_stack.empty() || m_conditional_stack.back().is_active;
-        }
+
         bool process_conditional_directives() {
             if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
                 return false;
@@ -2810,56 +2876,27 @@ private:
                 if (m_tokens.count() < 2)
                     throw std::runtime_error("IF directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
-                const std::string& expr_str = m_tokens[1].original();
-                bool condition_result = false;
-                if (is_conditional_block_active()) {
-                    Expressions expression(m_policy);
-                    int32_t value;
-                    if (expression.evaluate(expr_str, value))
-                        condition_result = (value != 0);
-                }
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
-                m_conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
+                m_policy.on_if_directive(m_tokens[1].original());
                 return true;
             }
             if (directive == "IFDEF") {
                 if (m_tokens.count() != 2)
                     throw std::runtime_error("IFDEF requires a single symbol.");
-                const std::string& symbol = m_tokens[1].original();
-                int32_t dummy;
-                bool condition_result = is_conditional_block_active() && m_policy.on_symbol_resolve(symbol, dummy);
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
-                m_conditional_stack.push_back({condition_result, false});
+                m_policy.on_ifdef_directive(m_tokens[1].original());
                 return true;
             }
             if (directive == "IFNDEF") {
                 if (m_tokens.count() != 2)
                     throw std::runtime_error("IFNDEF requires a single symbol.");
-                const std::string& symbol = m_tokens[1].original();
-                int32_t dummy;
-                bool condition_result = is_conditional_block_active() && !m_policy.on_symbol_resolve(symbol, dummy);
-                m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
-                m_conditional_stack.push_back({condition_result, false});
+                m_policy.on_ifndef_directive(m_tokens[1].original());
                 return true;
             }
             if (directive == "ELSE") {
-                if (m_conditional_stack.empty())
-                    throw std::runtime_error("ELSE without IF");
-                if (m_conditional_stack.back().else_seen)
-                    throw std::runtime_error("Multiple ELSE directives for the same IF");
-                m_conditional_stack.back().else_seen = true;
-                bool parent_is_skipping = m_conditional_stack.size() > 1 && !m_conditional_stack[m_conditional_stack.size() - 2].is_active;
-                if (!parent_is_skipping)
-                    m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
+                m_policy.on_else_directive();
                 return true;
             }
             if (directive == "ENDIF") {
-                if (m_conditional_stack.empty())
-                    throw std::runtime_error("ENDIF without IF");
-                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::CONDITIONAL)
-                    throw std::runtime_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
-                m_control_flow_stack.pop_back();
-                m_conditional_stack.pop_back();
+                m_policy.on_endif_directive();
                 return true;
             }
             return false;
@@ -2915,14 +2952,14 @@ private:
                     const std::string& proc_name = m_tokens[0].original();
                     if (Keywords::is_valid_label_name(proc_name)) {
                         m_policy.on_proc_begin(proc_name);
-                        m_control_flow_stack.push_back(ControlBlockType::PROCEDURE);
+                        m_policy.get_compilation_context().m_control_flow_stack.push_back(ControlBlockType::PROCEDURE);
                         return true;
                     }
                 }
                 if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDP") {
-                    if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::PROCEDURE) throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
+                    if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != ControlBlockType::PROCEDURE) throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
                     m_policy.on_proc_end();
-                    m_control_flow_stack.pop_back();
+                    m_policy.get_compilation_context().m_control_flow_stack.pop_back();
                     return true;
                 }
                 if (m_tokens.count() >= 2 && m_tokens[0].upper() == "LOCAL") {
@@ -2991,21 +3028,13 @@ private:
             return false;
         }
         IPhasePolicy& m_policy;
-        struct ConditionalState {
-            bool is_active;
-            bool else_seen;
-        };
-        enum class ControlBlockType {
-            NONE,
-            CONDITIONAL,
-            REPT,
-            PROCEDURE
-        };
+        using ControlBlockType = typename CompilationContext::ControlBlockType;
+
         struct ReptState {
-            int count;
-            int current_iteration;
+            size_t count;
             std::vector<std::string> body;
         };
+
         struct MacroState {
             Macro macro;
             std::vector<std::string> parameters;
@@ -3013,11 +3042,9 @@ private:
         };
         bool m_in_macro_expansion = false;
         typename Strings::Tokens m_tokens;
-        std::vector<ConditionalState> m_conditional_stack;
         std::vector<MacroState> m_macros_stack;
         std::vector<std::string> m_lines_to_process;
         std::vector<ReptState> m_rept_stack;
-        std::vector<ControlBlockType> m_control_flow_stack;
     };    
 };
 
