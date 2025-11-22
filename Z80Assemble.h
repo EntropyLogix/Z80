@@ -2737,7 +2737,7 @@ private:
                 return false;
             if (process_conditional_directives())
                 return true;
-            if (is_skipping())
+            if (!is_conditional_block_active())
                 return true;
             if (process_constant_directives())
                 return true;
@@ -2797,8 +2797,8 @@ private:
             }
             return true;
         }
-        bool is_skipping() const {
-            return !m_conditional_stack.empty() && !m_conditional_stack.back().is_active;
+        bool is_conditional_block_active() const {
+            return m_conditional_stack.empty() || m_conditional_stack.back().is_active;
         }
         bool process_conditional_directives() {
             if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
@@ -2812,14 +2812,14 @@ private:
                 m_tokens.merge(1, m_tokens.count() - 1);
                 const std::string& expr_str = m_tokens[1].original();
                 bool condition_result = false;
-                if (!is_skipping()) {
+                if (is_conditional_block_active()) {
                     Expressions expression(m_policy);
                     int32_t value;
                     if (expression.evaluate(expr_str, value))
                         condition_result = (value != 0);
                 }
                 m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
-                m_conditional_stack.push_back({!is_skipping() && condition_result, false});
+                m_conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
                 return true;
             }
             if (directive == "IFDEF") {
@@ -2827,7 +2827,7 @@ private:
                     throw std::runtime_error("IFDEF requires a single symbol.");
                 const std::string& symbol = m_tokens[1].original();
                 int32_t dummy;
-                bool condition_result = !is_skipping() && m_policy.on_symbol_resolve(symbol, dummy);
+                bool condition_result = is_conditional_block_active() && m_policy.on_symbol_resolve(symbol, dummy);
                 m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
@@ -2837,7 +2837,7 @@ private:
                     throw std::runtime_error("IFNDEF requires a single symbol.");
                 const std::string& symbol = m_tokens[1].original();
                 int32_t dummy;
-                bool condition_result = !is_skipping() && !m_policy.on_symbol_resolve(symbol, dummy);
+                bool condition_result = is_conditional_block_active() && !m_policy.on_symbol_resolve(symbol, dummy);
                 m_control_flow_stack.push_back(ControlBlockType::CONDITIONAL);
                 m_conditional_stack.push_back({condition_result, false});
                 return true;
