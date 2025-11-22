@@ -2532,6 +2532,7 @@ private:
             m_conditional_stack.clear();
             m_control_flow_stack.clear();
             m_rept_stack.clear();
+            m_rept_recording = false;
         }
         void finalize() const {
             if (m_in_macro_expansion)
@@ -2561,6 +2562,10 @@ private:
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
+                if (m_rept_recording) {
+                    process_rept_line(current_line);
+                    continue;
+                }
                 if (process_macro())
                     continue;
                 if (process_label())
@@ -2607,14 +2612,16 @@ private:
             MacroState& current_macro_state = m_macros_stack.back();
             if (current_macro_state.next_line_index < current_macro_state.macro.body.size()) {
                 std::string line = current_macro_state.macro.body[current_macro_state.next_line_index++];
-                StringTokens tokens;
-                tokens.process(line);
-                if (tokens.count() == 1 && tokens.count() > 0 && tokens[0].upper() == "SHIFT") {
-                    if (!current_macro_state.parameters.empty())
-                        current_macro_state.parameters.erase(current_macro_state.parameters.begin());
-                    return;
+                if (!m_rept_recording) {                
+                    StringTokens tokens;
+                    tokens.process(line);
+                    if (tokens.count() == 1 && tokens.count() > 0 && tokens[0].upper() == "SHIFT") {
+                        if (!current_macro_state.parameters.empty())
+                            current_macro_state.parameters.erase(current_macro_state.parameters.begin());
+                        return;
+                    }
+                    process_macro_parameters(line);
                 }
-                process_macro_parameters(line);
                 m_lines_to_process.push_back(line);
             } else {
                 m_macros_stack.pop_back();
@@ -2676,6 +2683,27 @@ private:
                 final_line += line[i];
             }
             line = final_line;
+        }
+        void process_rept_line(const std::string& line) {
+            if (!m_rept_recording)
+                return;
+            if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
+                m_rept_recording = false;
+                if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
+                    throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
+                m_control_flow_stack.pop_back();
+                ReptState& rept_block = m_rept_stack.back();
+                if (m_in_macro_expansion && !m_macros_stack.empty()) {
+                    MacroState& current_macro_state = m_macros_stack.back();
+                    for (int i = 0; i < rept_block.count; ++i)
+                        current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
+                } else {
+                    for (int i = 0; i < rept_block.count; ++i)
+                        m_lines_to_process.insert(m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
+                }
+                m_rept_stack.pop_back();
+            } else
+                m_rept_stack.back().body.push_back(line);
         }
         bool process_directives() {
             if (!m_policy.get_compilation_context().options.directives.enabled)
@@ -2865,23 +2893,10 @@ private:
                     if (expression.evaluate(expr_str, count)) {
                         if (count < 0)
                             throw std::runtime_error("REPT count cannot be negative.");
-                        m_rept_stack.push_back({count, 0, {}, true});
+                        m_rept_stack.push_back({count, 0, {}});
                     } else
-                        m_rept_stack.push_back({0, 0, {}, true});
-                    return true;
-                }
-                if (!m_rept_stack.empty() && m_rept_stack.back().recording) {
-                    if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
-                        m_rept_stack.back().recording = false;
-                        if (m_control_flow_stack.empty() || m_control_flow_stack.back() != ControlBlockType::REPT)
-                            throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
-                        m_control_flow_stack.pop_back();
-                        ReptState& rept_block = m_rept_stack.back();
-                        for (int i = 0; i < rept_block.count; ++i)
-                            m_lines_to_process.insert(m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
-                        m_rept_stack.pop_back();
-                    } else
-                        m_rept_stack.back().body.push_back(m_tokens.get_original_string());
+                        m_rept_stack.push_back({0, 0, {}});
+                    m_rept_recording = true;
                     return true;
                 }
             }
@@ -2980,7 +2995,6 @@ private:
             int count;
             int current_iteration;
             std::vector<std::string> body;
-            bool recording;
         };
         struct MacroState {
             Macro macro;
@@ -2988,6 +3002,7 @@ private:
             size_t next_line_index;
         };
         bool m_in_macro_expansion = false;
+        bool m_rept_recording = false;
         StringTokens m_tokens;
         std::vector<ConditionalState> m_conditional_stack;
         std::vector<MacroState> m_macros_stack;
