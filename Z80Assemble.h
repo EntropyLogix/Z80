@@ -205,7 +205,7 @@ private:
             bool to_number(int32_t& out_value) const {
                 if (!m_number_val.has_value()) {
                     int32_t val;
-                    if (StringHelper::is_number(m_original, val))
+                    if (Strings::is_number(m_original, val))
                         m_number_val = val;
                     else 
                         m_number_val = std::nullopt;
@@ -426,7 +426,7 @@ private:
             Operand operand;
             operand.str_val = operand_string;
             std::string upper_operand_string = operand_string;
-            StringHelper::to_upper(upper_operand_string);
+            Strings::to_upper(upper_operand_string);
             if (is_char_literal(operand_string)) {
                 operand.num_val = (uint8_t)(operand_string[1]);
                 operand.type = OperandType::CHAR_LITERAL;
@@ -461,7 +461,7 @@ private:
                 inner.erase(0, inner.find_first_not_of(" \t"));
                 inner.erase(inner.find_last_not_of(" \t") + 1);
                 std::string upper_inner = inner;
-                StringHelper::to_upper(upper_inner);
+                Strings::to_upper(upper_inner);
                 if (is_reg16(upper_inner)) {
                     // Handle (REG16)
                     operand.type = OperandType::MEM_REG16;
@@ -477,7 +477,7 @@ private:
                     if (base_reg_str == "IX" || base_reg_str == "IY") {
                         std::string offset_str = inner.substr(operator_pos);
                         int32_t offset_val;
-                        if (StringHelper::is_number(offset_str, offset_val)) {
+                        if (Strings::is_number(offset_str, offset_val)) {
                             // Handle (IX/IY +/- d)
                             operand.type = OperandType::MEM_INDEXED;
                             operand.base_reg = base_reg_str;
@@ -532,7 +532,7 @@ private:
         Expressions(IPhasePolicy& policy) : m_policy(policy){}
         bool evaluate(const std::string& s, int32_t& out_value) const {
             if (!m_policy.get_compilation_context().options.expressions.enabled) {
-                if (StringHelper::is_number(s, out_value))
+                if (Strings::is_number(s, out_value))
                     return true;
                 return false;
             }
@@ -696,7 +696,7 @@ private:
             }
             std::string symbol_str = expr.substr(i, j - i);
             std::string upper_symbol = symbol_str;
-            StringHelper::to_upper(upper_symbol);
+            Strings::to_upper(upper_symbol);
 
             auto const_it = get_constant_map().find(upper_symbol);
             if (const_it != get_constant_map().end()) {
@@ -730,7 +730,7 @@ private:
                         if (last_char != 'B' && last_char != 'H') j++;
                     }
                     int32_t val;
-                    if (StringHelper::is_number(expr.substr(i, j - i), val)) {
+                    if (Strings::is_number(expr.substr(i, j - i), val)) {
                         tokens.push_back({Token::Type::NUMBER, "", (double)(val)});
                         i = j - 1;
                         return true;
@@ -1101,7 +1101,7 @@ private:
         std::vector<std::string> m_proc_stack;
         CompilationContext& m_context;
     };
-    class StringHelper {
+    class Strings {
     public:
         static void trim_whitespace(std::string& s) {
             const char* whitespace = " \t";
@@ -1283,7 +1283,7 @@ private:
         };
         virtual void on_org_directive(const std::string& label) override {
             int32_t num_val;
-            if (StringHelper::is_number(label, num_val))
+            if (Strings::is_number(label, num_val))
                 this->m_context.current_logical_address = this->m_context.current_physical_address = num_val;
             else if (m_symbols_stable) {
                 Expressions expression(*this);
@@ -1295,7 +1295,7 @@ private:
         };
         virtual void on_phase_directive(const std::string& label) override {
             int32_t num_val;
-            if (StringHelper::is_number(label, num_val)) {
+            if (Strings::is_number(label, num_val)) {
                 this->m_context.current_logical_address = num_val;
             }
             else if (m_symbols_stable) {
@@ -2613,7 +2613,7 @@ private:
                     for (auto& line : macro.body) {
                         for (const auto& label : macro.local_labels) {
                             std::string replacement = "??" + label + "_" + unique_id_str;
-                            StringHelper::replace_labels(line, label, replacement);
+                            Strings::replace_labels(line, label, replacement);
                         }
                     }
                 }                
@@ -2938,7 +2938,7 @@ private:
                     std::stringstream ss(symbols_str);
                     std::string symbol;
                     while (std::getline(ss, symbol, ',')) {
-                        StringHelper::trim_whitespace(symbol);
+                        Strings::trim_whitespace(symbol);
                         if (!symbol.empty())
                             symbols.push_back(symbol);
                     }
