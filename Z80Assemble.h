@@ -2534,6 +2534,8 @@ private:
             m_rept_stack.clear();
         }
         void finalize() const {
+            if (m_in_macro_expansion)
+                throw std::runtime_error("Unterminated macro expansion at end of file.");
             if (!m_control_flow_stack.empty()) {
                 switch (m_control_flow_stack.back()) {
                     case ControlBlockType::CONDITIONAL:
@@ -2548,7 +2550,12 @@ private:
         bool process_line(const std::string& initial_line) {
             m_lines_to_process.clear();
             m_lines_to_process.push_back(initial_line);
-            while (!m_lines_to_process.empty()) {
+            while (!m_lines_to_process.empty() || m_in_macro_expansion) {
+                if (m_in_macro_expansion) {
+                    process_macro_line();
+                    if (m_lines_to_process.empty())
+                        continue;
+                }
                 std::string current_line = m_lines_to_process.back();
                 m_lines_to_process.pop_back();
                 m_tokens.process(current_line);
@@ -2565,16 +2572,11 @@ private:
             return true;
         }
     private:
-        static constexpr const char* NEXT_MACRO_LINE_MARKER = "%%NEXT_MACRO_LINE%%";
         bool process_macro() {
             if (!m_policy.get_compilation_context().options.directives.allow_macros)
                 return false;
             if (m_tokens.count() == 0)
                 return false;
-            if (m_tokens[0].original() == NEXT_MACRO_LINE_MARKER) {
-                process_macro_line();
-                return true;
-            }
             const auto& potential_macro_name = m_tokens[0].original();
             if (m_policy.get_compilation_context().macros.count(potential_macro_name)) {
                 std::vector<std::string> args;
@@ -2594,7 +2596,7 @@ private:
                     }
                 }                
                 m_macros_stack.push_back({macro, args, 0});
-                process_macro_line();
+                m_in_macro_expansion = true;
                 return true;
             }
             return false;            
@@ -2604,7 +2606,6 @@ private:
                 return;
             MacroState& current_macro_state = m_macros_stack.back();
             if (current_macro_state.next_line_index < current_macro_state.macro.body.size()) {
-                m_lines_to_process.push_back(NEXT_MACRO_LINE_MARKER);
                 std::string line = current_macro_state.macro.body[current_macro_state.next_line_index++];
                 StringTokens tokens;
                 tokens.process(line);
@@ -2615,8 +2616,10 @@ private:
                 }
                 process_macro_parameters(line);
                 m_lines_to_process.push_back(line);
-            } else 
+            } else {
                 m_macros_stack.pop_back();
+                m_in_macro_expansion = !m_macros_stack.empty();
+            }
         }
         void process_macro_parameters(std::string& line) {
             MacroState& current_macro_state = m_macros_stack.back();
@@ -2984,6 +2987,7 @@ private:
             std::vector<std::string> parameters;
             size_t next_line_index;
         };
+        bool m_in_macro_expansion = false;
         StringTokens m_tokens;
         std::vector<ConditionalState> m_conditional_stack;
         std::vector<MacroState> m_macros_stack;
