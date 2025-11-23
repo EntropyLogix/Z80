@@ -1621,7 +1621,7 @@ private:
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-                "DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "SET", "DEFL", "ORG", 
+                "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "EQU", "SET", "DEFL", "ORG", 
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN",
                 "REPT", "ENDR"
@@ -1709,7 +1709,7 @@ private:
             const auto& directive_options = m_policy.get_compilation_context().options.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
                 return false;
-            if (mnemonic == "DB" || mnemonic == "DEFB") {
+            if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE") {
                 for (const auto& op : ops) {
                     if (match_imm16(op) || match_char(op)) {
                         if (op.num_val > 0xFF)
@@ -1724,12 +1724,31 @@ private:
                 }
                 return true;
             }
-            if (mnemonic == "DW" || mnemonic == "DEFW") {
+            if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
                 for (const auto& op : ops) {
                     if (match_imm16(op) || match_char(op)) {
                         assemble({(uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8)});
                     } else 
                         throw std::runtime_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                }
+                return true;
+            }
+            if (mnemonic == "DWORD" || mnemonic == "DD") {
+                for (const auto& op : ops) {
+                    if (match(op, OperandType::IMMEDIATE)) {
+                        assemble({(uint8_t)(op.num_val & 0xFF), (uint8_t)((op.num_val >> 8) & 0xFF), (uint8_t)((op.num_val >> 16) & 0xFF), (uint8_t)((op.num_val >> 24) & 0xFF)});
+                    } else
+                        throw std::runtime_error("Unsupported operand for DWORD/DD: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                }
+                return true;
+            }
+            if (mnemonic == "DQ") {
+                for (const auto& op : ops) {
+                    if (match(op, OperandType::IMMEDIATE)) {
+                        uint64_t val = static_cast<uint64_t>(op.num_val);
+                        assemble({(uint8_t)(val & 0xFF), (uint8_t)((val >> 8) & 0xFF), (uint8_t)((val >> 16) & 0xFF), (uint8_t)((val >> 24) & 0xFF), (uint8_t)((val >> 32) & 0xFF), (uint8_t)((val >> 40) & 0xFF), (uint8_t)((val >> 48) & 0xFF), (uint8_t)((val >> 56) & 0xFF)});
+                    } else
+                        throw std::runtime_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 return true;
             }
