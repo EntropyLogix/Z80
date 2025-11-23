@@ -188,6 +188,7 @@ private:
         };
         std::vector<std::string> m_lines_to_process;
         std::vector<ControlBlockType> m_control_flow_stack;
+        bool m_in_macro_expansion = false;
     };
     CompilationContext m_context;
     class Preprocessor {
@@ -2674,15 +2675,15 @@ private:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
         void initialize() { m_rept_stack.clear(); }
         void finalize() const {
-            if (m_in_macro_expansion)
+            if (m_policy.get_compilation_context().m_in_macro_expansion)
                 throw std::runtime_error("Unterminated macro expansion at end of file.");
             m_policy.check_control_flow_end();
         }
         bool process_line(const std::string& initial_line) {
             m_policy.get_compilation_context().m_lines_to_process.clear();
             m_policy.get_compilation_context().m_lines_to_process.push_back(initial_line);
-            while (!m_policy.get_compilation_context().m_lines_to_process.empty() || m_in_macro_expansion) {
-                if (m_in_macro_expansion) {
+            while (!m_policy.get_compilation_context().m_lines_to_process.empty() || m_policy.get_compilation_context().m_in_macro_expansion) {
+                if (m_policy.get_compilation_context().m_in_macro_expansion) {
                     process_macro_line();
                     if (m_policy.get_compilation_context().m_lines_to_process.empty())
                         continue;
@@ -2737,7 +2738,7 @@ private:
                     }
                 }                
                 m_macros_stack.push_back({macro, args, 0});
-                m_in_macro_expansion = true;
+                m_policy.get_compilation_context().m_in_macro_expansion = true;
                 return true;
             }
             return false;            
@@ -2761,7 +2762,7 @@ private:
                 m_policy.get_compilation_context().m_lines_to_process.push_back(line);
             } else {
                 m_macros_stack.pop_back();
-                m_in_macro_expansion = !m_macros_stack.empty();
+                m_policy.get_compilation_context().m_in_macro_expansion = !m_macros_stack.empty();
             }
         }
         void process_macro_parameters(std::string& line) {
@@ -2846,7 +2847,7 @@ private:
                     throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
                 m_policy.get_compilation_context().m_control_flow_stack.pop_back();
                 ReptState& rept_block = m_rept_stack.back();
-                if (m_in_macro_expansion && !m_macros_stack.empty()) {
+                if (m_policy.get_compilation_context().m_in_macro_expansion && !m_macros_stack.empty()) {
                     MacroState& current_macro_state = m_macros_stack.back();
                     for (size_t i = 0; i < rept_block.count; ++i)
                         current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
@@ -3141,7 +3142,6 @@ private:
             std::vector<std::string> parameters;
             size_t next_line_index;
         };
-        bool m_in_macro_expansion = false;
         typename Strings::Tokens m_tokens;
         std::vector<MacroState> m_macros_stack;
         std::vector<ReptState> m_rept_stack;
