@@ -75,7 +75,7 @@ public:
             bool allow_data_definitions = true;
             bool allow_incbin = true;
             bool allow_includes = true;
-            bool allow_conditional_compilation = true;
+            bool allow_conditionals = true;
             bool allow_repeat = true;
             bool allow_phase = true;
             bool allow_proc = true;
@@ -2874,7 +2874,7 @@ private:
         bool process_conditional_directives() {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
-            if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
+            if (!m_policy.get_compilation_context().options.directives.allow_conditionals)
                 return false;
             if (m_tokens.count() == 0)
                 return false;
