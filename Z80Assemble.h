@@ -127,12 +127,10 @@ public:
             do {
                 phase->on_pass_begin();
                 Source source(*phase);
-                source.initialize();
                 for (size_t i = 0; i < source_lines.size(); ++i) {
                     m_context.current_line_number = i + 1;
                     source.process_line(source_lines[i]);
                 }
-                source.finalize();
                 if (phase->on_pass_end())
                     end_phase = true;
                 else {
@@ -885,7 +883,6 @@ private:
         virtual void on_error_directive(const std::string& message) = 0;
         virtual void on_assert_directive(const std::string& expression) = 0;
         virtual bool is_conditional_block_active() const = 0;
-        virtual void check_control_flow_end() const = 0;
         virtual void on_repeat_start(const std::string& expression) = 0;
         virtual bool on_repeat_recording(const std::string& expression) = 0;
         virtual void on_repeat_end() = 0;
@@ -919,7 +916,22 @@ private:
             m_macros_stack.clear();
             m_rept_stack.clear();
         }
-        virtual void on_finalize() override {}
+        virtual void on_finalize() override {
+            if (m_context.m_in_macro_expansion)
+                throw std::runtime_error("Unterminated macro expansion at end of file.");
+            if (!m_context.m_control_flow_stack.empty()) {
+                switch (m_context.m_control_flow_stack.back()) {
+                    case CompilationContext::ControlBlockType::CONDITIONAL:
+                        throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
+                    case CompilationContext::ControlBlockType::REPT:
+                        throw std::runtime_error("Unterminated REPT block (missing ENDR).");
+                    case CompilationContext::ControlBlockType::PROCEDURE:
+                        throw std::runtime_error("Unterminated PROC block (missing ENDP).");
+                    default:
+                        break;
+                }
+            }
+        }
         virtual void on_pass_begin() override {
             m_context.current_logical_address = m_context.start_addr;
             m_context.current_physical_address = m_context.start_addr;
@@ -1067,21 +1079,6 @@ private:
         }
         virtual bool is_conditional_block_active() const override {
             return m_conditional_stack.empty() || m_conditional_stack.back().is_active;
-        }
-        virtual void check_control_flow_end() const {
-            if (!m_context.m_control_flow_stack.empty()) {
-                switch (m_context.m_control_flow_stack.back()) {
-                    case CompilationContext::ControlBlockType::CONDITIONAL:
-                        throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
-                    case CompilationContext::ControlBlockType::REPT:
-                        throw std::runtime_error("Unterminated REPT block (missing ENDR).");
-                    case CompilationContext::ControlBlockType::PROCEDURE:
-                        // This is checked in SymbolsPhase::on_finalize
-                        break;
-                    default:
-                        break;
-                }
-            }
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
         virtual void on_repeat_start(const std::string& counter_expr) override {
@@ -1451,10 +1448,6 @@ private:
 
         virtual void on_initialize() override {
             this->clear_symbols();
-        }
-        void on_finalize() override {
-            if (!this->m_scope_stack.empty())
-                throw std::runtime_error("Unterminated procedure block (missing ENDP).");
         }
         virtual void on_pass_begin() override {
             CommonPolicy::on_pass_begin();
@@ -2817,12 +2810,6 @@ private:
     class Source {
     public:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
-        void initialize() {}
-        void finalize() const {
-            if (m_policy.get_compilation_context().m_in_macro_expansion)
-                throw std::runtime_error("Unterminated macro expansion at end of file.");
-            m_policy.check_control_flow_end();
-        }
         bool process_line(const std::string& initial_line) {
             m_policy.get_compilation_context().m_lines_to_process.clear();
             m_policy.get_compilation_context().m_lines_to_process.push_back(initial_line);
