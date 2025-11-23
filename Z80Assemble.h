@@ -877,6 +877,8 @@ private:
         virtual void on_if_directive(const std::string& expression) = 0;
         virtual void on_ifdef_directive(const std::string& symbol) = 0;
         virtual void on_ifndef_directive(const std::string& symbol) = 0;
+        virtual void on_ifnb_directive(const std::string& arg) = 0;
+        virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) = 0;
         virtual void on_else_directive() = 0;
         virtual void on_endif_directive() = 0;
         virtual bool is_conditional_block_active() const = 0;
@@ -997,6 +999,22 @@ private:
         void on_ifndef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && !on_symbol_resolve(symbol, dummy);
+            m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
+            m_conditional_stack.push_back({condition_result, false});
+        }
+        void on_ifnb_directive(const std::string& arg) override {
+            bool condition_result = is_conditional_block_active() && !arg.empty();
+            m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
+            m_conditional_stack.push_back({condition_result, false});
+        }
+        void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {
+            std::string s1 = arg1;
+            std::string s2 = arg2;
+            if (s1.length() >= 2 && s1.front() == '<' && s1.back() == '>')
+                s1 = s1.substr(1, s1.length() - 2);
+            if (s2.length() >= 2 && s2.front() == '<' && s2.back() == '>')
+                s2 = s2.substr(1, s2.length() - 2);
+            bool condition_result = is_conditional_block_active() && (s1 == s2);
             m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
@@ -1592,7 +1610,7 @@ private:
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "SET", "DEFL", "ORG", 
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT",
-                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF",
+                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN",
                 "REPT", "ENDR"
             };
             return directives;
@@ -2896,6 +2914,25 @@ private:
                 if (m_tokens.count() != 2)
                     throw std::runtime_error("IFNDEF requires a single symbol.");
                 m_policy.on_ifndef_directive(m_tokens[1].original());
+                return true;
+            }
+            if (directive == "IFNB") {
+                if (m_tokens.count() > 1) {
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    m_policy.on_ifnb_directive(m_tokens[1].original());
+                } else {
+                    m_policy.on_ifnb_directive(""); // Handle case with no argument
+                }
+                return true;
+            }
+            if (directive == "IFIDN") {
+                if (m_tokens.count() < 2)
+                    throw std::runtime_error("IFIDN directive requires two arguments.");
+                m_tokens.merge(1, m_tokens.count() - 1);
+                auto args = m_tokens[1].to_arguments();
+                if (args.size() != 2)
+                    throw std::runtime_error("IFIDN requires exactly two arguments, separated by a comma.");
+                m_policy.on_ifidn_directive(args[0].original(), args[1].original());
                 return true;
             }
             if (directive == "ELSE") {

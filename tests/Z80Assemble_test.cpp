@@ -2303,7 +2303,7 @@ TEST_CASE(DirectiveOptions) {
 
     // 9. Test directives.allow_conditional_compilation = false
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
-    options.directives.allow_conditional_compilation = false;
+    options.directives.allow_conditionals = false;
     try {
         ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nNOP\nENDIF", options);
     } catch (const std::exception& e) {
@@ -2319,7 +2319,7 @@ TEST_CASE(DirectiveOptions) {
 
     // 10. Test that disabling conditional compilation doesn't affect other directives
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
-    options.directives.allow_conditional_compilation = false;
+    options.directives.allow_conditionals = false;
     ASSERT_CODE_WITH_OPTS(R"(
         VALUE EQU 10
         LD A, VALUE
@@ -2999,6 +2999,107 @@ TEST_CASE(MacroVariadicReptShift) {
         ; Wywołanie z 4 różnymi wartościami
         WRITE_BYTES 0x10, 0x20, 0x30, 0x40
     )", {0x10, 0x20, 0x30, 0x40});
+}
+
+TEST_CASE(MacroIfNotBlank_OptionalParam) {
+    ASSERT_CODE(R"(
+        ; Makro: Jeśli podano \1, załaduj go do A.
+        ; Jeśli nie, wyzeruj A (XOR A).
+        LOAD_OPT MACRO val
+            IFNB \1       ; Czy \1 nie jest pusty?
+                LD A, \1
+            ELSE          ; Jest pusty
+                XOR A
+            ENDIF
+        ENDM
+
+        LOAD_OPT 0x55     ; Przypadek 1: Podano argument
+        LOAD_OPT          ; Przypadek 2: Brak argumentu
+    )", {
+        0x3E, 0x55,       // LD A, 0x55
+        0xAF              // XOR A
+    });
+}
+
+TEST_CASE(MacroIfIdentical_Optimization) {
+    ASSERT_CODE(R"(
+        ; Makro: Jeśli wartość to dokładnie "0", użyj XOR.
+        ; W przeciwnym razie użyj LD.
+        SMART_LD MACRO val
+            ; Używamy nawiasów <>, aby bezpiecznie porównać stringi
+            IFIDN <\1>, <0>
+                XOR A
+            ELSE
+                LD A, \1
+            ENDIF
+        ENDM
+
+        SMART_LD 0        ; Powinno być zoptymalizowane
+        SMART_LD 1        ; Powinno być standardowe
+        SMART_LD 00       ; "00" to nie to samo co "0" tekstowo!
+    )", {
+        0xAF,             // XOR A
+        0x3E, 0x01,       // LD A, 1
+        0x3E, 0x00        // LD A, 0 (bo "00" != "0")
+    });
+}
+
+TEST_CASE(MacroIfIdentical_RegisterSelect) {
+    ASSERT_CODE(R"(
+        ; Makro generuje PUSH dla konkretnego rejestru
+        MY_PUSH MACRO reg
+            IFIDN <\1>, <HL>
+                PUSH HL
+            ELSE
+                IFIDN <\1>, <BC>
+                    PUSH BC
+                ELSE
+                    NOP ; Nieznany lub małe litery
+                ENDIF
+            ENDIF
+        ENDM
+
+        MY_PUSH HL        ; Pasuje
+        MY_PUSH BC        ; Pasuje
+        MY_PUSH hl        ; Nie pasuje (małe litery)
+        MY_PUSH AF        ; Nie pasuje
+    )", {
+        0xE5,             // PUSH HL
+        0xC5,             // PUSH BC
+        0x00,             // NOP (bo "hl" != "HL")
+        0x00              // NOP
+    });
+}
+
+TEST_CASE(MacroVariadicWithShiftAndCount) {
+    ASSERT_CODE(R"(
+        DUMP_SAFE MACRO
+             REPT \0
+                DB \1
+                SHIFT
+             ENDR
+        ENDM
+
+        DUMP_SAFE 10, 20, 30
+    )", {10, 20, 30});
+}
+
+TEST_CASE(MacroIfIdentical_Empty) {
+    ASSERT_CODE(R"(
+        CHECK_EMPTY MACRO val
+            IFIDN <\1>, <>  ; Czy \1 jest pusty?
+                DB 0xFF
+            ELSE
+                DB 0x00
+            ENDIF
+        ENDM
+
+        CHECK_EMPTY       ; Pusty
+        CHECK_EMPTY 5     ; Niepusty
+    )", {
+        0xFF,
+        0x00
+    });
 }
 
 int main() {
