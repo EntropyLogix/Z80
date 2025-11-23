@@ -193,6 +193,13 @@ private:
             };
             std::vector<ControlBlockType> control_stack;
         } source;
+        struct Repeat {
+            struct State {
+                size_t count;
+                std::vector<std::string> body;
+            };
+            std::vector<State> stack;
+        } repeat;
         std::vector<std::string> m_lines_to_process;
     };
     CompilationContext m_context;
@@ -921,7 +928,7 @@ private:
         virtual void on_initialize() override {
             m_conditional_stack.clear();
             m_macros_stack.clear();
-            m_rept_stack.clear();
+            m_context.repeat.stack.clear();
         }
         virtual void on_finalize() override {
             if (m_context.macros.in_expansion)
@@ -934,8 +941,6 @@ private:
                         throw std::runtime_error("Unterminated REPT block (missing ENDR).");
                     case CompilationContext::Source::ControlBlockType::PROCEDURE:
                         throw std::runtime_error("Unterminated PROC block (missing ENDP).");
-                    default:
-                        break;
                 }
             }
         }
@@ -1095,13 +1100,13 @@ private:
             if (expression.evaluate(counter_expr, count)) {
                 if (count < 0)
                     throw std::runtime_error("REPT count cannot be negative.");
-                m_rept_stack.push_back({(size_t)count, {}});
+                m_context.repeat.stack.push_back({(size_t)count, {}});
             } else
-                m_rept_stack.push_back({0, {}});
+                m_context.repeat.stack.push_back({0, {}});
         }
         virtual bool on_repeat_recording(const std::string& line) override {
-            if (!m_rept_stack.empty()) {
-                m_rept_stack.back().body.push_back(line);
+            if (!m_context.repeat.stack.empty()) {
+                m_context.repeat.stack.back().body.push_back(line);
                 return true;
             }
             return false;
@@ -1110,7 +1115,7 @@ private:
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != CompilationContext::Source::ControlBlockType::REPT)
                 throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
             m_context.source.control_stack.pop_back();
-            ReptState& rept_block = m_rept_stack.back();
+            typename CompilationContext::Repeat::State& rept_block = m_context.repeat.stack.back();
             if (m_context.macros.in_expansion && !m_macros_stack.empty()) {
                 MacroState& current_macro_state = m_macros_stack.back();
                 for (size_t i = 0; i < rept_block.count; ++i)
@@ -1119,7 +1124,7 @@ private:
                 for (size_t i = 0; i < rept_block.count; ++i)
                     m_context.m_lines_to_process.insert(m_context.m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
             }
-            m_rept_stack.pop_back();
+            m_context.repeat.stack.pop_back();
         }
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) {
             Macro macro = m_context.macros.definitions.at(name);
@@ -1141,7 +1146,7 @@ private:
             MacroState& current_macro_state = m_macros_stack.back();
             if (current_macro_state.next_line_index < current_macro_state.macro.body.size()) {
                 std::string line = current_macro_state.macro.body[current_macro_state.next_line_index++];
-                if (m_rept_stack.empty()) {                
+                if (m_context.repeat.stack.empty()) {                
                     typename Strings::Tokens tokens;
                     tokens.process(line);
                     if (tokens.count() == 1 && tokens.count() > 0 && tokens[0].upper() == "SHIFT") {
@@ -1247,11 +1252,7 @@ private:
         std::vector<Scope> m_scope_stack;
         std::string m_last_global_label;
         std::vector<std::string> m_proc_stack;
-        struct ReptState {
-            size_t count;
-            std::vector<std::string> body;
-        };
-        std::vector<ReptState> m_rept_stack;
+
         CompilationContext& m_context;
     };
     class Strings {
