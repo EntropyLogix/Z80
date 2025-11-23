@@ -186,6 +186,7 @@ private:
             REPT,
             PROCEDURE
         };
+        std::vector<std::string> m_lines_to_process;
         std::vector<ControlBlockType> m_control_flow_stack;
     };
     CompilationContext m_context;
@@ -2628,26 +2629,30 @@ private:
             m_policy.check_control_flow_end();
         }
         bool process_line(const std::string& initial_line) {
-            m_lines_to_process.clear();
-            m_lines_to_process.push_back(initial_line);
-            while (!m_lines_to_process.empty() || m_in_macro_expansion) {
+            m_policy.get_compilation_context().m_lines_to_process.clear();
+            m_policy.get_compilation_context().m_lines_to_process.push_back(initial_line);
+            while (!m_policy.get_compilation_context().m_lines_to_process.empty() || m_in_macro_expansion) {
                 if (m_in_macro_expansion) {
                     process_macro_line();
-                    if (m_lines_to_process.empty())
+                    if (m_policy.get_compilation_context().m_lines_to_process.empty())
                         continue;
                 }
-                std::string current_line = m_lines_to_process.back();
-                m_lines_to_process.pop_back();
+                std::string current_line = m_policy.get_compilation_context().m_lines_to_process.back();
+                m_policy.get_compilation_context().m_lines_to_process.pop_back();
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
                 if (process_repeat(current_line))
                     continue;
+                if (process_conditional_directives())
+                    continue;
+                if (!m_policy.is_conditional_block_active())
+                    continue;
                 if (process_macro())
                     continue;
                 if (process_label())
                     continue;
-                if (process_directives())
+                if (process_non_conditional_directives())
                     continue;
                 process_instruction();
             }
@@ -2701,7 +2706,7 @@ private:
                     }
                     process_macro_parameters(line);
                 }
-                m_lines_to_process.push_back(line);
+                m_policy.get_compilation_context().m_lines_to_process.push_back(line);
             } else {
                 m_macros_stack.pop_back();
                 m_in_macro_expansion = !m_macros_stack.empty();
@@ -2793,20 +2798,16 @@ private:
                         current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
                 } else {
                     for (size_t i = 0; i < rept_block.count; ++i)
-                        m_lines_to_process.insert(m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
+                        m_policy.get_compilation_context().m_lines_to_process.insert(m_policy.get_compilation_context().m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
                 }
                 m_rept_stack.pop_back();
             } else
                 m_rept_stack.back().body.push_back(line);
             return true;
         }
-        bool process_directives() {
+        bool process_non_conditional_directives() {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
-            if (process_conditional_directives())
-                return true;
-            if (!m_policy.is_conditional_block_active())
-                return true;
             if (process_constant_directives())
                 return true;
             if (process_procedures())
@@ -3043,7 +3044,6 @@ private:
         bool m_in_macro_expansion = false;
         typename Strings::Tokens m_tokens;
         std::vector<MacroState> m_macros_stack;
-        std::vector<std::string> m_lines_to_process;
         std::vector<ReptState> m_rept_stack;
     };    
 };
