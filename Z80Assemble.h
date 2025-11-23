@@ -1737,7 +1737,6 @@ private:
         static bool is_mnemonic(const std::string& s) { return is_in_set(s, mnemonics()); }
         static bool is_directive(const std::string& s) { return is_in_set(s, directives()); }
         static bool is_register(const std::string& s) { return is_in_set(s, registers()); }
-        static bool is_symbol_definition(const std::string& s) { return s == "EQU" || s == "SET" || s == "DEFL" || s == "=" || s == "PROC"; }
         static bool is_reserved(const std::string& s) { return is_mnemonic(s) || is_directive(s) || is_register(s); }
         static bool is_valid_label_name(const std::string& s) {
             if (s.empty() || is_reserved(s))
@@ -2915,8 +2914,8 @@ private:
             if (!is_label && label_options.allow_no_colon) {
                 if (!Keywords::is_reserved(first_token.upper())) {
                     if (m_tokens.count() > 1) {
-                        const std::string& next_token = m_tokens[1].upper();
-                        if (!Keywords::is_symbol_definition(next_token))
+                        const std::string& next_token_upper = m_tokens[1].upper();
+                        if (next_token_upper != "EQU" && next_token_upper != "SET" && next_token_upper != "DEFL" && next_token_upper != "=" && next_token_upper != "PROC")
                             is_label = true;
                     } else
                         is_label = true;
