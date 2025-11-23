@@ -1621,7 +1621,7 @@ private:
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-                "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "EQU", "SET", "DEFL", "ORG", 
+                "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "EQU", "SET", "DEFL", "ORG", "BINARY",
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN",
                 "REPT", "ENDR"
@@ -3099,15 +3099,15 @@ private:
                 m_policy.on_align_directive(m_tokens[1].original());
                 return true;
             }
-            if (m_policy.get_compilation_context().options.directives.allow_incbin && directive_upper == "INCBIN") {
+            if (m_policy.get_compilation_context().options.directives.allow_incbin && (directive_upper == "INCBIN" || directive_upper == "BINARY")) {
                 if (m_tokens.count() != 2)
-                    throw std::runtime_error("INCBIN directive requires exactly one argument.");
+                    throw std::runtime_error(directive_upper + " directive requires exactly one argument.");
                 const auto& filename_token = m_tokens[1];
                 const std::string& filename_str = filename_token.original();
                 if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
                     m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
                 else
-                    throw std::runtime_error("INCBIN filename must be in double quotes.");
+                    throw std::runtime_error(directive_upper + " filename must be in double quotes.");
                 return true;
             }
             if (m_policy.get_compilation_context().options.directives.allow_phase) {
