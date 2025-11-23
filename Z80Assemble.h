@@ -881,6 +881,8 @@ private:
         virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) = 0;
         virtual void on_else_directive() = 0;
         virtual void on_endif_directive() = 0;
+        virtual void on_error_directive(const std::string& message) = 0;
+        virtual void on_assert_directive(const std::string& expression) = 0;
         virtual bool is_conditional_block_active() const = 0;
         virtual void check_control_flow_end() const = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
@@ -1017,6 +1019,17 @@ private:
             bool condition_result = is_conditional_block_active() && (s1 == s2);
             m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
+        }
+        void on_error_directive(const std::string& message) override {
+            throw std::runtime_error("ERROR: " + message);
+        }
+        void on_assert_directive(const std::string& expression) override {
+            Expressions expr_eval(*this);
+            int32_t value;
+            if (expr_eval.evaluate(expression, value)) {
+                if (value == 0)
+                    throw std::runtime_error("ASSERT failed: " + expression);
+            }
         }
         void on_else_directive() override {
             if (m_conditional_stack.empty())
@@ -1609,7 +1622,7 @@ private:
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "DEFS", "DEFW", "DW", "DS", "EQU", "SET", "DEFL", "ORG", 
-                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT",
+                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN",
                 "REPT", "ENDR"
             };
@@ -2836,6 +2849,8 @@ private:
                 return true;
             if (process_memory_directives())
                 return true;
+            if (process_error_directives())
+                return true;
             return false;
         }
         bool process_label() {
@@ -3020,6 +3035,29 @@ private:
                     m_policy.on_local_directive(symbols);
                     return true;
                 }
+            }
+            return false;
+        }
+        bool process_error_directives() {
+            if (m_tokens.count() == 0)
+                return false;
+            const auto& directive_token = m_tokens[0];
+            const std::string& directive_upper = directive_token.upper();
+            if (directive_upper == "ERROR") {
+                if (m_tokens.count() < 2)
+                    throw std::runtime_error("ERROR directive requires a message.");
+                m_tokens.merge(1, m_tokens.count() - 1);
+                m_policy.on_error_directive(m_tokens[1].original());
+                return true;
+            }
+            if (directive_upper == "ASSERT") {
+                if (m_tokens.count() < 2)
+                    throw std::runtime_error("ASSERT directive requires an expression.");
+                m_tokens.merge(1, m_tokens.count() - 1);
+                if (m_policy.is_conditional_block_active()) {
+                    m_policy.on_assert_directive(m_tokens[1].original());
+                }
+                return true;
             }
             return false;
         }
