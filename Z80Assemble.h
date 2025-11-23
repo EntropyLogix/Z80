@@ -168,6 +168,7 @@ private:
                 bool used;
             };
             std::map<std::string, Symbol*> map;
+            std::string last_global_label;
         } symbols;
         struct Results {
             std::map<std::string, SymbolInfo> symbols_table;
@@ -963,7 +964,7 @@ private:
         }
         virtual void on_label_definition(const std::string& label) override {
             if (!label.empty() && label[0] != '.')
-                this->m_last_global_label = label;
+                m_context.symbols.last_global_label = label;
         }
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {}
         virtual void on_set_directive(const std::string& label, const std::string& value) override {}
@@ -1183,9 +1184,9 @@ private:
                     return it->full_name + "." + name;
             }
             if (name[0] == '.') {
-                if (this->m_last_global_label.empty())
+                if (m_context.symbols.last_global_label.empty())
                     throw std::runtime_error("Local label '" + name + "' used without a preceding global label.");
-                return this->m_last_global_label + name;
+                return m_context.symbols.last_global_label + name;
             }
             return name;
         }
@@ -1250,8 +1251,6 @@ private:
             std::set<std::string> local_symbols;
         };
         std::vector<Scope> m_scope_stack;
-        std::string m_last_global_label;
-        std::vector<std::string> m_proc_stack;
 
         Context& m_context;
     };
@@ -1645,7 +1644,7 @@ private:
         }
         virtual void on_pass_begin() override {
             CommonPolicy::on_pass_begin();
-            this->m_last_global_label.clear();
+            this->m_context.symbols.last_global_label.clear();
             m_blocks.push_back({this->m_context.address.start, 0});
         }
         virtual bool on_pass_end() override {
