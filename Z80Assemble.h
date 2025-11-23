@@ -115,7 +115,7 @@ public:
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
         SymbolsPhase symbols_building(m_context, m_context.options.compilation.max_passes);
-        m_context.start_addr = start_addr;
+        m_context.address.start = start_addr;
         AssemblyPhase code_generation(m_context);
         std::vector<IPhasePolicy*> m_phases = {&symbols_building, &code_generation};
         for (auto& phase : m_phases) {
@@ -165,13 +165,16 @@ private:
         const Options& options;
         TMemory* memory = nullptr;
         ISourceProvider* source_provider = nullptr;
-        uint16_t current_logical_address = 0;
-        uint16_t start_addr = 0;
-        uint16_t current_physical_address = 0;
+
         size_t current_line_number = 0;
         size_t current_pass = 0;
         std::string last_global_label;
         std::map<std::string, Symbol*> symbols;
+        struct Address {
+            uint16_t start = 0;
+            uint16_t current_logical = 0;
+            uint16_t current_physical = 0;
+        } address;
         struct Results {
             std::map<std::string, SymbolInfo> symbols_table;
             std::vector<BlockInfo> blocks_table;
@@ -179,6 +182,7 @@ private:
         struct Macros {
             std::map<std::string, Macro> definitions;
             int unique_id_counter = 0;
+            bool in_expansion = false;
         } macros;
         enum class ControlBlockType {
             NONE,
@@ -188,7 +192,6 @@ private:
         };
         std::vector<std::string> m_lines_to_process;
         std::vector<ControlBlockType> m_control_flow_stack;
-        bool m_in_macro_expansion = false;
     };
     CompilationContext m_context;
     class Preprocessor {
@@ -919,7 +922,7 @@ private:
             m_rept_stack.clear();
         }
         virtual void on_finalize() override {
-            if (m_context.m_in_macro_expansion)
+            if (m_context.macros.in_expansion)
                 throw std::runtime_error("Unterminated macro expansion at end of file.");
             if (!m_context.m_control_flow_stack.empty()) {
                 switch (m_context.m_control_flow_stack.back()) {
@@ -935,8 +938,8 @@ private:
             }
         }
         virtual void on_pass_begin() override {
-            m_context.current_logical_address = m_context.start_addr;
-            m_context.current_physical_address = m_context.start_addr;
+            m_context.address.current_logical = m_context.address.start;
+            m_context.address.current_physical = m_context.address.start;
             m_context.current_line_number = 0;
             m_context.macros.unique_id_counter = 0;
             m_conditional_stack.clear();
@@ -946,7 +949,7 @@ private:
         virtual void on_pass_next() override {}
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (symbol == "$") {
-                out_value = this->m_context.current_logical_address;
+                out_value = this->m_context.address.current_logical;
                 return true;
             }
             return false;
@@ -966,7 +969,7 @@ private:
             Expressions expression(*this);
             int32_t align_val;
             if (expression.evaluate(boundary, align_val) && align_val > 0) {
-                uint16_t current_addr = this->m_context.current_logical_address;
+                uint16_t current_addr = this->m_context.address.current_logical;
                 uint16_t new_addr = (current_addr + align_val - 1) & ~(align_val - 1);
                 for (uint16_t i = current_addr; i < new_addr; ++i)
                     on_assemble({0x00});
@@ -1106,7 +1109,7 @@ private:
                 throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
             m_context.m_control_flow_stack.pop_back();
             ReptState& rept_block = m_rept_stack.back();
-            if (m_context.m_in_macro_expansion && !m_macros_stack.empty()) {
+            if (m_context.macros.in_expansion && !m_macros_stack.empty()) {
                 MacroState& current_macro_state = m_macros_stack.back();
                 for (size_t i = 0; i < rept_block.count; ++i)
                     current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
@@ -1128,7 +1131,7 @@ private:
                 }
             }                
             m_macros_stack.push_back({macro, parameters, 0});
-            m_context.m_in_macro_expansion = true;
+            m_context.macros.in_expansion = true;
         }
         virtual void on_macro_line() override {
             if (m_macros_stack.empty())
@@ -1149,7 +1152,7 @@ private:
                 m_context.m_lines_to_process.push_back(line);
             } else {
                 m_macros_stack.pop_back();
-                m_context.m_in_macro_expansion = !m_macros_stack.empty();
+                m_context.macros.in_expansion = !m_macros_stack.empty();
             }
         }
     protected:
@@ -1525,7 +1528,7 @@ private:
         }
         virtual void on_label_definition(const std::string& label) override {
             CommonPolicy::on_label_definition(label);
-            update_symbol(label, this->m_context.current_logical_address, false, false);
+            update_symbol(label, this->m_context.address.current_logical, false, false);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
             on_const(label, value, false);
@@ -1536,28 +1539,28 @@ private:
         virtual void on_org_directive(const std::string& label) override {
             int32_t num_val;
             if (Strings::is_number(label, num_val))
-                this->m_context.current_logical_address = this->m_context.current_physical_address = num_val;
+                this->m_context.address.current_logical = this->m_context.address.current_physical = num_val;
             else if (m_symbols_stable) {
                 Expressions expression(*this);
                 if (expression.evaluate(label, num_val)) {
-                    this->m_context.current_logical_address = num_val;
-                    this->m_context.current_physical_address = num_val;
+                    this->m_context.address.current_logical = num_val;
+                    this->m_context.address.current_physical = num_val;
                 }
             }
         };
         virtual void on_phase_directive(const std::string& label) override {
             int32_t num_val;
             if (Strings::is_number(label, num_val)) {
-                this->m_context.current_logical_address = num_val;
+                this->m_context.address.current_logical = num_val;
             }
             else if (m_symbols_stable) {
                 Expressions expression(*this);
                 if (expression.evaluate(label, num_val))
-                    this->m_context.current_logical_address = num_val;
+                    this->m_context.address.current_logical = num_val;
             }
         }
         virtual void on_dephase_directive() override {
-            this->m_context.current_logical_address = this->m_context.current_physical_address;
+            this->m_context.address.current_logical = this->m_context.address.current_physical;
         }
         virtual bool on_operand_not_matching(const Operand& operand, typename OperandParser::OperandType expected) override {
             if (operand.type == OperandType::UNKNOWN)
@@ -1566,8 +1569,8 @@ private:
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
             size_t size = bytes.size();
-            this->m_context.current_logical_address += size;
-            this->m_context.current_physical_address += size;
+            this->m_context.address.current_logical += size;
+            this->m_context.address.current_physical += size;
         }
     private:
         void on_const(const std::string& label, const std::string& value, bool redefinable) {
@@ -1640,7 +1643,7 @@ private:
         virtual void on_pass_begin() override {
             CommonPolicy::on_pass_begin();
             this->m_last_global_label.clear();
-            m_blocks.push_back({this->m_context.start_addr, 0});
+            m_blocks.push_back({this->m_context.address.start, 0});
         }
         virtual bool on_pass_end() override {
             for (auto& block : m_blocks) {
@@ -1680,8 +1683,8 @@ private:
             int32_t addr;
             Expressions expression(*this);
             if (expression.evaluate(label, addr)) {
-                this->m_context.current_logical_address = addr;
-                this->m_context.current_physical_address = addr;
+                this->m_context.address.current_logical = addr;
+                this->m_context.address.current_physical = addr;
                 this->m_blocks.push_back({addr, 0});
             }
             else
@@ -1691,10 +1694,10 @@ private:
             int32_t new_logical_addr;
             Expressions expression(*this);
             if (expression.evaluate(address_str, new_logical_addr))
-                this->m_context.current_logical_address = new_logical_addr;
+                this->m_context.address.current_logical = new_logical_addr;
         }
         virtual void on_dephase_directive() override {
-            this->m_context.current_logical_address = this->m_context.current_physical_address;
+            this->m_context.address.current_logical = this->m_context.address.current_physical;
         }
         virtual void on_unknown_operand(const std::string& operand) override { 
             std::string actual_symbol_name = this->get_absolute_symbol_name(operand);
@@ -1708,9 +1711,9 @@ private:
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
             for (auto& byte : bytes) {
-                this->m_context.memory->poke(this->m_context.current_physical_address++, byte);
+                this->m_context.memory->poke(this->m_context.address.current_physical++, byte);
             }
-            this->m_context.current_logical_address += bytes.size();
+            this->m_context.address.current_logical += bytes.size();
             if (this->m_blocks.empty())
                 throw std::runtime_error("Invalid code block.");
             this->m_blocks.back().second += bytes.size();
@@ -2165,7 +2168,7 @@ private:
             if (mnemonic == "JR" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.get_compilation_context().current_logical_address + instruction_size);
+                int32_t offset = target_addr - (m_policy.get_compilation_context().address.current_logical + instruction_size);
                 if (offset < -128 || offset > 127)
                     m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x18, (uint8_t)(offset)});
@@ -2202,7 +2205,7 @@ private:
             if (mnemonic == "DJNZ" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.get_compilation_context().current_logical_address + instruction_size);
+                int32_t offset = target_addr - (m_policy.get_compilation_context().address.current_logical + instruction_size);
                 if (offset < -128 || offset > 127)
                     m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x10, (uint8_t)(offset)});
@@ -2709,7 +2712,7 @@ private:
                 if (relative_jump_condition_map().count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (m_policy.get_compilation_context().current_logical_address + instruction_size);
+                    int32_t offset = target_addr - (m_policy.get_compilation_context().address.current_logical + instruction_size);
                     if (offset < -128 || offset > 127)
                         m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
                     assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
@@ -2815,8 +2818,8 @@ private:
         bool process_line(const std::string& initial_line) {
             m_policy.get_compilation_context().m_lines_to_process.clear();
             m_policy.get_compilation_context().m_lines_to_process.push_back(initial_line);
-            while (!m_policy.get_compilation_context().m_lines_to_process.empty() || m_policy.get_compilation_context().m_in_macro_expansion) {
-                if (m_policy.get_compilation_context().m_in_macro_expansion) {
+            while (!m_policy.get_compilation_context().m_lines_to_process.empty() || m_policy.get_compilation_context().macros.in_expansion) {
+                if (m_policy.get_compilation_context().macros.in_expansion) {
                     m_policy.on_macro_line();
                     if (m_policy.get_compilation_context().m_lines_to_process.empty())
                         continue;
