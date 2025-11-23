@@ -2660,6 +2660,8 @@ private:
         }
     private:
         bool process_macro() {
+            if (!m_policy.get_compilation_context().options.directives.enabled)
+                return false;
             if (!m_policy.get_compilation_context().options.directives.allow_macros)
                 return false;
             if (m_tokens.count() == 0)
@@ -2769,6 +2771,8 @@ private:
             line = final_line;
         }
         bool process_repeat(const std::string& line) {
+            if (!m_policy.get_compilation_context().options.directives.enabled)
+                return false;
             if (m_policy.get_compilation_context().options.directives.allow_repeat) {
                 if (m_tokens.count() >= 2 && m_tokens[0].upper() == "REPT") {
                     m_tokens.merge(1, m_tokens.count() - 1);
@@ -2868,6 +2872,8 @@ private:
         }
 
         bool process_conditional_directives() {
+            if (!m_policy.get_compilation_context().options.directives.enabled)
+                return false;
             if (!m_policy.get_compilation_context().options.directives.allow_conditional_compilation)
                 return false;
             if (m_tokens.count() == 0)

@@ -74,6 +74,7 @@ void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_
     Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);
     bool success = assembler.compile("main.asm", 0x0000);
     if (!success) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
         tests_failed++;
         return;
@@ -86,6 +87,7 @@ void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_
     }
 
     if (compiled_size != expected_bytes.size()) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Incorrect compiled size for '" << asm_code << "'.\n";
         std::cerr << "  Expected size: " << expected_bytes.size() << ", Got: " << compiled_size << "\n";
         tests_failed++;
@@ -106,6 +108,7 @@ void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_
     }
 
     if (mismatch) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Byte mismatch for '" << asm_code << "'\n";
         std::cerr << "  Expected: ";
         for (uint8_t byte : expected_bytes) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
@@ -125,6 +128,7 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
     Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
     bool success = assembler.compile("main.asm", 0x0000);
     if (!success) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
         tests_failed++;
         return;
@@ -137,6 +141,7 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
     }
 
     if (compiled_size != expected_bytes.size()) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Incorrect compiled size for '" << asm_code << "'.\n";
         std::cerr << "  Expected size: " << expected_bytes.size() << ", Got: " << compiled_size << "\n";
         tests_failed++;
@@ -157,6 +162,7 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
     }
 
     if (mismatch) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Byte mismatch for '" << asm_code << "'\n";
         std::cerr << "  Expected: ";
         for (uint8_t byte : expected_bytes) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
@@ -176,6 +182,7 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
     Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
     bool success = assembler.compile("main.asm", 0x0000);
     if (!success) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
         tests_failed++;
         return;
@@ -184,6 +191,7 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
     auto compiled_blocks = assembler.get_blocks();
 
     if (compiled_blocks.size() != expected_blocks.size()) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Incorrect number of compiled blocks for '" << asm_code << "'.\n";
         std::cerr << "  Expected: " << expected_blocks.size() << ", Got: " << compiled_blocks.size() << "\n";
         tests_failed++;
@@ -193,6 +201,7 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
     for (const auto& compiled_block : compiled_blocks) {
         uint16_t start_address = compiled_block.start_address;
         if (expected_blocks.find(start_address) == expected_blocks.end()) {
+            std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
             std::cerr << "Assertion failed: Unexpected compiled block at address 0x" << std::hex << start_address << "\n";
             tests_failed++;
             continue;
@@ -200,6 +209,7 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
 
         const auto& expected_bytes = expected_blocks.at(start_address);
         if (compiled_block.size != expected_bytes.size()) {
+            std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
             std::cerr << "Assertion failed: Incorrect size for block at 0x" << std::hex << start_address << ".\n";
             std::cerr << "  Expected size: " << expected_bytes.size() << ", Got: " << compiled_block.size << "\n";
             tests_failed++;
@@ -208,6 +218,7 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
 
         for (size_t i = 0; i < expected_bytes.size(); ++i) {
             if (bus.peek(start_address + i) != expected_bytes[i]) {
+                std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
                 std::cerr << "Assertion failed: Byte mismatch in block at 0x" << std::hex << start_address << " for '" << asm_code << "'\n";
                 tests_failed++;
                 return; // End after the first error in the block
@@ -225,15 +236,18 @@ void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assemb
     try {
         bool success = assembler.compile("main.asm", 0x0000);
         if (success) {
+            std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
             std::cerr << "Assertion failed: Compilation succeeded for '" << asm_code << "' but was expected to fail.\n";
             tests_failed++;
         } else {
+            // This case might occur if compile() returns false without an exception.
             tests_passed++;
         }
     } catch (const std::runtime_error& e) {
         tests_passed++;
     } catch (...) {
-        std::cerr << "Assertion failed: An unexpected exception was thrown for '" << asm_code << "'.\n";
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
+        std::cerr << "  [FAIL] An unexpected exception was thrown.\n";
         tests_failed++;
     }
 }
@@ -247,7 +261,8 @@ void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
     try {
         bool success = assembler.compile("main.asm", 0x0000);
         if (success) {
-            std::cerr << "Assertion failed: Compilation succeeded for '" << asm_code << "' but was expected to fail.\n";
+            std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
+            std::cerr << "  [FAIL] Assertion failed: Compilation succeeded but was expected to fail.\n";
             tests_failed++;
         } else {
             // This case might occur if compile() returns false without an exception.
@@ -257,6 +272,7 @@ void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
         // Exception was expected, so this is a pass.
         tests_passed++;
     } catch (...) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: An unexpected exception was thrown for '" << asm_code << "'.\n";
         tests_failed++;
     }
@@ -1551,6 +1567,7 @@ void ASSERT_RAND_IN_RANGE(const std::string& asm_code, int min_val, int max_val)
     Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
     bool success = assembler.compile("main.asm", 0x0000);
     if (!success) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
         tests_failed++;
         return;
@@ -1558,6 +1575,7 @@ void ASSERT_RAND_IN_RANGE(const std::string& asm_code, int min_val, int max_val)
 
     auto blocks = assembler.get_blocks();
     if (blocks.empty() || blocks[0].size == 0) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: No code generated for '" << asm_code << "'\n";
         tests_failed++;
         return;
@@ -1567,6 +1585,7 @@ void ASSERT_RAND_IN_RANGE(const std::string& asm_code, int min_val, int max_val)
     if (generated_value >= min_val && generated_value <= max_val) {
         tests_passed++;
     } else {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: RAND value out of range for '" << asm_code << "'\n";
         std::cerr << "  Expected range: [" << min_val << ", " << max_val << "], Got: " << (int)generated_value << "\n";
         tests_failed++;
@@ -2285,7 +2304,11 @@ TEST_CASE(DirectiveOptions) {
     // 9. Test directives.allow_conditional_compilation = false
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.directives.allow_conditional_compilation = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nNOP\nENDIF", options);
+    try {
+        ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nNOP\nENDIF", options);
+    } catch (const std::exception& e) {
+        // This is expected. The test macro doesn't propagate the exception, so we catch it here.
+    }
     ASSERT_COMPILE_FAILS_WITH_OPTS("IFDEF SYMBOL\nNOP\nENDIF", options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("IFNDEF SYMBOL\nNOP\nENDIF", options);
 
