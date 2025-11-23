@@ -123,18 +123,18 @@ public:
                 continue;
             phase->on_initialize();
             bool end_phase = false;
-            m_context.current_pass = 1;
+            m_context.source.current_pass = 1;
             do {
                 phase->on_pass_begin();
                 Source source(*phase);
                 for (size_t i = 0; i < source_lines.size(); ++i) {
-                    m_context.current_line_number = i + 1;
+                    m_context.source.current_line_number = i + 1;
                     source.process_line(source_lines[i]);
                 }
                 if (phase->on_pass_end())
                     end_phase = true;
                 else {
-                    ++m_context.current_pass;
+                    ++m_context.source.current_pass;
                     phase->on_pass_next();
                 }
             } while (!end_phase);
@@ -147,15 +147,13 @@ public:
 private:
     struct Context {
         Context(const Options& opts) : options(opts) {}
+
         Context(const Context& other) = delete;
         Context& operator=(const Context& other) = delete;
 
         const Options& options;
         TMemory* memory = nullptr;
         ISourceProvider* source_provider = nullptr;
-
-        size_t current_line_number = 0;
-        size_t current_pass = 0;
         struct Address {
             uint16_t start = 0;
             uint16_t current_logical = 0;
@@ -192,13 +190,16 @@ private:
             bool in_expansion = false;
         } macros;
         struct Source {
-            enum class ControlBlockType {
+            enum class ControlType {
                 NONE,
                 CONDITIONAL,
                 REPT,
                 PROCEDURE
             };
-            std::vector<ControlBlockType> control_stack;
+            size_t current_pass;
+            size_t current_line_number;
+            std::vector<ControlType> control_stack;
+            std::vector<std::string> lines_stack;
         } source;
         struct Repeat {
             struct State {
@@ -207,7 +208,6 @@ private:
             };
             std::vector<State> stack;
         } repeat;
-        std::vector<std::string> lines_stack;
     };
     Context m_context;
     class Preprocessor {
@@ -935,11 +935,11 @@ private:
                 throw std::runtime_error("Unterminated macro expansion at end of file.");
             if (!m_context.source.control_stack.empty()) {
                 switch (m_context.source.control_stack.back()) {
-                    case Context::Source::ControlBlockType::CONDITIONAL:
+                    case Context::Source::ControlType::CONDITIONAL:
                         throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
-                    case Context::Source::ControlBlockType::REPT:
+                    case Context::Source::ControlType::REPT:
                         throw std::runtime_error("Unterminated REPT block (missing ENDR).");
-                    case Context::Source::ControlBlockType::PROCEDURE:
+                    case Context::Source::ControlType::PROCEDURE:
                         throw std::runtime_error("Unterminated PROC block (missing ENDP).");
                 }
             }
@@ -947,7 +947,7 @@ private:
         virtual void on_pass_begin() override {
             m_context.address.current_logical = m_context.address.start;
             m_context.address.current_physical = m_context.address.start;
-            m_context.current_line_number = 0;
+            m_context.source.current_line_number = 0;
             m_context.macros.unique_id_counter = 0;
             m_conditional_stack.clear();
             m_context.source.control_stack.clear();
@@ -1029,24 +1029,24 @@ private:
                 if (expr_eval.evaluate(expression, value))
                     condition_result = (value != 0);
             }
-            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
         }
         virtual void on_ifdef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && on_symbol_resolve(symbol, dummy);
-            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifndef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && !on_symbol_resolve(symbol, dummy);
-            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifnb_directive(const std::string& arg) override {
             bool condition_result = is_conditional_block_active() && !arg.empty();
-            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {
@@ -1057,7 +1057,7 @@ private:
             if (s2.length() >= 2 && s2.front() == '<' && s2.back() == '>')
                 s2 = s2.substr(1, s2.length() - 2);
             bool condition_result = is_conditional_block_active() && (s1 == s2);
-            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
         virtual void on_error_directive(const std::string& message) override {
@@ -1084,7 +1084,7 @@ private:
         virtual void on_endif_directive() override {
             if (m_conditional_stack.empty())
                 throw std::runtime_error("ENDIF without IF");
-            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlBlockType::CONDITIONAL)
+            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::CONDITIONAL)
                 throw std::runtime_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
             m_context.source.control_stack.pop_back();
             m_conditional_stack.pop_back();
@@ -1094,7 +1094,7 @@ private:
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
         virtual void on_repeat_start(const std::string& counter_expr) override {
-            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::REPT);
+            m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
             Expressions expression(*this);
             int32_t count;
             if (expression.evaluate(counter_expr, count)) {
@@ -1112,7 +1112,7 @@ private:
             return false;
         }
         virtual void on_repeat_end() override {
-            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlBlockType::REPT)
+            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPT)
                 throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
             m_context.source.control_stack.pop_back();
             typename Context::Repeat::State& rept_block = m_context.repeat.stack.back();
@@ -1122,7 +1122,7 @@ private:
                     current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
             } else {
                 for (size_t i = 0; i < rept_block.count; ++i)
-                    m_context.lines_stack.insert(m_context.lines_stack.end(), rept_block.body.rbegin(), rept_block.body.rend());
+                    m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), rept_block.body.rbegin(), rept_block.body.rend());
             }
             m_context.repeat.stack.pop_back();
         }
@@ -1156,7 +1156,7 @@ private:
                     }
                     expand_macro_parameters(line);
                 }
-                m_context.lines_stack.push_back(line);
+                m_context.source.lines_stack.push_back(line);
             } else {
                 m_context.macros.stack.pop_back();
                 m_context.macros.in_expansion = !m_context.macros.stack.empty();
@@ -1487,7 +1487,7 @@ private:
             return false;
         }
         virtual void on_pass_next() override {
-            if (this->m_context.current_pass > m_max_pass) {
+            if (this->m_context.source.current_pass > m_max_pass) {
                 std::string error_msg = "Failed to resolve all symbols after " + std::to_string(m_max_pass) + " passes.";
                 if (all_used_symbols_defined())
                     error_msg += " Symbols are defined but their values did not stabilize. Need more passes.";
@@ -2819,16 +2819,16 @@ private:
     public:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
         bool process_line(const std::string& initial_line) {
-            m_policy.get_compilation_context().lines_stack.clear();
-            m_policy.get_compilation_context().lines_stack.push_back(initial_line);
-            while (!m_policy.get_compilation_context().lines_stack.empty() || m_policy.get_compilation_context().macros.in_expansion) {
+            m_policy.get_compilation_context().source.lines_stack.clear();
+            m_policy.get_compilation_context().source.lines_stack.push_back(initial_line);
+            while (!m_policy.get_compilation_context().source.lines_stack.empty() || m_policy.get_compilation_context().macros.in_expansion) {
                 if (m_policy.get_compilation_context().macros.in_expansion) {
                     m_policy.on_macro_line();
-                    if (m_policy.get_compilation_context().lines_stack.empty())
+                    if (m_policy.get_compilation_context().source.lines_stack.empty())
                         continue;
                 }
-                std::string current_line = m_policy.get_compilation_context().lines_stack.back();
-                m_policy.get_compilation_context().lines_stack.pop_back();
+                std::string current_line = m_policy.get_compilation_context().source.lines_stack.back();
+                m_policy.get_compilation_context().source.lines_stack.pop_back();
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
@@ -3055,12 +3055,12 @@ private:
                     const std::string& proc_name = m_tokens[0].original();
                     if (Keywords::is_valid_label_name(proc_name)) {
                         m_policy.on_proc_begin(proc_name);
-                        m_policy.get_compilation_context().source.control_stack.push_back(Context::Source::ControlBlockType::PROCEDURE);
+                        m_policy.get_compilation_context().source.control_stack.push_back(Context::Source::ControlType::PROCEDURE);
                         return true;
                     }
                 }
                 if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDP") {
-                    if (m_policy.get_compilation_context().source.control_stack.empty() || m_policy.get_compilation_context().source.control_stack.back() != Context::Source::ControlBlockType::PROCEDURE)
+                    if (m_policy.get_compilation_context().source.control_stack.empty() || m_policy.get_compilation_context().source.control_stack.back() != Context::Source::ControlType::PROCEDURE)
                         throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
                     m_policy.on_proc_end();
                     m_policy.get_compilation_context().source.control_stack.pop_back();
