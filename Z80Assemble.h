@@ -886,6 +886,11 @@ private:
         virtual void on_assert_directive(const std::string& expression) = 0;
         virtual bool is_conditional_block_active() const = 0;
         virtual void check_control_flow_end() const = 0;
+        virtual void on_repeat_start(const std::string& expression) = 0;
+        virtual bool on_repeat_recording(const std::string& expression) = 0;
+        virtual void on_repeat_end() = 0;
+        virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) = 0;
+        virtual void on_macro_line() = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
     class CommonPolicy : public IPhasePolicy {
@@ -901,9 +906,19 @@ private:
             bool else_seen;
         };
         std::vector<ConditionalState> m_conditional_stack;
+        struct MacroState {
+            Macro macro;
+            std::vector<std::string> parameters;
+            size_t next_line_index;
+        };
+        std::vector<MacroState> m_macros_stack;
 
         virtual CompilationContext& get_compilation_context() override { return m_context; }
-        virtual void on_initialize() override {}
+        virtual void on_initialize() override {
+            m_conditional_stack.clear();
+            m_macros_stack.clear();
+            m_rept_stack.clear();
+        }
         virtual void on_finalize() override {}
         virtual void on_pass_begin() override {
             m_context.current_logical_address = m_context.start_addr;
@@ -943,7 +958,7 @@ private:
                     on_assemble({0x00});
             }
         }
-        void on_incbin_directive(const std::string& filename) override {
+        virtual void on_incbin_directive(const std::string& filename) override {
             if (!this->m_context.options.directives.allow_incbin) return;
             std::vector<uint8_t> data;
             if (this->m_context.source_provider->get_source(filename, data))
@@ -951,8 +966,8 @@ private:
             else
                 throw std::runtime_error("Could not open file for INCBIN: " + filename);
         }
-        void on_unknown_operand(const std::string& operand) override {}
-        void on_proc_begin(const std::string& name) override {
+        virtual void on_unknown_operand(const std::string& operand) override {}
+        virtual void on_proc_begin(const std::string& name) override {
             if (m_scope_stack.empty())
                 m_scope_stack.push_back({name, {}});
             else {
@@ -965,12 +980,12 @@ private:
             }
             on_label_definition(name);
         }
-        void on_proc_end() override {
+        virtual void on_proc_end() override {
             if (m_scope_stack.empty())
                 throw std::runtime_error("ENDP without PROC.");
             m_scope_stack.pop_back();
         }
-        void on_local_directive(const std::vector<std::string>& symbols) override {
+        virtual void on_local_directive(const std::vector<std::string>& symbols) override {
             if (m_scope_stack.empty())
                 throw std::runtime_error("LOCAL directive used outside of a PROC block.");
             auto& current_scope = m_scope_stack.back();
@@ -980,9 +995,9 @@ private:
                 current_scope.local_symbols.insert(symbol);
             }
         }
-        bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
-        void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
-        void on_if_directive(const std::string& expression) override {
+        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
+        virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
+        virtual void on_if_directive(const std::string& expression) override {
             bool condition_result = false;
             if (is_conditional_block_active()) {
                 Expressions expr_eval(*this);
@@ -993,24 +1008,24 @@ private:
             m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
         }
-        void on_ifdef_directive(const std::string& symbol) override {
+        virtual void on_ifdef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && on_symbol_resolve(symbol, dummy);
             m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
-        void on_ifndef_directive(const std::string& symbol) override {
+        virtual void on_ifndef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && !on_symbol_resolve(symbol, dummy);
             m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
-        void on_ifnb_directive(const std::string& arg) override {
+        virtual void on_ifnb_directive(const std::string& arg) override {
             bool condition_result = is_conditional_block_active() && !arg.empty();
             m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
-        void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {
+        virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {
             std::string s1 = arg1;
             std::string s2 = arg2;
             if (s1.length() >= 2 && s1.front() == '<' && s1.back() == '>')
@@ -1021,10 +1036,10 @@ private:
             m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
-        void on_error_directive(const std::string& message) override {
+        virtual void on_error_directive(const std::string& message) override {
             throw std::runtime_error("ERROR: " + message);
         }
-        void on_assert_directive(const std::string& expression) override {
+        virtual void on_assert_directive(const std::string& expression) override {
             Expressions expr_eval(*this);
             int32_t value;
             if (expr_eval.evaluate(expression, value)) {
@@ -1032,7 +1047,7 @@ private:
                     throw std::runtime_error("ASSERT failed: " + expression);
             }
         }
-        void on_else_directive() override {
+        virtual void on_else_directive() override {
             if (m_conditional_stack.empty())
                 throw std::runtime_error("ELSE without IF");
             if (m_conditional_stack.back().else_seen)
@@ -1042,7 +1057,7 @@ private:
             if (!parent_is_skipping)
                 m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
         }
-        void on_endif_directive() override {
+        virtual void on_endif_directive() override {
             if (m_conditional_stack.empty())
                 throw std::runtime_error("ENDIF without IF");
             if (m_context.m_control_flow_stack.empty() || m_context.m_control_flow_stack.back() != CompilationContext::ControlBlockType::CONDITIONAL)
@@ -1050,10 +1065,10 @@ private:
             m_context.m_control_flow_stack.pop_back();
             m_conditional_stack.pop_back();
         }
-        bool is_conditional_block_active() const override {
+        virtual bool is_conditional_block_active() const override {
             return m_conditional_stack.empty() || m_conditional_stack.back().is_active;
         }
-        void check_control_flow_end() const {
+        virtual void check_control_flow_end() const {
             if (!m_context.m_control_flow_stack.empty()) {
                 switch (m_context.m_control_flow_stack.back()) {
                     case CompilationContext::ControlBlockType::CONDITIONAL:
@@ -1068,7 +1083,76 @@ private:
                 }
             }
         }
-        void on_assemble(std::vector<uint8_t> bytes) override {}
+        virtual void on_assemble(std::vector<uint8_t> bytes) override {}
+        virtual void on_repeat_start(const std::string& counter_expr) override {
+            m_context.m_control_flow_stack.push_back(CompilationContext::ControlBlockType::REPT);
+            Expressions expression(*this);
+            int32_t count;
+            if (expression.evaluate(counter_expr, count)) {
+                if (count < 0)
+                    throw std::runtime_error("REPT count cannot be negative.");
+                m_rept_stack.push_back({(size_t)count, {}});
+            } else
+                m_rept_stack.push_back({0, {}});
+        }
+        virtual bool on_repeat_recording(const std::string& line) override {
+            if (!m_rept_stack.empty()) {
+                m_rept_stack.back().body.push_back(line);
+                return true;
+            }
+            return false;
+        }
+        virtual void on_repeat_end() override {
+            if (m_context.m_control_flow_stack.empty() || m_context.m_control_flow_stack.back() != CompilationContext::ControlBlockType::REPT)
+                throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
+            m_context.m_control_flow_stack.pop_back();
+            ReptState& rept_block = m_rept_stack.back();
+            if (m_context.m_in_macro_expansion && !m_macros_stack.empty()) {
+                MacroState& current_macro_state = m_macros_stack.back();
+                for (size_t i = 0; i < rept_block.count; ++i)
+                    current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
+            } else {
+                for (size_t i = 0; i < rept_block.count; ++i)
+                    m_context.m_lines_to_process.insert(m_context.m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
+            }
+            m_rept_stack.pop_back();
+        }
+        virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) {
+            Macro macro = m_context.macros.at(name);
+            if (!macro.local_labels.empty()) {
+                std::string unique_id_str = std::to_string(m_context.unique_macro_id_counter++);
+                for (auto& line : macro.body) {
+                    for (const auto& label : macro.local_labels) {
+                        std::string replacement = "??" + label + "_" + unique_id_str;
+                        Strings::replace_labels(line, label, replacement);
+                    }
+                }
+            }                
+            m_macros_stack.push_back({macro, parameters, 0});
+            m_context.m_in_macro_expansion = true;
+        }
+        virtual void on_macro_line() override {
+            if (m_macros_stack.empty())
+                return;
+            MacroState& current_macro_state = m_macros_stack.back();
+            if (current_macro_state.next_line_index < current_macro_state.macro.body.size()) {
+                std::string line = current_macro_state.macro.body[current_macro_state.next_line_index++];
+                if (m_rept_stack.empty()) {                
+                    typename Strings::Tokens tokens;
+                    tokens.process(line);
+                    if (tokens.count() == 1 && tokens.count() > 0 && tokens[0].upper() == "SHIFT") {
+                        if (!current_macro_state.parameters.empty())
+                            current_macro_state.parameters.erase(current_macro_state.parameters.begin());
+                        return;
+                    }
+                    expand_macro_parameters(line);
+                }
+                m_context.m_lines_to_process.push_back(line);
+            } else {
+                m_macros_stack.pop_back();
+                m_context.m_in_macro_expansion = !m_macros_stack.empty();
+            }
+        }
     protected:
         void clear_symbols() {
             for (auto& symbol_pair : this->m_context.symbols) {
@@ -1096,7 +1180,62 @@ private:
             }
             return name;
         }
-    protected:
+        void expand_macro_parameters(std::string& line) {
+            MacroState& current_macro_state = m_macros_stack.back();
+            std::string final_line;
+            final_line.reserve(line.length());
+            for (size_t i = 0; i < line.length(); ++i) {
+                if (line[i] == '\\' && i + 1 < line.length()) {
+                    char next_char = line[i + 1];
+                    if (isdigit(next_char)) {
+                        size_t j = i + 1;
+                        int param_num = 0;
+                        while (j < line.length() && isdigit(line[j])) {
+                            param_num = param_num * 10 + (line[j] - '0');
+                            j++;
+                        }
+                        if (param_num == 0)
+                            final_line += std::to_string(current_macro_state.parameters.size());
+                        else if (param_num > 0 && (size_t)param_num <= current_macro_state.parameters.size())
+                            final_line += current_macro_state.parameters[param_num - 1];
+                        i = j - 1;
+                        continue;
+                    } else if (next_char == '{') {
+                        size_t start_num = i + 2;
+                        size_t end_brace = line.find('}', start_num);
+                        if (end_brace != std::string::npos) {
+                            std::string_view num_sv(line.data() + start_num, end_brace - start_num);
+                            int param_num;
+                            auto result = std::from_chars(num_sv.data(), num_sv.data() + num_sv.size(), param_num);
+                            if (result.ec == std::errc() && result.ptr == num_sv.data() + num_sv.size()) {
+                                if (param_num > 0 && (size_t)param_num <= current_macro_state.parameters.size()) {
+                                    final_line += current_macro_state.parameters[param_num - 1];
+                                    i = end_brace;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (line[i] == '{') {
+                    size_t end_brace = line.find('}', i + 1);
+                    if (end_brace != std::string::npos) {
+                        std::string arg_name = line.substr(i + 1, end_brace - i - 1);
+                        auto it = std::find(current_macro_state.macro.arg_names.begin(), current_macro_state.macro.arg_names.end(), arg_name);
+                        if (it != current_macro_state.macro.arg_names.end()) {
+                            size_t arg_index = std::distance(current_macro_state.macro.arg_names.begin(), it);
+                            if (arg_index < current_macro_state.parameters.size()) {
+                                final_line += current_macro_state.parameters[arg_index];
+                                i = end_brace;
+                                continue;
+                            }
+                        }
+                    }
+                }
+                final_line += line[i];
+            }
+            line = final_line;
+        }
         struct Scope {
             std::string full_name;
             std::set<std::string> local_symbols;
@@ -1104,6 +1243,11 @@ private:
         std::vector<Scope> m_scope_stack;
         std::string m_last_global_label;
         std::vector<std::string> m_proc_stack;
+        struct ReptState {
+            size_t count;
+            std::vector<std::string> body;
+        };
+        std::vector<ReptState> m_rept_stack;
         CompilationContext& m_context;
     };
     class Strings {
@@ -2673,7 +2817,7 @@ private:
     class Source {
     public:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
-        void initialize() { m_rept_stack.clear(); }
+        void initialize() {}
         void finalize() const {
             if (m_policy.get_compilation_context().m_in_macro_expansion)
                 throw std::runtime_error("Unterminated macro expansion at end of file.");
@@ -2684,7 +2828,7 @@ private:
             m_policy.get_compilation_context().m_lines_to_process.push_back(initial_line);
             while (!m_policy.get_compilation_context().m_lines_to_process.empty() || m_policy.get_compilation_context().m_in_macro_expansion) {
                 if (m_policy.get_compilation_context().m_in_macro_expansion) {
-                    process_macro_line();
+                    m_policy.on_macro_line();
                     if (m_policy.get_compilation_context().m_lines_to_process.empty())
                         continue;
                 }
@@ -2711,115 +2855,22 @@ private:
         }
     private:
         bool process_macro() {
-            if (!m_policy.get_compilation_context().options.directives.enabled)
-                return false;
-            if (!m_policy.get_compilation_context().options.directives.allow_macros)
-                return false;
-            if (m_tokens.count() == 0)
+            if (!m_policy.get_compilation_context().options.directives.enabled || !m_policy.get_compilation_context().options.directives.allow_macros)
                 return false;
             const auto& potential_macro_name = m_tokens[0].original();
             if (m_policy.get_compilation_context().macros.count(potential_macro_name)) {
-                std::vector<std::string> args;
+                std::vector<std::string> params;
                 if (m_tokens.count() > 1) {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     auto arg_tokens = m_tokens[1].to_arguments();
-                    args.reserve(arg_tokens.size());
+                    params.reserve(arg_tokens.size());
                     for (const auto& token : arg_tokens)
-                        args.push_back(token.original());
+                        params.push_back(token.original());
                 }
-                Macro macro = m_policy.get_compilation_context().macros.at(potential_macro_name);
-                if (!macro.local_labels.empty()) {
-                    std::string unique_id_str = std::to_string(m_policy.get_compilation_context().unique_macro_id_counter++);
-                    for (auto& line : macro.body) {
-                        for (const auto& label : macro.local_labels) {
-                            std::string replacement = "??" + label + "_" + unique_id_str;
-                            Strings::replace_labels(line, label, replacement);
-                        }
-                    }
-                }                
-                m_macros_stack.push_back({macro, args, 0});
-                m_policy.get_compilation_context().m_in_macro_expansion = true;
+                m_policy.on_macro(potential_macro_name, params);
                 return true;
             }
             return false;            
-        }
-        void process_macro_line() {
-            if (m_macros_stack.empty())
-                return;
-            MacroState& current_macro_state = m_macros_stack.back();
-            if (current_macro_state.next_line_index < current_macro_state.macro.body.size()) {
-                std::string line = current_macro_state.macro.body[current_macro_state.next_line_index++];
-                if (m_rept_stack.empty()) {                
-                    typename Strings::Tokens tokens;
-                    tokens.process(line);
-                    if (tokens.count() == 1 && tokens.count() > 0 && tokens[0].upper() == "SHIFT") {
-                        if (!current_macro_state.parameters.empty())
-                            current_macro_state.parameters.erase(current_macro_state.parameters.begin());
-                        return;
-                    }
-                    process_macro_parameters(line);
-                }
-                m_policy.get_compilation_context().m_lines_to_process.push_back(line);
-            } else {
-                m_macros_stack.pop_back();
-                m_policy.get_compilation_context().m_in_macro_expansion = !m_macros_stack.empty();
-            }
-        }
-        void process_macro_parameters(std::string& line) {
-            MacroState& current_macro_state = m_macros_stack.back();
-            std::string final_line;
-            final_line.reserve(line.length());
-            for (size_t i = 0; i < line.length(); ++i) {
-                if (line[i] == '\\' && i + 1 < line.length()) {
-                    char next_char = line[i + 1];
-                    if (isdigit(next_char)) {
-                        size_t j = i + 1;
-                        int param_num = 0;
-                        while (j < line.length() && isdigit(line[j])) {
-                            param_num = param_num * 10 + (line[j] - '0');
-                            j++;
-                        }
-                        if (param_num == 0)
-                            final_line += std::to_string(current_macro_state.parameters.size());
-                        else if (param_num > 0 && (size_t)param_num <= current_macro_state.parameters.size())
-                            final_line += current_macro_state.parameters[param_num - 1];
-                        i = j - 1;
-                        continue;
-                    } else if (next_char == '{') {
-                        size_t start_num = i + 2;
-                        size_t end_brace = line.find('}', start_num);
-                        if (end_brace != std::string::npos) {
-                            std::string_view num_sv(line.data() + start_num, end_brace - start_num);
-                            int param_num;
-                            auto result = std::from_chars(num_sv.data(), num_sv.data() + num_sv.size(), param_num);
-                            if (result.ec == std::errc() && result.ptr == num_sv.data() + num_sv.size()) {
-                                if (param_num > 0 && (size_t)param_num <= current_macro_state.parameters.size()) {
-                                    final_line += current_macro_state.parameters[param_num - 1];
-                                    i = end_brace;
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                }
-                if (line[i] == '{') {
-                    size_t end_brace = line.find('}', i + 1);
-                    if (end_brace != std::string::npos) {
-                        std::string arg_name = line.substr(i + 1, end_brace - i - 1);
-                        auto it = std::find(current_macro_state.macro.arg_names.begin(), current_macro_state.macro.arg_names.end(), arg_name);
-                        if (it != current_macro_state.macro.arg_names.end()) {
-                            size_t arg_index = std::distance(current_macro_state.macro.arg_names.begin(), it);
-                            if (arg_index < current_macro_state.parameters.size()) {
-                                final_line += current_macro_state.parameters[arg_index];
-                                i = end_brace;
-                                continue;
-                            }
-                        }
-                    }
-                }
-                final_line += line[i];
-            }
-            line = final_line;
         }
         bool process_repeat(const std::string& line) {
             if (!m_policy.get_compilation_context().options.directives.enabled)
@@ -2828,37 +2879,16 @@ private:
                 if (m_tokens.count() >= 2 && m_tokens[0].upper() == "REPT") {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     const std::string& expr_str = m_tokens[1].original();
-                    m_policy.get_compilation_context().m_control_flow_stack.push_back(CompilationContext::ControlBlockType::REPT);
-                    Expressions expression(m_policy);
-                    int32_t count;
-                    if (expression.evaluate(expr_str, count)) {
-                        if (count < 0)
-                            throw std::runtime_error("REPT count cannot be negative.");
-                        m_rept_stack.push_back({(size_t)count, {}});
-                    } else
-                        m_rept_stack.push_back({0, {}});
+                    m_policy.on_repeat_start(expr_str);
                     return true;
                 }
-            }
-            if (m_rept_stack.empty())
-                return false;
-            if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
-                if (m_policy.get_compilation_context().m_control_flow_stack.empty() || m_policy.get_compilation_context().m_control_flow_stack.back() != CompilationContext::ControlBlockType::REPT)
-                    throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
-                m_policy.get_compilation_context().m_control_flow_stack.pop_back();
-                ReptState& rept_block = m_rept_stack.back();
-                if (m_policy.get_compilation_context().m_in_macro_expansion && !m_macros_stack.empty()) {
-                    MacroState& current_macro_state = m_macros_stack.back();
-                    for (size_t i = 0; i < rept_block.count; ++i)
-                        current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
-                } else {
-                    for (size_t i = 0; i < rept_block.count; ++i)
-                        m_policy.get_compilation_context().m_lines_to_process.insert(m_policy.get_compilation_context().m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
+                if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
+                    m_policy.on_repeat_end();
+                    return true;
                 }
-                m_rept_stack.pop_back();
-            } else
-                m_rept_stack.back().body.push_back(line);
-            return true;
+                return m_policy.on_repeat_recording(line);
+            }
+            return false;
         }
         bool process_non_conditional_directives() {
             if (!m_policy.get_compilation_context().options.directives.enabled)
@@ -2923,7 +2953,6 @@ private:
             }
             return true;
         }
-
         bool process_conditional_directives() {
             if (!m_policy.get_compilation_context().options.directives.enabled)
                 return false;
@@ -2956,7 +2985,7 @@ private:
                     m_tokens.merge(1, m_tokens.count() - 1);
                     m_policy.on_ifnb_directive(m_tokens[1].original());
                 } else {
-                    m_policy.on_ifnb_directive(""); // Handle case with no argument
+                    m_policy.on_ifnb_directive("");
                 }
                 return true;
             }
@@ -3131,20 +3160,7 @@ private:
         }
         IPhasePolicy& m_policy;
         using ControlBlockType = typename CompilationContext::ControlBlockType;
-
-        struct ReptState {
-            size_t count;
-            std::vector<std::string> body;
-        };
-
-        struct MacroState {
-            Macro macro;
-            std::vector<std::string> parameters;
-            size_t next_line_index;
-        };
         typename Strings::Tokens m_tokens;
-        std::vector<MacroState> m_macros_stack;
-        std::vector<ReptState> m_rept_stack;
     };    
 };
 
