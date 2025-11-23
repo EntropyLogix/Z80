@@ -145,11 +145,6 @@ public:
     const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
     const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
 private:
-    struct Macro {
-        std::vector<std::string> arg_names;
-        std::vector<std::string> body;
-        std::vector<std::string> local_labels;
-    };
     struct Symbol {
         bool redefinable;
         int index;
@@ -157,10 +152,10 @@ private:
         std::vector<bool> undefined;
         bool used;
     };
-    struct CompilationContext {
-        CompilationContext(const Options& opts) : options(opts) {}
-        CompilationContext(const CompilationContext& other) = delete;
-        CompilationContext& operator=(const CompilationContext& other) = delete;
+    struct Context {
+        Context(const Options& opts) : options(opts) {}
+        Context(const Context& other) = delete;
+        Context& operator=(const Context& other) = delete;
 
         const Options& options;
         TMemory* memory = nullptr;
@@ -180,6 +175,18 @@ private:
             std::vector<BlockInfo> blocks_table;
         } results;
         struct Macros {
+            struct Macro {
+                std::vector<std::string> arg_names;
+                std::vector<std::string> body;
+                std::vector<std::string> local_labels;
+            };
+            struct ExpansionState {
+                Macro macro;
+                std::vector<std::string> parameters;
+                size_t next_line_index;
+            };
+            std::vector<ExpansionState> stack;
+
             std::map<std::string, Macro> definitions;
             int unique_id_counter = 0;
             bool in_expansion = false;
@@ -202,10 +209,10 @@ private:
         } repeat;
         std::vector<std::string> m_lines_to_process;
     };
-    CompilationContext m_context;
+    Context m_context;
     class Preprocessor {
     public:
-        Preprocessor(CompilationContext& context) : m_context(context) {}
+        Preprocessor(Context& context) : m_context(context) {}
         bool process(const std::string& main_file_path, std::string& output_source) {
             std::set<std::string> included_files;
             return process_file(main_file_path, output_source, included_files);
@@ -266,7 +273,7 @@ private:
             size_t line_number = 0;
             bool in_macro_def = false;
             std::string current_macro_name;
-            Macro current_macro;
+            typename Context::Macros::Macro current_macro;
             std::vector<std::string> lines_to_process;
             while (std::getline(source_stream, original_line))
                 lines_to_process.push_back(original_line);
@@ -320,7 +327,7 @@ private:
             }
             return true;
         }
-        CompilationContext& m_context;
+        Context& m_context;
     };
     class IPhasePolicy;
     class OperandParser {
@@ -870,7 +877,7 @@ private:
         virtual bool on_pass_end() = 0;
         virtual void on_pass_next() = 0;
 
-        virtual CompilationContext& get_compilation_context() = 0;
+        virtual Context& get_compilation_context() = 0;
         virtual std::string get_absolute_symbol_name(const std::string& name) = 0;
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) = 0;
         virtual void on_label_definition(const std::string& label) = 0;
@@ -909,7 +916,7 @@ private:
         using Operand = typename IPhasePolicy::Operand;
         using OperandType = typename IPhasePolicy::OperandType;
 
-        CommonPolicy(CompilationContext& context) : m_context(context) {}
+        CommonPolicy(Context& context) : m_context(context) {}
         virtual ~CommonPolicy() {}
 
         struct ConditionalState {
@@ -917,17 +924,10 @@ private:
             bool else_seen;
         };
         std::vector<ConditionalState> m_conditional_stack;
-        struct MacroState {
-            Macro macro;
-            std::vector<std::string> parameters;
-            size_t next_line_index;
-        };
-        std::vector<MacroState> m_macros_stack;
-
-        virtual CompilationContext& get_compilation_context() override { return m_context; }
+        virtual Context& get_compilation_context() override { return m_context; }
         virtual void on_initialize() override {
             m_conditional_stack.clear();
-            m_macros_stack.clear();
+            m_context.macros.stack.clear();
             m_context.repeat.stack.clear();
         }
         virtual void on_finalize() override {
@@ -935,11 +935,11 @@ private:
                 throw std::runtime_error("Unterminated macro expansion at end of file.");
             if (!m_context.source.control_stack.empty()) {
                 switch (m_context.source.control_stack.back()) {
-                    case CompilationContext::Source::ControlBlockType::CONDITIONAL:
+                    case Context::Source::ControlBlockType::CONDITIONAL:
                         throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
-                    case CompilationContext::Source::ControlBlockType::REPT:
+                    case Context::Source::ControlBlockType::REPT:
                         throw std::runtime_error("Unterminated REPT block (missing ENDR).");
-                    case CompilationContext::Source::ControlBlockType::PROCEDURE:
+                    case Context::Source::ControlBlockType::PROCEDURE:
                         throw std::runtime_error("Unterminated PROC block (missing ENDP).");
                 }
             }
@@ -1029,24 +1029,24 @@ private:
                 if (expr_eval.evaluate(expression, value))
                     condition_result = (value != 0);
             }
-            m_context.source.control_stack.push_back(CompilationContext::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
         }
         virtual void on_ifdef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && on_symbol_resolve(symbol, dummy);
-            m_context.source.control_stack.push_back(CompilationContext::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifndef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && !on_symbol_resolve(symbol, dummy);
-            m_context.source.control_stack.push_back(CompilationContext::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifnb_directive(const std::string& arg) override {
             bool condition_result = is_conditional_block_active() && !arg.empty();
-            m_context.source.control_stack.push_back(CompilationContext::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {
@@ -1057,7 +1057,7 @@ private:
             if (s2.length() >= 2 && s2.front() == '<' && s2.back() == '>')
                 s2 = s2.substr(1, s2.length() - 2);
             bool condition_result = is_conditional_block_active() && (s1 == s2);
-            m_context.source.control_stack.push_back(CompilationContext::Source::ControlBlockType::CONDITIONAL);
+            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::CONDITIONAL);
             m_conditional_stack.push_back({condition_result, false});
         }
         virtual void on_error_directive(const std::string& message) override {
@@ -1084,7 +1084,7 @@ private:
         virtual void on_endif_directive() override {
             if (m_conditional_stack.empty())
                 throw std::runtime_error("ENDIF without IF");
-            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != CompilationContext::Source::ControlBlockType::CONDITIONAL)
+            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlBlockType::CONDITIONAL)
                 throw std::runtime_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
             m_context.source.control_stack.pop_back();
             m_conditional_stack.pop_back();
@@ -1094,7 +1094,7 @@ private:
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
         virtual void on_repeat_start(const std::string& counter_expr) override {
-            m_context.source.control_stack.push_back(CompilationContext::Source::ControlBlockType::REPT);
+            m_context.source.control_stack.push_back(Context::Source::ControlBlockType::REPT);
             Expressions expression(*this);
             int32_t count;
             if (expression.evaluate(counter_expr, count)) {
@@ -1112,12 +1112,12 @@ private:
             return false;
         }
         virtual void on_repeat_end() override {
-            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != CompilationContext::Source::ControlBlockType::REPT)
+            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlBlockType::REPT)
                 throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
             m_context.source.control_stack.pop_back();
-            typename CompilationContext::Repeat::State& rept_block = m_context.repeat.stack.back();
-            if (m_context.macros.in_expansion && !m_macros_stack.empty()) {
-                MacroState& current_macro_state = m_macros_stack.back();
+            typename Context::Repeat::State& rept_block = m_context.repeat.stack.back();
+            if (m_context.macros.in_expansion && !m_context.macros.stack.empty()) {
+                typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
                 for (size_t i = 0; i < rept_block.count; ++i)
                     current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
             } else {
@@ -1127,7 +1127,7 @@ private:
             m_context.repeat.stack.pop_back();
         }
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) {
-            Macro macro = m_context.macros.definitions.at(name);
+            typename Context::Macros::Macro macro = m_context.macros.definitions.at(name);
             if (!macro.local_labels.empty()) {
                 std::string unique_id_str = std::to_string(m_context.macros.unique_id_counter++);
                 for (auto& line : macro.body) {
@@ -1137,13 +1137,13 @@ private:
                     }
                 }
             }                
-            m_macros_stack.push_back({macro, parameters, 0});
+            m_context.macros.stack.push_back({macro, parameters, 0});
             m_context.macros.in_expansion = true;
         }
         virtual void on_macro_line() override {
-            if (m_macros_stack.empty())
+            if (m_context.macros.stack.empty())
                 return;
-            MacroState& current_macro_state = m_macros_stack.back();
+            typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
             if (current_macro_state.next_line_index < current_macro_state.macro.body.size()) {
                 std::string line = current_macro_state.macro.body[current_macro_state.next_line_index++];
                 if (m_context.repeat.stack.empty()) {                
@@ -1158,8 +1158,8 @@ private:
                 }
                 m_context.m_lines_to_process.push_back(line);
             } else {
-                m_macros_stack.pop_back();
-                m_context.macros.in_expansion = !m_macros_stack.empty();
+                m_context.macros.stack.pop_back();
+                m_context.macros.in_expansion = !m_context.macros.stack.empty();
             }
         }
     protected:
@@ -1190,7 +1190,7 @@ private:
             return name;
         }
         void expand_macro_parameters(std::string& line) {
-            MacroState& current_macro_state = m_macros_stack.back();
+            typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
             std::string final_line;
             final_line.reserve(line.length());
             for (size_t i = 0; i < line.length(); ++i) {
@@ -1253,7 +1253,7 @@ private:
         std::string m_last_global_label;
         std::vector<std::string> m_proc_stack;
 
-        CompilationContext& m_context;
+        Context& m_context;
     };
     class Strings {
     public:
@@ -1451,7 +1451,7 @@ private:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
 
-        SymbolsPhase(CompilationContext& context, int max_pass) : CommonPolicy(context), m_max_pass(max_pass) {}
+        SymbolsPhase(Context& context, int max_pass) : CommonPolicy(context), m_max_pass(max_pass) {}
         virtual ~SymbolsPhase() {}
 
         virtual void on_initialize() override {
@@ -1634,7 +1634,7 @@ private:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
         
-        AssemblyPhase(CompilationContext& context) : CommonPolicy(context) {}
+        AssemblyPhase(Context& context) : CommonPolicy(context) {}
         virtual ~AssemblyPhase() = default;
 
         virtual void on_initialize() override {
@@ -3055,12 +3055,12 @@ private:
                     const std::string& proc_name = m_tokens[0].original();
                     if (Keywords::is_valid_label_name(proc_name)) {
                         m_policy.on_proc_begin(proc_name);
-                        m_policy.get_compilation_context().source.control_stack.push_back(CompilationContext::Source::ControlBlockType::PROCEDURE);
+                        m_policy.get_compilation_context().source.control_stack.push_back(Context::Source::ControlBlockType::PROCEDURE);
                         return true;
                     }
                 }
                 if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDP") {
-                    if (m_policy.get_compilation_context().source.control_stack.empty() || m_policy.get_compilation_context().source.control_stack.back() != CompilationContext::Source::ControlBlockType::PROCEDURE)
+                    if (m_policy.get_compilation_context().source.control_stack.empty() || m_policy.get_compilation_context().source.control_stack.back() != Context::Source::ControlBlockType::PROCEDURE)
                         throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
                     m_policy.on_proc_end();
                     m_policy.get_compilation_context().source.control_stack.pop_back();
