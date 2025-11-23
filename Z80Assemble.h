@@ -176,8 +176,10 @@ private:
             std::map<std::string, SymbolInfo> symbols_table;
             std::vector<BlockInfo> blocks_table;
         } results;
-        std::map<std::string, Macro> macros;
-        int unique_macro_id_counter = 0;
+        struct Macros {
+            std::map<std::string, Macro> definitions;
+            int unique_id_counter = 0;
+        } macros;
         enum class ControlBlockType {
             NONE,
             CONDITIONAL,
@@ -264,7 +266,7 @@ private:
                 if (in_macro_def) {
                     if (tokens.count() == 1 && (tokens[0].upper() == "ENDM" || tokens[0].upper() == "MEND")) {
                         in_macro_def = false;
-                        m_context.macros[current_macro_name] = current_macro;
+                        m_context.macros.definitions[current_macro_name] = current_macro;
                     } else {
                         if (tokens.count() > 1 && tokens[0].upper() == "LOCAL") {
                             auto args = tokens[1].to_arguments();
@@ -936,7 +938,7 @@ private:
             m_context.current_logical_address = m_context.start_addr;
             m_context.current_physical_address = m_context.start_addr;
             m_context.current_line_number = 0;
-            m_context.unique_macro_id_counter = 0;
+            m_context.macros.unique_id_counter = 0;
             m_conditional_stack.clear();
             m_context.m_control_flow_stack.clear();
         }
@@ -1115,9 +1117,9 @@ private:
             m_rept_stack.pop_back();
         }
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) {
-            Macro macro = m_context.macros.at(name);
+            Macro macro = m_context.macros.definitions.at(name);
             if (!macro.local_labels.empty()) {
-                std::string unique_id_str = std::to_string(m_context.unique_macro_id_counter++);
+                std::string unique_id_str = std::to_string(m_context.macros.unique_id_counter++);
                 for (auto& line : macro.body) {
                     for (const auto& label : macro.local_labels) {
                         std::string replacement = "??" + label + "_" + unique_id_str;
@@ -2845,7 +2847,7 @@ private:
             if (!m_policy.get_compilation_context().options.directives.enabled || !m_policy.get_compilation_context().options.directives.allow_macros)
                 return false;
             const auto& potential_macro_name = m_tokens[0].original();
-            if (m_policy.get_compilation_context().macros.count(potential_macro_name)) {
+            if (m_policy.get_compilation_context().macros.definitions.count(potential_macro_name)) {
                 std::vector<std::string> params;
                 if (m_tokens.count() > 1) {
                     m_tokens.merge(1, m_tokens.count() - 1);
