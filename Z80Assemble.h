@@ -145,13 +145,6 @@ public:
     const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
     const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
 private:
-    struct Symbol {
-        bool redefinable;
-        int index;
-        std::vector<int32_t> value;
-        std::vector<bool> undefined;
-        bool used;
-    };
     struct Context {
         Context(const Options& opts) : options(opts) {}
         Context(const Context& other) = delete;
@@ -164,12 +157,22 @@ private:
         size_t current_line_number = 0;
         size_t current_pass = 0;
         std::string last_global_label;
-        std::map<std::string, Symbol*> symbols;
+        
         struct Address {
             uint16_t start = 0;
             uint16_t current_logical = 0;
             uint16_t current_physical = 0;
         } address;
+        struct Symbols {
+            struct Symbol {
+                bool redefinable;
+                int index;
+                std::vector<int32_t> value;
+                std::vector<bool> undefined;
+                bool used;
+            };
+            std::map<std::string, Symbol*> map;
+        } symbols;
         struct Results {
             std::map<std::string, SymbolInfo> symbols_table;
             std::vector<BlockInfo> blocks_table;
@@ -186,7 +189,6 @@ private:
                 size_t next_line_index;
             };
             std::vector<ExpansionState> stack;
-
             std::map<std::string, Macro> definitions;
             int unique_id_counter = 0;
             bool in_expansion = false;
@@ -207,7 +209,7 @@ private:
             };
             std::vector<State> stack;
         } repeat;
-        std::vector<std::string> m_lines_to_process;
+        std::vector<std::string> lines_stack;
     };
     Context m_context;
     class Preprocessor {
@@ -1122,7 +1124,7 @@ private:
                     current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
             } else {
                 for (size_t i = 0; i < rept_block.count; ++i)
-                    m_context.m_lines_to_process.insert(m_context.m_lines_to_process.end(), rept_block.body.rbegin(), rept_block.body.rend());
+                    m_context.lines_stack.insert(m_context.lines_stack.end(), rept_block.body.rbegin(), rept_block.body.rend());
             }
             m_context.repeat.stack.pop_back();
         }
@@ -1156,7 +1158,7 @@ private:
                     }
                     expand_macro_parameters(line);
                 }
-                m_context.m_lines_to_process.push_back(line);
+                m_context.lines_stack.push_back(line);
             } else {
                 m_context.macros.stack.pop_back();
                 m_context.macros.in_expansion = !m_context.macros.stack.empty();
@@ -1164,15 +1166,15 @@ private:
         }
     protected:
         void clear_symbols() {
-            for (auto& symbol_pair : this->m_context.symbols) {
+            for (auto& symbol_pair : this->m_context.symbols.map) {
                 delete symbol_pair.second;
                 symbol_pair.second = nullptr;
             }
-            this->m_context.symbols.clear();
+            this->m_context.symbols.map.clear();
         }
         void reset_symbols_index() {
-            for (auto& symbol_pair : this->m_context.symbols) {
-                Symbol* symbol = symbol_pair.second;
+            for (auto& symbol_pair : this->m_context.symbols.map) {
+                typename Context::Symbols::Symbol* symbol = symbol_pair.second;
                 if (symbol)
                     symbol->index = -1;
             }
@@ -1467,8 +1469,8 @@ private:
             if (m_final_pass_scheduled) {
                 if (m_symbols_stable) {
                     this->m_context.results.symbols_table.clear();
-                    for (const auto& symbol_pair : this->m_context.symbols) {
-                        Symbol* symbol = symbol_pair.second;
+                    for (const auto& symbol_pair : this->m_context.symbols.map) {
+                        typename Context::Symbols::Symbol* symbol = symbol_pair.second;
                         if (symbol) {
                             int index = symbol->index;
                             if (!symbol->undefined[index])
@@ -1494,8 +1496,8 @@ private:
                 else {
                     error_msg += " Undefined symbol(s): ";
                     bool first = true;
-                    for (const auto& symbol_pair : this->m_context.symbols) {
-                        Symbol* symbol = symbol_pair.second;
+                    for (const auto& symbol_pair : this->m_context.symbols.map) {
+                        typename Context::Symbols::Symbol* symbol = symbol_pair.second;
                         if (symbol) {
                             int index = symbol->index;
                             if (symbol->undefined[index]) {
@@ -1515,9 +1517,9 @@ private:
                 return true;
             bool resolved = false;
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
-            auto it = this->m_context.symbols.find(actual_symbol_name);
-            if (it != this->m_context.symbols.end()) {
-                Symbol *symbol = it->second;
+            auto it = this->m_context.symbols.map.find(actual_symbol_name);
+            if (it != this->m_context.symbols.map.end()) {
+                typename Context::Symbols::Symbol *symbol = it->second;
                 if (symbol) {
                     symbol->used = true;
                     int index = symbol->index;
@@ -1584,8 +1586,8 @@ private:
         };
         bool all_used_symbols_defined() const {
             bool all_used_defined = true;
-            for (const auto& symbol_pair : this->m_context.symbols) {
-                Symbol* symbol = symbol_pair.second;
+            for (const auto& symbol_pair : this->m_context.symbols.map) {
+                typename Context::Symbols::Symbol* symbol = symbol_pair.second;
                 if (symbol) {
                     if (symbol->used && symbol->undefined[symbol->index]) {
                         all_used_defined = false;
@@ -1597,13 +1599,13 @@ private:
         }
         void update_symbol(const std::string& name, int32_t value, bool is_undefined, bool redefinable) {
             std::string actual_name = this->get_absolute_symbol_name(name);
-            auto it = this->m_context.symbols.find(actual_name);
-            if (it == this->m_context.symbols.end()) {
-                Symbol* new_symbol = new Symbol{redefinable, 0, {value}, {is_undefined}};
-                this->m_context.symbols[actual_name] = new_symbol;
+            auto it = this->m_context.symbols.map.find(actual_name);
+            if (it == this->m_context.symbols.map.end()) {
+                typename Context::Symbols::Symbol* new_symbol = new typename Context::Symbols::Symbol{redefinable, 0, {value}, {is_undefined}};
+                this->m_context.symbols.map[actual_name] = new_symbol;
                 m_symbols_stable = false;
             } else {
-                Symbol *symbol = it->second;
+                typename Context::Symbols::Symbol *symbol = it->second;
                 if (symbol) {
                     if (!symbol->redefinable && redefinable)
                         throw std::runtime_error("Cannot redefine constant symbol: " + actual_name);
@@ -1659,9 +1661,9 @@ private:
             if (CommonPolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
-            auto it = this->m_context.symbols.find(actual_symbol_name);
-            if (it != this->m_context.symbols.end()) {
-                Symbol *symbol = it->second;
+            auto it = this->m_context.symbols.map.find(actual_symbol_name);
+            if (it != this->m_context.symbols.map.end()) {
+                typename Context::Symbols::Symbol *symbol = it->second;
                 if (symbol) {
                     int index = symbol->index;
                     if (index == -1)
@@ -1724,9 +1726,9 @@ private:
     private:
         void update_symbol_index(const std::string& label) {
             std::string actual_name = this->get_absolute_symbol_name(label);
-            auto it = this->m_context.symbols.find(actual_name);
-            if (it != this->m_context.symbols.end()) {
-                Symbol *symbol = it->second;
+            auto it = this->m_context.symbols.map.find(actual_name);
+            if (it != this->m_context.symbols.map.end()) {
+                typename Context::Symbols::Symbol *symbol = it->second;
                 if (symbol)
                     symbol->index++;
             }
@@ -2819,16 +2821,16 @@ private:
     public:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
         bool process_line(const std::string& initial_line) {
-            m_policy.get_compilation_context().m_lines_to_process.clear();
-            m_policy.get_compilation_context().m_lines_to_process.push_back(initial_line);
-            while (!m_policy.get_compilation_context().m_lines_to_process.empty() || m_policy.get_compilation_context().macros.in_expansion) {
+            m_policy.get_compilation_context().lines_stack.clear();
+            m_policy.get_compilation_context().lines_stack.push_back(initial_line);
+            while (!m_policy.get_compilation_context().lines_stack.empty() || m_policy.get_compilation_context().macros.in_expansion) {
                 if (m_policy.get_compilation_context().macros.in_expansion) {
                     m_policy.on_macro_line();
-                    if (m_policy.get_compilation_context().m_lines_to_process.empty())
+                    if (m_policy.get_compilation_context().lines_stack.empty())
                         continue;
                 }
-                std::string current_line = m_policy.get_compilation_context().m_lines_to_process.back();
-                m_policy.get_compilation_context().m_lines_to_process.pop_back();
+                std::string current_line = m_policy.get_compilation_context().lines_stack.back();
+                m_policy.get_compilation_context().lines_stack.pop_back();
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
