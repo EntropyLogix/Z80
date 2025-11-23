@@ -156,8 +156,6 @@ private:
 
         size_t current_line_number = 0;
         size_t current_pass = 0;
-        std::string last_global_label;
-        
         struct Address {
             uint16_t start = 0;
             uint16_t current_logical = 0;
