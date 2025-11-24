@@ -417,40 +417,52 @@ class Strings {
             return process_file(main_file_path, output_source, included_files);
         }
     private:
-        void remove_block_comments(std::string& source_str, const std::string& identifier) {
-            size_t start_pos = source_str.find("/*");
-            while (start_pos != std::string::npos) {
-                size_t end_pos = source_str.find("*/", start_pos + 2);
-                if (end_pos == std::string::npos)
+        void remove_comments(std::string& source_str, const std::string& identifier) {
+            std::stringstream input(source_str);
+            std::string output;
+            std::string line;
+            bool in_block_comment = false;
+            const auto& comment_options = m_context.options.comments;
+            while (std::getline(input, line)) {
+                std::string processed_line;
+                bool in_string = false;
+                bool in_char = false;
+                for (size_t i = 0; i < line.length(); ++i) {
+                    char c = line[i];
+                    if (in_block_comment) {
+                        if (comment_options.allow_block && i + 1 < line.length() && c == '*' && line[i + 1] == '/') {
+                            in_block_comment = false;
+                            i++;
+                            processed_line += ' '; // Replace block comment with a space to separate tokens
+                        }
+                        continue;
+                    }
+                    if (c == '\'' && !in_string)
+                        in_char = !in_char; // This handles single-quoted strings
+                    else if (c == '"' && !in_char)
+                        in_string = !in_string;
+                    if (!in_string && !in_char) {
+                        if (comment_options.allow_semicolon && c == ';')
+                            break;
+                        if (comment_options.allow_cpp_style && i + 1 < line.length() && c == '/' && line[i + 1] == '/')
+                            break;
+                        if (comment_options.allow_block && i + 1 < line.length() && c == '/' && line[i + 1] == '*') {
+                            in_block_comment = true;
+                            i++;
+                            continue;
+                        }
+                    }
+                    processed_line += c;
+                }
+                output.append(processed_line).append("\n");
+            }
+            if (in_block_comment) {
+                if (m_context.options.comments.allow_block)
                     throw std::runtime_error("Unterminated block comment in " + identifier);
-                source_str.replace(start_pos, end_pos - start_pos + 2, "\n");
-                start_pos = source_str.find("/*");
-            }
-        }
-        void remove_semicolon_comments(std::string& source_str) {
-            std::stringstream input(source_str);
-            std::string output;
-            std::string line;
-            while (std::getline(input, line)) {
-                size_t comment_pos = line.find(';');
-                if (comment_pos != std::string::npos)
-                    line.erase(comment_pos);
-                output.append(line).append("\n");
             }
             source_str = output;
         }
-        void remove_cpp_style_comments(std::string& source_str) {
-            std::stringstream input(source_str);
-            std::string output;
-            std::string line;
-            while (std::getline(input, line)) {
-                size_t comment_pos = line.find("//");
-                if (comment_pos != std::string::npos)
-                    line.erase(comment_pos);
-                output.append(line).append("\n");
-            }
-            source_str = output;
-        }
+
         bool process_file(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
             if (included_files.count(identifier))
                 throw std::runtime_error("Circular or duplicate include detected: " + identifier);
@@ -459,14 +471,8 @@ class Strings {
             if (!m_context.source_provider->get_source(identifier, source_data))
                 return false;
             std::string source_content(source_data.begin(), source_data.end());
-            if (m_context.options.comments.enabled) {
-                if (m_context.options.comments.allow_block)
-                    remove_block_comments(source_content, identifier);
-                if (m_context.options.comments.allow_semicolon)
-                    remove_semicolon_comments(source_content);
-                if (m_context.options.comments.allow_cpp_style)
-                    remove_cpp_style_comments(source_content);
-            }
+            if (m_context.options.comments.enabled)
+                remove_comments(source_content, identifier);
             std::stringstream source_stream(source_content);
             std::string line, original_line;
             size_t line_number = 0;

@@ -1207,6 +1207,33 @@ TEST_CASE(Comments) {
 
     // Test unterminated block comment
     ASSERT_COMPILE_FAILS("LD A, 1 /* This comment is not closed");
+
+    // Test C++ style comments
+    ASSERT_CODE("LD A, 5 // This is a C++ style comment", {0x3E, 0x05});
+    ASSERT_CODE("// ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A});
+
+    // Test empty comments
+    ASSERT_CODE("LD A, 1 ;", {0x3E, 0x01});
+    ASSERT_CODE("LD B, 2 //", {0x06, 0x02});
+    ASSERT_CODE("LD C, 3 /**/", {0x0E, 0x03});
+
+    // Test mixed comments
+    ASSERT_CODE(R"(
+        LD A, 1 ; Semicolon /* Block inside */ // C++ style inside
+        LD B, 2 // C++ style ; Semicolon inside
+    )", {0x3E, 0x01, 0x06, 0x02});
+
+    // Test comment markers inside strings (should be ignored)
+    ASSERT_CODE(R"(DB "This is not a ; comment")",
+                {0x54, 0x68, 0x69, 0x73, 0x20, 0x69, 0x73, 0x20, 0x6E, 0x6F, 0x74, 0x20, 0x61, 0x20, 0x3B, 0x20, 0x63, 0x6F, 0x6D, 0x6D, 0x65, 0x6E, 0x74});
+    // Single quotes are for char literals only, so a string in single quotes should fail.
+    ASSERT_COMPILE_FAILS("DB 'This is not a /* comment */'");
+    ASSERT_CODE(R"(DB "Nor is this a // comment")",
+                {0x4E, 0x6F, 0x72, 0x20, 0x69, 0x73, 0x20, 0x74, 0x68, 0x69, 0x73, 0x20, 0x61, 0x20, 0x2F, 0x2F, 0x20, 0x63, 0x6F, 0x6D, 0x6D, 0x65, 0x6E, 0x74});
+    ASSERT_CODE(R"(DB "A string with a /* block comment", 10, "and another one with a ; semicolon")",
+                {0x41, 0x20, 0x73, 0x74, 0x72, 0x69, 0x6E, 0x67, 0x20, 0x77, 0x69, 0x74, 0x68, 0x20, 0x61, 0x20, 0x2F, 0x2A, 0x20, 0x62, 0x6C, 0x6F, 0x63, 0x6B, 0x20, 0x63, 0x6F, 0x6D, 0x6D, 0x65, 0x6E, 0x74,
+                 0x0A,
+                 0x61, 0x6E, 0x64, 0x20, 0x61, 0x6E, 0x6F, 0x74, 0x68, 0x65, 0x72, 0x20, 0x6F, 0x6E, 0x65, 0x20, 0x77, 0x69, 0x74, 0x68, 0x20, 0x61, 0x20, 0x3B, 0x20, 0x73, 0x65, 0x6D, 0x69, 0x63, 0x6F, 0x6C, 0x6F, 0x6E});
 }
 
 TEST_CASE(IndexedRegisterParts) {
@@ -1707,11 +1734,16 @@ TEST_CASE(CommentOptions) {
     options.comments.allow_semicolon = false;
     options.comments.allow_cpp_style = false;
     options.comments.allow_block = true;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options);
-    ASSERT_CODE_WITH_OPTS("LD A, 1/* comment */LD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
-    ASSERT_CODE_WITH_OPTS("LD A, 1/**/LD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options); // Semicolon should be invalid
+    // Block comments should NOT allow multiple instructions on one line.
+    // The parser should fail because it sees "LD A, 1 LD B, 2" after comment removal.
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/* comment */LD B, 2", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/**/LD B, 2", options);
+    // However, a block comment that consumes the rest of the line is valid.
+    ASSERT_CODE_WITH_OPTS("LD A, 1 /* comment */", {0x3E, 0x01}, options);
+    // And multi-line block comments are also valid.
     ASSERT_CODE_WITH_OPTS("LD A, 1\n/* comment */\nLD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style should be invalid
 
     // 5. Test: Only C++ style comments allowed
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
@@ -1727,9 +1759,8 @@ TEST_CASE(CommentOptions) {
     options = Z80Assembler<Z80DefaultBus>::get_default_options(); // Default has all enabled
     ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, options);
     ASSERT_CODE_WITH_OPTS("LD A, 6 // This is a cpp comment", {0x3E, 0x06}, options);
-    ASSERT_CODE_WITH_OPTS(R"(
-        LD A, 1/* Start comment */LD B, 2
-    )", {0x3E, 0x01, 0x06, 0x02}, options);
+    // This should fail as it's two instructions on one line after comment removal.
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/* Start comment */LD B, 2", options);
     ASSERT_CODE_WITH_OPTS(R"(
         LD A, 1       /* Start comment
         LD B, 2       This is all commented out
@@ -1744,7 +1775,7 @@ TEST_CASE(CommentOptions) {
     // 8. Test: Block comment with no content
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.comments.allow_block = true;
-    ASSERT_CODE_WITH_OPTS("LD A, 1/**/LD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/**/LD B, 2", options);
 
     // 9. Test: Block comment spanning multiple lines
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
