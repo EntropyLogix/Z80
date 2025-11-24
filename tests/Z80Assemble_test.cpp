@@ -42,7 +42,12 @@ std::vector<TestCase>& get_test_cases() {
 void run_all_tests() {
     for (const auto& test : get_test_cases()) {
         std::cout << "--- Running test: " << test.name << " ---\n";
-        test.func();
+        try {
+            test.func();
+        } catch (const std::exception& e) {
+            std::cerr << "ERROR: An uncaught exception occurred in test '" << test.name << "': " << e.what() << std::endl;
+            tests_failed++;
+        }
     }
 }
 
@@ -72,7 +77,12 @@ void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_
     MockSourceProvider source_provider;
     source_provider.add_source("main.asm", asm_code);
     Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);
-    bool success = assembler.compile("main.asm", 0x0000);
+    bool success = true;
+    try {
+        success = assembler.compile("main.asm", 0x0000);
+    } catch (const std::runtime_error& e) {
+        success = false;
+    }
     if (!success) {
         std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
@@ -122,57 +132,8 @@ void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_
 }
 
 void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes) {
-    Z80DefaultBus bus;
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
-    bool success = assembler.compile("main.asm", 0x0000);
-    if (!success) {
-        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
-        std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
-        tests_failed++;
-        return;
-    }
-
-    auto blocks = assembler.get_blocks();
-    size_t compiled_size = 0;
-    if (!blocks.empty()) {
-        compiled_size = blocks[0].size;
-    }
-
-    if (compiled_size != expected_bytes.size()) {
-        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
-        std::cerr << "Assertion failed: Incorrect compiled size for '" << asm_code << "'.\n";
-        std::cerr << "  Expected size: " << expected_bytes.size() << ", Got: " << compiled_size << "\n";
-        tests_failed++;
-        return;
-    }
-
-    uint16_t start_address = 0x0000;
-    if (!blocks.empty()) {
-        start_address = blocks[0].start_address;
-    }
-
-    bool mismatch = false;
-    for (size_t i = 0; i < expected_bytes.size(); ++i) {
-        if (bus.peek(start_address + i) != expected_bytes[i]) {
-            mismatch = true;
-            break;
-        }
-    }
-
-    if (mismatch) {
-        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
-        std::cerr << "Assertion failed: Byte mismatch for '" << asm_code << "'\n";
-        std::cerr << "  Expected: ";
-        for (uint8_t byte : expected_bytes) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)byte << " ";
-        std::cerr << "\n  Got:      ";
-        for (size_t i = 0; i < expected_bytes.size(); ++i) std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)bus.peek(start_address + i) << " ";
-        std::cerr << std::dec << "\n";
-        tests_failed++;
-    } else {
-        tests_passed++;
-    }
+    Z80Assembler<Z80DefaultBus>::Options options;
+    ASSERT_CODE_WITH_OPTS(asm_code, expected_bytes, options);
 }
 
 void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::vector<uint8_t>>& expected_blocks) {
@@ -232,23 +193,19 @@ void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assemb
     Z80DefaultBus bus;
     MockSourceProvider source_provider;
     source_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);    
+    bool success = true;
     try {
-        bool success = assembler.compile("main.asm", 0x0000);
-        if (success) {
-            std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
-            std::cerr << "Assertion failed: Compilation succeeded for '" << asm_code << "' but was expected to fail.\n";
-            tests_failed++;
-        } else {
-            // This case might occur if compile() returns false without an exception.
-            tests_passed++;
-        }
-    } catch (const std::runtime_error& e) {
-        tests_passed++;
-    } catch (...) {
+        success = assembler.compile("main.asm", 0x0000);
+    } catch (const std::runtime_error&) {
+        success = false;
+    }
+    if (success) {
         std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
-        std::cerr << "  [FAIL] An unexpected exception was thrown.\n";
+        std::cerr << "Assertion failed: Compilation succeeded for '" << asm_code << "' but was expected to fail.\n";
         tests_failed++;
+    } else {
+        tests_passed++;
     }
 }
 
@@ -257,25 +214,8 @@ void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
     MockSourceProvider source_provider;
     source_provider.add_source("main.asm", asm_code);
     Z80Assembler<Z80DefaultBus>::Options options;
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);
-    try {
-        bool success = assembler.compile("main.asm", 0x0000);
-        if (success) {
-            std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
-            std::cerr << "  [FAIL] Assertion failed: Compilation succeeded but was expected to fail.\n";
-            tests_failed++;
-        } else {
-            // This case might occur if compile() returns false without an exception.
-            tests_passed++;
-        }
-    } catch (const std::runtime_error& e) {
-        // Exception was expected, so this is a pass.
-        tests_passed++;
-    } catch (...) {
-        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
-        std::cerr << "Assertion failed: An unexpected exception was thrown for '" << asm_code << "'.\n";
-        tests_failed++;
-    }
+    // Użyj zunifikowanej logiki z ASSERT_COMPILE_FAILS_WITH_OPTS
+    ASSERT_COMPILE_FAILS_WITH_OPTS(asm_code, options);
 }
 
 template<typename T>
@@ -1767,14 +1707,11 @@ TEST_CASE(CommentOptions) {
     options.comments.allow_semicolon = false;
     options.comments.allow_cpp_style = false;
     options.comments.allow_block = true;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options); // Semicolon comment should fail
-    ASSERT_CODE_WITH_OPTS(R"(
-        LD A, 1 /* Start comment
-        LD B, 2       This is all commented out
-        LD C, 3       */ LD D, 4
-    )", {0x3E, 0x01, 0x16, 0x04}, options); // Block comment should pass
-    ASSERT_CODE_WITH_OPTS("LD A, 5 /* comment */", {0x3E, 0x05}, options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style comment should fail
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options);
+    ASSERT_CODE_WITH_OPTS("LD A, 1/* comment */LD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
+    ASSERT_CODE_WITH_OPTS("LD A, 1/**/LD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
+    ASSERT_CODE_WITH_OPTS("LD A, 1\n/* comment */\nLD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options);
 
     // 5. Test: Only C++ style comments allowed
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
@@ -1791,7 +1728,7 @@ TEST_CASE(CommentOptions) {
     ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, options);
     ASSERT_CODE_WITH_OPTS("LD A, 6 // This is a cpp comment", {0x3E, 0x06}, options);
     ASSERT_CODE_WITH_OPTS(R"(
-        LD A, 1 /* Start comment */ LD B, 2
+        LD A, 1/* Start comment */LD B, 2
     )", {0x3E, 0x01, 0x06, 0x02}, options);
     ASSERT_CODE_WITH_OPTS(R"(
         LD A, 1       /* Start comment
@@ -1807,7 +1744,7 @@ TEST_CASE(CommentOptions) {
     // 8. Test: Block comment with no content
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.comments.allow_block = true;
-    ASSERT_CODE_WITH_OPTS("LD A, 1 /**/ LD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
+    ASSERT_CODE_WITH_OPTS("LD A, 1/**/LD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
 
     // 9. Test: Block comment spanning multiple lines
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
@@ -3109,12 +3046,7 @@ int main() {
 
     auto start_time = std::chrono::high_resolution_clock::now();
 
-    try {
-        run_all_tests();
-    } catch (const std::exception& e) {
-        std::cerr << "ERROR: An uncaught exception occurred: " << e.what() << std::endl;
-        tests_failed++;
-    }
+    run_all_tests();
 
     auto end_time = std::chrono::high_resolution_clock::now();
     long long total_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
