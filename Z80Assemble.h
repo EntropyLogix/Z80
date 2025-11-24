@@ -1120,13 +1120,13 @@ class Strings {
 
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
-    class CommonPolicy : public IPhasePolicy {
+    class BasePolicy : public IPhasePolicy {
     public:
         using Operand = typename IPhasePolicy::Operand;
         using OperandType = typename IPhasePolicy::OperandType;
 
-        CommonPolicy(Context& context) : m_context(context) {}
-        virtual ~CommonPolicy() {}
+        BasePolicy(Context& context) : m_context(context) {}
+        virtual ~BasePolicy() {}
 
         virtual Context& context() override {
             return m_context;
@@ -1453,19 +1453,19 @@ class Strings {
         }
         Context& m_context;
     };
-    class SymbolsPhase : public CommonPolicy {
+    class SymbolsPhase : public BasePolicy {
     public:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
 
-        SymbolsPhase(Context& context, int max_pass) : CommonPolicy(context), m_max_pass(max_pass) {}
+        SymbolsPhase(Context& context, int max_pass) : BasePolicy(context), m_max_pass(max_pass) {}
         virtual ~SymbolsPhase() {}
 
         virtual void on_initialize() override {
             this->clear_symbols();
         }
         virtual void on_pass_begin() override {
-            CommonPolicy::on_pass_begin();
+            BasePolicy::on_pass_begin();
             m_symbols_stable = true;
         }
         virtual bool on_pass_end() override {
@@ -1518,7 +1518,7 @@ class Strings {
             this->reset_symbols_index();
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
-            if (CommonPolicy::on_symbol_resolve(symbol, out_value))
+            if (BasePolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             bool resolved = false;
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
@@ -1537,7 +1537,7 @@ class Strings {
             return resolved;
         }
         virtual void on_label_definition(const std::string& label) override {
-            CommonPolicy::on_label_definition(label);
+            BasePolicy::on_label_definition(label);
             update_symbol(label, this->m_context.address.current_logical, false, false);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
@@ -1636,12 +1636,12 @@ class Strings {
         bool m_final_pass_scheduled = false;
         int m_max_pass = 0;
     };
-    class AssemblyPhase : public CommonPolicy {
+    class AssemblyPhase : public BasePolicy {
     public:
         using Operand = typename OperandParser::Operand;
         using OperandType = typename OperandParser::OperandType;
         
-        AssemblyPhase(Context& context) : CommonPolicy(context) {}
+        AssemblyPhase(Context& context) : BasePolicy(context) {}
         virtual ~AssemblyPhase() = default;
 
         virtual void on_initialize() override {
@@ -1651,7 +1651,7 @@ class Strings {
             this->clear_symbols();
         }
         virtual void on_pass_begin() override {
-            CommonPolicy::on_pass_begin();
+            BasePolicy::on_pass_begin();
             this->m_context.symbols.last_global_label.clear();
             m_blocks.push_back({this->m_context.address.start, 0});
         }
@@ -1663,7 +1663,7 @@ class Strings {
             return true;
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
-            if (CommonPolicy::on_symbol_resolve(symbol, out_value))
+            if (BasePolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
             auto it = this->m_context.symbols.map.find(actual_symbol_name);
@@ -1680,7 +1680,7 @@ class Strings {
             return false;
         }
         virtual void on_label_definition(const std::string& label) override {
-            CommonPolicy::on_label_definition(label);
+            BasePolicy::on_label_definition(label);
             update_symbol_index(label);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
