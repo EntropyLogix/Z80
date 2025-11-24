@@ -393,10 +393,15 @@ class Strings {
                 REPT,
                 PROCEDURE
             };
+            struct ConditionalState {
+                bool is_active;
+                bool else_seen;
+            };
             size_t current_pass;
             size_t current_line_number;
             std::vector<ControlType> control_stack;
             std::vector<std::string> lines_stack;
+            std::vector<ConditionalState> conditional_stack;
         } source;
         struct Repeat {
             struct State {
@@ -1124,14 +1129,9 @@ class Strings {
         CommonPolicy(Context& context) : m_context(context) {}
         virtual ~CommonPolicy() {}
 
-        struct ConditionalState {
-            bool is_active;
-            bool else_seen;
-        };
-        std::vector<ConditionalState> m_conditional_stack;
         virtual Context& get_compilation_context() override { return m_context; }
         virtual void on_initialize() override {
-            m_conditional_stack.clear();
+            m_context.source.conditional_stack.clear();
             m_context.macros.stack.clear();
             m_context.repeat.stack.clear();
         }
@@ -1154,7 +1154,7 @@ class Strings {
             m_context.address.current_physical = m_context.address.start;
             m_context.source.current_line_number = 0;
             m_context.macros.unique_id_counter = 0;
-            m_conditional_stack.clear();
+            m_context.source.conditional_stack.clear();
             m_context.source.control_stack.clear();
         }
         virtual bool on_pass_end() override { return true; }
@@ -1235,24 +1235,24 @@ class Strings {
                     condition_result = (value != 0);
             }
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
-            m_conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
+            m_context.source.conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
         }
         virtual void on_ifdef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && on_symbol_resolve(symbol, dummy);
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
-            m_conditional_stack.push_back({condition_result, false});
+            m_context.source.conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifndef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && !on_symbol_resolve(symbol, dummy);
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
-            m_conditional_stack.push_back({condition_result, false});
+            m_context.source.conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifnb_directive(const std::string& arg) override {
             bool condition_result = is_conditional_block_active() && !arg.empty();
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
-            m_conditional_stack.push_back({condition_result, false});
+            m_context.source.conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {
             std::string s1 = arg1;
@@ -1263,7 +1263,7 @@ class Strings {
                 s2 = s2.substr(1, s2.length() - 2);
             bool condition_result = is_conditional_block_active() && (s1 == s2);
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
-            m_conditional_stack.push_back({condition_result, false});
+            m_context.source.conditional_stack.push_back({condition_result, false});
         }
         virtual void on_error_directive(const std::string& message) override {
             throw std::runtime_error("ERROR: " + message);
@@ -1277,25 +1277,25 @@ class Strings {
             }
         }
         virtual void on_else_directive() override {
-            if (m_conditional_stack.empty())
+            if (m_context.source.conditional_stack.empty())
                 throw std::runtime_error("ELSE without IF");
-            if (m_conditional_stack.back().else_seen)
+            if (m_context.source.conditional_stack.back().else_seen)
                 throw std::runtime_error("Multiple ELSE directives for the same IF");
-            m_conditional_stack.back().else_seen = true;
-            bool parent_is_skipping = m_conditional_stack.size() > 1 && !m_conditional_stack[m_conditional_stack.size() - 2].is_active;
+            m_context.source.conditional_stack.back().else_seen = true;
+            bool parent_is_skipping = m_context.source.conditional_stack.size() > 1 && !m_context.source.conditional_stack[m_context.source.conditional_stack.size() - 2].is_active;
             if (!parent_is_skipping)
-                m_conditional_stack.back().is_active = !m_conditional_stack.back().is_active;
+                m_context.source.conditional_stack.back().is_active = !m_context.source.conditional_stack.back().is_active;
         }
         virtual void on_endif_directive() override {
-            if (m_conditional_stack.empty())
+            if (m_context.source.conditional_stack.empty())
                 throw std::runtime_error("ENDIF without IF");
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::CONDITIONAL)
                 throw std::runtime_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
             m_context.source.control_stack.pop_back();
-            m_conditional_stack.pop_back();
+            m_context.source.conditional_stack.pop_back();
         }
         virtual bool is_conditional_block_active() const override {
-            return m_conditional_stack.empty() || m_conditional_stack.back().is_active;
+            return m_context.source.conditional_stack.empty() || m_context.source.conditional_stack.back().is_active;
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
         virtual void on_repeat_start(const std::string& counter_expr) override {
