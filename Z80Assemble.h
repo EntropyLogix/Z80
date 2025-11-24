@@ -358,8 +358,13 @@ class Strings {
                 std::vector<bool> undefined;
                 bool used;
             };
+            struct Scope {
+                std::string full_name;
+                std::set<std::string> local_symbols;
+            };
             std::map<std::string, Symbol*> map;
             std::string last_global_label;
+            std::vector<Scope> scope_stack;
         } symbols;
         struct Results {
             std::map<std::string, SymbolInfo> symbols_table;
@@ -1184,27 +1189,27 @@ class Strings {
         }
         virtual void on_unknown_operand(const std::string& operand) override {}
         virtual void on_proc_begin(const std::string& name) override {
-            if (m_scope_stack.empty())
-                m_scope_stack.push_back({name, {}});
+            if (m_context.symbols.scope_stack.empty())
+                m_context.symbols.scope_stack.push_back({name, {}});
             else {
-                auto& parent_scope = m_scope_stack.back();
+                auto& parent_scope = m_context.symbols.scope_stack.back();
                 if (parent_scope.local_symbols.count(name)) {
                     std::string full_name = parent_scope.full_name + "." + name;
-                    m_scope_stack.push_back({full_name, {}});
+                    m_context.symbols.scope_stack.push_back({full_name, {}});
                 } else
-                    m_scope_stack.push_back({name, {}});
+                    m_context.symbols.scope_stack.push_back({name, {}});
             }
             on_label_definition(name);
         }
         virtual void on_proc_end() override {
-            if (m_scope_stack.empty())
+            if (m_context.symbols.scope_stack.empty())
                 throw std::runtime_error("ENDP without PROC.");
-            m_scope_stack.pop_back();
+            m_context.symbols.scope_stack.pop_back();
         }
         virtual void on_local_directive(const std::vector<std::string>& symbols) override {
-            if (m_scope_stack.empty())
+            if (m_context.symbols.scope_stack.empty())
                 throw std::runtime_error("LOCAL directive used outside of a PROC block.");
-            auto& current_scope = m_scope_stack.back();
+            auto& current_scope = m_context.symbols.scope_stack.back();
             for (const auto& symbol : symbols) {
                 if (!Keywords::is_valid_label_name(symbol) || symbol.find('.') != std::string::npos)
                     throw std::runtime_error("Invalid symbol name in LOCAL directive: '" + symbol + "'");
@@ -1370,7 +1375,7 @@ class Strings {
             }
         }
         std::string get_absolute_symbol_name(const std::string& name) override {
-            for (auto it = m_scope_stack.rbegin(); it != m_scope_stack.rend(); ++it) {
+            for (auto it = m_context.symbols.scope_stack.rbegin(); it != m_context.symbols.scope_stack.rend(); ++it) {
                 if (it->local_symbols.count(name))
                     return it->full_name + "." + name;
             }
@@ -1437,12 +1442,6 @@ class Strings {
             }
             line = final_line;
         }
-        struct Scope {
-            std::string full_name;
-            std::set<std::string> local_symbols;
-        };
-        std::vector<Scope> m_scope_stack;
-
         Context& m_context;
     };
     class SymbolsPhase : public CommonPolicy {
