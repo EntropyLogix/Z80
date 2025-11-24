@@ -417,74 +417,63 @@ class Strings {
             return process_file(main_file_path, output_source, included_files);
         }
     private:
-        void remove_comments(std::string& source_str, const std::string& identifier) {
-            std::stringstream input(source_str);
-            std::string output;
-            std::string line;
-            bool in_block_comment = false;
+        std::string remove_comments(const std::string& line, bool& in_block_comment) {
             const auto& comment_options = m_context.options.comments;
-            while (std::getline(input, line)) {
-                std::string processed_line;
-                bool in_string = false;
-                bool in_char = false;
-                for (size_t i = 0; i < line.length(); ++i) {
-                    char c = line[i];
-                    if (in_block_comment) {
-                        if (comment_options.allow_block && i + 1 < line.length() && c == '*' && line[i + 1] == '/') {
-                            in_block_comment = false;
-                            i++;
-                            processed_line += ' '; // Replace block comment with a space to separate tokens
-                        }
+            std::string processed_line;
+            bool in_string = false;
+            bool in_char = false;
+            for (size_t i = 0; i < line.length(); ++i) {
+                char c = line[i];
+                if (in_block_comment) {
+                    if (comment_options.allow_block && i + 1 < line.length() && c == '*' && line[i + 1] == '/') {
+                        in_block_comment = false;
+                        i++;
+                        processed_line += ' ';
+                    }
+                    continue;
+                }
+                if (c == '\'' && !in_string)
+                    in_char = !in_char;
+                else if (c == '"' && !in_char)
+                    in_string = !in_string;
+                if (!in_string && !in_char) {
+                    if (comment_options.allow_semicolon && c == ';')
+                        break;
+                    if (comment_options.allow_cpp_style && i + 1 < line.length() && c == '/' && line[i + 1] == '/')
+                        break;
+                    if (comment_options.allow_block && i + 1 < line.length() && c == '/' && line[i + 1] == '*') {
+                        in_block_comment = true;
+                        i++;
                         continue;
                     }
-                    if (c == '\'' && !in_string)
-                        in_char = !in_char; // This handles single-quoted strings
-                    else if (c == '"' && !in_char)
-                        in_string = !in_string;
-                    if (!in_string && !in_char) {
-                        if (comment_options.allow_semicolon && c == ';')
-                            break;
-                        if (comment_options.allow_cpp_style && i + 1 < line.length() && c == '/' && line[i + 1] == '/')
-                            break;
-                        if (comment_options.allow_block && i + 1 < line.length() && c == '/' && line[i + 1] == '*') {
-                            in_block_comment = true;
-                            i++;
-                            continue;
-                        }
-                    }
-                    processed_line += c;
                 }
-                output.append(processed_line).append("\n");
+                processed_line += c;
             }
-            if (in_block_comment) {
-                if (m_context.options.comments.allow_block)
-                    throw std::runtime_error("Unterminated block comment in " + identifier);
-            }
-            source_str = output;
+            return processed_line;
         }
 
         bool process_file(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
             if (included_files.count(identifier))
                 throw std::runtime_error("Circular or duplicate include detected: " + identifier);
             included_files.insert(identifier);
+
             std::vector<uint8_t> source_data;
             if (!m_context.source_provider->get_source(identifier, source_data))
                 return false;
+
             std::string source_content(source_data.begin(), source_data.end());
-            if (m_context.options.comments.enabled)
-                remove_comments(source_content, identifier);
             std::stringstream source_stream(source_content);
-            std::string line, original_line;
+            std::string line;
             size_t line_number = 0;
             bool in_macro_def = false;
+            bool in_block_comment = false;
             std::string current_macro_name;
             typename Context::Macros::Macro current_macro;
-            std::vector<std::string> lines_to_process;
-            while (std::getline(source_stream, original_line))
-                lines_to_process.push_back(original_line);
-            for (size_t i = 0; i < lines_to_process.size(); ++i) {
-                line = lines_to_process[i];
+
+            while (std::getline(source_stream, line)) {
                 line_number++;
+                if (m_context.options.comments.enabled)
+                    line = remove_comments(line, in_block_comment);
                 typename Strings::Tokens tokens;
                 tokens.process(line);
                 if (in_macro_def) {
@@ -529,6 +518,10 @@ class Strings {
                     }
                 }
                 output_source.append(line).append("\n");
+            }
+            if (in_block_comment) {
+                if (m_context.options.comments.allow_block)
+                    throw std::runtime_error("Unterminated block comment in " + identifier);
             }
             return true;
         }
