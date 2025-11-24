@@ -162,7 +162,6 @@ class Strings {
             while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
                 bool prefix_ok = (start_pos == 0) || std::isspace(str[start_pos - 1]);
                 bool suffix_ok = (start_pos + from.length() == str.length()) || std::isspace(str[start_pos + from.length()]);
-
                 if (prefix_ok && suffix_ok) {
                     str.replace(start_pos, from.length(), to);
                     start_pos += to.length();
@@ -179,7 +178,6 @@ class Strings {
                 bool prefix_ok = (start_pos == 0) || !std::isalnum(str[start_pos - 1]);
                 size_t suffix_pos = start_pos + label.length();
                 bool suffix_ok = (suffix_pos == str.length()) || !std::isalnum(str[suffix_pos]);
-
                 if (prefix_ok && suffix_ok) {
                     str.replace(start_pos, label.length(), replacement);
                     start_pos += replacement.length();
@@ -411,7 +409,6 @@ class Strings {
             std::vector<State> stack;
         } repeat;
     };
-    Context m_context;
     class Preprocessor {
     public:
         Preprocessor(Context& context) : m_context(context) {}
@@ -2967,20 +2964,17 @@ class Strings {
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_if_directive(m_tokens[1].original());
                 return true;
-            }
-            if (directive == "IFDEF") {
+            } else if (directive == "IFDEF") {
                 if (m_tokens.count() != 2)
                     throw std::runtime_error("IFDEF requires a single symbol.");
                 m_policy.on_ifdef_directive(m_tokens[1].original());
                 return true;
-            }
-            if (directive == "IFNDEF") {
+            } else if (directive == "IFNDEF") {
                 if (m_tokens.count() != 2)
                     throw std::runtime_error("IFNDEF requires a single symbol.");
                 m_policy.on_ifndef_directive(m_tokens[1].original());
                 return true;
-            }
-            if (directive == "IFNB") {
+            } else if (directive == "IFNB") {
                 if (m_tokens.count() > 1) {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     m_policy.on_ifnb_directive(m_tokens[1].original());
@@ -2988,8 +2982,7 @@ class Strings {
                     m_policy.on_ifnb_directive("");
                 }
                 return true;
-            }
-            if (directive == "IFIDN") {
+            } else if (directive == "IFIDN") {
                 if (m_tokens.count() < 2)
                     throw std::runtime_error("IFIDN directive requires two arguments.");
                 m_tokens.merge(1, m_tokens.count() - 1);
@@ -2998,12 +2991,10 @@ class Strings {
                     throw std::runtime_error("IFIDN requires exactly two arguments, separated by a comma.");
                 m_policy.on_ifidn_directive(args[0].original(), args[1].original());
                 return true;
-            }
-            if (directive == "ELSE") {
+            } else if (directive == "ELSE") {
                 m_policy.on_else_directive();
                 return true;
-            }
-            if (directive == "ENDIF") {
+            } else if (directive == "ENDIF") {
                 m_policy.on_endif_directive();
                 return true;
             }
@@ -3099,8 +3090,7 @@ class Strings {
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_error_directive(m_tokens[1].original());
                 return true;
-            }
-            if (directive_upper == "ASSERT") {
+            } else if (directive_upper == "ASSERT") {
                 if (m_tokens.count() < 2)
                     throw std::runtime_error("ASSERT directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
@@ -3146,8 +3136,7 @@ class Strings {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     m_policy.on_phase_directive(m_tokens[1].original());
                     return true;
-                }
-                if (directive_upper == "DEPHASE") {
+                } else if (directive_upper == "DEPHASE") {
                     if (m_tokens.count() > 1)
                         throw std::runtime_error("DEPHASE directive does not take any arguments.");
                     m_policy.on_dephase_directive();
@@ -3159,7 +3148,8 @@ class Strings {
         }
         IPhasePolicy& m_policy;
         typename Strings::Tokens m_tokens;
-    };    
+    };
+    Context m_context;
 };
 
 #endif //__Z80ASSEMBLE_H__
