@@ -145,6 +145,197 @@ public:
     const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
     const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
 private:
+class Strings {
+    public:
+        static void trim_whitespace(std::string& s) {
+            const char* whitespace = " \t";
+            s.erase(0, s.find_first_not_of(whitespace));
+            s.erase(s.find_last_not_of(whitespace) + 1);
+        }
+        static void to_upper(std::string& s) {
+            std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+        }
+        static void replace_words(std::string& str, const std::string& from, const std::string& to) {
+            if (from.empty())
+                return;
+            size_t start_pos = 0;
+            while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
+                bool prefix_ok = (start_pos == 0) || std::isspace(str[start_pos - 1]);
+                bool suffix_ok = (start_pos + from.length() == str.length()) || std::isspace(str[start_pos + from.length()]);
+
+                if (prefix_ok && suffix_ok) {
+                    str.replace(start_pos, from.length(), to);
+                    start_pos += to.length();
+                } else {
+                    start_pos += 1;
+                }
+            }
+        }
+        static void replace_labels(std::string& str, const std::string& label, const std::string& replacement) {
+            if (label.empty())
+                return;
+            size_t start_pos = 0;
+            while ((start_pos = str.find(label, start_pos)) != std::string::npos) {
+                bool prefix_ok = (start_pos == 0) || !std::isalnum(str[start_pos - 1]);
+                size_t suffix_pos = start_pos + label.length();
+                bool suffix_ok = (suffix_pos == str.length()) || !std::isalnum(str[suffix_pos]);
+
+                if (prefix_ok && suffix_ok) {
+                    str.replace(start_pos, label.length(), replacement);
+                    start_pos += replacement.length();
+                } else {
+                    start_pos += 1;
+                }
+            }
+        }
+        static bool is_number(const std::string& s, int32_t& out_value) {
+            std::string str = s;
+            trim_whitespace(str);
+            if (str.empty())
+                return false;
+            const char* start = str.data();
+            const char* end = str.data() + str.size();
+            bool is_negative = false;
+            if (start < end && *start == '-') {
+                is_negative = true;
+                start++;
+            } else if (start < end && *start == '+')
+                start++;
+            int base = 10;
+            if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'x' || *(start + 1) == 'X'))) {
+                start += 2;
+                base = 16;
+            } else if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'b' || *(start + 1) == 'B'))) {
+                start += 2;
+                base = 2;
+            } else if ((end - start) > 0) {
+                char last_char = *(end - 1);
+                if (last_char == 'H' || last_char == 'h') {
+                    end -= 1;
+                    base = 16;
+                } else if (last_char == 'B' || last_char == 'b') {
+                    end -= 1;
+                    base = 2;
+                }
+            }
+            if (start == end)
+                return false;
+            auto result = std::from_chars(start, end, out_value, base);
+            bool success = (result.ec == std::errc() && result.ptr == end);
+            if (success && is_negative)
+                out_value = -out_value;
+            return success;
+        }
+        class Tokens {
+            public:
+                class Token {
+                public:
+                    Token(const std::string& text) : m_original(text) {}
+                    Token(std::string&& text) : m_original(std::move(text)) {}
+                    const std::string& original() const { return m_original; }
+                    const std::string& upper() const {
+                        if (m_upper.empty()) {
+                            m_upper.reserve(m_original.length());
+                            std::transform(m_original.begin(), m_original.end(), std::back_inserter(m_upper), [](unsigned char c){ return std::toupper(c); });
+                        }
+                        return m_upper;
+                    }
+                    bool matches(const std::function<bool(char)>& predicate) const {
+                        return std::all_of(m_original.begin(), m_original.end(), predicate);
+                    }
+                    bool matches_regex(const std::regex& re) const {
+                        return std::regex_match(m_original, re);
+                    }
+                    bool to_number(int32_t& out_value) const {
+                        if (!m_number_val.has_value()) {
+                            int32_t val;
+                            if (Strings::is_number(m_original, val))
+                                m_number_val = val;
+                            else 
+                                m_number_val = std::nullopt;
+                        }
+                        if (m_number_val.has_value()) {
+                            out_value = *m_number_val;
+                            return true;
+                        }
+                        return false;
+                    }
+                    std::vector<Token> to_arguments() const {
+                        if (!m_arguments.has_value()) {
+                            std::vector<Token> args;
+                            bool in_string = false;
+                            int paren_level = 0;
+                            size_t start = 0;
+                            for (size_t i = 0; i <= m_original.length(); ++i) {
+                                if (i < m_original.length()) {
+                                    char c = m_original[i];
+                                    if (c == '"') 
+                                        in_string = !in_string;
+                                    else if (!in_string) {
+                                        if (c == '(')
+                                            paren_level++;
+                                        else if (c == ')') 
+                                            paren_level--;
+                                    }
+                                    if (c != ',' || in_string || paren_level != 0)
+                                        continue;
+                                }
+                                std::string arg_str = m_original.substr(start, i - start);
+                                size_t first = arg_str.find_first_not_of(" \t");
+                                if (first != std::string::npos) {
+                                    size_t last = arg_str.find_last_not_of(" \t");
+                                    args.emplace_back(arg_str.substr(first, last - first + 1));
+                                }
+                                start = i + 1;
+                            }
+                            m_arguments = std::move(args);
+                        }
+                        return *m_arguments;
+                    }
+                private:
+                    std::string m_original;
+                    mutable std::string m_upper;
+                    mutable std::optional<int32_t> m_number_val;
+                    mutable std::optional<std::vector<Token>> m_arguments;
+                };
+                const std::string& get_original_string() const { return m_original_string; }
+                void process(const std::string& string) {
+                    m_original_string = string;
+                    m_tokens.clear();
+                    std::stringstream ss(string);
+                    std::string token_str;
+                    while (ss >> token_str)
+                        m_tokens.emplace_back(std::move(token_str));
+                }
+                size_t count() const { return m_tokens.size(); }
+                const Token& operator[](size_t index) const {
+                    if (index >= m_tokens.size())
+                        throw std::out_of_range("Tokens: index out of range.");
+                    return m_tokens[index];
+                }
+                void merge(size_t start_index, size_t end_index) {
+                    if (start_index >= m_tokens.size() || end_index >= m_tokens.size() || start_index > end_index)
+                        return;
+                    std::string merged;
+                    for (size_t i = start_index; i <= end_index; ++i) {
+                        if (i > start_index)
+                            merged += " ";
+                        merged += m_tokens[i].original();
+                    }
+                    Token merged_token(std::move(merged));
+                    m_tokens.erase(m_tokens.begin() + start_index, m_tokens.begin() + end_index + 1);
+                    m_tokens.insert(m_tokens.begin() + start_index, merged_token);
+                }
+                void remove(size_t index) {
+                    if (index >= m_tokens.size())
+                        return;
+                    m_tokens.erase(m_tokens.begin() + index);
+                }
+            private:
+                std::string m_original_string;
+                std::vector<Token> m_tokens;
+            };
+    };
     struct Context {
         Context(const Options& opts) : options(opts) {}
 
@@ -1253,197 +1444,6 @@ private:
         std::vector<Scope> m_scope_stack;
 
         Context& m_context;
-    };
-    class Strings {
-    public:
-        static void trim_whitespace(std::string& s) {
-            const char* whitespace = " \t";
-            s.erase(0, s.find_first_not_of(whitespace));
-            s.erase(s.find_last_not_of(whitespace) + 1);
-        }
-        static void to_upper(std::string& s) {
-            std::transform(s.begin(), s.end(), s.begin(), ::toupper);
-        }
-        static void replace_words(std::string& str, const std::string& from, const std::string& to) {
-            if (from.empty())
-                return;
-            size_t start_pos = 0;
-            while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
-                bool prefix_ok = (start_pos == 0) || std::isspace(str[start_pos - 1]);
-                bool suffix_ok = (start_pos + from.length() == str.length()) || std::isspace(str[start_pos + from.length()]);
-
-                if (prefix_ok && suffix_ok) {
-                    str.replace(start_pos, from.length(), to);
-                    start_pos += to.length();
-                } else {
-                    start_pos += 1;
-                }
-            }
-        }
-        static void replace_labels(std::string& str, const std::string& label, const std::string& replacement) {
-            if (label.empty())
-                return;
-            size_t start_pos = 0;
-            while ((start_pos = str.find(label, start_pos)) != std::string::npos) {
-                bool prefix_ok = (start_pos == 0) || !std::isalnum(str[start_pos - 1]);
-                size_t suffix_pos = start_pos + label.length();
-                bool suffix_ok = (suffix_pos == str.length()) || !std::isalnum(str[suffix_pos]);
-
-                if (prefix_ok && suffix_ok) {
-                    str.replace(start_pos, label.length(), replacement);
-                    start_pos += replacement.length();
-                } else {
-                    start_pos += 1;
-                }
-            }
-        }
-        static bool is_number(const std::string& s, int32_t& out_value) {
-            std::string str = s;
-            trim_whitespace(str);
-            if (str.empty())
-                return false;
-            const char* start = str.data();
-            const char* end = str.data() + str.size();
-            bool is_negative = false;
-            if (start < end && *start == '-') {
-                is_negative = true;
-                start++;
-            } else if (start < end && *start == '+')
-                start++;
-            int base = 10;
-            if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'x' || *(start + 1) == 'X'))) {
-                start += 2;
-                base = 16;
-            } else if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'b' || *(start + 1) == 'B'))) {
-                start += 2;
-                base = 2;
-            } else if ((end - start) > 0) {
-                char last_char = *(end - 1);
-                if (last_char == 'H' || last_char == 'h') {
-                    end -= 1;
-                    base = 16;
-                } else if (last_char == 'B' || last_char == 'b') {
-                    end -= 1;
-                    base = 2;
-                }
-            }
-            if (start == end)
-                return false;
-            auto result = std::from_chars(start, end, out_value, base);
-            bool success = (result.ec == std::errc() && result.ptr == end);
-            if (success && is_negative)
-                out_value = -out_value;
-            return success;
-        }
-        class Tokens {
-            public:
-                class Token {
-                public:
-                    Token(const std::string& text) : m_original(text) {}
-                    Token(std::string&& text) : m_original(std::move(text)) {}
-                    const std::string& original() const { return m_original; }
-                    const std::string& upper() const {
-                        if (m_upper.empty()) {
-                            m_upper.reserve(m_original.length());
-                            std::transform(m_original.begin(), m_original.end(), std::back_inserter(m_upper), [](unsigned char c){ return std::toupper(c); });
-                        }
-                        return m_upper;
-                    }
-                    bool matches(const std::function<bool(char)>& predicate) const {
-                        return std::all_of(m_original.begin(), m_original.end(), predicate);
-                    }
-                    bool matches_regex(const std::regex& re) const {
-                        return std::regex_match(m_original, re);
-                    }
-                    bool to_number(int32_t& out_value) const {
-                        if (!m_number_val.has_value()) {
-                            int32_t val;
-                            if (Strings::is_number(m_original, val))
-                                m_number_val = val;
-                            else 
-                                m_number_val = std::nullopt;
-                        }
-                        if (m_number_val.has_value()) {
-                            out_value = *m_number_val;
-                            return true;
-                        }
-                        return false;
-                    }
-                    std::vector<Token> to_arguments() const {
-                        if (!m_arguments.has_value()) {
-                            std::vector<Token> args;
-                            bool in_string = false;
-                            int paren_level = 0;
-                            size_t start = 0;
-                            for (size_t i = 0; i <= m_original.length(); ++i) {
-                                if (i < m_original.length()) {
-                                    char c = m_original[i];
-                                    if (c == '"') 
-                                        in_string = !in_string;
-                                    else if (!in_string) {
-                                        if (c == '(')
-                                            paren_level++;
-                                        else if (c == ')') 
-                                            paren_level--;
-                                    }
-                                    if (c != ',' || in_string || paren_level != 0)
-                                        continue;
-                                }
-                                std::string arg_str = m_original.substr(start, i - start);
-                                size_t first = arg_str.find_first_not_of(" \t");
-                                if (first != std::string::npos) {
-                                    size_t last = arg_str.find_last_not_of(" \t");
-                                    args.emplace_back(arg_str.substr(first, last - first + 1));
-                                }
-                                start = i + 1;
-                            }
-                            m_arguments = std::move(args);
-                        }
-                        return *m_arguments;
-                    }
-                private:
-                    std::string m_original;
-                    mutable std::string m_upper;
-                    mutable std::optional<int32_t> m_number_val;
-                    mutable std::optional<std::vector<Token>> m_arguments;
-                };
-                const std::string& get_original_string() const { return m_original_string; }
-                void process(const std::string& string) {
-                    m_original_string = string;
-                    m_tokens.clear();
-                    std::stringstream ss(string);
-                    std::string token_str;
-                    while (ss >> token_str)
-                        m_tokens.emplace_back(std::move(token_str));
-                }
-                size_t count() const { return m_tokens.size(); }
-                const Token& operator[](size_t index) const {
-                    if (index >= m_tokens.size())
-                        throw std::out_of_range("Tokens: index out of range.");
-                    return m_tokens[index];
-                }
-                void merge(size_t start_index, size_t end_index) {
-                    if (start_index >= m_tokens.size() || end_index >= m_tokens.size() || start_index > end_index)
-                        return;
-                    std::string merged;
-                    for (size_t i = start_index; i <= end_index; ++i) {
-                        if (i > start_index)
-                            merged += " ";
-                        merged += m_tokens[i].original();
-                    }
-                    Token merged_token(std::move(merged));
-                    m_tokens.erase(m_tokens.begin() + start_index, m_tokens.begin() + end_index + 1);
-                    m_tokens.insert(m_tokens.begin() + start_index, merged_token);
-                }
-                void remove(size_t index) {
-                    if (index >= m_tokens.size())
-                        return;
-                    m_tokens.erase(m_tokens.begin() + index);
-                }
-            private:
-                std::string m_original_string;
-                std::vector<Token> m_tokens;
-            };
     };
     class SymbolsPhase : public CommonPolicy {
     public:
