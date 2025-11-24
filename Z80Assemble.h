@@ -1784,9 +1784,8 @@ private:
             if (Keywords::is_directive(mnemonic)) {
                 if (encode_data_block(mnemonic, operands))
                     return true;
-            } else if (!Keywords::is_mnemonic(mnemonic)) {
+            } else if (!Keywords::is_mnemonic(mnemonic))
                 throw std::runtime_error("Unknown mnemonic: " + mnemonic);
-            }
             switch (operands.size()) {
             case 0:
                 if (encode_no_operand(mnemonic))
@@ -1897,17 +1896,14 @@ private:
                 return true;
             }
             if (mnemonic == "DS" || mnemonic == "DEFS") {
-                if (ops.empty() || ops.size() > 2) {
+                if (ops.empty() || ops.size() > 2)
                     throw std::runtime_error("DS/DEFS requires 1 or 2 operands.");
-                }
-                if (!match_imm16(ops[0])) {
+                if (!match_imm16(ops[0]))
                     throw std::runtime_error("DS/DEFS size must be a number.");
-                }
                 size_t count = ops[0].num_val;
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
-                for (size_t i = 0; i < count; ++i) {
+                for (size_t i = 0; i < count; ++i)
                     assemble({fill_value});
-                }
                 return true;
             }
             return false;
