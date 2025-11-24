@@ -652,7 +652,7 @@ class Strings {
     public:
         Expressions(IPhasePolicy& policy) : m_policy(policy){}
         bool evaluate(const std::string& s, int32_t& out_value) const {
-            if (!m_policy.get_compilation_context().options.expressions.enabled) {
+            if (!m_policy.context().options.expressions.enabled) {
                 if (Strings::is_number(s, out_value))
                     return true;
                 return false;
@@ -1080,15 +1080,15 @@ class Strings {
         using OperandType = typename OperandParser::OperandType;
 
         virtual ~IPhasePolicy() = default;
+        virtual Context& context() = 0;
 
         virtual void on_initialize() = 0;
         virtual void on_finalize() = 0;
+        
         virtual void on_pass_begin() = 0;
         virtual bool on_pass_end() = 0;
         virtual void on_pass_next() = 0;
 
-        virtual Context& get_compilation_context() = 0;
-        virtual std::string get_absolute_symbol_name(const std::string& name) = 0;
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) = 0;
         virtual void on_label_definition(const std::string& label) = 0;
         virtual void on_equ_directive(const std::string& label, const std::string& value) = 0;
@@ -1098,8 +1098,6 @@ class Strings {
         virtual void on_dephase_directive() = 0;
         virtual void on_align_directive(const std::string& boundary) = 0;
         virtual void on_incbin_directive(const std::string& filename) = 0;
-        virtual void on_unknown_operand(const std::string& operand) = 0;
-        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
         virtual void on_proc_begin(const std::string& name) = 0;
         virtual void on_proc_end() = 0;
         virtual void on_local_directive(const std::vector<std::string>& symbols) = 0;
@@ -1114,11 +1112,15 @@ class Strings {
         virtual void on_error_directive(const std::string& message) = 0;
         virtual void on_assert_directive(const std::string& expression) = 0;
         virtual bool is_conditional_block_active() const = 0;
-        virtual void on_repeat_start(const std::string& expression) = 0;
-        virtual bool on_repeat_recording(const std::string& expression) = 0;
-        virtual void on_repeat_end() = 0;
+        virtual void on_rept_directive(const std::string& expression) = 0;
+        virtual bool on_repeat_recording(const std::string& line) = 0;
+        virtual void on_endr_directive() = 0;
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) = 0;
         virtual void on_macro_line() = 0;
+
+        virtual void on_unknown_operand(const std::string& operand) = 0;
+        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
+
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
     class CommonPolicy : public IPhasePolicy {
@@ -1129,7 +1131,9 @@ class Strings {
         CommonPolicy(Context& context) : m_context(context) {}
         virtual ~CommonPolicy() {}
 
-        virtual Context& get_compilation_context() override { return m_context; }
+        virtual Context& context() override {
+            return m_context;
+        }
         virtual void on_initialize() override {
             m_context.source.conditional_stack.clear();
             m_context.macros.stack.clear();
@@ -1298,7 +1302,7 @@ class Strings {
             return m_context.source.conditional_stack.empty() || m_context.source.conditional_stack.back().is_active;
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
-        virtual void on_repeat_start(const std::string& counter_expr) override {
+        virtual void on_rept_directive(const std::string& counter_expr) override {
             m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
             Expressions expression(*this);
             int32_t count;
@@ -1316,7 +1320,7 @@ class Strings {
             }
             return false;
         }
-        virtual void on_repeat_end() override {
+        virtual void on_endr_directive() override {
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPT)
                 throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
             m_context.source.control_stack.pop_back();
@@ -1382,7 +1386,7 @@ class Strings {
                     symbol->index = -1;
             }
         }
-        std::string get_absolute_symbol_name(const std::string& name) override {
+        std::string get_absolute_symbol_name(const std::string& name) {
             for (auto it = m_context.symbols.scope_stack.rbegin(); it != m_context.symbols.scope_stack.rend(); ++it) {
                 if (it->local_symbols.count(name))
                     return it->full_name + "." + name;
@@ -1856,7 +1860,7 @@ class Strings {
         void assemble(std::vector<uint8_t> bytes) { m_policy.on_assemble(bytes);}
 
         bool encode_data_block(const std::string& mnemonic, const std::vector<Operand>& ops) {
-            const auto& directive_options = m_policy.get_compilation_context().options.directives;
+            const auto& directive_options = m_policy.context().options.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
                 return false;
             if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE") {
@@ -2172,7 +2176,7 @@ class Strings {
             if (mnemonic == "JR" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.get_compilation_context().address.current_logical + instruction_size);
+                int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                 if (offset < -128 || offset > 127)
                     m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x18, (uint8_t)(offset)});
@@ -2209,7 +2213,7 @@ class Strings {
             if (mnemonic == "DJNZ" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.get_compilation_context().address.current_logical + instruction_size);
+                int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                 if (offset < -128 || offset > 127)
                     m_policy.on_jump_out_of_range(mnemonic, offset);
                 assemble({0x10, (uint8_t)(offset)});
@@ -2716,7 +2720,7 @@ class Strings {
                 if (relative_jump_condition_map().count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (m_policy.get_compilation_context().address.current_logical + instruction_size);
+                    int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset < -128 || offset > 127)
                         m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
                     assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
@@ -2820,16 +2824,16 @@ class Strings {
     public:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
         bool process_line(const std::string& initial_line) {
-            m_policy.get_compilation_context().source.lines_stack.clear();
-            m_policy.get_compilation_context().source.lines_stack.push_back(initial_line);
-            while (!m_policy.get_compilation_context().source.lines_stack.empty() || m_policy.get_compilation_context().macros.in_expansion) {
-                if (m_policy.get_compilation_context().macros.in_expansion) {
+            m_policy.context().source.lines_stack.clear();
+            m_policy.context().source.lines_stack.push_back(initial_line);
+            while (!m_policy.context().source.lines_stack.empty() || m_policy.context().macros.in_expansion) {
+                if (m_policy.context().macros.in_expansion) {
                     m_policy.on_macro_line();
-                    if (m_policy.get_compilation_context().source.lines_stack.empty())
+                    if (m_policy.context().source.lines_stack.empty())
                         continue;
                 }
-                std::string current_line = m_policy.get_compilation_context().source.lines_stack.back();
-                m_policy.get_compilation_context().source.lines_stack.pop_back();
+                std::string current_line = m_policy.context().source.lines_stack.back();
+                m_policy.context().source.lines_stack.pop_back();
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
@@ -2851,10 +2855,10 @@ class Strings {
         }
     private:
         bool process_macro() {
-            if (!m_policy.get_compilation_context().options.directives.enabled || !m_policy.get_compilation_context().options.directives.allow_macros)
+            if (!m_policy.context().options.directives.enabled || !m_policy.context().options.directives.allow_macros)
                 return false;
             const auto& potential_macro_name = m_tokens[0].original();
-            if (m_policy.get_compilation_context().macros.definitions.count(potential_macro_name)) {
+            if (m_policy.context().macros.definitions.count(potential_macro_name)) {
                 std::vector<std::string> params;
                 if (m_tokens.count() > 1) {
                     m_tokens.merge(1, m_tokens.count() - 1);
@@ -2869,17 +2873,17 @@ class Strings {
             return false;            
         }
         bool process_repeat(const std::string& line) {
-            if (!m_policy.get_compilation_context().options.directives.enabled)
+            if (!m_policy.context().options.directives.enabled)
                 return false;
-            if (m_policy.get_compilation_context().options.directives.allow_repeat) {
+            if (m_policy.context().options.directives.allow_repeat) {
                 if (m_tokens.count() >= 2 && m_tokens[0].upper() == "REPT") {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     const std::string& expr_str = m_tokens[1].original();
-                    m_policy.on_repeat_start(expr_str);
+                    m_policy.on_rept_directive(expr_str);
                     return true;
                 }
                 if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
-                    m_policy.on_repeat_end();
+                    m_policy.on_endr_directive();
                     return true;
                 }
                 return m_policy.on_repeat_recording(line);
@@ -2887,7 +2891,7 @@ class Strings {
             return false;
         }
         bool process_non_conditional_directives() {
-            if (!m_policy.get_compilation_context().options.directives.enabled)
+            if (!m_policy.context().options.directives.enabled)
                 return false;
             if (process_constant_directives())
                 return true;
@@ -2900,11 +2904,11 @@ class Strings {
             return false;
         }
         bool process_label() {
-            if (!m_policy.get_compilation_context().options.labels.enabled)
+            if (!m_policy.context().options.labels.enabled)
                 return false;
             if (m_tokens.count() == 0)
                 return false;
-            const auto& label_options = m_policy.get_compilation_context().options.labels;
+            const auto& label_options = m_policy.context().options.labels;
             const auto& first_token = m_tokens[0];
             std::string label_str = first_token.original();
             bool is_label = false;
@@ -2950,9 +2954,9 @@ class Strings {
             return true;
         }
         bool process_conditional_directives() {
-            if (!m_policy.get_compilation_context().options.directives.enabled)
+            if (!m_policy.context().options.directives.enabled)
                 return false;
-            if (!m_policy.get_compilation_context().options.directives.allow_conditionals)
+            if (!m_policy.context().options.directives.allow_conditionals)
                 return false;
             if (m_tokens.count() == 0)
                 return false;
@@ -3006,7 +3010,7 @@ class Strings {
             return false;
         }
         bool process_constant_directives() {
-            const auto& const_opts = m_policy.get_compilation_context().options.directives.constants;
+            const auto& const_opts = m_policy.context().options.directives.constants;
             if (!const_opts.enabled || m_tokens.count() < 2)
                 return false;
             if (const_opts.allow_define && m_tokens[0].upper() == "DEFINE") {
@@ -3051,20 +3055,20 @@ class Strings {
             return false;
         }
         bool process_procedures() {
-            if (m_policy.get_compilation_context().options.directives.allow_proc) {
+            if (m_policy.context().options.directives.allow_proc) {
                 if (m_tokens.count() == 2 && m_tokens[1].upper() == "PROC") {
                     const std::string& proc_name = m_tokens[0].original();
                     if (Keywords::is_valid_label_name(proc_name)) {
                         m_policy.on_proc_begin(proc_name);
-                        m_policy.get_compilation_context().source.control_stack.push_back(Context::Source::ControlType::PROCEDURE);
+                        m_policy.context().source.control_stack.push_back(Context::Source::ControlType::PROCEDURE);
                         return true;
                     }
                 }
                 if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDP") {
-                    if (m_policy.get_compilation_context().source.control_stack.empty() || m_policy.get_compilation_context().source.control_stack.back() != Context::Source::ControlType::PROCEDURE)
+                    if (m_policy.context().source.control_stack.empty() || m_policy.context().source.control_stack.back() != Context::Source::ControlType::PROCEDURE)
                         throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
                     m_policy.on_proc_end();
-                    m_policy.get_compilation_context().source.control_stack.pop_back();
+                    m_policy.context().source.control_stack.pop_back();
                     return true;
                 }
                 if (m_tokens.count() >= 2 && m_tokens[0].upper() == "LOCAL") {
@@ -3100,9 +3104,7 @@ class Strings {
                 if (m_tokens.count() < 2)
                     throw std::runtime_error("ASSERT directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
-                if (m_policy.is_conditional_block_active()) {
-                    m_policy.on_assert_directive(m_tokens[1].original());
-                }
+                m_policy.on_assert_directive(m_tokens[1].original());
                 return true;
             }
             return false;
@@ -3112,21 +3114,21 @@ class Strings {
                 return false;
             const auto& directive_token = m_tokens[0];
             const std::string& directive_upper = directive_token.upper();
-            if (m_policy.get_compilation_context().options.directives.allow_org && directive_upper == "ORG") {
+            if (m_policy.context().options.directives.allow_org && directive_upper == "ORG") {
                 if (m_tokens.count() <= 1)
                     throw std::runtime_error("ORG directive requires an address argument.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_org_directive(m_tokens[1].original());
                 return true;
             }
-            if (m_policy.get_compilation_context().options.directives.allow_align && directive_upper == "ALIGN") {
+            if (m_policy.context().options.directives.allow_align && directive_upper == "ALIGN") {
                 if (m_tokens.count() <= 1)
                     throw std::runtime_error("ALIGN directive requires a boundary argument.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_align_directive(m_tokens[1].original());
                 return true;
             }
-            if (m_policy.get_compilation_context().options.directives.allow_incbin && (directive_upper == "INCBIN" || directive_upper == "BINARY")) {
+            if (m_policy.context().options.directives.allow_incbin && (directive_upper == "INCBIN" || directive_upper == "BINARY")) {
                 if (m_tokens.count() != 2)
                     throw std::runtime_error(directive_upper + " directive requires exactly one argument.");
                 const auto& filename_token = m_tokens[1];
@@ -3137,7 +3139,7 @@ class Strings {
                     throw std::runtime_error(directive_upper + " filename must be in double quotes.");
                 return true;
             }
-            if (m_policy.get_compilation_context().options.directives.allow_phase) {
+            if (m_policy.context().options.directives.allow_phase) {
                 if (directive_upper == "PHASE") {
                     if (m_tokens.count() <= 1)
                         throw std::runtime_error("PHASE directive requires an address argument.");
