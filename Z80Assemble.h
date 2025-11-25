@@ -1802,7 +1802,7 @@ class Strings {
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "EQU", "SET", "DEFL", "ORG", "BINARY",
-                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
+                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN",
                 "REPT", "ENDR"
             };
@@ -3164,7 +3164,7 @@ class Strings {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     m_policy.on_phase_directive(m_tokens[1].original());
                     return true;
-                } else if (directive_upper == "DEPHASE") {
+                } else if (directive_upper == "DEPHASE" || directive_upper == "UNPHASE") {
                     if (m_tokens.count() > 1)
                         throw std::runtime_error("DEPHASE directive does not take any arguments.");
                     m_policy.on_dephase_directive();
