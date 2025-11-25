@@ -1853,7 +1853,7 @@ class Strings {
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-            "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "EQU", "SET", "DEFL", "ORG", "BINARY",
+            "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "EQU", "SET", "DEFL", "ORG", "BINARY", "DH", "HEX",
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
                 "REPT", "ENDR", "DUP", "EDUP"
@@ -1980,6 +1980,32 @@ class Strings {
                         assemble({(uint8_t)(val & 0xFF), (uint8_t)((val >> 8) & 0xFF), (uint8_t)((val >> 16) & 0xFF), (uint8_t)((val >> 24) & 0xFF), (uint8_t)((val >> 32) & 0xFF), (uint8_t)((val >> 40) & 0xFF), (uint8_t)((val >> 48) & 0xFF), (uint8_t)((val >> 56) & 0xFF)});
                     } else
                         throw std::runtime_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                }
+                return true;
+            }
+            if (mnemonic == "DH" || mnemonic == "HEX") {
+                if (ops.empty())
+                    throw std::runtime_error(mnemonic + " requires at least one string argument.");
+                for (const auto& op : ops) {
+                    if (!match_string(op))
+                        throw std::runtime_error(mnemonic + " arguments must be string literals. Found: " + op.str_val);
+                    std::string hex_str = op.str_val.substr(1, op.str_val.length() - 2);
+                    std::string continuous_hex;
+                    for (char c : hex_str) {
+                        if (!isspace(c))
+                            continuous_hex += tolower(c);
+                    }
+                    if (continuous_hex.length() % 2 != 0)
+                        throw std::runtime_error("Hex string in " + mnemonic + " must have an even number of characters: \"" + hex_str + "\"");
+                    for (size_t i = 0; i < continuous_hex.length(); i += 2) {
+                        std::string byte_str = continuous_hex.substr(i, 2);
+                        uint8_t byte_val;
+                        auto result = std::from_chars(byte_str.data(), byte_str.data() + byte_str.size(), byte_val, 16);
+                        if (result.ec != std::errc()) {
+                            throw std::runtime_error("Invalid hex character in " + mnemonic + ": \"" + byte_str + "\"");
+                        }
+                        assemble({ byte_val });
+                    }
                 }
                 return true;
             }

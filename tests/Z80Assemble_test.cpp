@@ -942,6 +942,27 @@ TEST_CASE(Directives) {
     )", {0xEE, 0xEE, 0xEE});
 }
 
+TEST_CASE(HexDirectives) {
+    // DH - Define Hex (string literal)
+    ASSERT_CODE("DH \"010203\"", {0x01, 0x02, 0x03});
+    ASSERT_COMPILE_FAILS("DH \"badc0de\"");
+    ASSERT_CODE("DH \" 12 34 \"", {0x12, 0x34}); // Spaces should be ignored
+    ASSERT_CODE("DH \"12\", \"34\"", {0x12, 0x34}); // Multiple arguments
+    ASSERT_COMPILE_FAILS("DH \"1\""); // Odd number of characters should fail
+    ASSERT_COMPILE_FAILS("DH \"123\""); // Odd number of characters should fail
+    ASSERT_COMPILE_FAILS("DH \"12G3\""); // Invalid hex character
+    ASSERT_COMPILE_FAILS("DH"); // No arguments
+
+    // HEX - Define Hex (unquoted)
+    ASSERT_CODE("HEX \"010203\"", {0x01, 0x02, 0x03});
+    ASSERT_COMPILE_FAILS("HEX \"badc0de\"");
+    ASSERT_CODE("HEX \"12\", \"34\"", {0x12, 0x34}); // Commas should be ignored
+    ASSERT_COMPILE_FAILS("HEX \"1\""); // Odd number of characters
+    ASSERT_COMPILE_FAILS("HEX \"123\""); // Odd number of characters
+    ASSERT_COMPILE_FAILS("HEX 12G3"); // Invalid hex character
+    ASSERT_CODE("HEX \"12\", \"34\"\n NOP", {0x12, 0x34, 0x00}); // Should not consume next line
+}
+
 TEST_CASE(LabelsAndExpressions) {
     std::string code = R"(
         ORG 0x100
@@ -949,11 +970,11 @@ TEST_CASE(LabelsAndExpressions) {
         LD A, 5
         LD B, A
         ADD A, B
-        LD (VALUE), A ; VALUE is at 0x10A
-        JP END        ; END is at 0x10B
+        LD (VALUE), A ; VALUE is at 0x10A (physical)
+        JP FINISH     ; FINISH is at 0x10B (physical)
     VALUE:
         DB 0
-    END:
+    FINISH:
         HALT
     )";
     std::vector<uint8_t> expected = {
