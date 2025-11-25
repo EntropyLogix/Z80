@@ -1298,17 +1298,6 @@ class Strings {
             return m_context.source.conditional_stack.empty() || m_context.source.conditional_stack.back().is_active;
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
-        virtual void on_rept_directive(const std::string& counter_expr) override {
-            m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
-            Expressions expression(*this);
-            int32_t count;
-            if (expression.evaluate(counter_expr, count)) {
-                if (count < 0)
-                    throw std::runtime_error("REPT count cannot be negative.");
-                m_context.repeat.stack.push_back({(size_t)count, {}});
-            } else
-                m_context.repeat.stack.push_back({0, {}});
-        }
         virtual bool on_repeat_recording(const std::string& line) override {
             if (!m_context.repeat.stack.empty()) {
                 m_context.repeat.stack.back().body.push_back(line);
@@ -1576,6 +1565,17 @@ class Strings {
                 return expected == OperandType::IMMEDIATE || expected == OperandType::MEM_IMMEDIATE;
             return false;
         }
+        virtual void on_rept_directive(const std::string& counter_expr) override {
+            this->m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
+            Expressions expression(*this);
+            int32_t count;
+            if (expression.evaluate(counter_expr, count)) {
+                if (count < 0)
+                    throw std::runtime_error("REPT count cannot be negative.");
+                this->m_context.repeat.stack.push_back({(size_t)count, {}});
+            } else
+                this->m_context.repeat.stack.push_back({0, {}});
+        }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
             size_t size = bytes.size();
             this->m_context.address.current_logical += size;
@@ -1717,6 +1717,15 @@ class Strings {
         }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
             throw std::runtime_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
+        }
+        virtual void on_rept_directive(const std::string& counter_expr) override {
+            this->m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
+            Expressions expression(*this);
+            int32_t count;
+            if (expression.evaluate(counter_expr, count))
+                this->m_context.repeat.stack.push_back({(size_t)count, {}});
+            else
+                throw std::runtime_error("Invalid REPT expression: " + counter_expr);
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
             for (auto& byte : bytes) {
