@@ -1104,6 +1104,7 @@ class Strings {
         virtual void on_ifnb_directive(const std::string& arg) = 0;
         virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) = 0;
         virtual void on_else_directive() = 0;
+        virtual void on_display_directive(const std::vector<typename Strings::Tokens::Token>& tokens) = 0;
         virtual void on_endif_directive() = 0;
         virtual void on_error_directive(const std::string& message) = 0;
         virtual void on_assert_directive(const std::string& expression) = 0;
@@ -1241,6 +1242,56 @@ class Strings {
             bool condition_result = is_conditional_block_active() && (s1 == s2);
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
+        }
+        virtual void on_display_directive(const std::vector<typename Strings::Tokens::Token>& tokens) override {
+            enum class DisplayFormat { DEC, BIN, CHR, HEX, HEX_DEC };
+            DisplayFormat format = DisplayFormat::DEC;
+            std::stringstream ss;
+            for (const auto& token : tokens) {
+                const std::string& s = token.original();
+                const std::string& s_upper = token.upper();
+                if (s_upper == "/D")
+                    format = DisplayFormat::DEC;
+                else if (s_upper == "/B")
+                    format = DisplayFormat::BIN;
+                else if (s_upper == "/C")
+                    format = DisplayFormat::CHR;
+                else if (s_upper == "/H")
+                    format = DisplayFormat::HEX;
+                else if (s_upper == "/A")
+                    format = DisplayFormat::HEX_DEC;
+                else if (s.length() > 1 && s.front() == '"' && s.back() == '"') {
+                    ss << s.substr(1, s.length() - 2);
+                } else {
+                    Expressions expr_eval(*this);
+                    int32_t value;
+                    if (expr_eval.evaluate(s, value)) {
+                        switch (format) {
+                            case DisplayFormat::DEC:
+                                ss << value; break;
+                            case DisplayFormat::BIN: {
+                                uint8_t val8 = value;
+                                std::string bin_str;
+                                for(int i = 7; i >= 0; --i)
+                                    bin_str += ((val8 >> i) & 1) ? '1' : '0';
+                                ss << bin_str;
+                                break;
+                            }
+                            case DisplayFormat::CHR:
+                                ss << "'" << (char)(value & 0xFF) << "'";
+                                break;
+                            case DisplayFormat::HEX:
+                                ss << "0x" << std::hex << value << std::dec;
+                                break;
+                            case DisplayFormat::HEX_DEC:
+                                ss << "0x" << std::hex << value << std::dec << ", " << value;
+                                break;
+                        }
+                    } else
+                        ss << s;
+                }
+            }
+            std::cout << "> " << ss.str() << std::endl;
         }
         virtual void on_error_directive(const std::string& message) override {
             throw std::runtime_error("ERROR: " + message);
@@ -1803,7 +1854,7 @@ class Strings {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "EQU", "SET", "DEFL", "ORG", "BINARY",
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
-                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", 
+                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY",
                 "REPT", "ENDR", "DUP", "EDUP"
             };
             return directives;
@@ -3123,6 +3174,14 @@ class Strings {
                     throw std::runtime_error("ASSERT directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_assert_directive(m_tokens[1].original());
+                return true;
+            }
+            if (directive_upper == "DISPLAY") {
+                if (m_tokens.count() < 2)
+                    throw std::runtime_error("DISPLAY directive requires arguments.");
+                m_tokens.merge(1, m_tokens.count() - 1);
+                auto args = m_tokens[1].to_arguments();
+                m_policy.on_display_directive(args);
                 return true;
             }
             return false;
