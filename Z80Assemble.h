@@ -1852,7 +1852,7 @@ class Strings {
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-                "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "EQU", "SET", "DEFL", "ORG", "BINARY",
+            "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "EQU", "SET", "DEFL", "ORG", "BINARY",
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY",
                 "REPT", "ENDR", "DUP", "EDUP"
@@ -1982,11 +1982,11 @@ class Strings {
                 }
                 return true;
             }
-            if (mnemonic == "DS" || mnemonic == "DEFS") {
+            if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
                 if (ops.empty() || ops.size() > 2)
-                    throw std::runtime_error("DS/DEFS requires 1 or 2 operands.");
+                    throw std::runtime_error(mnemonic + " requires 1 or 2 operands.");
                 if (!match_imm16(ops[0]))
-                    throw std::runtime_error("DS/DEFS size must be a number.");
+                    throw std::runtime_error(mnemonic + " size must be a number.");
                 size_t count = ops[0].num_val;
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
                 for (size_t i = 0; i < count; ++i)
