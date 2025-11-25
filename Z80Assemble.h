@@ -259,7 +259,7 @@ class Strings {
                         }
                         return false;
                     }
-                    std::vector<Token> to_arguments() const {
+                    std::vector<Token> to_arguments(char delimiter = ',') const {
                         if (!m_arguments.has_value()) {
                             std::vector<Token> args;
                             bool in_string = false;
@@ -276,7 +276,7 @@ class Strings {
                                         else if (c == ')') 
                                             paren_level--;
                                     }
-                                    if (c != ',' || in_string || paren_level != 0)
+                                    if (c != delimiter || in_string || paren_level != 0)
                                         continue;
                                 }
                                 std::string arg_str = m_original.substr(start, i - start);
@@ -1853,8 +1853,9 @@ class Strings {
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-            "DB", "DEFB", "BYTE", "DM", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "EQU", "SET", "DEFL", "ORG", "BINARY", "DH", "HEX", "DEFH", "DZ", "ASCIZ",
-                "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
+                "DB", "DEFB", "BYTE", "DM", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "ORG", "DH", "HEX", "DEFH", "DZ", "ASCIZ", "DG", "DEFG",
+                "EQU", "SET", "DEFL", "MACRO", "ENDM",
+                "INCLUDE", "ALIGN", "INCBIN", "BINARY", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
                 "REPT", "ENDR", "DUP", "EDUP"
             };
@@ -1954,8 +1955,7 @@ class Strings {
                         throw std::runtime_error("Unsupported operand for DB: " + op.str_val);
                 }
                 return true;
-            }
-            if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
+            } else if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
                 for (const auto& op : ops) {
                     if (match_imm16(op) || match_char(op)) {
                         assemble({(uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8)});
@@ -1963,8 +1963,7 @@ class Strings {
                         throw std::runtime_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 return true;
-            }
-            if (mnemonic == "DWORD" || mnemonic == "DD") {
+            } else if (mnemonic == "DWORD" || mnemonic == "DD") {
                 for (const auto& op : ops) {
                     if (match(op, OperandType::IMMEDIATE)) {
                         assemble({(uint8_t)(op.num_val & 0xFF), (uint8_t)((op.num_val >> 8) & 0xFF), (uint8_t)((op.num_val >> 16) & 0xFF), (uint8_t)((op.num_val >> 24) & 0xFF)});
@@ -1972,8 +1971,7 @@ class Strings {
                         throw std::runtime_error("Unsupported operand for DWORD/DD: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 return true;
-            }
-            if (mnemonic == "DQ") {
+            } else if (mnemonic == "DQ") {
                 for (const auto& op : ops) {
                     if (match(op, OperandType::IMMEDIATE)) {
                         uint64_t val = static_cast<uint64_t>(op.num_val);
@@ -1982,8 +1980,7 @@ class Strings {
                         throw std::runtime_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 return true;
-            }
-            if (mnemonic == "DH" || mnemonic == "HEX" || mnemonic == "DEFH") {
+            } else if (mnemonic == "DH" || mnemonic == "HEX" || mnemonic == "DEFH") {
                 if (ops.empty())
                     throw std::runtime_error(mnemonic + " requires at least one string argument.");
                 for (const auto& op : ops) {
@@ -2008,8 +2005,7 @@ class Strings {
                     }
                 }
                 return true;
-            }
-            if (mnemonic == "DZ" || mnemonic == "ASCIZ") {
+            } else if (mnemonic == "DZ" || mnemonic == "ASCIZ") {
                 if (ops.empty())
                     throw std::runtime_error(mnemonic + " requires at least one argument.");
                 for (const auto& op : ops) {
@@ -2025,8 +2021,7 @@ class Strings {
                 }
                 assemble({0x00}); // Automatically append null terminator
                 return true;
-            }
-            if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
+            } if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
                 if (ops.empty() || ops.size() > 2)
                     throw std::runtime_error(mnemonic + " requires 1 or 2 operands.");
                 if (!match_imm16(ops[0]))
@@ -2035,6 +2030,27 @@ class Strings {
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
                 for (size_t i = 0; i < count; ++i)
                     assemble({fill_value});
+                return true;
+            } if (mnemonic == "DG" || mnemonic == "DEFG") {
+                for (const auto& op : ops) {
+                    if (!match_string(op))
+                        throw std::runtime_error("DG directive requires a string literal operand.");
+                    std::string content = op.str_val.substr(1, op.str_val.length() - 2);
+                    std::string all_bits;
+                    for (char c : content) {
+                        if (isspace(c)) continue;
+                        if (c == '-' || c == '.' || c == '_')
+                            all_bits += '0';
+                        else
+                            all_bits += '1';
+                    }
+                    if (all_bits.length() % 8 != 0)
+                        throw std::runtime_error("Bit stream data for DG must be in multiples of 8. Total bits: " + std::to_string(all_bits.length()));
+                    for (size_t i = 0; i < all_bits.length(); i += 8) {
+                        std::string byte_str = all_bits.substr(i, 8);
+                        assemble({(uint8_t)std::stoul(byte_str, nullptr, 2)});
+                    }
+                }
                 return true;
             }
             return false;
