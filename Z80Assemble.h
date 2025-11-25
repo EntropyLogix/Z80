@@ -1803,8 +1803,8 @@ class Strings {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "EQU", "SET", "DEFL", "ORG", "BINARY",
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
-                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN",
-                "REPT", "ENDR"
+                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", 
+                "REPT", "ENDR", "DUP", "EDUP"
             };
             return directives;
         }
@@ -2901,13 +2901,13 @@ class Strings {
             if (!m_policy.context().options.directives.enabled)
                 return false;
             if (m_policy.context().options.directives.allow_repeat) {
-                if (m_tokens.count() >= 2 && m_tokens[0].upper() == "REPT") {
+                if (m_tokens.count() >= 2 && (m_tokens[0].upper() == "REPT" || m_tokens[0].upper() == "DUP")) {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     const std::string& expr_str = m_tokens[1].original();
                     m_policy.on_rept_directive(expr_str);
                     return true;
                 }
-                if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDR") {
+                if (m_tokens.count() == 1 && (m_tokens[0].upper() == "ENDR" || m_tokens[0].upper() == "EDUP")) {
                     m_policy.on_endr_directive();
                     return true;
                 }
