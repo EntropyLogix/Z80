@@ -1903,10 +1903,10 @@ TEST_CASE(IncbinDirective) {
         source_provider.add_source("main.asm", R"(
             ORG 0x8000
             LD HL, SPRITE_DATA
-            JP END
+            JP END_LABEL
         SPRITE_DATA:
             INCBIN "sprite.dat"
-        END:
+        END_LABEL:
             NOP
         )");
         source_provider.add_binary_source("sprite.dat", {0xFF, 0x81, 0x81, 0xFF});
@@ -1916,7 +1916,7 @@ TEST_CASE(IncbinDirective) {
         assert(success);
         auto symbols = assembler.get_symbols();
         assert(symbols["SPRITE_DATA"].value == 0x8006);
-        assert(symbols["END"].value == 0x800A);
+        assert(symbols["END_LABEL"].value == 0x800A);
         tests_passed++;
     }
 
