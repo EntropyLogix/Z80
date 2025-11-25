@@ -1853,7 +1853,7 @@ class Strings {
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-            "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "EQU", "SET", "DEFL", "ORG", "BINARY", "DH", "HEX", "DZ", "ASCIZ",
+            "DB", "DEFB", "BYTE", "DM", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "EQU", "SET", "DEFL", "ORG", "BINARY", "DH", "HEX", "DEFH", "DZ", "ASCIZ",
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
                 "REPT", "ENDR", "DUP", "EDUP"
@@ -1940,7 +1940,7 @@ class Strings {
             const auto& directive_options = m_policy.context().options.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
                 return false;
-            if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE") {
+            if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM") {
                 for (const auto& op : ops) {
                     if (match_imm16(op) || match_char(op)) {
                         if (op.num_val > 0xFF)
@@ -1983,7 +1983,7 @@ class Strings {
                 }
                 return true;
             }
-            if (mnemonic == "DH" || mnemonic == "HEX") {
+            if (mnemonic == "DH" || mnemonic == "HEX" || mnemonic == "DEFH") {
                 if (ops.empty())
                     throw std::runtime_error(mnemonic + " requires at least one string argument.");
                 for (const auto& op : ops) {

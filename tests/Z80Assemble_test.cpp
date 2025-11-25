@@ -921,6 +921,7 @@ TEST_CASE(Directives) {
     ASSERT_CODE("DEFB 0x12, 0x34", {0x12, 0x34});
     ASSERT_CODE("DEFW 0xABCD", {0xCD, 0xAB});
     ASSERT_CODE("DEFS 4", {0x00, 0x00, 0x00, 0x00});
+    ASSERT_CODE("DM \"Test\"", {'T', 'e', 's', 't'}); // DM as alias for DB/BYTE
 
     // More complex cases
     ASSERT_CODE("DB 1+2, 10-3", {0x03, 0x07});
@@ -959,6 +960,7 @@ TEST_CASE(HexDirectives) {
     ASSERT_COMPILE_FAILS("DH \"123\""); // Odd number of characters should fail
     ASSERT_COMPILE_FAILS("DH \"12G3\""); // Invalid hex character
     ASSERT_COMPILE_FAILS("DH"); // No arguments
+    ASSERT_CODE("DEFH \"010203\"", {0x01, 0x02, 0x03}); // DEFH as alias for DH
 
     // HEX - Define Hex (unquoted)
     ASSERT_CODE("HEX \"010203\"", {0x01, 0x02, 0x03});
