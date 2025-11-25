@@ -128,8 +128,9 @@ public:
                 phase->on_pass_begin();
                 Source source(*phase);
                 for (size_t i = 0; i < source_lines.size(); ++i) {
-                    m_context.source.current_line_number = i + 1;
-                    source.process_line(source_lines[i]);
+                    m_context.source.current_line_number = i + 1;                    
+                    if (!source.process_line(source_lines[i]))
+                        break;
                 }
                 if (phase->on_pass_end())
                     end_phase = true;
@@ -1854,7 +1855,7 @@ class Strings {
             static const std::set<std::string> directives = {
             "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "EQU", "SET", "DEFL", "ORG", "BINARY",
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
-                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY",
+                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
                 "REPT", "ENDR", "DUP", "EDUP"
             };
             return directives;
@@ -2915,8 +2916,11 @@ class Strings {
                     continue;
                 if (process_repeat(current_line))
                     continue;
-                if (process_conditional_directives())
+                if (process_conditional_directives()) {
+                    if (m_end_of_source)
+                        return false;
                     continue;
+                }
                 if (!m_policy.is_conditional_block_active())
                     continue;
                 if (process_macro())
@@ -3037,7 +3041,10 @@ class Strings {
             if (m_tokens.count() == 0)
                 return false;
             const std::string& directive = m_tokens[0].upper();
-            if (directive == "IF") {
+            if (directive == "END") {
+                m_end_of_source = true;
+                return true;
+            } else if (directive == "IF") {
                 if (m_tokens.count() < 2)
                     throw std::runtime_error("IF directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
@@ -3235,6 +3242,7 @@ class Strings {
         }
         IPhasePolicy& m_policy;
         typename Strings::Tokens m_tokens;
+        bool m_end_of_source = false;
     };
     Context m_context;
 };
