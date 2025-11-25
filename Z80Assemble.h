@@ -1227,15 +1227,7 @@ class Strings {
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
         virtual void on_if_directive(const std::string& expression) override {
-            bool condition_result = false;
-            if (is_conditional_block_active()) {
-                Expressions expr_eval(*this);
-                int32_t value;
-                if (expr_eval.evaluate(expression, value))
-                    condition_result = (value != 0);
-            }
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
-            m_context.source.conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
         }
         virtual void on_ifdef_directive(const std::string& symbol) override {
             int32_t dummy;
@@ -1298,6 +1290,9 @@ class Strings {
             return m_context.source.conditional_stack.empty() || m_context.source.conditional_stack.back().is_active;
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
+        virtual void on_rept_directive(const std::string& counter_expr) override {
+            this->m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
+        }
         virtual bool on_repeat_recording(const std::string& line) override {
             if (!m_context.repeat.stack.empty()) {
                 m_context.repeat.stack.back().body.push_back(line);
@@ -1565,8 +1560,19 @@ class Strings {
                 return expected == OperandType::IMMEDIATE || expected == OperandType::MEM_IMMEDIATE;
             return false;
         }
+        virtual void on_if_directive(const std::string& expression) override {
+            BasePolicy::on_if_directive(expression);
+            bool condition_result = false;
+            if (this->is_conditional_block_active()) {
+                Expressions expr_eval(*this);
+                int32_t value;
+                if (expr_eval.evaluate(expression, value))
+                    condition_result = (value != 0);
+            }
+            this->m_context.source.conditional_stack.push_back({this->is_conditional_block_active() && condition_result, false});
+        }
         virtual void on_rept_directive(const std::string& counter_expr) override {
-            this->m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
+            BasePolicy::on_rept_directive(counter_expr);
             Expressions expression(*this);
             int32_t count;
             if (expression.evaluate(counter_expr, count)) {
@@ -1718,8 +1724,21 @@ class Strings {
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
             throw std::runtime_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
         }
+        virtual void on_if_directive(const std::string& expression) override {
+            BasePolicy::on_if_directive(expression);
+            bool condition_result = false;
+            if (this->is_conditional_block_active()) {
+                Expressions expr_eval(*this);
+                int32_t value;
+                if (expr_eval.evaluate(expression, value))
+                    condition_result = (value != 0);
+                else
+                    throw std::runtime_error("Invalid IF expression: " + expression);
+            }
+            this->m_context.source.conditional_stack.push_back({this->is_conditional_block_active() && condition_result, false});
+        }
         virtual void on_rept_directive(const std::string& counter_expr) override {
-            this->m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
+            BasePolicy::on_rept_directive(counter_expr);
             Expressions expression(*this);
             int32_t count;
             if (expression.evaluate(counter_expr, count))
