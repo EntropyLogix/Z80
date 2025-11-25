@@ -1175,18 +1175,6 @@ class Strings {
         virtual void on_org_directive(const std::string& label) override {}
         virtual void on_phase_directive(const std::string& address_str) override {}
         virtual void on_dephase_directive() override {}
-        virtual void on_align_directive(const std::string& boundary) override {
-            if (!this->m_context.options.directives.allow_align)
-                return;
-            Expressions expression(*this);
-            int32_t align_val;
-            if (expression.evaluate(boundary, align_val) && align_val > 0) {
-                uint16_t current_addr = this->m_context.address.current_logical;
-                uint16_t new_addr = (current_addr + align_val - 1) & ~(align_val - 1);
-                for (uint16_t i = current_addr; i < new_addr; ++i)
-                    on_assemble({0x00});
-            }
-        }
         virtual void on_incbin_directive(const std::string& filename) override {
             if (!this->m_context.options.directives.allow_incbin) return;
             std::vector<uint8_t> data;
@@ -1226,9 +1214,6 @@ class Strings {
         }
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
-        virtual void on_if_directive(const std::string& expression) override {
-            m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
-        }
         virtual void on_ifdef_directive(const std::string& symbol) override {
             int32_t dummy;
             bool condition_result = is_conditional_block_active() && on_symbol_resolve(symbol, dummy);
@@ -1290,9 +1275,6 @@ class Strings {
             return m_context.source.conditional_stack.empty() || m_context.source.conditional_stack.back().is_active;
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
-        virtual void on_rept_directive(const std::string& counter_expr) override {
-            this->m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
-        }
         virtual bool on_repeat_recording(const std::string& line) override {
             if (!m_context.repeat.stack.empty()) {
                 m_context.repeat.stack.back().body.push_back(line);
@@ -1434,6 +1416,50 @@ class Strings {
             }
             line = final_line;
         }
+        void on_if_directive(const std::string& expression, bool stop_on_evaluate_error) {
+            m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
+            bool condition_result = false;
+            if (is_conditional_block_active()) {
+                Expressions expr_eval(*this);
+                int32_t value;
+                if (expr_eval.evaluate(expression, value)) 
+                    condition_result = (value != 0);
+                else {
+                    if (stop_on_evaluate_error)
+                        throw std::runtime_error("Invalid IF expression: " + expression);
+                }
+            }
+            m_context.source.conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
+        }
+        void on_rept_directive(const std::string& counter_expr, bool stop_on_evaluate_error) {
+            m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
+            Expressions expression(*this);
+            int32_t count;
+            if (expression.evaluate(counter_expr, count)) {
+                if (count < 0)
+                    throw std::runtime_error("REPT count cannot be negative.");
+                m_context.repeat.stack.push_back({(size_t)count, {}});
+            } else {
+                if (stop_on_evaluate_error)
+                    throw std::runtime_error("Invalid REPT expression: " + counter_expr);
+                m_context.repeat.stack.push_back({0, {}});
+            }
+        }
+        void on_align_directive(const std::string& boundary, bool stop_on_evaluate_error) {
+            if (!this->m_context.options.directives.allow_align)
+                return;
+            Expressions expression(*this);
+            int32_t align_val;
+            if (expression.evaluate(boundary, align_val) && align_val > 0) {
+                uint16_t current_addr = this->m_context.address.current_logical;
+                uint16_t new_addr = (current_addr + align_val - 1) & ~(align_val - 1);
+                for (uint16_t i = current_addr; i < new_addr; ++i)
+                    on_assemble({0x00});
+            } else {
+                if (stop_on_evaluate_error)
+                    throw std::runtime_error("Invalid ALIGN expression: " + boundary);
+            }
+        }
         Context& m_context;
     };
     class SymbolsPhase : public BasePolicy {
@@ -1561,26 +1587,13 @@ class Strings {
             return false;
         }
         virtual void on_if_directive(const std::string& expression) override {
-            BasePolicy::on_if_directive(expression);
-            bool condition_result = false;
-            if (this->is_conditional_block_active()) {
-                Expressions expr_eval(*this);
-                int32_t value;
-                if (expr_eval.evaluate(expression, value))
-                    condition_result = (value != 0);
-            }
-            this->m_context.source.conditional_stack.push_back({this->is_conditional_block_active() && condition_result, false});
+            BasePolicy::on_if_directive(expression, false);
         }
         virtual void on_rept_directive(const std::string& counter_expr) override {
-            BasePolicy::on_rept_directive(counter_expr);
-            Expressions expression(*this);
-            int32_t count;
-            if (expression.evaluate(counter_expr, count)) {
-                if (count < 0)
-                    throw std::runtime_error("REPT count cannot be negative.");
-                this->m_context.repeat.stack.push_back({(size_t)count, {}});
-            } else
-                this->m_context.repeat.stack.push_back({0, {}});
+            BasePolicy::on_rept_directive(counter_expr, false);
+        }
+        virtual void on_align_directive(const std::string& boundary) override {
+            BasePolicy::on_align_directive(boundary, false);
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
             size_t size = bytes.size();
@@ -1727,31 +1740,17 @@ class Strings {
             throw std::runtime_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
         }
         virtual void on_if_directive(const std::string& expression) override {
-            BasePolicy::on_if_directive(expression);
-            bool condition_result = false;
-            if (this->is_conditional_block_active()) {
-                Expressions expr_eval(*this);
-                int32_t value;
-                if (expr_eval.evaluate(expression, value))
-                    condition_result = (value != 0);
-                else
-                    throw std::runtime_error("Invalid IF expression: " + expression);
-            }
-            this->m_context.source.conditional_stack.push_back({this->is_conditional_block_active() && condition_result, false});
+            BasePolicy::on_if_directive(expression, true);
         }
         virtual void on_rept_directive(const std::string& counter_expr) override {
-            BasePolicy::on_rept_directive(counter_expr);
-            Expressions expression(*this);
-            int32_t count;
-            if (expression.evaluate(counter_expr, count))
-                this->m_context.repeat.stack.push_back({(size_t)count, {}});
-            else
-                throw std::runtime_error("Invalid REPT expression: " + counter_expr);
+            BasePolicy::on_rept_directive(counter_expr, true);
+        }
+        virtual void on_align_directive(const std::string& boundary) override {
+            BasePolicy::on_align_directive(boundary, true);
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
-            for (auto& byte : bytes) {
+            for (auto& byte : bytes)
                 this->m_context.memory->poke(this->m_context.address.current_physical++, byte);
-            }
             this->m_context.address.current_logical += bytes.size();
             if (this->m_blocks.empty())
                 throw std::runtime_error("Invalid code block.");
