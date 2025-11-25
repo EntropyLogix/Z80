@@ -1710,6 +1710,8 @@ class Strings {
             Expressions expression(*this);
             if (expression.evaluate(address_str, new_logical_addr))
                 this->m_context.address.current_logical = new_logical_addr;
+            else
+                throw std::runtime_error("Invalid code block label: " + address_str);
         }
         virtual void on_dephase_directive() override {
             this->m_context.address.current_logical = this->m_context.address.current_physical;
