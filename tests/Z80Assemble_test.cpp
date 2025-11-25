@@ -940,6 +940,13 @@ TEST_CASE(Directives) {
         FILL EQU 0xEE
         DS COUNT, FILL
     )", {0xEE, 0xEE, 0xEE});
+
+    // DZ / ASCIZ
+    ASSERT_CODE("DZ \"Game Over\"", {'G', 'a', 'm', 'e', ' ', 'O', 'v', 'e', 'r', 0x00});
+    ASSERT_CODE("ASCIZ \"Hello\"", {'H', 'e', 'l', 'l', 'o', 0x00});
+    ASSERT_CODE("DZ \"Part1\", \", Part2\"", {'P', 'a', 'r', 't', '1', ',', ' ', 'P', 'a', 'r', 't', '2', 0x00});
+    ASSERT_CODE("DZ \"Numbers: \", 1, 2, 3", {'N', 'u', 'm', 'b', 'e', 'r', 's', ':', ' ', 1, 2, 3, 0x00});
+    ASSERT_COMPILE_FAILS("DZ");
 }
 
 TEST_CASE(HexDirectives) {

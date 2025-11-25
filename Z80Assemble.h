@@ -1853,7 +1853,7 @@ class Strings {
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-            "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "EQU", "SET", "DEFL", "ORG", "BINARY", "DH", "HEX",
+            "DB", "DEFB", "BYTE", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "EQU", "SET", "DEFL", "ORG", "BINARY", "DH", "HEX", "DZ", "ASCIZ",
                 "INCLUDE", "ALIGN", "INCBIN", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
                 "REPT", "ENDR", "DUP", "EDUP"
@@ -2007,6 +2007,23 @@ class Strings {
                         assemble({ byte_val });
                     }
                 }
+                return true;
+            }
+            if (mnemonic == "DZ" || mnemonic == "ASCIZ") {
+                if (ops.empty())
+                    throw std::runtime_error(mnemonic + " requires at least one argument.");
+                for (const auto& op : ops) {
+                    if (match_string(op)) {
+                        std::string str_content = op.str_val.substr(1, op.str_val.length() - 2);
+                        for (char c : str_content)
+                            assemble({(uint8_t)c});
+                    } else if (match_imm8(op) || match_char(op)) {
+                        assemble({(uint8_t)op.num_val});
+                    } else {
+                        throw std::runtime_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
+                    }
+                }
+                assemble({0x00}); // Automatically append null terminator
                 return true;
             }
             if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
