@@ -2061,7 +2061,7 @@ class Strings {
                     std::string all_bits;
                     for (char c : content) {
                         if (isspace(c)) continue;
-                        if (c == '-' || c == '.' || c == '_')
+                        if (c == '-' || c == '.' || c == '_' || c == '0')
                             all_bits += '0';
                         else
                             all_bits += '1';

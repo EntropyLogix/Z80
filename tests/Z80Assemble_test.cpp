@@ -3143,6 +3143,33 @@ TEST_CASE(ReptDirectiveWithIterationCounter) {
     });
 }
 
+TEST_CASE(DgDirective) {
+    // Test 1: Basic 8-bit definition with '1' and '0'
+    ASSERT_CODE("DG \"11110000\"", {0xF0});
+
+    // Test 2: Alternative characters for 0 and 1
+    ASSERT_CODE("DG \"XXXX....\"", {0xF0});
+    ASSERT_CODE("DG \"____----\"", {0x00});
+    ASSERT_CODE("DG \"1_1.1-1.\"", {0b10101010}); // 0xAA
+
+    // Test 3: Multi-byte definition
+    ASSERT_CODE("DG \"1111000010101010\"", {0xF0, 0xAA});
+
+    // Test 4: Definition with spaces
+    ASSERT_CODE("DG \"1111 0000\"", {0xF0});
+    ASSERT_CODE("DG \"11 11 00 00\"", {0xF0});
+
+    // Test 5: Multiple string arguments
+    ASSERT_CODE("DG \"11110000\", \"10101010\"", {0xF0, 0xAA});
+
+    // Test 6: Alias DEFG
+    ASSERT_CODE("DEFG \"00001111\"", {0x0F});
+
+    // Test 7: Error cases
+    ASSERT_COMPILE_FAILS("DG \"1010101\""); // Not a multiple of 8 bits
+    ASSERT_COMPILE_FAILS("DG 123"); // Not a string literal
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
