@@ -5,14 +5,267 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Verson: 1.0.5
+// Verson: 1.1.0
 //
-// This file contains the Z80Assembler class,
-// which provides functionality for assembling Z80 assembly instructions
-// from strings into machine code.
+// This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
+// compiling Z80 assembly source code into machine code. It supports standard Z80
+// mnemonics, advanced expressions, macros, and a rich set of directives.
 //
 // Copyright (c) 2025 Adam Szulc
 // MIT License
+//
+// 1. Basic Usage Example
+// ----------------------
+// To use the assembler, you need to provide two main components:
+// 1. A memory object that the assembler can write the compiled machine code into.
+// 2. An implementation of `ISourceProvider` to load source and binary files.
+//
+//   #include "Z80Assemble.h"
+//   #include <vector>
+//   #include <map>
+//
+//   // 1. Simple memory implementation
+//   class MyMemory {
+//   public:
+//       std::vector<uint8_t> ram;
+//       MyMemory() { ram.resize(0x10000); }
+//       void poke(uint16_t addr, uint8_t value) { ram[addr] = value; }
+//   };
+//
+//   // 2. Source provider to load files
+//   class MySourceProvider : public ISourceProvider {
+//   public:
+//       // Map filenames to their content
+//       std::map<std::string, std::vector<uint8_t>> files;
+//       bool get_source(const std::string& identifier, std::vector<uint8_t>& data) override {
+//           if (files.count(identifier)) {
+//               data = files[identifier];
+//               return true;
+//           }
+//           return false;
+//       }
+//   };
+//
+//   int main() {
+//       MyMemory memory;
+//       MySourceProvider source_provider;
+//
+//       // Add a source file to the provider
+//       std::string main_asm = "ORG 0x8000\nLD A, 5\nHALT";
+//       source_provider.files["main.asm"] = std::vector<uint8_t>(main_asm.begin(), main_asm.end());
+//
+//       // Create and run the assembler
+//       Z80Assembler<MyMemory> assembler(&memory, &source_provider);
+//       assembler.compile("main.asm");
+//
+//       // memory.ram at 0x8000 now contains: 0x3E, 0x05, 0x76
+//   }
+//
+// 2. Z80 Assembler syntax
+// -----------------------
+// Each line of code can contain a label, an instruction (mnemonic with operands),
+// and a comment.
+//
+//   LABEL: MNEMONIC OPERAND1, OPERAND2 ; This is a comment
+//
+// Labels
+//   Labels are used to mark addresses in memory, making them easy to reference.
+//   - Global Labels: Start with a letter or _. They can optionally end with a colon (:).
+//     Their scope is global.
+//   - Local Labels: Start with a dot (.). Their scope is limited to the last defined
+//     global label or the current procedure (PROC block).
+//   - A label must start with a letter, underscore (_), dot (.), at-sign (@), or question mark (?).
+//   - Subsequent characters can also include numbers.
+//   - Labels cannot be the same as reserved keywords (mnemonics, directives, or register names).
+//
+//   Example:
+//     GlobalLabel:
+//         NOP
+//         JR .local_jump // Jumps to the address of GlobalLabel.local_jump
+//
+//     .local_jump:
+//         HALT
+//
+//     AnotherGlobal:
+//     .local_jump: // A different local label with the same name
+//         RET
+//
+// Instructions
+//   An instruction consists of a mnemonic (e.g., LD, ADD) and zero or more operands
+//   (e.g., A, 5). Operands are separated by commas.
+//
+// Comments
+//   The assembler supports three types of comments:
+//   - Single-line: Starts with a semicolon (;).
+//   - Single-line (C++ style): Starts with //.
+//   - Block (C style): Starts with /* and ends with */.
+//
+//   Example:
+//     LD A, 5     ; This is a comment until the end of the line.
+//     // This is also a comment.
+//     /*
+//       This is a
+//       multi-line block comment.
+//     */
+//
+// 3. Registers
+// ------------
+// The assembler supports all standard Z80 registers and their sub-parts.
+//
+//   Type                      | Registers
+//   --------------------------|---------------------------------
+//   8-bit                     | A, B, C, D, E, H, L, I, R
+//   16-bit                    | AF, BC, DE, HL, SP, IX, IY
+//   Index Register Parts      | IXH, IXL, IYH, IYL
+//   Register Pairs (PUSH/POP) | AF, BC, DE, HL, IX, IY
+//   Special                   | AF' (alternate register)
+//
+// 4. Expressions
+// --------------
+// The assembler features an advanced expression evaluator that calculates values at
+// compile time. Expressions can be used anywhere a numeric value is expected
+// (e.g., LD A, <expression>).
+//
+// Operators
+//   Arithmetic, bitwise, and logical operators are supported, respecting standard
+//   operator precedence. Both symbols and keywords can be used.
+//
+//   Category     | Operators (Symbol)      | Operators (Keyword)         | Example
+//   -------------|-------------------------|-----------------------------|------------------
+//   Arithmetic   | +, -, *, /, %           | MOD                         | (5 + 3) * 2
+//   Bitwise      | &, |, ^, ~, <<, >>      | AND, OR, XOR, NOT, SHL, SHR | MY_CONST & 0x0F
+//   Logical      | !, &&, ||               |                             | (A > 5) && (B < 3)
+//   Comparison   | ==, !=, >, <, >=, <=    | EQ, NE, GT, LT, GE, LE      | MY_CONST == 10
+//   Unary        | +, - (sign)             |                             | LD A, -5
+//
+// Functions
+//   Function                       | Description                                    | Example
+//   -------------------------------|------------------------------------------------|-----------------------------
+//   HIGH(val), LOW(val)            | Returns the high/low byte of a 16-bit value.   | LD A, HIGH(0x1234)
+//   SIN(r), COS(r), TAN(r)         | Trigonometric functions (argument in radians). | DB ROUND(SIN(MATH_PI / 2))
+//   ASIN(x), ACOS(x), ATAN(x)      | Inverse trigonometric functions.               | DB ROUND(ACOS(1))
+//   POW(b, e)                      | Power (b to the power of e).                   | DB POW(2, 7)
+//   SQRT(x)                        | Square root.                                   | DB SQRT(64)
+//   LOG(x), LOG10(x), LOG2(x)      | Logarithms (natural, base 10, base 2).         | DB LOG10(100)
+//   ABS(x)                         | Absolute value.                                | DB ABS(-10)
+//   ROUND(x), FLOOR(x), CEIL(x)    | Rounding (nearest, down, up).                  | DB ROUND(3.14)
+//   RAND(min, max)                 | Returns a random integer within the range.     | DB RAND(1, 100)
+//   MIN(...), MAX(...)             | Returns the minimum/maximum of a list.         | DB MIN(10, 5, 20)
+//
+// Constants
+//   Constant   | Description
+//   -----------|------------------------------
+//   TRUE       | The value 1.
+//   FALSE      | The value 0.
+//   MATH_PI    | The constant Pi (≈3.14159).
+//   MATH_E     | Euler's number (≈2.71828).
+//
+// 5. Assembler Directives
+// -----------------------
+// Directives are commands for the assembler that control the compilation process.
+//
+// Data Definition
+//   Directive | Aliases        | Syntax                       | Example
+//   ----------|----------------|------------------------------|-------------------------------
+//   DB        | DEFB, BYTE, DM | DB <expr>, <string>, ...     | DB 10, 0xFF, "Hello", 'A'
+//   DW        | DEFW, WORD     | DW <expr>, <label>, ...      | DW 0x1234, MyLabel
+//   DS        | DEFS, BLOCK    | DS <count> [, <fill_byte>]   | DS 10, 0xFF
+//   DZ        | ASCIZ          | DZ <string>, <expr>, ...     | DZ "Game Over"
+//   DH        | HEX, DEFH      | DH <hex_string>, ...         | DH "DEADBEEF"
+//   DG        | DEFG           | DG <bit_string>, ...         | DG "11110000", "XXXX...."
+//
+// Symbol Definition
+//   Directive | Syntax              | Description                                                        | Example
+//   ----------|---------------------|--------------------------------------------------------------------|-----------------
+//   EQU       | <label> EQU <expr>  | Assigns a constant value. Redefinition causes an error.            | PORTA EQU 0x80
+//   SET       | <label> SET <expr>  | Assigns a value. The symbol can be redefined later.                | Counter SET 0
+//   DEFINE    | DEFINE <lbl> <expr> | An alias for SET.                                                  | DEBUG DEFINE 1
+//   =         | <label> = <expr>    | By default, acts as EQU. Can be configured to act as SET.          | PORTA = 0x80
+//
+// Address & Structure Control
+//   Directive | Syntax                  | Description
+//   ----------|-------------------------|------------------------------------------------------------------
+//   ORG       | ORG <address>           | Sets the origin address for subsequent code.
+//   ALIGN     | ALIGN <boundary>        | Aligns the current address to a boundary, filling gaps with zeros.
+//   PHASE     | PHASE <address>         | Sets a logical address without changing the physical address.
+//   DEPHASE   | DEPHASE                 | Ends a PHASE block, syncing logical address back to physical.
+//   PROC      | <name> PROC             | Begins a procedure, creating a new namespace for local labels.
+//   ENDP      | ENDP                    | Ends a procedure block.
+//   LOCAL     | LOCAL <sym1>, ...       | Declares symbols as local within a macro or procedure.
+//
+// Conditional Compilation
+//   Directive | Syntax                  | Description
+//   ----------|-------------------------|------------------------------------------------------------------
+//   IF        | IF <expression>         | Starts a conditional block if the expression is non-zero.
+//   ELSE      | ELSE                    | Executes code if the IF condition was false.
+//   ENDIF     | ENDIF                   | Ends a conditional block.
+//   IFDEF     | IFDEF <symbol>          | Executes code if the symbol is defined.
+//   IFNDEF    | IFNDEF <symbol>         | Executes code if the symbol is not defined.
+//   IFNB      | IFNB <argument>         | Executes code if a macro argument is not blank.
+//   IFIDN     | IFIDN <arg1>, <arg2>    | Executes code if the two text arguments are identical.
+//
+// Macros
+//   Macros allow you to define reusable code templates.
+//   - `MACRO`/`ENDM`: Defines a macro.
+//   - `SHIFT`: Shifts positional parameters (\2 becomes \1, etc.).
+//   - `EXITM`: Exits the current macro expansion.
+//   - Parameters: `{name}` (named), `\1` (positional), `\0` (arg count).
+//
+//   Example:
+//     // A macro that defines a series of bytes from its arguments
+//     WRITE_BYTES MACRO
+//         REPT \0      // Repeat for the number of arguments
+//             DB \1    // Define the CURRENT first argument
+//             SHIFT    // Shift the argument queue: \2 becomes \1, etc.
+//         ENDR
+//     ENDM
+//
+//     WRITE_BYTES 10, 20, 30 // Generates: DB 10, DB 20, DB 30
+//
+// Repetition (Loops)
+//   Directive | Aliases | Syntax       | Description
+//   ----------|---------|--------------|------------------------------------------------------------------
+//   REPT      | DUP     | REPT <count> | Repeats a block of code a specified number of times.
+//   ENDR      | EDUP    | ENDR         | Ends a REPT block.
+//   EXITR     |         | EXITR        | Exits the current REPT loop.
+//
+//   Inside a REPT loop, the special symbol \@ represents the current iteration (from 1).
+//
+//   Example:
+//     REPT 4
+//         DB \@ * 2 // Generates: DB 2, DB 4, DB 6, DB 8
+//     ENDR
+//
+// File Inclusion
+//   Directive | Aliases | Syntax               | Description
+//   ----------|---------|----------------------|--------------------------------------------
+//   INCLUDE   |         | INCLUDE "<filename>" | Includes the content of another source file.
+//   INCBIN    | BINARY  | INCBIN "<filename>"  | Includes a binary file into the output.
+//
+// Other Directives
+//   Directive | Syntax                     | Description
+//   ----------|----------------------------|------------------------------------------------------------------
+//   DISPLAY   | DISPLAY <msg>, <expr>...   | Prints a message or value to the console during compilation.
+//   ERROR     | ERROR "<message>"          | Halts compilation and prints an error message.
+//   ASSERT    | ASSERT <expression>        | Halts compilation if the expression evaluates to false (zero).
+//   END       | END                        | Terminates the assembly process.
+//
+// 6. Supported Instructions (Mnemonics)
+// -------------------------------------
+// The assembler supports the full standard and most of the undocumented Z80 instruction set.
+//
+// - 8-Bit Load: LD
+// - 16-Bit Load: LD, PUSH, POP
+// - Exchange, Block Transfer, and Search: EX, EXX, LDI, LDD, LDIR, LDDR, CPI, CPD, CPIR, CPDR
+// - 8-Bit Arithmetic: ADD, ADC, SUB, SBC, AND, OR, XOR, CP, INC, DEC
+// - General-Purpose Arithmetic and CPU Control: DAA, CPL, NEG, CCF, SCF, NOP, HALT, DI, EI, IM
+// - 16-Bit Arithmetic: ADD, ADC, SBC, INC, DEC
+// - Rotate and Shift: RLCA, RLA, RRCA, RRA, RLC, RL, RRC, RR, SLA, SRA, SRL, RLD, RRD
+// - Bit Set, Reset, and Test: BIT, SET, RES
+// - Jump: JP, JR, DJNZ
+// - Call and Return: CALL, RET, RETI, RETN, RST
+// - Input and Output: IN, INI, INIR, IND, INDR, OUT, OUTI, OTIR, OUTD, OTDR
+// - Undocumented: SLL (alias SLI), OUT (C), etc.
 
 #ifndef __Z80ASSEMBLE_H__
 #define __Z80ASSEMBLE_H__
