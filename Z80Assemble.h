@@ -406,6 +406,7 @@ class Strings {
         struct Repeat {
             struct State {
                 size_t count;
+                size_t current_iteration;
                 std::vector<std::string> body;
             };
             std::vector<State> stack;
@@ -1342,11 +1343,15 @@ class Strings {
             typename Context::Repeat::State& rept_block = m_context.repeat.stack.back();
             if (m_context.macros.in_expansion && !m_context.macros.stack.empty()) {
                 typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
-                for (size_t i = 0; i < rept_block.count; ++i)
+                for (size_t i = 0; i < rept_block.count; ++i) {
+                    rept_block.current_iteration = i;
                     current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
+                }
             } else {
-                for (size_t i = 0; i < rept_block.count; ++i)
+                for (size_t i = 0; i < rept_block.count; ++i) {
+                    rept_block.current_iteration = i;
                     m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), rept_block.body.rbegin(), rept_block.body.rend());
+                }
             }
             m_context.repeat.stack.pop_back();
         }
@@ -1499,7 +1504,7 @@ class Strings {
             if (expression.evaluate(counter_expr, count)) {
                 if (count < 0)
                     throw std::runtime_error("REPT count cannot be negative.");
-                m_context.repeat.stack.push_back({(size_t)count, {}});
+                m_context.repeat.stack.push_back({(size_t)count, 0, {}});
             } else {
                 if (stop_on_evaluate_error)
                     throw std::runtime_error("Invalid REPT expression: " + counter_expr);
