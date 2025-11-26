@@ -1349,6 +1349,10 @@ class Strings {
                 std::string iteration_str = std::to_string(rept_block.current_iteration);
                 for (const auto& line_template : rept_block.body) {
                     std::string line = line_template;
+                    typename Strings::Tokens tokens;
+                    tokens.process(line);
+                    if (tokens.count() > 0 && tokens[0].upper() == "EXITR")
+                        break;
                     Strings::replace_words(line, "\\@", iteration_str);
                     expanded_lines.push_back(line);
                 }
@@ -1877,7 +1881,7 @@ class Strings {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "BYTE", "DM", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "ORG", "DH", "HEX", "DEFH", "DZ", "ASCIZ", "DG", "DEFG",
                 "EQU", "SET", "DEFL", "MACRO", "ENDM", "EXITM",
-                "INCLUDE", "ALIGN", "INCBIN", "BINARY", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
+                "INCLUDE", "ALIGN", "INCBIN", "BINARY", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT", "EXITR",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
                 "REPT", "ENDR", "DUP", "EDUP"
             };
