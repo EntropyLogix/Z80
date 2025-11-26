@@ -3100,6 +3100,49 @@ TEST_CASE(MacroIfIdentical_Empty) {
     });
 }
 
+TEST_CASE(ReptDirectiveWithIterationCounter) {
+    // Test 1: Simple iteration counter
+    ASSERT_CODE(R"(
+        REPT 3
+            DB \@
+        ENDR
+    )", {1, 2, 3});
+
+    // Test 2: Iteration counter in an expression
+    ASSERT_CODE(R"(
+        REPT 4
+            DB \@ * 2
+        ENDR
+    )", {2, 4, 6, 8});
+
+    // Test 3: Iteration counter with other instructions
+    ASSERT_CODE(R"(
+        REPT 2
+            LD A, \@
+            PUSH AF
+        ENDR
+    )", {
+        0x3E, 1, // LD A, 1
+        0xF5,    // PUSH AF
+        0x3E, 2, // LD A, 2
+        0xF5     // PUSH AF
+    });
+
+    // Test 4: Nested REPT with iteration counters.
+    // The inner loop's counter should be independent and reset for each outer loop iteration.
+    ASSERT_CODE(R"(
+        REPT 2 ; Outer loop: \@ will be 1, then 2
+            DB \@ * 10 ; 10, 20
+            REPT 3 ; Inner loop: \@ will be 1, 2, 3
+                DB \@
+            ENDR
+        ENDR
+    )", {
+        10, 1, 2, 3, // Outer loop 1
+        20, 1, 2, 3  // Outer loop 2
+    });
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
