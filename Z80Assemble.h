@@ -353,7 +353,7 @@ public:
         uint16_t start_address;
         uint16_t size;
     };
-    Z80Assembler(TMemory* memory, ISourceProvider* source_provider, const Options& options = get_default_options()) : m_context(options) {
+    Z80Assembler(TMemory* memory, ISourceProvider* source_provider, const Options& options = get_default_options()) : m_options(options), m_context(*this) {
         m_context.memory = memory;
         m_context.source_provider = source_provider;
     }
@@ -367,7 +367,7 @@ public:
         std::string line;
         while (std::getline(source_stream, line))
             source_lines.push_back(line);
-        SymbolsPhase symbols_building(m_context, m_context.options.compilation.max_passes);
+        SymbolsPhase symbols_building(m_context, m_options.compilation.max_passes);
         m_context.address.start = start_addr;
         AssemblyPhase code_generation(m_context);
         std::vector<IPhasePolicy*> m_phases = {&symbols_building, &code_generation};
@@ -399,6 +399,8 @@ public:
     const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
     const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
 private:
+    const Options m_options;
+
 class Strings {
     public:
         static void trim_whitespace(std::string& s) {
@@ -589,12 +591,12 @@ class Strings {
             };
     };
     struct Context {
-        Context(const Options& opts) : options(opts) {}
+        Context(Z80Assembler<TMemory>& assembler) : assembler(assembler) {}
 
         Context(const Context& other) = delete;
         Context& operator=(const Context& other) = delete;
 
-        const Options& options;
+        Z80Assembler<TMemory>& assembler;
         TMemory* memory = nullptr;
         ISourceProvider* source_provider = nullptr;
         struct Address {
@@ -673,8 +675,8 @@ class Strings {
             return process_file(main_file_path, output_source, included_files);
         }
     private:
-        std::string remove_comments(const std::string& line, bool& in_block_comment) {
-            const auto& comment_options = m_context.options.comments;
+        std::string remove_comments(const std::string& line, bool& in_block_comment) { 
+            const auto& comment_options = m_context.assembler.m_options.comments;
             std::string processed_line;
             bool in_string = false;
             bool in_char = false;
@@ -728,7 +730,7 @@ class Strings {
 
             while (std::getline(source_stream, line)) {
                 line_number++;
-                if (m_context.options.comments.enabled)
+                if (m_context.assembler.m_options.comments.enabled)
                     line = remove_comments(line, in_block_comment);
                 typename Strings::Tokens tokens;
                 tokens.process(line);
@@ -747,7 +749,7 @@ class Strings {
                     continue;
                 }
                 if (tokens.count() >= 2 && tokens[1].upper() == "MACRO") {
-                    if (!m_context.options.directives.allow_macros)
+                    if (!m_context.assembler.m_options.directives.allow_macros)
                         continue;
                     current_macro_name = tokens[0].original();
                     if (!Keywords::is_valid_label_name(current_macro_name))
@@ -762,7 +764,7 @@ class Strings {
                     }
                     continue;
                 }
-                if (m_context.options.directives.allow_includes) {
+                if (m_context.assembler.m_options.directives.allow_includes) {
                     if (tokens.count() == 2 && tokens[0].upper() == "INCLUDE") {
                         const auto& filename_token = tokens[1];
                         if (filename_token.original().length() > 1 && filename_token.original().front() == '"' && filename_token.original().back() == '"') {
@@ -776,7 +778,7 @@ class Strings {
                 output_source.append(line).append("\n");
             }
             if (in_block_comment) {
-                if (m_context.options.comments.allow_block)
+                if (m_context.assembler.m_options.comments.allow_block)
                     throw std::runtime_error("Unterminated block comment in " + identifier);
             }
             return true;
@@ -904,7 +906,7 @@ class Strings {
     public:
         Expressions(IPhasePolicy& policy) : m_policy(policy){}
         bool evaluate(const std::string& s, int32_t& out_value) const {
-            if (!m_policy.context().options.expressions.enabled) {
+            if (!m_policy.context().assembler.m_options.expressions.enabled) {
                 if (Strings::is_number(s, out_value))
                     return true;
                 return false;
@@ -1433,7 +1435,7 @@ class Strings {
         virtual void on_phase_directive(const std::string& address_str) override {}
         virtual void on_dephase_directive() override {}
         virtual void on_incbin_directive(const std::string& filename) override {
-            if (!this->m_context.options.directives.allow_incbin) return;
+            if (!this->m_context.assembler.m_options.directives.allow_incbin) return;
             std::vector<uint8_t> data;
             if (this->m_context.source_provider->get_source(filename, data))
                 on_assemble(data);
@@ -1777,7 +1779,7 @@ class Strings {
             }
         }
         void on_align_directive(const std::string& boundary, bool stop_on_evaluate_error) {
-            if (!this->m_context.options.directives.allow_align)
+            if (!this->m_context.assembler.m_options.directives.allow_align)
                 return;
             Expressions expression(*this);
             int32_t align_val;
@@ -1811,7 +1813,7 @@ class Strings {
         virtual bool on_pass_end() override {
             if (!all_used_symbols_defined())
                 m_symbols_stable = false;
-            if (m_final_pass_scheduled) {
+            if (m_final_pass_scheduled) { 
                 if (m_symbols_stable) {
                     this->m_context.results.symbols_table.clear();
                     for (const auto& symbol_pair : this->m_context.symbols.map) {
@@ -2217,7 +2219,7 @@ class Strings {
         void assemble(std::vector<uint8_t> bytes) { m_policy.on_assemble(bytes);}
 
         bool encode_data_block(const std::string& mnemonic, const std::vector<Operand>& ops) {
-            const auto& directive_options = m_policy.context().options.directives;
+            const auto& directive_options = m_policy.context().assembler.m_options.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
                 return false;
             if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM") {
@@ -3273,7 +3275,7 @@ class Strings {
         }
     private:
         bool process_macro() {
-            if (!m_policy.context().options.directives.enabled || !m_policy.context().options.directives.allow_macros)
+            if (!m_policy.context().assembler.m_options.directives.enabled || !m_policy.context().assembler.m_options.directives.allow_macros)
                 return false;
             const auto& potential_macro_name = m_tokens[0].original();
             if (m_policy.context().macros.definitions.count(potential_macro_name)) {
@@ -3291,9 +3293,9 @@ class Strings {
             return false;            
         }
         bool process_repeat(const std::string& line) {
-            if (!m_policy.context().options.directives.enabled)
+            if (!m_policy.context().assembler.m_options.directives.enabled)
                 return false;
-            if (m_policy.context().options.directives.allow_repeat) {
+            if (m_policy.context().assembler.m_options.directives.allow_repeat) {
                 if (m_tokens.count() >= 2 && (m_tokens[0].upper() == "REPT" || m_tokens[0].upper() == "DUP")) {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     const std::string& expr_str = m_tokens[1].original();
@@ -3309,7 +3311,7 @@ class Strings {
             return false;
         }
         bool process_non_conditional_directives() {
-            if (!m_policy.context().options.directives.enabled)
+            if (!m_policy.context().assembler.m_options.directives.enabled)
                 return false;
             if (process_constant_directives())
                 return true;
@@ -3322,11 +3324,11 @@ class Strings {
             return false;
         }
         bool process_label() {
-            if (!m_policy.context().options.labels.enabled)
+            if (!m_policy.context().assembler.m_options.labels.enabled)
                 return false;
             if (m_tokens.count() == 0)
                 return false;
-            const auto& label_options = m_policy.context().options.labels;
+            const auto& label_options = m_policy.context().assembler.m_options.labels;
             const auto& first_token = m_tokens[0];
             std::string label_str = first_token.original();
             bool is_label = false;
@@ -3372,9 +3374,9 @@ class Strings {
             return true;
         }
         bool process_conditional_directives() {
-            if (!m_policy.context().options.directives.enabled)
+            if (!m_policy.context().assembler.m_options.directives.enabled)
                 return false;
-            if (!m_policy.context().options.directives.allow_conditionals)
+            if (!m_policy.context().assembler.m_options.directives.allow_conditionals)
                 return false;
             if (m_tokens.count() == 0)
                 return false;
@@ -3425,7 +3427,7 @@ class Strings {
             return false;
         }
         bool process_constant_directives() {
-            const auto& const_opts = m_policy.context().options.directives.constants;
+            const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
             if (!const_opts.enabled || m_tokens.count() < 2)
                 return false;
             if (const_opts.allow_define && m_tokens[0].upper() == "DEFINE") {
@@ -3470,7 +3472,7 @@ class Strings {
             return false;
         }
         bool process_procedures() {
-            if (m_policy.context().options.directives.allow_proc) {
+            if (m_policy.context().assembler.m_options.directives.allow_proc) {
                 if (m_tokens.count() == 2 && m_tokens[1].upper() == "PROC") {
                     const std::string& proc_name = m_tokens[0].original();
                     if (Keywords::is_valid_label_name(proc_name)) {
@@ -3536,21 +3538,21 @@ class Strings {
                 return false;
             const auto& directive_token = m_tokens[0];
             const std::string& directive_upper = directive_token.upper();
-            if (m_policy.context().options.directives.allow_org && directive_upper == "ORG") {
+            if (m_policy.context().assembler.m_options.directives.allow_org && directive_upper == "ORG") {
                 if (m_tokens.count() <= 1)
                     throw std::runtime_error("ORG directive requires an address argument.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_org_directive(m_tokens[1].original());
                 return true;
             }
-            if (m_policy.context().options.directives.allow_align && directive_upper == "ALIGN") {
+            if (m_policy.context().assembler.m_options.directives.allow_align && directive_upper == "ALIGN") {
                 if (m_tokens.count() <= 1)
                     throw std::runtime_error("ALIGN directive requires a boundary argument.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_align_directive(m_tokens[1].original());
                 return true;
             }
-            if (m_policy.context().options.directives.allow_incbin && (directive_upper == "INCBIN" || directive_upper == "BINARY")) {
+            if (m_policy.context().assembler.m_options.directives.allow_incbin && (directive_upper == "INCBIN" || directive_upper == "BINARY")) {
                 if (m_tokens.count() != 2)
                     throw std::runtime_error(directive_upper + " directive requires exactly one argument.");
                 const auto& filename_token = m_tokens[1];
@@ -3561,7 +3563,7 @@ class Strings {
                     throw std::runtime_error(directive_upper + " filename must be in double quotes.");
                 return true;
             }
-            if (m_policy.context().options.directives.allow_phase) {
+            if (m_policy.context().assembler.m_options.directives.allow_phase) {
                 if (directive_upper == "PHASE") {
                     if (m_tokens.count() <= 1)
                         throw std::runtime_error("PHASE directive requires an address argument.");
