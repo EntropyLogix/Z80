@@ -384,6 +384,7 @@ class Strings {
             std::map<std::string, Macro> definitions;
             int unique_id_counter = 0;
             bool in_expansion = false;
+            bool is_exiting = false;
         } macros;
         struct Source {
             enum class ControlType {
@@ -1362,6 +1363,7 @@ class Strings {
             }                
             m_context.macros.stack.push_back({macro, parameters, 0});
             m_context.macros.in_expansion = true;
+            m_context.macros.is_exiting = false;
         }
         virtual void on_macro_line() override {
             if (m_context.macros.stack.empty())
@@ -1372,14 +1374,21 @@ class Strings {
                 if (m_context.repeat.stack.empty()) {                
                     typename Strings::Tokens tokens;
                     tokens.process(line);
-                    if (tokens.count() == 1 && tokens.count() > 0 && tokens[0].upper() == "SHIFT") {
-                        if (!current_macro_state.parameters.empty())
-                            current_macro_state.parameters.erase(current_macro_state.parameters.begin());
-                        return;
+                    if (tokens.count() == 1) {
+                        if (tokens[0].upper() == "SHIFT") {
+                            if (!current_macro_state.parameters.empty())
+                                current_macro_state.parameters.erase(current_macro_state.parameters.begin());
+                            return;
+                        }
+                        else if (tokens[0].upper() == "EXITM") {
+                            m_context.macros.is_exiting = true;
+                            return;
+                        }
                     }
                     expand_macro_parameters(line);
                 }
-                m_context.source.lines_stack.push_back(line);
+                if (!m_context.macros.is_exiting)
+                    m_context.source.lines_stack.push_back(line);
             } else {
                 m_context.macros.stack.pop_back();
                 m_context.macros.in_expansion = !m_context.macros.stack.empty();
@@ -1854,7 +1863,7 @@ class Strings {
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "BYTE", "DM", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "ORG", "DH", "HEX", "DEFH", "DZ", "ASCIZ", "DG", "DEFG",
-                "EQU", "SET", "DEFL", "MACRO", "ENDM",
+                "EQU", "SET", "DEFL", "MACRO", "ENDM", "EXITM",
                 "INCLUDE", "ALIGN", "INCBIN", "BINARY", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
                 "REPT", "ENDR", "DUP", "EDUP"
