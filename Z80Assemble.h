@@ -1337,22 +1337,30 @@ class Strings {
             return false;
         }
         virtual void on_endr_directive() override {
-            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPT)
+            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPT) {
                 throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
+            }
             m_context.source.control_stack.pop_back();
             typename Context::Repeat::State& rept_block = m_context.repeat.stack.back();
-            if (m_context.macros.in_expansion && !m_context.macros.stack.empty()) {
-                typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
-                for (size_t i = 0; i < rept_block.count; ++i) {
-                    rept_block.current_iteration = i;
-                    current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, rept_block.body.begin(), rept_block.body.end());
-                }
-            } else {
-                for (size_t i = 0; i < rept_block.count; ++i) {
-                    rept_block.current_iteration = i;
-                    m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), rept_block.body.rbegin(), rept_block.body.rend());
+
+            std::vector<std::string> expanded_lines;
+            for (size_t i = 0; i < rept_block.count; ++i) {
+                rept_block.current_iteration = i + 1;
+                std::string iteration_str = std::to_string(rept_block.current_iteration);
+                for (const auto& line_template : rept_block.body) {
+                    std::string line = line_template;
+                    Strings::replace_words(line, "\\@", iteration_str);
+                    expanded_lines.push_back(line);
                 }
             }
+
+            if (m_context.macros.in_expansion && !m_context.macros.stack.empty()) {
+                typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
+                current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, expanded_lines.begin(), expanded_lines.end());
+            } else {
+                m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), expanded_lines.rbegin(), expanded_lines.rend());
+            }
+
             m_context.repeat.stack.pop_back();
         }
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) {
