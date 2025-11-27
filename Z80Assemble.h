@@ -14,57 +14,9 @@
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 //
-// 1. Basic Usage Example
-// ----------------------
-// To use the assembler, you need to provide two main components:
-// 1. A memory object that the assembler can write the compiled machine code into.
-// 2. An implementation of `ISourceProvider` to load source and binary files.
-//
-//   #include "Z80Assemble.h"
-//   #include <vector>
-//   #include <map>
-//
-//   // 1. Simple memory implementation
-//   class MyMemory {
-//   public:
-//       std::vector<uint8_t> ram;
-//       MyMemory() { ram.resize(0x10000); }
-//       void poke(uint16_t addr, uint8_t value) { ram[addr] = value; }
-//   };
-//
-//   // 2. Source provider to load files
-//   class MySourceProvider : public ISourceProvider {
-//   public:
-//       // Map filenames to their content
-//       std::map<std::string, std::vector<uint8_t>> files;
-//       bool get_source(const std::string& identifier, std::vector<uint8_t>& data) override {
-//           if (files.count(identifier)) {
-//               data = files[identifier];
-//               return true;
-//           }
-//           return false;
-//       }
-//   };
-//
-//   int main() {
-//       MyMemory memory;
-//       MySourceProvider source_provider;
-//
-//       // Add a source file to the provider
-//       std::string main_asm = "ORG 0x8000\nLD A, 5\nHALT";
-//       source_provider.files["main.asm"] = std::vector<uint8_t>(main_asm.begin(), main_asm.end());
-//
-//       // Create and run the assembler
-//       Z80Assembler<MyMemory> assembler(&memory, &source_provider);
-//       assembler.compile("main.asm");
-//
-//       // memory.ram at 0x8000 now contains: 0x3E, 0x05, 0x76
-//   }
-//
-// 2. Z80 Assembler syntax
-// -----------------------
-// Each line of code can contain a label, an instruction (mnemonic with operands),
-// and a comment.
+// Supported Z80 assembler syntax
+// ------------------------------
+// Each line of code can contain a label, an instruction (mnemonic with operands), and a comment.
 //
 //   LABEL: MNEMONIC OPERAND1, OPERAND2 ; This is a comment
 //
@@ -108,8 +60,8 @@
 //       multi-line block comment.
 //     */
 //
-// 3. Registers
-// ------------
+// Registers
+// ---------
 // The assembler supports all standard Z80 registers and their sub-parts.
 //
 //   Type                      | Registers
@@ -120,13 +72,13 @@
 //   Register Pairs (PUSH/POP) | AF, BC, DE, HL, IX, IY
 //   Special                   | AF' (alternate register)
 //
-// 4. Expressions
-// --------------
+// Expressions
+// -----------
 // The assembler features an advanced expression evaluator that calculates values at
 // compile time. Expressions can be used anywhere a numeric value is expected
 // (e.g., LD A, <expression>).
 //
-// Operators
+// Operators:
 //   Arithmetic, bitwise, and logical operators are supported, respecting standard
 //   operator precedence. Both symbols and keywords can be used.
 //
@@ -138,7 +90,7 @@
 //   Comparison   | ==, !=, >, <, >=, <=    | EQ, NE, GT, LT, GE, LE      | MY_CONST == 10
 //   Unary        | +, - (sign)             |                             | LD A, -5
 //
-// Functions
+// Functions:
 //   Function                       | Description                                    | Example
 //   -------------------------------|------------------------------------------------|-----------------------------
 //   HIGH(val), LOW(val)            | Returns the high/low byte of a 16-bit value.   | LD A, HIGH(0x1234)
@@ -152,7 +104,7 @@
 //   RAND(min, max)                 | Returns a random integer within the range.     | DB RAND(1, 100)
 //   MIN(...), MAX(...)             | Returns the minimum/maximum of a list.         | DB MIN(10, 5, 20)
 //
-// Constants
+// Constants:
 //   Constant   | Description
 //   -----------|------------------------------
 //   TRUE       | The value 1.
@@ -160,11 +112,11 @@
 //   MATH_PI    | The constant Pi (≈3.14159).
 //   MATH_E     | Euler's number (≈2.71828).
 //
-// 5. Assembler Directives
-// -----------------------
+// Assembler Directives
+// --------------------
 // Directives are commands for the assembler that control the compilation process.
 //
-// Data Definition
+// Data Definition:
 //   Directive | Aliases        | Syntax                       | Example
 //   ----------|----------------|------------------------------|-------------------------------
 //   DB        | DEFB, BYTE, DM | DB <expr>, <string>, ...     | DB 10, 0xFF, "Hello", 'A'
@@ -174,7 +126,7 @@
 //   DH        | HEX, DEFH      | DH <hex_string>, ...         | DH "DEADBEEF"
 //   DG        | DEFG           | DG <bit_string>, ...         | DG "11110000", "XXXX...."
 //
-// Symbol Definition
+// Symbol Definition:
 //   Directive | Syntax              | Description                                                        | Example
 //   ----------|---------------------|--------------------------------------------------------------------|-----------------
 //   EQU       | <label> EQU <expr>  | Assigns a constant value. Redefinition causes an error.            | PORTA EQU 0x80
@@ -182,7 +134,7 @@
 //   DEFINE    | DEFINE <lbl> <expr> | An alias for SET.                                                  | DEBUG DEFINE 1
 //   =         | <label> = <expr>    | By default, acts as EQU. Can be configured to act as SET.          | PORTA = 0x80
 //
-// Address & Structure Control
+// Address & Structure Control:
 //   Directive | Syntax                  | Description
 //   ----------|-------------------------|------------------------------------------------------------------
 //   ORG       | ORG <address>           | Sets the origin address for subsequent code.
@@ -193,7 +145,7 @@
 //   ENDP      | ENDP                    | Ends a procedure block.
 //   LOCAL     | LOCAL <sym1>, ...       | Declares symbols as local within a macro or procedure.
 //
-// Conditional Compilation
+// Conditional Compilation:
 //   Directive | Syntax                  | Description
 //   ----------|-------------------------|------------------------------------------------------------------
 //   IF        | IF <expression>         | Starts a conditional block if the expression is non-zero.
@@ -204,7 +156,7 @@
 //   IFNB      | IFNB <argument>         | Executes code if a macro argument is not blank.
 //   IFIDN     | IFIDN <arg1>, <arg2>    | Executes code if the two text arguments are identical.
 //
-// Macros
+// Macros:
 //   Macros allow you to define reusable code templates.
 //   - `MACRO`/`ENDM`: Defines a macro.
 //   - `SHIFT`: Shifts positional parameters (\2 becomes \1, etc.).
@@ -222,7 +174,7 @@
 //
 //     WRITE_BYTES 10, 20, 30 // Generates: DB 10, DB 20, DB 30
 //
-// Repetition (Loops)
+// Repetition (Loops):
 //   Directive | Aliases | Syntax       | Description
 //   ----------|---------|--------------|------------------------------------------------------------------
 //   REPT      | DUP     | REPT <count> | Repeats a block of code a specified number of times.
@@ -236,13 +188,13 @@
 //         DB \@ * 2 // Generates: DB 2, DB 4, DB 6, DB 8
 //     ENDR
 //
-// File Inclusion
+// File Inclusion:
 //   Directive | Aliases | Syntax               | Description
 //   ----------|---------|----------------------|--------------------------------------------
 //   INCLUDE   |         | INCLUDE "<filename>" | Includes the content of another source file.
 //   INCBIN    | BINARY  | INCBIN "<filename>"  | Includes a binary file into the output.
 //
-// Other Directives
+// Other Directives:
 //   Directive | Syntax                     | Description
 //   ----------|----------------------------|------------------------------------------------------------------
 //   DISPLAY   | DISPLAY <msg>, <expr>...   | Prints a message or value to the console during compilation.
@@ -250,8 +202,8 @@
 //   ASSERT    | ASSERT <expression>        | Halts compilation if the expression evaluates to false (zero).
 //   END       | END                        | Terminates the assembly process.
 //
-// 6. Supported Instructions (Mnemonics)
-// -------------------------------------
+// Supported Instructions (Mnemonics)
+// ----------------------------------
 // The assembler supports the full standard and most of the undocumented Z80 instruction set.
 //
 // - 8-Bit Load: LD
@@ -357,16 +309,20 @@ public:
         m_context.memory = memory;
         m_context.source_provider = source_provider;
     }
+    struct SourceLine {
+        std::string file_path;
+        size_t line_number;
+        std::string content;
+    };
     bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
         Preprocessor preprocessor(m_context);
-        std::string flat_source;
-        if (!preprocessor.process(main_file_path, flat_source))
-            throw std::runtime_error("Could not open main source file: " + main_file_path);
-        std::stringstream source_stream(flat_source);
-        std::vector<std::string> source_lines;
-        std::string line;
-        while (std::getline(source_stream, line))
-            source_lines.push_back(line);
+        std::vector<SourceLine> source_lines;
+        try {
+            if (!preprocessor.process(main_file_path, source_lines))
+                throw std::runtime_error("Could not open main source file: " + main_file_path);
+        } catch (const std::runtime_error& e) {
+            throw std::runtime_error(e.what());
+        }
         SymbolsPhase symbols_building(m_context, m_options.compilation.max_passes);
         m_context.address.start = start_addr;
         AssemblyPhase code_generation(m_context);
@@ -381,8 +337,8 @@ public:
                 phase->on_pass_begin();
                 Source source(*phase);
                 for (size_t i = 0; i < source_lines.size(); ++i) {
-                    m_context.source.current_line_number = i + 1;                    
-                    if (!source.process_line(source_lines[i]))
+                    m_context.source.source_location = &source_lines[i];
+                    if (!source.process_line(source_lines[i].content))
                         break;
                 }
                 if (phase->on_pass_end())
@@ -399,8 +355,20 @@ public:
     const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
     const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
 private:
+    [[noreturn]]void report_error(const std::string& message) const {
+        std::stringstream error_stream;
+        if (m_context.source.source_location)
+            error_stream << m_context.source.source_location->file_path << ":" << m_context.source.source_location->line_number << ": ";
+        error_stream << "error: " << message;
+        if (!m_context.macros.stack.empty())
+            error_stream << "\n    (in macro '" << m_context.macros.stack.back().name << "')";
+        if (!m_context.repeat.stack.empty())
+            error_stream << "\n    (in REPT block, iteration " << m_context.repeat.stack.back().current_iteration << ")";
+        if (m_context.source.source_location)
+             error_stream << "\n    " << m_context.source.source_location->content;
+        throw std::runtime_error(error_stream.str());
+    }
     const Options m_options;
-
 class Strings {
     public:
         static void trim_whitespace(std::string& s) {
@@ -632,6 +600,7 @@ class Strings {
             };
             struct ExpansionState {
                 Macro macro;
+                std::string name;
                 std::vector<std::string> parameters;
                 size_t next_line_index;
             };
@@ -653,8 +622,8 @@ class Strings {
                 bool else_seen;
             };
             size_t current_pass;
-            size_t current_line_number;
             std::vector<ControlType> control_stack;
+            const SourceLine* source_location = nullptr;
             std::vector<std::string> lines_stack;
             std::vector<ConditionalState> conditional_stack;
         } source;
@@ -670,9 +639,9 @@ class Strings {
     class Preprocessor {
     public:
         Preprocessor(Context& context) : m_context(context) {}
-        bool process(const std::string& main_file_path, std::string& output_source) {
+        bool process(const std::string& main_file_path, std::vector<SourceLine>& output_source) {
             std::set<std::string> included_files;
-            return process_file(main_file_path, output_source, included_files);
+            return process_file(main_file_path, output_source, included_files, 0);
         }
     private:
         std::string remove_comments(const std::string& line, bool& in_block_comment) { 
@@ -710,9 +679,9 @@ class Strings {
             return processed_line;
         }
 
-        bool process_file(const std::string& identifier, std::string& output_source, std::set<std::string>& included_files) {
+        bool process_file(const std::string& identifier, std::vector<SourceLine>& output_source, std::set<std::string>& included_files, size_t include_line) {
             if (included_files.count(identifier))
-                throw std::runtime_error("Circular or duplicate include detected: " + identifier);
+                m_context.assembler.report_error("Circular or duplicate include detected: " + identifier);
             included_files.insert(identifier);
 
             std::vector<uint8_t> source_data;
@@ -729,6 +698,7 @@ class Strings {
             typename Context::Macros::Macro current_macro;
 
             while (std::getline(source_stream, line)) {
+                m_context.source.source_location = new SourceLine{identifier, line_number, ""};
                 line_number++;
                 if (m_context.assembler.m_options.comments.enabled)
                     line = remove_comments(line, in_block_comment);
@@ -753,7 +723,7 @@ class Strings {
                         continue;
                     current_macro_name = tokens[0].original();
                     if (!Keywords::is_valid_label_name(current_macro_name))
-                        throw std::runtime_error("Invalid macro name: '" + current_macro_name + "' at line " + std::to_string(line_number));
+                        m_context.assembler.report_error("Invalid macro name: '" + current_macro_name + "'");
                     in_macro_def = true;
                     current_macro = {};
                     if (tokens.count() > 2) {
@@ -769,17 +739,17 @@ class Strings {
                         const auto& filename_token = tokens[1];
                         if (filename_token.original().length() > 1 && filename_token.original().front() == '"' && filename_token.original().back() == '"') {
                             std::string include_filename = filename_token.original().substr(1, filename_token.original().length() - 2);
-                            process_file(include_filename, output_source, included_files);
+                            process_file(include_filename, output_source, included_files, line_number);
                         } else
-                            throw std::runtime_error("Malformed INCLUDE directive in " + identifier + " at line " + std::to_string(line_number));
+                            m_context.assembler.report_error("Malformed INCLUDE directive");
                         continue;
                     }
                 }
-                output_source.append(line).append("\n");
+                output_source.push_back({identifier, line_number, line});
             }
             if (in_block_comment) {
                 if (m_context.assembler.m_options.comments.allow_block)
-                    throw std::runtime_error("Unterminated block comment in " + identifier);
+                    m_context.assembler.report_error("Unterminated block comment");
             }
             return true;
         }
@@ -949,9 +919,9 @@ class Strings {
             static const std::map<std::string, OperatorInfo> op_map = {
                 // unary
                 {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](int32_t a, int32_t) { return -a; }}},
-                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](int32_t a, int32_t) { return ~a; }}},
-                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](int32_t a, int32_t) { return !a; }}},
-                {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](int32_t a, int32_t) { return ~a; }}},
+                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](double a, double) { return ~(int32_t)a; }}},
+                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](double a, double) { return !a; }}},
+                {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](double a, double) { return ~(int32_t)a; }}},
                 // binary
                 {"*",  {OperatorType::MUL,         9, false, true,  [](double a, double b) { if (b==0) throw std::runtime_error("Division by zero."); return a * b; }}},
                 {"/",  {OperatorType::DIV,         9, false, true,  [](double a, double b) { if (b==0) throw std::runtime_error("Division by zero."); return a / b; }}},
@@ -1126,7 +1096,7 @@ class Strings {
                 try {
                     tokens.push_back({Token::Type::NUMBER, "", std::stod(num_str)});
                 } catch (const std::invalid_argument&) {
-                    throw std::runtime_error("Invalid number in expression: " + num_str);
+                    m_policy.context().assembler.report_error("Invalid number in expression: " + num_str);
                 }
                 i = j - 1;
                 return true;
@@ -1195,7 +1165,7 @@ class Strings {
                 if (parse_parens(expr, i, tokens))
                     continue;
                 else
-                    throw std::runtime_error("Invalid character in expression: " + std::string(1, c));
+                    m_policy.context().assembler.report_error("Invalid character in expression: " + std::string(1, c));
             }
             return tokens;
         }
@@ -1233,7 +1203,7 @@ class Strings {
                             op_stack.pop_back();
                         }
                         if (op_stack.empty())
-                            throw std::runtime_error("Mismatched parentheses in expression.");
+                            m_policy.context().assembler.report_error("Mismatched parentheses in expression.");
                         op_stack.pop_back();
                         if (!op_stack.empty() && op_stack.back().type == Token::Type::FUNCTION) {
                             Token func_token = op_stack.back();
@@ -1249,7 +1219,8 @@ class Strings {
                             postfix.push_back(op_stack.back());
                             op_stack.pop_back();
                         }
-                        if (op_stack.empty()) throw std::runtime_error("Comma outside of function arguments or mismatched parentheses.");
+                        if (op_stack.empty())
+                            m_policy.context().assembler.report_error("Comma outside of function arguments or mismatched parentheses.");
                         if (!arg_counts.empty())
                             arg_counts.back()++;
                         break;
@@ -1258,7 +1229,7 @@ class Strings {
             }
             while (!op_stack.empty()) {
                 if (op_stack.back().type == Token::Type::LPAREN || op_stack.back().type == Token::Type::RPAREN)
-                    throw std::runtime_error("Mismatched parentheses in expression.");
+                    m_policy.context().assembler.report_error("Mismatched parentheses in expression.");
                 postfix.push_back(op_stack.back());
                 op_stack.pop_back();
             }
@@ -1277,19 +1248,19 @@ class Strings {
                 } else if (token.type == Token::Type::FUNCTION) {
                     auto it = get_function_map().find(token.s_val);
                     if (it == get_function_map().end())
-                        throw std::runtime_error("Unknown function in RPN evaluation: " + token.s_val);
+                        m_policy.context().assembler.report_error("Unknown function in RPN evaluation: " + token.s_val);
                     const auto& func_info = it->second;
                     int num_args_provided = token.n_val > 0 ? (int)(token.n_val) : 0;
                     if (func_info.num_args > 0) {
                         if (num_args_provided != func_info.num_args)
-                            throw std::runtime_error("Function " + token.s_val + " expects " + std::to_string(func_info.num_args) + " arguments, but got " + std::to_string(num_args_provided));
+                            m_policy.context().assembler.report_error("Function " + token.s_val + " expects " + std::to_string(func_info.num_args) + " arguments, but got " + std::to_string(num_args_provided));
                     } else { // variadic
                         int min_args = -func_info.num_args;
                         if (num_args_provided < min_args)
-                            throw std::runtime_error("Function " + token.s_val + " expects at least " + std::to_string(min_args) + " arguments, but got " + std::to_string(num_args_provided));
+                            m_policy.context().assembler.report_error("Function " + token.s_val + " expects at least " + std::to_string(min_args) + " arguments, but got " + std::to_string(num_args_provided));
                     }
                     if (val_stack.size() < (size_t)num_args_provided)
-                        throw std::runtime_error("Not enough values on stack for function " + token.s_val);
+                        m_policy.context().assembler.report_error("Not enough values on stack for function " + token.s_val);
                     std::vector<double> args;
                     if (num_args_provided > 0) {
                         args.resize(num_args_provided);
@@ -1302,18 +1273,18 @@ class Strings {
                 } else if (token.type == Token::Type::OPERATOR) {
                     auto it = get_operator_map().find(token.s_val);
                     if (it == get_operator_map().end())
-                        throw std::runtime_error("Unknown operator in RPN evaluation: " + token.s_val);
+                        m_policy.context().assembler.report_error("Unknown operator in RPN evaluation: " + token.s_val);
                     const auto& op_info = it->second;
                     if (op_info.is_unary) {
                         if (val_stack.size() < 1)
-                            throw std::runtime_error("Invalid expression syntax for unary operator.");
+                            m_policy.context().assembler.report_error("Invalid expression syntax for unary operator.");
                         double v = val_stack.back();
                         val_stack.back() = op_info.apply(v, 0.0);
                         continue;
                     }
                     // Binary operators
                     if (val_stack.size() < 2)
-                        throw std::runtime_error("Invalid expression syntax for binary operator.");
+                        m_policy.context().assembler.report_error("Invalid expression syntax for binary operator.");
                     double v2 = val_stack.back();
                     val_stack.pop_back();
                     double v1 = val_stack.back();
@@ -1322,7 +1293,7 @@ class Strings {
                 }
             }
             if (val_stack.size() != 1)
-                throw std::runtime_error("Invalid expression syntax.");
+                m_policy.context().assembler.report_error("Invalid expression syntax.");
             out_value = (int32_t)(val_stack.back());
             return true;
         }
@@ -1396,22 +1367,21 @@ class Strings {
         }
         virtual void on_finalize() override {
             if (m_context.macros.in_expansion)
-                throw std::runtime_error("Unterminated macro expansion at end of file.");
+                m_context.assembler.report_error("Unterminated macro expansion at end of file.");
             if (!m_context.source.control_stack.empty()) {
                 switch (m_context.source.control_stack.back()) {
                     case Context::Source::ControlType::CONDITIONAL:
-                        throw std::runtime_error("Unterminated conditional compilation block (missing ENDIF).");
+                        m_context.assembler.report_error("Unterminated conditional compilation block (missing ENDIF).");
                     case Context::Source::ControlType::REPT:
-                        throw std::runtime_error("Unterminated REPT block (missing ENDR).");
+                        m_context.assembler.report_error("Unterminated REPT block (missing ENDR).");
                     case Context::Source::ControlType::PROCEDURE:
-                        throw std::runtime_error("Unterminated PROC block (missing ENDP).");
+                        m_context.assembler.report_error("Unterminated PROC block (missing ENDP).");
                 }
             }
         }
         virtual void on_pass_begin() override {
             m_context.address.current_logical = m_context.address.start;
             m_context.address.current_physical = m_context.address.start;
-            m_context.source.current_line_number = 0;
             m_context.macros.unique_id_counter = 0;
             m_context.source.conditional_stack.clear();
             m_context.source.control_stack.clear();
@@ -1440,7 +1410,7 @@ class Strings {
             if (this->m_context.source_provider->get_source(filename, data))
                 on_assemble(data);
             else
-                throw std::runtime_error("Could not open file for INCBIN: " + filename);
+                m_context.assembler.report_error("Could not open file for INCBIN: " + filename);
         }
         virtual void on_unknown_operand(const std::string& operand) override {}
         virtual void on_proc_begin(const std::string& name) override {
@@ -1458,16 +1428,16 @@ class Strings {
         }
         virtual void on_proc_end() override {
             if (m_context.symbols.scope_stack.empty())
-                throw std::runtime_error("ENDP without PROC.");
+                m_context.assembler.report_error("ENDP without PROC.");
             m_context.symbols.scope_stack.pop_back();
         }
         virtual void on_local_directive(const std::vector<std::string>& symbols) override {
             if (m_context.symbols.scope_stack.empty())
-                throw std::runtime_error("LOCAL directive used outside of a PROC block.");
+                m_context.assembler.report_error("LOCAL directive used outside of a PROC block.");
             auto& current_scope = m_context.symbols.scope_stack.back();
             for (const auto& symbol : symbols) {
                 if (!Keywords::is_valid_label_name(symbol) || symbol.find('.') != std::string::npos)
-                    throw std::runtime_error("Invalid symbol name in LOCAL directive: '" + symbol + "'");
+                    m_context.assembler.report_error("Invalid symbol name in LOCAL directive: '" + symbol + "'");
                 current_scope.local_symbols.insert(symbol);
             }
         }
@@ -1552,21 +1522,21 @@ class Strings {
             std::cout << "> " << ss.str() << std::endl;
         }
         virtual void on_error_directive(const std::string& message) override {
-            throw std::runtime_error("ERROR: " + message);
+            m_context.assembler.report_error("ERROR: " + message);
         }
         virtual void on_assert_directive(const std::string& expression) override {
             Expressions expr_eval(*this);
             int32_t value;
             if (expr_eval.evaluate(expression, value)) {
                 if (value == 0)
-                    throw std::runtime_error("ASSERT failed: " + expression);
+                    m_context.assembler.report_error("ASSERT failed: " + expression);
             }
         }
         virtual void on_else_directive() override {
             if (m_context.source.conditional_stack.empty())
-                throw std::runtime_error("ELSE without IF");
+                m_context.assembler.report_error("ELSE without IF");
             if (m_context.source.conditional_stack.back().else_seen)
-                throw std::runtime_error("Multiple ELSE directives for the same IF");
+                m_context.assembler.report_error("Multiple ELSE directives for the same IF");
             m_context.source.conditional_stack.back().else_seen = true;
             bool parent_is_skipping = m_context.source.conditional_stack.size() > 1 && !m_context.source.conditional_stack[m_context.source.conditional_stack.size() - 2].is_active;
             if (!parent_is_skipping)
@@ -1574,9 +1544,9 @@ class Strings {
         }
         virtual void on_endif_directive() override {
             if (m_context.source.conditional_stack.empty())
-                throw std::runtime_error("ENDIF without IF");
+                m_context.assembler.report_error("ENDIF without IF");
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::CONDITIONAL)
-                throw std::runtime_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
+                m_context.assembler.report_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
             m_context.source.control_stack.pop_back();
             m_context.source.conditional_stack.pop_back();
         }
@@ -1593,7 +1563,7 @@ class Strings {
         }
         virtual void on_endr_directive() override {
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPT) {
-                throw std::runtime_error("Mismatched ENDR. An ENDIF might be missing.");
+                m_context.assembler.report_error("Mismatched ENDR. An ENDIF might be missing.");
             }
             m_context.source.control_stack.pop_back();
             typename Context::Repeat::State& rept_block = m_context.repeat.stack.back();
@@ -1633,7 +1603,7 @@ class Strings {
                     }
                 }
             }                
-            m_context.macros.stack.push_back({macro, parameters, 0});
+            m_context.macros.stack.push_back({macro, name, parameters, 0});
             m_context.macros.in_expansion = true;
             m_context.macros.is_exiting = false;
         }
@@ -1688,7 +1658,7 @@ class Strings {
             }
             if (name[0] == '.') {
                 if (m_context.symbols.last_global_label.empty())
-                    throw std::runtime_error("Local label '" + name + "' used without a preceding global label.");
+                    m_context.assembler.report_error("Local label '" + name + "' used without a preceding global label.");
                 return m_context.symbols.last_global_label + name;
             }
             return name;
@@ -1755,7 +1725,7 @@ class Strings {
             if (is_conditional_block_active()) {
                 Expressions expr_eval(*this);
                 int32_t value;
-                if (expr_eval.evaluate(expression, value)) 
+                if (expr_eval.evaluate(expression, value))
                     condition_result = (value != 0);
                 else {
                     if (stop_on_evaluate_error)
@@ -1770,11 +1740,11 @@ class Strings {
             int32_t count;
             if (expression.evaluate(counter_expr, count)) {
                 if (count < 0)
-                    throw std::runtime_error("REPT count cannot be negative.");
+                    m_context.assembler.report_error("REPT count cannot be negative.");
                 m_context.repeat.stack.push_back({(size_t)count, 0, {}});
             } else {
                 if (stop_on_evaluate_error)
-                    throw std::runtime_error("Invalid REPT expression: " + counter_expr);
+                    m_context.assembler.report_error("Invalid REPT expression: " + counter_expr);
                 m_context.repeat.stack.push_back({0, {}});
             }
         }
@@ -1790,7 +1760,7 @@ class Strings {
                     on_assemble({0x00});
             } else {
                 if (stop_on_evaluate_error)
-                    throw std::runtime_error("Invalid ALIGN expression: " + boundary);
+                    m_context.assembler.report_error("Invalid ALIGN expression: " + boundary);
             }
         }
         Context& m_context;
@@ -1855,7 +1825,7 @@ class Strings {
                     }
                     error_msg += ". This may be due to circular dependencies or not enough passes.";
                 }
-                throw std::runtime_error(error_msg);
+                this->m_context.assembler.report_error(error_msg);
             }
             this->reset_symbols_index();
         }
@@ -1964,12 +1934,12 @@ class Strings {
                 typename Context::Symbols::Symbol *symbol = it->second;
                 if (symbol) {
                     if (!symbol->redefinable && redefinable)
-                        throw std::runtime_error("Cannot redefine constant symbol: " + actual_name);
+                        this->m_context.assembler.report_error("Cannot redefine constant symbol: " + actual_name);
                     int& index = symbol->index;
                     index++;
                     if (index >= symbol->value.size()) {
                         if (!redefinable)
-                            throw std::runtime_error("Duplicate symbol definition: " + actual_name);
+                            this->m_context.assembler.report_error("Duplicate symbol definition: " + actual_name);
                         symbol->value.push_back(value);
                         symbol->undefined.push_back(is_undefined);
                         m_symbols_stable = false;
@@ -2049,7 +2019,7 @@ class Strings {
                 this->m_blocks.push_back({addr, 0});
             }
             else
-                throw std::runtime_error("Invalid code block label: " + label);
+                this->m_context.assembler.report_error("Invalid ORG expression: " + label);
         }
         virtual void on_phase_directive(const std::string& address_str) override {
             int32_t new_logical_addr;
@@ -2057,20 +2027,20 @@ class Strings {
             if (expression.evaluate(address_str, new_logical_addr))
                 this->m_context.address.current_logical = new_logical_addr;
             else
-                throw std::runtime_error("Invalid code block label: " + address_str);
+                this->m_context.assembler.report_error("Invalid PHASE expression: " + address_str);
         }
         virtual void on_dephase_directive() override {
             this->m_context.address.current_logical = this->m_context.address.current_physical;
         }
-        virtual void on_unknown_operand(const std::string& operand) override { 
+        virtual void on_unknown_operand(const std::string& operand) override {
             std::string actual_symbol_name = this->get_absolute_symbol_name(operand);
             std::string resolved;
             if (actual_symbol_name != operand)
                 resolved = " (resolved to '" + actual_symbol_name + "')";
-            throw std::runtime_error("Invalid expression or unknown operand: '" + operand + "'" + resolved); 
+            this->m_context.assembler.report_error("Invalid expression or unknown operand: '" + operand + "'" + resolved);
         }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {
-            throw std::runtime_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
+            this->m_context.assembler.report_error(mnemonic + " jump target out of range. Offset: " + std::to_string(offset));
         }
         virtual void on_if_directive(const std::string& expression) override {
             BasePolicy::on_if_directive(expression, true);
@@ -2086,7 +2056,7 @@ class Strings {
                 this->m_context.memory->poke(this->m_context.address.current_physical++, byte);
             this->m_context.address.current_logical += bytes.size();
             if (this->m_blocks.empty())
-                throw std::runtime_error("Invalid code block.");
+                this->m_context.assembler.report_error("Invalid code block.");
             this->m_blocks.back().second += bytes.size();
         }
     private:
@@ -2155,7 +2125,7 @@ class Strings {
                 if (encode_data_block(mnemonic, operands))
                     return true;
             } else if (!Keywords::is_mnemonic(mnemonic))
-                throw std::runtime_error("Unknown mnemonic: " + mnemonic);
+                m_policy.context().assembler.report_error("Unknown mnemonic: " + mnemonic);
             switch (operands.size()) {
             case 0:
                 if (encode_no_operand(mnemonic))
@@ -2170,7 +2140,7 @@ class Strings {
                     return true;
                 break;
             }
-            throw std::runtime_error("Invalid instruction or operands for mnemonic: " + mnemonic);
+            m_policy.context().assembler.report_error("Invalid instruction or operands for mnemonic: " + mnemonic);
         }
     private:
         static const std::map<std::string, uint8_t>& reg8_map() {
@@ -2226,22 +2196,22 @@ class Strings {
                 for (const auto& op : ops) {
                     if (match_imm16(op) || match_char(op)) {
                         if (op.num_val > 0xFF)
-                            throw std::runtime_error("Value in DB statement exceeds 1 byte: " + op.str_val);
+                            m_policy.context().assembler.report_error("Value in DB statement exceeds 1 byte: " + op.str_val);
                         assemble({(uint8_t)(op.num_val)});
                     } else if (match_string(op)) {
                         std::string str_content = op.str_val.substr(1, op.str_val.length() - 2);
                         for (char c : str_content)
                             assemble({(uint8_t)(c)});
                     } else
-                        throw std::runtime_error("Unsupported operand for DB: " + op.str_val);
+                        m_policy.context().assembler.report_error("Unsupported operand for DB: " + op.str_val);
                 }
                 return true;
             } else if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
                 for (const auto& op : ops) {
                     if (match_imm16(op) || match_char(op)) {
                         assemble({(uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8)});
-                    } else 
-                        throw std::runtime_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                    } else
+                        m_policy.context().assembler.report_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 return true;
             } else if (mnemonic == "DWORD" || mnemonic == "DD") {
@@ -2249,7 +2219,7 @@ class Strings {
                     if (match(op, OperandType::IMMEDIATE)) {
                         assemble({(uint8_t)(op.num_val & 0xFF), (uint8_t)((op.num_val >> 8) & 0xFF), (uint8_t)((op.num_val >> 16) & 0xFF), (uint8_t)((op.num_val >> 24) & 0xFF)});
                     } else
-                        throw std::runtime_error("Unsupported operand for DWORD/DD: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                        m_policy.context().assembler.report_error("Unsupported operand for DWORD/DD: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 return true;
             } else if (mnemonic == "DQ") {
@@ -2258,15 +2228,15 @@ class Strings {
                         uint64_t val = static_cast<uint64_t>(op.num_val);
                         assemble({(uint8_t)(val & 0xFF), (uint8_t)((val >> 8) & 0xFF), (uint8_t)((val >> 16) & 0xFF), (uint8_t)((val >> 24) & 0xFF), (uint8_t)((val >> 32) & 0xFF), (uint8_t)((val >> 40) & 0xFF), (uint8_t)((val >> 48) & 0xFF), (uint8_t)((val >> 56) & 0xFF)});
                     } else
-                        throw std::runtime_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                        m_policy.context().assembler.report_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 return true;
             } else if (mnemonic == "DH" || mnemonic == "HEX" || mnemonic == "DEFH") {
                 if (ops.empty())
-                    throw std::runtime_error(mnemonic + " requires at least one string argument.");
+                    m_policy.context().assembler.report_error(mnemonic + " requires at least one string argument.");
                 for (const auto& op : ops) {
                     if (!match_string(op))
-                        throw std::runtime_error(mnemonic + " arguments must be string literals. Found: " + op.str_val);
+                        m_policy.context().assembler.report_error(mnemonic + " arguments must be string literals. Found: " + op.str_val);
                     std::string hex_str = op.str_val.substr(1, op.str_val.length() - 2);
                     std::string continuous_hex;
                     for (char c : hex_str) {
@@ -2274,21 +2244,20 @@ class Strings {
                             continuous_hex += tolower(c);
                     }
                     if (continuous_hex.length() % 2 != 0)
-                        throw std::runtime_error("Hex string in " + mnemonic + " must have an even number of characters: \"" + hex_str + "\"");
+                        m_policy.context().assembler.report_error("Hex string in " + mnemonic + " must have an even number of characters: \"" + hex_str + "\"");
                     for (size_t i = 0; i < continuous_hex.length(); i += 2) {
                         std::string byte_str = continuous_hex.substr(i, 2);
                         uint8_t byte_val;
                         auto result = std::from_chars(byte_str.data(), byte_str.data() + byte_str.size(), byte_val, 16);
-                        if (result.ec != std::errc()) {
-                            throw std::runtime_error("Invalid hex character in " + mnemonic + ": \"" + byte_str + "\"");
-                        }
+                        if (result.ec != std::errc())
+                            m_policy.context().assembler.report_error("Invalid hex character in " + mnemonic + ": \"" + byte_str + "\"");
                         assemble({ byte_val });
                     }
                 }
                 return true;
             } else if (mnemonic == "DZ" || mnemonic == "ASCIZ") {
                 if (ops.empty())
-                    throw std::runtime_error(mnemonic + " requires at least one argument.");
+                    m_policy.context().assembler.report_error(mnemonic + " requires at least one argument.");
                 for (const auto& op : ops) {
                     if (match_string(op)) {
                         std::string str_content = op.str_val.substr(1, op.str_val.length() - 2);
@@ -2296,17 +2265,16 @@ class Strings {
                             assemble({(uint8_t)c});
                     } else if (match_imm8(op) || match_char(op)) {
                         assemble({(uint8_t)op.num_val});
-                    } else {
-                        throw std::runtime_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
-                    }
+                    } else
+                        m_policy.context().assembler.report_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
                 }
-                assemble({0x00}); // Automatically append null terminator
+                assemble({0x00});
                 return true;
             } if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
                 if (ops.empty() || ops.size() > 2)
-                    throw std::runtime_error(mnemonic + " requires 1 or 2 operands.");
+                    m_policy.context().assembler.report_error(mnemonic + " requires 1 or 2 operands.");
                 if (!match_imm16(ops[0]))
-                    throw std::runtime_error(mnemonic + " size must be a number.");
+                    m_policy.context().assembler.report_error(mnemonic + " size must be a number.");
                 size_t count = ops[0].num_val;
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
                 for (size_t i = 0; i < count; ++i)
@@ -2315,7 +2283,7 @@ class Strings {
             } if (mnemonic == "DG" || mnemonic == "DEFG") {
                 for (const auto& op : ops) {
                     if (!match_string(op))
-                        throw std::runtime_error("DG directive requires a string literal operand.");
+                        m_policy.context().assembler.report_error("DG directive requires a string literal operand.");
                     std::string content = op.str_val.substr(1, op.str_val.length() - 2);
                     std::string all_bits;
                     for (char c : content) {
@@ -2326,7 +2294,7 @@ class Strings {
                             all_bits += '1';
                     }
                     if (all_bits.length() % 8 != 0)
-                        throw std::runtime_error("Bit stream data for DG must be in multiples of 8. Total bits: " + std::to_string(all_bits.length()));
+                        m_policy.context().assembler.report_error("Bit stream data for DG must be in multiples of 8. Total bits: " + std::to_string(all_bits.length()));
                     for (size_t i = 0; i < all_bits.length(); i += 8) {
                         std::string byte_str = all_bits.substr(i, 8);
                         assemble({(uint8_t)std::stoul(byte_str, nullptr, 2)});
@@ -3008,13 +2976,13 @@ class Strings {
             }
             if (mnemonic == "IN" && op1.str_val == "A" && match_mem_imm16(op2)) {
                 if (op2.num_val > 0xFF)
-                    throw std::runtime_error("Port for IN instruction must be 8-bit");
+                    m_policy.context().assembler.report_error("Port for IN instruction must be 8-bit");
                 assemble({0xDB, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "OUT" && match_mem_imm16(op1) && op2.str_val == "A" && op1.num_val <= 0xFF) {
                 if (op1.num_val > 0xFF)
-                    throw std::runtime_error("Port for OUT instruction must be 8-bit");
+                    m_policy.context().assembler.report_error("Port for OUT instruction must be 8-bit");
                 assemble({0xD3, (uint8_t)op1.num_val});
                 return true;
             }
@@ -3165,13 +3133,13 @@ class Strings {
                 }
                 uint8_t reg_code = reg8_map().at(op2.str_val);
                 if (op2.str_val == "(HL)")
-                    throw std::runtime_error("OUT (C), (HL) is not a valid instruction");
+                    m_policy.context().assembler.report_error("OUT (C), (HL) is not a valid instruction");
                 assemble({0xED, (uint8_t)(0x41 | (reg_code << 3))});
                 return true;
             }
             if (mnemonic == "BIT" && match_imm8(op1) && (match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL"))) {
                 if (op1.num_val > 7)
-                    throw std::runtime_error("BIT index must be 0-7");
+                    m_policy.context().assembler.report_error("BIT index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code;
                 if (match_mem_reg16(op2))
@@ -3183,7 +3151,7 @@ class Strings {
             }
             if (mnemonic == "SET" && match_imm8(op1) && (match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL"))) {
                 if (op1.num_val > 7)
-                    throw std::runtime_error("SET index must be 0-7");
+                    m_policy.context().assembler.report_error("SET index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code;
                 if (match_mem_reg16(op2))
@@ -3195,7 +3163,7 @@ class Strings {
             }
             if (mnemonic == "RES" && match_imm8(op1) && (match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL"))) {
                 if (op1.num_val > 7)
-                    throw std::runtime_error("RES index must be 0-7");
+                    m_policy.context().assembler.report_error("RES index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code;
                 if (match_mem_reg16(op2))
@@ -3206,16 +3174,15 @@ class Strings {
                 return true;
             }
             if ((mnemonic == "SLL" || mnemonic == "SLI") && match_reg8(op1)) {
-                if (op1.num_val > 7) {
-                    throw std::runtime_error("SLL bit index must be 0-7");
-                }
+                if (op1.num_val > 7)
+                    m_policy.context().assembler.report_error("SLL bit index must be 0-7");
                 uint8_t reg_code = reg8_map().at(op1.str_val);
                 assemble({0xCB, (uint8_t)(0x30 | reg_code)});
                 return true;
             }
             if ((mnemonic == "BIT" || mnemonic == "SET" || mnemonic == "RES") && match_imm8(op1) && match_mem_indexed(op2)) {
                 if (op1.num_val > 7)
-                    throw std::runtime_error(mnemonic + " bit index must be 0-7");
+                    m_policy.context().assembler.report_error(mnemonic + " bit index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t base_opcode = 0;
                 if (mnemonic == "BIT")
@@ -3350,7 +3317,7 @@ class Strings {
             }
             if (is_label) {
                 if (!Keywords::is_valid_label_name(label_str))
-                    throw std::runtime_error("Invalid label name: '" + label_str + "'");
+                    m_policy.context().assembler.report_error("Invalid label name: '" + label_str + "'");
                 m_policy.on_label_definition(label_str);
                 m_tokens.remove(0);
                 return m_tokens.count() == 0;
@@ -3386,31 +3353,30 @@ class Strings {
                 return true;
             } else if (directive == "IF") {
                 if (m_tokens.count() < 2)
-                    throw std::runtime_error("IF directive requires an expression.");
+                    m_policy.context().assembler.report_error("IF directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_if_directive(m_tokens[1].original());
                 return true;
             } else if (directive == "IFDEF") {
                 if (m_tokens.count() != 2)
-                    throw std::runtime_error("IFDEF requires a single symbol.");
+                    m_policy.context().assembler.report_error("IFDEF requires a single symbol.");
                 m_policy.on_ifdef_directive(m_tokens[1].original());
                 return true;
             } else if (directive == "IFNDEF") {
                 if (m_tokens.count() != 2)
-                    throw std::runtime_error("IFNDEF requires a single symbol.");
+                    m_policy.context().assembler.report_error("IFNDEF requires a single symbol.");
                 m_policy.on_ifndef_directive(m_tokens[1].original());
                 return true;
             } else if (directive == "IFNB") {
                 if (m_tokens.count() > 1) {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     m_policy.on_ifnb_directive(m_tokens[1].original());
-                } else {
+                } else
                     m_policy.on_ifnb_directive("");
-                }
                 return true;
             } else if (directive == "IFIDN") {
                 if (m_tokens.count() < 2)
-                    throw std::runtime_error("IFIDN directive requires two arguments.");
+                    m_policy.context().assembler.report_error("IFIDN directive requires two arguments.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 auto args = m_tokens[1].to_arguments();
                 if (args.size() != 2)
@@ -3432,10 +3398,10 @@ class Strings {
                 return false;
             if (const_opts.allow_define && m_tokens[0].upper() == "DEFINE") {
                 if (m_tokens.count() < 3)
-                    throw std::runtime_error("DEFINE directive requires a label and a value.");
+                    m_policy.context().assembler.report_error("DEFINE directive requires a label and a value.");
                 const std::string& label = m_tokens[1].original();
                 if (!Keywords::is_valid_label_name(label))
-                    throw std::runtime_error("Invalid label name for DEFINE directive: '" + label + "'");
+                    m_policy.context().assembler.report_error("Invalid label name for DEFINE directive: '" + label + "'");
                 m_tokens.merge(2, m_tokens.count() - 1);
                 m_policy.on_set_directive(label, m_tokens[2].original());
                 return true;
@@ -3457,7 +3423,7 @@ class Strings {
                 if (directive == "EQU" || directive == "SET" || directive == "DEFL") {
                     const std::string& label = m_tokens[0].original();
                     if (!Keywords::is_valid_label_name(label))
-                        throw std::runtime_error("Invalid label name for directive: '" + label + "'");
+                        m_policy.context().assembler.report_error("Invalid label name for directive: '" + label + "'");
                     m_tokens.merge(2, m_tokens.count() - 1);
                     const std::string& value = m_tokens[2].original();
                     if ((directive == "SET" || directive == "DEFL") && const_opts.allow_set)
@@ -3483,7 +3449,7 @@ class Strings {
                 }
                 if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDP") {
                     if (m_policy.context().source.control_stack.empty() || m_policy.context().source.control_stack.back() != Context::Source::ControlType::PROCEDURE)
-                        throw std::runtime_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
+                        m_policy.context().assembler.report_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
                     m_policy.on_proc_end();
                     m_policy.context().source.control_stack.pop_back();
                     return true;
@@ -3512,20 +3478,20 @@ class Strings {
             const std::string& directive_upper = directive_token.upper();
             if (directive_upper == "ERROR") {
                 if (m_tokens.count() < 2)
-                    throw std::runtime_error("ERROR directive requires a message.");
+                    m_policy.context().assembler.report_error("ERROR directive requires a message.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_error_directive(m_tokens[1].original());
                 return true;
             } else if (directive_upper == "ASSERT") {
                 if (m_tokens.count() < 2)
-                    throw std::runtime_error("ASSERT directive requires an expression.");
+                    m_policy.context().assembler.report_error("ASSERT directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_assert_directive(m_tokens[1].original());
                 return true;
             }
             if (directive_upper == "DISPLAY") {
                 if (m_tokens.count() < 2)
-                    throw std::runtime_error("DISPLAY directive requires arguments.");
+                    m_policy.context().assembler.report_error("DISPLAY directive requires arguments.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 auto args = m_tokens[1].to_arguments();
                 m_policy.on_display_directive(args);
@@ -3540,39 +3506,39 @@ class Strings {
             const std::string& directive_upper = directive_token.upper();
             if (m_policy.context().assembler.m_options.directives.allow_org && directive_upper == "ORG") {
                 if (m_tokens.count() <= 1)
-                    throw std::runtime_error("ORG directive requires an address argument.");
+                    m_policy.context().assembler.report_error("ORG directive requires an address argument.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_org_directive(m_tokens[1].original());
                 return true;
             }
             if (m_policy.context().assembler.m_options.directives.allow_align && directive_upper == "ALIGN") {
                 if (m_tokens.count() <= 1)
-                    throw std::runtime_error("ALIGN directive requires a boundary argument.");
+                    m_policy.context().assembler.report_error("ALIGN directive requires a boundary argument.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_align_directive(m_tokens[1].original());
                 return true;
             }
             if (m_policy.context().assembler.m_options.directives.allow_incbin && (directive_upper == "INCBIN" || directive_upper == "BINARY")) {
                 if (m_tokens.count() != 2)
-                    throw std::runtime_error(directive_upper + " directive requires exactly one argument.");
+                    m_policy.context().assembler.report_error(directive_upper + " directive requires exactly one argument.");
                 const auto& filename_token = m_tokens[1];
                 const std::string& filename_str = filename_token.original();
                 if (filename_str.length() > 1 && filename_str.front() == '"' && filename_str.back() == '"')
                     m_policy.on_incbin_directive(filename_str.substr(1, filename_str.length() - 2));
                 else
-                    throw std::runtime_error(directive_upper + " filename must be in double quotes.");
+                    m_policy.context().assembler.report_error(directive_upper + " filename must be in double quotes.");
                 return true;
             }
             if (m_policy.context().assembler.m_options.directives.allow_phase) {
                 if (directive_upper == "PHASE") {
                     if (m_tokens.count() <= 1)
-                        throw std::runtime_error("PHASE directive requires an address argument.");
+                        m_policy.context().assembler.report_error("PHASE directive requires an address argument.");
                     m_tokens.merge(1, m_tokens.count() - 1);
                     m_policy.on_phase_directive(m_tokens[1].original());
                     return true;
                 } else if (directive_upper == "DEPHASE" || directive_upper == "UNPHASE") {
                     if (m_tokens.count() > 1)
-                        throw std::runtime_error("DEPHASE directive does not take any arguments.");
+                        m_policy.context().assembler.report_error("DEPHASE directive does not take any arguments.");
                     m_policy.on_dephase_directive();
                     m_tokens.remove(0);
                     return true;
