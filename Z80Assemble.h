@@ -114,6 +114,7 @@
 //   Variable | Description
 //   ---------|------------------------------------------------------------------
 //   $, @     | Current logical address (synonyms).
+//   $PASS    | The current assembly pass number (starting from 1).
 //   $$       | Current physical address (useful in PHASE/DEPHASE blocks).
 //
 // Constants:
@@ -411,12 +412,9 @@ class Strings {
                 return;
             size_t start_pos = 0;
             while ((start_pos = str.find(label, start_pos)) != std::string::npos) {
-                auto is_label_char = [](char c) {
-                    return std::isalnum(c) || c == '_' || c == '?' || c == '@';
-                };
-                bool prefix_ok = (start_pos == 0) || !is_label_char(str[start_pos - 1]);
+                bool prefix_ok = (start_pos == 0) || !std::isalnum(str[start_pos - 1]);
                 size_t suffix_pos = start_pos + label.length();
-                bool suffix_ok = (suffix_pos == str.length()) || !is_label_char(str[suffix_pos]);
+                bool suffix_ok = (suffix_pos == str.length()) || !std::isalnum(str[suffix_pos]);
                 if (prefix_ok && suffix_ok) {
                     str.replace(start_pos, label.length(), replacement);
                     start_pos += replacement.length();
@@ -1073,24 +1071,11 @@ class Strings {
             return false;
         }
         bool parse_symbol(const std::string& expr, int& i, std::vector<Token>& tokens) const {
-            if (expr[i] == '$') {
-                if (i + 1 < expr.length() && expr[i + 1] == '$') {
-                    tokens.push_back({Token::Type::SYMBOL, "$$"});
-                    i++;
-                    return true;
-                } else {
-                    tokens.push_back({Token::Type::SYMBOL, "$"});
-                    return true;
-                }
-            }
-            if (expr[i] == '@') {
-                tokens.push_back({Token::Type::SYMBOL, "@"});
-                return true;
-            }
-            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '?' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
+            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '?' && expr[i] != '$' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
                 return false;
             size_t j = i;
-            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.' || expr[j] == '@' || expr[j] == '?')) {
+            if (expr[j] == '$' && j + 1 < expr.length() && isalpha(expr[j+1])) j++; // $PASS
+            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.' || expr[j] == '@' || expr[j] == '?' || expr[j] == '$')) {
                 if (expr[j] == '.' && j == i && (j + 1 >= expr.length() || !isalnum(expr[j+1]))) break; // Don't treat a single dot as a symbol
                 j++;
             }
@@ -1447,6 +1432,12 @@ class Strings {
             }
             else if (symbol == "$$") {
                 out_value = this->m_context.address.current_physical;
+                return true;
+            }
+            std::string upper_symbol = symbol;
+            Strings::to_upper(upper_symbol);
+            if (upper_symbol == "$PASS") {
+                out_value = this->m_context.source.current_pass;
                 return true;
             }
             return false;
