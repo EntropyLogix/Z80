@@ -105,6 +105,12 @@
 //   SGN(n)                         | Returns the sign of a number (-1, 0, or 1).    | DB SGN(-5)
 //   MIN(...), MAX(...)             | Returns the minimum/maximum of a list.         | DB MIN(10, 5, 20)
 //
+// Special Variables:
+//   Variable | Description
+//   ---------|------------------------------------------------------------------
+//   $        | Current logical address.
+//   $$       | Current physical address (useful in PHASE/DEPHASE blocks).
+//
 // Constants:
 //   Constant   | Description
 //   -----------|------------------------------
@@ -1041,8 +1047,14 @@ class Strings {
         }
         bool parse_symbol(const std::string& expr, int& i, std::vector<Token>& tokens) const {
             if (expr[i] == '$') {
-                tokens.push_back({Token::Type::SYMBOL, "$"});
-                return true;
+                if (i + 1 < expr.length() && expr[i + 1] == '$') {
+                    tokens.push_back({Token::Type::SYMBOL, "$$"});
+                    i++;
+                    return true;
+                } else {
+                    tokens.push_back({Token::Type::SYMBOL, "$"});
+                    return true;
+                }
             }
             if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '?' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
                 return false;
@@ -1395,6 +1407,10 @@ class Strings {
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
             if (symbol == "$") {
                 out_value = this->m_context.address.current_logical;
+                return true;
+            }
+            else if (symbol == "$$") {
+                out_value = this->m_context.address.current_physical;
                 return true;
             }
             return false;

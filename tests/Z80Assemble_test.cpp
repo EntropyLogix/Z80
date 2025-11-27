@@ -2647,6 +2647,20 @@ TEST_CASE(PhaseDephaseDirectives) {
     
     // Test 3: DEPHASE without PHASE should not cause issues
     ASSERT_CODE("ORG 0x100\nDEPHASE\nNOP", {0x00});
+
+    // Test 4: Check '$' and '$$' behavior
+    ASSERT_CODE(R"(
+        ORG 0x1000
+        PHASE 0x8000
+        DB $ / 256      ; Logical address high byte (0x8000 -> 0x80)
+        DB $$ / 256     ; Physical address high byte (0x1000 -> 0x10)
+        DEPHASE
+        DB $ / 256      ; Logical address high byte (0x1002 -> 0x10)
+        DB $$ / 256     ; Physical address high byte (0x1002 -> 0x10)
+    )", {
+        0x80, 0x10, // Inside PHASE: $ is 0x8000, $$ is 0x1000
+        0x10, 0x10  // Outside PHASE: $ and $$ are both 0x1002
+    });
 }
 
 TEST_CASE(ProcEndpDirectives) {
