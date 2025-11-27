@@ -94,14 +94,18 @@
 //   Function                       | Description                                    | Example
 //   -------------------------------|------------------------------------------------|-----------------------------
 //   HIGH(val), LOW(val)            | Returns the high/low byte of a 16-bit value.   | LD A, HIGH(0x1234)
-//   SIN(r), COS(r), TAN(r)         | Trigonometric functions (argument in radians). | DB ROUND(SIN(MATH_PI / 2))
-//   ASIN(x), ACOS(x), ATAN(x)      | Inverse trigonometric functions.               | DB ROUND(ACOS(1))
+//   SIN(n), COS(n), TAN(n)         | Trigonometric functions (argument in radians). | DB ROUND(SIN(MATH_PI / 2))
+//   ASIN(n), ACOS(n), ATAN(n)      | Inverse trigonometric functions.               | DB ROUND(ACOS(1))
+//   SINH(n), COSH(n), TANH(n)      | Hyperbolic functions.                          | DB ROUND(COSH(0))
+//   ASINH(n), ACOSH(n), ATANH(n)   | Inverse hyperbolic functions.                  | DB ROUND(ASINH(0))
 //   POW(b, e)                      | Power (b to the power of e).                   | DB POW(2, 7)
 //   SQRT(x)                        | Square root.                                   | DB SQRT(64)
 //   LOG(x), LOG10(x), LOG2(x)      | Logarithms (natural, base 10, base 2).         | DB LOG10(100)
 //   ABS(x)                         | Absolute value.                                | DB ABS(-10)
-//   ROUND(x), FLOOR(x), CEIL(x)    | Rounding (nearest, down, up).                  | DB ROUND(3.14)
-//   RAND(min, max)                 | Returns a random integer within the range.     | DB RAND(1, 100)
+//   ROUND(n), FLOOR(n), CEIL(n)    | Rounding (nearest, down, up).                  | DB ROUND(3.14)
+//   TRUNC(n)                       | Truncates the fractional part (towards zero).  | DB TRUNC(3.9)
+//   RAND(min, max), RRND(min, max) | Returns a random integer within the range.     | DB RAND(1, 100)
+//   RND()                          | Random floating-point number [0.0, 1.0).       | DB RND()
 //   SGN(n)                         | Returns the sign of a number (-1, 0, or 1).    | DB SGN(-5)
 //   MIN(...), MAX(...)             | Returns the minimum/maximum of a list.         | DB MIN(10, 5, 20)
 //
@@ -988,6 +992,12 @@ class Strings {
                 {"ACOS",  {1, [](const std::vector<double>& args) { return acos(args[0]); }}},
                 {"ATAN",  {1, [](const std::vector<double>& args) { return atan(args[0]); }}},
                 {"ATAN2", {2, [](const std::vector<double>& args) { return atan2(args[0], args[1]); }}},
+                {"SINH",  {1, [](const std::vector<double>& args) { return sinh(args[0]); }}},
+                {"COSH",  {1, [](const std::vector<double>& args) { return cosh(args[0]); }}},
+                {"TANH",  {1, [](const std::vector<double>& args) { return tanh(args[0]); }}},
+                {"ASINH", {1, [](const std::vector<double>& args) { return asinh(args[0]); }}},
+                {"ACOSH", {1, [](const std::vector<double>& args) { return acosh(args[0]); }}},
+                {"ATANH", {1, [](const std::vector<double>& args) { return atanh(args[0]); }}},
                 {"ABS",   {1, [](const std::vector<double>& args) { return fabs(args[0]); }}},
                 {"POW",   {2, [](const std::vector<double>& args) { return pow(args[0], args[1]); }}},
                 {"SQRT",  {1, [](const std::vector<double>& args) { return sqrt(args[0]); }}},
@@ -1000,9 +1010,20 @@ class Strings {
                     std::uniform_int_distribution<> distrib((int)args[0], (int)args[1]);
                     return (double)distrib(gen);
                 }}},
+                {"RND",   {0, [](const std::vector<double>& args) {
+                    static std::mt19937 gen(1); // Seed with 1 for deterministic results
+                    std::uniform_real_distribution<> distrib(0.0, 1.0);
+                    return distrib(gen);
+                }}},
+                {"RRND",  {2, [](const std::vector<double>& args) {
+                    static std::mt19937 gen(0); // Same seed as RAND for same sequence
+                    std::uniform_int_distribution<> distrib((int)args[0], (int)args[1]);
+                    return (double)distrib(gen);
+                }}},
                 {"FLOOR", {1, [](const std::vector<double>& args) { return floor(args[0]); }}},
                 {"CEIL",  {1, [](const std::vector<double>& args) { return ceil(args[0]); }}},
                 {"ROUND", {1, [](const std::vector<double>& args) { return round(args[0]); }}},
+                {"TRUNC", {1, [](const std::vector<double>& args) { return trunc(args[0]); }}},
                 {"SGN",   {1, [](const std::vector<double>& args) {
                     return (args[0] > 0) - (args[0] < 0);
                 }}}
@@ -1189,7 +1210,8 @@ class Strings {
             std::vector<Token> postfix;
             std::vector<Token> op_stack;
             std::vector<int> arg_counts;
-            for (const auto& token : infix) {
+            for (size_t i = 0; i < infix.size(); ++i) {
+                const auto& token = infix[i];
                 switch (token.type) {
                     case Token::Type::NUMBER:
                     case Token::Type::CHAR_LITERAL:
@@ -1209,8 +1231,12 @@ class Strings {
                         op_stack.push_back(token);
                         break;
                     case Token::Type::LPAREN:
-                        if (!op_stack.empty() && op_stack.back().type == Token::Type::FUNCTION)
-                            arg_counts.back() = 1;
+                        if (!op_stack.empty() && op_stack.back().type == Token::Type::FUNCTION) {
+                            if (i + 1 < infix.size() && infix[i + 1].type == Token::Type::RPAREN)
+                                arg_counts.back() = 0;
+                            else
+                                arg_counts.back() = 1;
+                        }
                         op_stack.push_back(token);
                         break;
                     case Token::Type::RPAREN:

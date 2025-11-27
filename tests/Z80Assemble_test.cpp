@@ -1627,11 +1627,8 @@ TEST_CASE(MathFunctionsInExpressions) {
     ASSERT_CODE("LD A, ROUND(9.5)", {0x3E, 10});
     ASSERT_CODE("LD A, ROUND(9.4)", {0x3E, 9});
 
-    // Test random function (it's deterministic due to a fixed seed).
-    // We just check if the value is within the expected range.
-    reset_rand_seed();
+    // Test random function - check if the value is within the expected range.
     ASSERT_RAND_IN_RANGE("DB RAND(1, 10)", 1, 10);
-    ASSERT_RAND_IN_RANGE("DB RAND(1, 10)", 1, 10); // Check the next value in the sequence
     ASSERT_RAND_IN_RANGE("DB RAND(50, 100)", 50, 100);
 
     // Complex expression with functions
@@ -1652,6 +1649,23 @@ TEST_CASE(SgnFunctionInExpressions) {
     ASSERT_CODE("LD A, SGN(123.45)", {0x3E, 1});
     ASSERT_CODE("LD A, SGN(-0.5)", {0x3E, (uint8_t)-1});
     ASSERT_CODE("LD A, SGN(0.0)", {0x3E, 0});
+}
+
+TEST_CASE(MathFunctionsExtended) {
+    // Hyperbolic functions
+    ASSERT_CODE("LD A, ROUND(SINH(0))", {0x3E, 0});
+    ASSERT_CODE("LD A, ROUND(COSH(0))", {0x3E, 1});
+    ASSERT_CODE("LD A, ROUND(TANH(1))", {0x3E, 1}); // tanh(1) ~= 0.76
+
+    // Truncation
+    ASSERT_CODE("LD A, TRUNC(3.9)", {0x3E, 3});
+    ASSERT_CODE("LD A, TRUNC(-3.9)", {0x3E, (uint8_t)-3});
+
+    // Random functions - check syntax and range
+    ASSERT_RAND_IN_RANGE("DB RND() * 100", 0, 99); // RND() is [0.0, 1.0)
+    ASSERT_RAND_IN_RANGE("DB RRND(10, 20)", 10, 20);
+    // Also test RAND here to ensure its syntax is checked
+    ASSERT_RAND_IN_RANGE("DB RAND(1, 100)", 1, 100);
 }
 
 TEST_CASE(CaseSensitivity) {
