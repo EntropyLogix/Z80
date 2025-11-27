@@ -102,6 +102,7 @@
 //   ABS(x)                         | Absolute value.                                | DB ABS(-10)
 //   ROUND(x), FLOOR(x), CEIL(x)    | Rounding (nearest, down, up).                  | DB ROUND(3.14)
 //   RAND(min, max)                 | Returns a random integer within the range.     | DB RAND(1, 100)
+//   SGN(n)                         | Returns the sign of a number (-1, 0, or 1).    | DB SGN(-5)
 //   MIN(...), MAX(...)             | Returns the minimum/maximum of a list.         | DB MIN(10, 5, 20)
 //
 // Constants:
@@ -918,7 +919,7 @@ class Strings {
         static const std::map<std::string, OperatorInfo>& get_operator_map() {
             static const std::map<std::string, OperatorInfo> op_map = {
                 // unary
-                {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](int32_t a, int32_t) { return -a; }}},
+                {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](double a, double) { return -a; }}},
                 {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](double a, double) { return ~(int32_t)a; }}},
                 {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](double a, double) { return !a; }}},
                 {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](double a, double) { return ~(int32_t)a; }}},
@@ -995,7 +996,10 @@ class Strings {
                 }}},
                 {"FLOOR", {1, [](const std::vector<double>& args) { return floor(args[0]); }}},
                 {"CEIL",  {1, [](const std::vector<double>& args) { return ceil(args[0]); }}},
-                {"ROUND", {1, [](const std::vector<double>& args) { return round(args[0]); }}}
+                {"ROUND", {1, [](const std::vector<double>& args) { return round(args[0]); }}},
+                {"SGN",   {1, [](const std::vector<double>& args) {
+                    return (args[0] > 0) - (args[0] < 0);
+                }}}
             };
             return func_map;
         }

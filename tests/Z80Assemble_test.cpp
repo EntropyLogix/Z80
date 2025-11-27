@@ -1645,6 +1645,14 @@ TEST_CASE(MathFunctionsInExpressions) {
     ASSERT_CODE("LD A, ROUND(LOG(MATH_E))", {0x3E, 1});
     ASSERT_CODE("LD A, 5 * TRUE", {0x3E, 5});
 }
+TEST_CASE(SgnFunctionInExpressions) {
+    ASSERT_CODE("LD A, SGN(123)", {0x3E, 1});
+    ASSERT_CODE("LD A, SGN(-45)", {0x3E, (uint8_t)-1});
+    ASSERT_CODE("LD A, SGN(0)", {0x3E, 0});
+    ASSERT_CODE("LD A, SGN(123.45)", {0x3E, 1});
+    ASSERT_CODE("LD A, SGN(-0.5)", {0x3E, (uint8_t)-1});
+    ASSERT_CODE("LD A, SGN(0.0)", {0x3E, 0});
+}
 
 TEST_CASE(CaseSensitivity) {
     // 1. Built-in functions and constants are case-insensitive.
