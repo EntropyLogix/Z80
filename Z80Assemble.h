@@ -112,7 +112,7 @@
 // Special Variables:
 //   Variable | Description
 //   ---------|------------------------------------------------------------------
-//   $        | Current logical address.
+//   $, @     | Current logical address (synonyms).
 //   $$       | Current physical address (useful in PHASE/DEPHASE blocks).
 //
 // Constants:
@@ -410,9 +410,12 @@ class Strings {
                 return;
             size_t start_pos = 0;
             while ((start_pos = str.find(label, start_pos)) != std::string::npos) {
-                bool prefix_ok = (start_pos == 0) || !std::isalnum(str[start_pos - 1]);
+                auto is_label_char = [](char c) {
+                    return std::isalnum(c) || c == '_' || c == '?' || c == '@';
+                };
+                bool prefix_ok = (start_pos == 0) || !is_label_char(str[start_pos - 1]);
                 size_t suffix_pos = start_pos + label.length();
-                bool suffix_ok = (suffix_pos == str.length()) || !std::isalnum(str[suffix_pos]);
+                bool suffix_ok = (suffix_pos == str.length()) || !is_label_char(str[suffix_pos]);
                 if (prefix_ok && suffix_ok) {
                     str.replace(start_pos, label.length(), replacement);
                     start_pos += replacement.length();
@@ -689,7 +692,6 @@ class Strings {
             }
             return processed_line;
         }
-
         bool process_file(const std::string& identifier, std::vector<SourceLine>& output_source, std::set<std::string>& included_files, size_t include_line) {
             if (included_files.count(identifier))
                 m_context.assembler.report_error("Circular or duplicate include detected: " + identifier);
@@ -707,7 +709,6 @@ class Strings {
             bool in_block_comment = false;
             std::string current_macro_name;
             typename Context::Macros::Macro current_macro;
-
             while (std::getline(source_stream, line)) {
                 m_context.source.source_location = new SourceLine{identifier, line_number, ""};
                 line_number++;
@@ -910,7 +911,7 @@ class Strings {
             int precedence;
             bool is_unary;
             bool left_assoc;
-            std::function<double(double, double)> apply;
+            std::function<double(Context&, double, double)> apply;
         };
         struct FunctionInfo {
             int num_args; //if negative, it's a variadic function with at least -num_args arguments.
@@ -929,41 +930,41 @@ class Strings {
         static const std::map<std::string, OperatorInfo>& get_operator_map() {
             static const std::map<std::string, OperatorInfo> op_map = {
                 // unary
-                {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](double a, double) { return -a; }}},
-                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](double a, double) { return ~(int32_t)a; }}},
-                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](double a, double) { return !a; }}},
-                {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](double a, double) { return ~(int32_t)a; }}},
+                {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](Context&, double a, double) { return -a; }}},
+                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](Context&, double a, double) { return ~(int32_t)a; }}},
+                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](Context&, double a, double) { return !a; }}},
+                {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](Context&, double a, double) { return ~(int32_t)a; }}},
                 // binary
-                {"*",  {OperatorType::MUL,         9, false, true,  [](double a, double b) { if (b==0) throw std::runtime_error("Division by zero."); return a * b; }}},
-                {"/",  {OperatorType::DIV,         9, false, true,  [](double a, double b) { if (b==0) throw std::runtime_error("Division by zero."); return a / b; }}},
-                {"%",  {OperatorType::MOD,         9, false, true,  [](double a, double b) { if ((int32_t)b==0) throw std::runtime_error("Division by zero."); return (int32_t)a % (int32_t)b; }}},
-                {"MOD",{OperatorType::MOD,         9, false, true,  [](double a, double b) { if ((int32_t)b==0) throw std::runtime_error("Division by zero."); return (int32_t)a % (int32_t)b; }}},
-                {"+",  {OperatorType::ADD,         8, false, true,  [](double a, double b) { return a + b; }}},
-                {"-",  {OperatorType::SUB,         8, false, true,  [](double a, double b) { return a - b; }}},
-                {"<<", {OperatorType::SHL,         7, false, true,  [](double a, double b) { return (int32_t)a << (int32_t)b; }}},
-                {">>", {OperatorType::SHR,         7, false, true,  [](double a, double b) { return (int32_t)a >> (int32_t)b; }}},
-                {"SHL",{OperatorType::SHL,         7, false, true,  [](double a, double b) { return (int32_t)a << (int32_t)b; }}},
-                {"SHR",{OperatorType::SHR,         7, false, true,  [](double a, double b) { return (int32_t)a >> (int32_t)b; }}},
-                {">",  {OperatorType::GT,          6, false, true,  [](double a, double b) { return a > b; }}},
-                {"GT", {OperatorType::GT,          6, false, true,  [](double a, double b) { return a > b; }}},
-                {"<",  {OperatorType::LT,          6, false, true,  [](double a, double b) { return a < b; }}},
-                {"LT", {OperatorType::LT,          6, false, true,  [](double a, double b) { return a < b; }}},
-                {">=", {OperatorType::GTE,         6, false, true,  [](double a, double b) { return a >= b; }}},
-                {"GE", {OperatorType::GTE,         6, false, true,  [](double a, double b) { return a >= b; }}},
-                {"<=", {OperatorType::LTE,         6, false, true,  [](double a, double b) { return a <= b; }}},
-                {"LE", {OperatorType::LTE,         6, false, true,  [](double a, double b) { return a <= b; }}},
-                {"==", {OperatorType::EQ,          5, false, true,  [](double a, double b) { return a == b; }}},
-                {"EQ", {OperatorType::EQ,          5, false, true,  [](double a, double b) { return a == b; }}},
-                {"!=", {OperatorType::NE,          5, false, true,  [](double a, double b) { return a != b; }}},
-                {"NE", {OperatorType::NE,          5, false, true,  [](double a, double b) { return a != b; }}},
-                {"&",  {OperatorType::BITWISE_AND, 4, false, true,  [](double a, double b) { return (int32_t)a & (int32_t)b; }}},
-                {"AND",{OperatorType::BITWISE_AND, 4, false, true,  [](double a, double b) { return (int32_t)a & (int32_t)b; }}},
-                {"^",  {OperatorType::BITWISE_XOR, 3, false, true,  [](double a, double b) { return (int32_t)a ^ (int32_t)b; }}},
-                {"XOR",{OperatorType::BITWISE_XOR, 3, false, true,  [](double a, double b) { return (int32_t)a ^ (int32_t)b; }}},
-                {"|",  {OperatorType::BITWISE_OR,  2, false, true,  [](double a, double b) { return (int32_t)a | (int32_t)b; }}},
-                {"OR", {OperatorType::BITWISE_OR,  2, false, true,  [](double a, double b) { return (int32_t)a | (int32_t)b; }}},
-                {"&&", {OperatorType::LOGICAL_AND, 1, false, true,  [](double a, double b) { return a && b; }}},
-                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](double a, double b) { return a || b; }}}
+                {"*",  {OperatorType::MUL,         9, false, true,  [](Context&, double a, double b) { if (b==0) throw std::runtime_error("Division by zero."); return a * b; }}},
+                {"/",  {OperatorType::DIV,         9, false, true,  [](Context&, double a, double b) { if (b==0) throw std::runtime_error("Division by zero."); return a / b; }}},
+                {"%",  {OperatorType::MOD,         9, false, true,  [](Context&, double a, double b) { if ((int32_t)b==0) throw std::runtime_error("Division by zero."); return (int32_t)a % (int32_t)b; }}},
+                {"MOD",{OperatorType::MOD,         9, false, true,  [](Context&, double a, double b) { if ((int32_t)b==0) throw std::runtime_error("Division by zero."); return (int32_t)a % (int32_t)b; }}},
+                {"+",  {OperatorType::ADD,         8, false, true,  [](Context&, double a, double b) { return a + b; }}},
+                {"-",  {OperatorType::SUB,         8, false, true,  [](Context&, double a, double b) { return a - b; }}},
+                {"<<", {OperatorType::SHL,         7, false, true,  [](Context&, double a, double b) { return (int32_t)a << (int32_t)b; }}},
+                {">>", {OperatorType::SHR,         7, false, true,  [](Context&, double a, double b) { return (int32_t)a >> (int32_t)b; }}},
+                {"SHL",{OperatorType::SHL,         7, false, true,  [](Context&, double a, double b) { return (int32_t)a << (int32_t)b; }}},
+                {"SHR",{OperatorType::SHR,         7, false, true,  [](Context&, double a, double b) { return (int32_t)a >> (int32_t)b; }}},
+                {">",  {OperatorType::GT,          6, false, true,  [](Context&, double a, double b) { return a > b; }}},
+                {"GT", {OperatorType::GT,          6, false, true,  [](Context&, double a, double b) { return a > b; }}},
+                {"<",  {OperatorType::LT,          6, false, true,  [](Context&, double a, double b) { return a < b; }}},
+                {"LT", {OperatorType::LT,          6, false, true,  [](Context&, double a, double b) { return a < b; }}},
+                {">=", {OperatorType::GTE,         6, false, true,  [](Context&, double a, double b) { return a >= b; }}},
+                {"GE", {OperatorType::GTE,         6, false, true,  [](Context&, double a, double b) { return a >= b; }}},
+                {"<=", {OperatorType::LTE,         6, false, true,  [](Context&, double a, double b) { return a <= b; }}},
+                {"LE", {OperatorType::LTE,         6, false, true,  [](Context&, double a, double b) { return a <= b; }}},
+                {"==", {OperatorType::EQ,          5, false, true,  [](Context&, double a, double b) { return a == b; }}},
+                {"EQ", {OperatorType::EQ,          5, false, true,  [](Context&, double a, double b) { return a == b; }}},
+                {"!=", {OperatorType::NE,          5, false, true,  [](Context&, double a, double b) { return a != b; }}},
+                {"NE", {OperatorType::NE,          5, false, true,  [](Context&, double a, double b) { return a != b; }}},
+                {"&",  {OperatorType::BITWISE_AND, 4, false, true,  [](Context&, double a, double b) { return (int32_t)a & (int32_t)b; }}},
+                {"AND",{OperatorType::BITWISE_AND, 4, false, true,  [](Context&, double a, double b) { return (int32_t)a & (int32_t)b; }}},
+                {"^",  {OperatorType::BITWISE_XOR, 3, false, true,  [](Context&, double a, double b) { return (int32_t)a ^ (int32_t)b; }}},
+                {"XOR",{OperatorType::BITWISE_XOR, 3, false, true,  [](Context&, double a, double b) { return (int32_t)a ^ (int32_t)b; }}},
+                {"|",  {OperatorType::BITWISE_OR,  2, false, true,  [](Context&, double a, double b) { return (int32_t)a | (int32_t)b; }}},
+                {"OR", {OperatorType::BITWISE_OR,  2, false, true,  [](Context&, double a, double b) { return (int32_t)a | (int32_t)b; }}},
+                {"&&", {OperatorType::LOGICAL_AND, 1, false, true,  [](Context&, double a, double b) { return a && b; }}},
+                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](Context&, double a, double b) { return a || b; }}}
             };
             return op_map;
         }
@@ -1076,6 +1077,10 @@ class Strings {
                     tokens.push_back({Token::Type::SYMBOL, "$"});
                     return true;
                 }
+            }
+            if (expr[i] == '@') {
+                tokens.push_back({Token::Type::SYMBOL, "@"});
+                return true;
             }
             if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '?' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
                 return false;
@@ -1321,7 +1326,7 @@ class Strings {
                         if (val_stack.size() < 1)
                             m_policy.context().assembler.report_error("Invalid expression syntax for unary operator.");
                         double v = val_stack.back();
-                        val_stack.back() = op_info.apply(v, 0.0);
+                        val_stack.back() = op_info.apply(m_policy.context(), v, 0.0);
                         continue;
                     }
                     // Binary operators
@@ -1331,7 +1336,7 @@ class Strings {
                     val_stack.pop_back();
                     double v1 = val_stack.back();
                     val_stack.pop_back();
-                    val_stack.push_back(op_info.apply(v1, v2));
+                    val_stack.push_back(op_info.apply(m_policy.context(), v1, v2));
                 }
             }
             if (val_stack.size() != 1)
@@ -1430,8 +1435,8 @@ class Strings {
         }
         virtual bool on_pass_end() override { return true; }
         virtual void on_pass_next() override {}
-        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
-            if (symbol == "$") {
+        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {            
+            if (symbol == "$" || symbol == "@") {
                 out_value = this->m_context.address.current_logical;
                 return true;
             }
