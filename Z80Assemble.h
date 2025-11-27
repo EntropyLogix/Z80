@@ -106,6 +106,7 @@
 //   TRUNC(n)                       | Truncates the fractional part (towards zero).  | DB TRUNC(3.9)
 //   RAND(min, max), RRND(min, max) | Returns a random integer within the range.     | DB RAND(1, 100)
 //   RND()                          | Random floating-point number [0.0, 1.0).       | DB RND()
+//   MEM(addr)                      | Reads a byte from memory at the given address. | DB MEM(0x8000)
 //   SGN(n)                         | Returns the sign of a number (-1, 0, or 1).    | DB SGN(-5)
 //   MIN(...), MAX(...)             | Returns the minimum/maximum of a list.         | DB MIN(10, 5, 20)
 //
@@ -915,7 +916,7 @@ class Strings {
         };
         struct FunctionInfo {
             int num_args; //if negative, it's a variadic function with at least -num_args arguments.
-            std::function<double(const std::vector<double> &)> apply;
+            std::function<double(Context&, const std::vector<double> &)> apply;
         };
         struct Token {
             enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, CHAR_LITERAL, STRING_LITERAL, COMMA };
@@ -970,62 +971,66 @@ class Strings {
         }
         static const std::map<std::string, FunctionInfo>& get_function_map() {
             static const std::map<std::string, FunctionInfo> func_map = {
-                {"HIGH", {1, [](const std::vector<double>& args) { return ((int32_t)args[0] >> 8) & 0xFF; }}},
-                {"LOW",  {1, [](const std::vector<double>& args) { return (int32_t)args[0] & 0xFF; }}},
-                {"MIN",  {-2, [](const std::vector<double>& args) {
+                {"MEM", {1, [](Context& context, const std::vector<double>& args) {
+                    uint16_t addr = (uint16_t)((int32_t)args[0]);
+                    return context.memory->peek(addr);
+                }}},
+                {"HIGH", {1, [](Context&, const std::vector<double>& args) { return ((int32_t)args[0] >> 8) & 0xFF; }}},
+                {"LOW",  {1, [](Context&, const std::vector<double>& args) { return (int32_t)args[0] & 0xFF; }}},
+                {"MIN",  {-2, [](Context&, const std::vector<double>& args) {
                     if (args.size() < 2) throw std::runtime_error("MIN requires at least two arguments.");
                     double result = args[0];
                     for (size_t i = 1; i < args.size(); ++i)
                         result = std::min(result, args[i]);
                     return result;
                 }}},
-                {"MAX",  {-2, [](const std::vector<double>& args) {
+                {"MAX",  {-2, [](Context&, const std::vector<double>& args) {
                     if (args.size() < 2) throw std::runtime_error("MAX requires at least two arguments.");
                     double result = args[0];
                     for (size_t i = 1; i < args.size(); ++i)
                         result = std::max(result, args[i]);
                     return result;
                 }}},
-                {"SIN",   {1, [](const std::vector<double>& args) { return sin(args[0]); }}},
-                {"COS",   {1, [](const std::vector<double>& args) { return cos(args[0]); }}},
-                {"TAN",   {1, [](const std::vector<double>& args) { return tan(args[0]); }}},
-                {"ASIN",  {1, [](const std::vector<double>& args) { return asin(args[0]); }}},
-                {"ACOS",  {1, [](const std::vector<double>& args) { return acos(args[0]); }}},
-                {"ATAN",  {1, [](const std::vector<double>& args) { return atan(args[0]); }}},
-                {"ATAN2", {2, [](const std::vector<double>& args) { return atan2(args[0], args[1]); }}},
-                {"SINH",  {1, [](const std::vector<double>& args) { return sinh(args[0]); }}},
-                {"COSH",  {1, [](const std::vector<double>& args) { return cosh(args[0]); }}},
-                {"TANH",  {1, [](const std::vector<double>& args) { return tanh(args[0]); }}},
-                {"ASINH", {1, [](const std::vector<double>& args) { return asinh(args[0]); }}},
-                {"ACOSH", {1, [](const std::vector<double>& args) { return acosh(args[0]); }}},
-                {"ATANH", {1, [](const std::vector<double>& args) { return atanh(args[0]); }}},
-                {"ABS",   {1, [](const std::vector<double>& args) { return fabs(args[0]); }}},
-                {"POW",   {2, [](const std::vector<double>& args) { return pow(args[0], args[1]); }}},
-                {"SQRT",  {1, [](const std::vector<double>& args) { return sqrt(args[0]); }}},
-                {"LOG",   {1, [](const std::vector<double>& args) { return log(args[0]); }}},
-                {"LOG10", {1, [](const std::vector<double>& args) { return log10(args[0]); }}},
-                {"LOG2",  {1, [](const std::vector<double>& args) { return log2(args[0]); }}},
-                {"EXP",   {1, [](const std::vector<double>& args) { return exp(args[0]); }}},
-                {"RAND",  {2, [](const std::vector<double>& args) {
+                {"SIN",   {1, [](Context&, const std::vector<double>& args) { return sin(args[0]); }}},
+                {"COS",   {1, [](Context&, const std::vector<double>& args) { return cos(args[0]); }}},
+                {"TAN",   {1, [](Context&, const std::vector<double>& args) { return tan(args[0]); }}},
+                {"ASIN",  {1, [](Context&, const std::vector<double>& args) { return asin(args[0]); }}},
+                {"ACOS",  {1, [](Context&, const std::vector<double>& args) { return acos(args[0]); }}},
+                {"ATAN",  {1, [](Context&, const std::vector<double>& args) { return atan(args[0]); }}},
+                {"ATAN2", {2, [](Context&, const std::vector<double>& args) { return atan2(args[0], args[1]); }}},
+                {"SINH",  {1, [](Context&, const std::vector<double>& args) { return sinh(args[0]); }}},
+                {"COSH",  {1, [](Context&, const std::vector<double>& args) { return cosh(args[0]); }}},
+                {"TANH",  {1, [](Context&, const std::vector<double>& args) { return tanh(args[0]); }}},
+                {"ASINH", {1, [](Context&, const std::vector<double>& args) { return asinh(args[0]); }}},
+                {"ACOSH", {1, [](Context&, const std::vector<double>& args) { return acosh(args[0]); }}},
+                {"ATANH", {1, [](Context&, const std::vector<double>& args) { return atanh(args[0]); }}},
+                {"ABS",   {1, [](Context&, const std::vector<double>& args) { return fabs(args[0]); }}},
+                {"POW",   {2, [](Context&, const std::vector<double>& args) { return pow(args[0], args[1]); }}},
+                {"SQRT",  {1, [](Context&, const std::vector<double>& args) { return sqrt(args[0]); }}},
+                {"LOG",   {1, [](Context&, const std::vector<double>& args) { return log(args[0]); }}},
+                {"LOG10", {1, [](Context&, const std::vector<double>& args) { return log10(args[0]); }}},
+                {"LOG2",  {1, [](Context&, const std::vector<double>& args) { return log2(args[0]); }}},
+                {"EXP",   {1, [](Context&, const std::vector<double>& args) { return exp(args[0]); }}},
+                {"RAND",  {2, [](Context&, const std::vector<double>& args) {
                     static std::mt19937 gen(0); // Seed with 0 for deterministic results
                     std::uniform_int_distribution<> distrib((int)args[0], (int)args[1]);
                     return (double)distrib(gen);
                 }}},
-                {"RND",   {0, [](const std::vector<double>& args) {
+                {"RND",   {0, [](Context&, const std::vector<double>& args) {
                     static std::mt19937 gen(1); // Seed with 1 for deterministic results
                     std::uniform_real_distribution<> distrib(0.0, 1.0);
                     return distrib(gen);
                 }}},
-                {"RRND",  {2, [](const std::vector<double>& args) {
+                {"RRND",  {2, [](Context&, const std::vector<double>& args) {
                     static std::mt19937 gen(0); // Same seed as RAND for same sequence
                     std::uniform_int_distribution<> distrib((int)args[0], (int)args[1]);
                     return (double)distrib(gen);
                 }}},
-                {"FLOOR", {1, [](const std::vector<double>& args) { return floor(args[0]); }}},
-                {"CEIL",  {1, [](const std::vector<double>& args) { return ceil(args[0]); }}},
-                {"ROUND", {1, [](const std::vector<double>& args) { return round(args[0]); }}},
-                {"TRUNC", {1, [](const std::vector<double>& args) { return trunc(args[0]); }}},
-                {"SGN",   {1, [](const std::vector<double>& args) {
+                {"FLOOR", {1, [](Context&, const std::vector<double>& args) { return floor(args[0]); }}},
+                {"CEIL",  {1, [](Context&, const std::vector<double>& args) { return ceil(args[0]); }}},
+                {"ROUND", {1, [](Context&, const std::vector<double>& args) { return round(args[0]); }}},
+                {"TRUNC", {1, [](Context&, const std::vector<double>& args) { return trunc(args[0]); }}},
+                {"SGN",   {1, [](Context&, const std::vector<double>& args) {
                     return (args[0] > 0) - (args[0] < 0);
                 }}}
             };
@@ -1316,7 +1321,7 @@ class Strings {
                             val_stack.pop_back();
                         }
                     }
-                    val_stack.push_back(func_info.apply(args));
+                    val_stack.push_back(it->second.apply(m_policy.context(), args));
                 } else if (token.type == Token::Type::OPERATOR) {
                     auto it = get_operator_map().find(token.s_val);
                     if (it == get_operator_map().end())
