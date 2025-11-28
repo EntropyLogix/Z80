@@ -1020,6 +1020,50 @@ class Strings {
                         return Value{Value::Type::NUMBER, 1.0};
                     return Value{Value::Type::NUMBER, 0.0};
                 }}},
+                {"STR", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::NUMBER)
+                        context.assembler.report_error("Argument to STR must be a number.");
+                    return Value{Value::Type::STRING, 0.0, std::to_string((int32_t)args[0].n_val)};
+                }}},
+                {"VAL", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING)
+                        context.assembler.report_error("Argument to VAL must be a string.");
+                    int32_t num_val;
+                    if (Strings::is_number(args[0].s_val, num_val))
+                        return Value{Value::Type::NUMBER, (double)num_val};
+                    context.assembler.report_error("VAL argument is not a valid number: \"" + args[0].s_val + "\"");
+                    return Value{Value::Type::NUMBER, 0.0};
+                }}},
+                {"CHR", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::NUMBER)
+                        context.assembler.report_error("Argument to CHR must be a number.");
+                    char c = (char)((int32_t)args[0].n_val);
+                    return Value{Value::Type::STRING, 0.0, std::string(1, c)};
+                }}},
+                {"ASC", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING)
+                        context.assembler.report_error("Argument to ASC must be a string.");
+                    if (args[0].s_val.empty())
+                        context.assembler.report_error("ASC argument cannot be an empty string.");
+                    return Value{Value::Type::NUMBER, (double)(unsigned char)args[0].s_val[0]};
+                }}},
+                {"CHARS", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING)
+                        context.assembler.report_error("Argument to CHARS must be a string.");
+                    const std::string& s = args[0].s_val;
+                    if (s.length() > 4)
+                        context.assembler.report_error("CHARS argument string cannot be longer than 4 bytes.");
+                    uint32_t val = 0;
+                    for (size_t i = 0; i < s.length(); ++i) {
+                        val |= ((uint32_t)(unsigned char)s[i]) << (i * 8);
+                    }
+                    return Value{Value::Type::NUMBER, (double)val};
+                }}},
+                {"INT", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::NUMBER)
+                        context.assembler.report_error("Argument to INT must be a number.");
+                    return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val)};
+                }}},
                 {"STRLEN", {1, [](Context& context, const std::vector<Value>& args) {
                     if (args[0].type != Value::Type::STRING)
                         context.assembler.report_error("Argument to STRLEN must be a string.");
@@ -1030,10 +1074,11 @@ class Strings {
                     if (args[1].type != Value::Type::NUMBER) context.assembler.report_error("SUBSTR: Second argument (pos) must be a number.");
                     if (args[2].type != Value::Type::NUMBER) context.assembler.report_error("SUBSTR: Third argument (len) must be a number.");
                     const std::string& str = args[0].s_val;
-                    size_t pos = (size_t)args[1].n_val;
-                    size_t len = (size_t)args[2].n_val;
-                    if (pos == 0) context.assembler.report_error("SUBSTR: Position is 1-based and cannot be 0.");
-                    pos--; // Adjust from 1-based to 0-based index
+                    int32_t pos_val = (int32_t)args[1].n_val;
+                    int32_t len_val = (int32_t)args[2].n_val;
+                    if (pos_val < 0 || len_val < 0) context.assembler.report_error("SUBSTR: Position and length cannot be negative.");
+                    size_t pos = pos_val;
+                    size_t len = len_val;
                     return Value{Value::Type::STRING, 0.0, str.substr(pos, len)};
                 }}},
                 {"STRIN", {2, [](Context& context, const std::vector<Value>& args) {
@@ -1114,17 +1159,17 @@ class Strings {
                 {"LOG2",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, log2(args[0].n_val)}; }}},
                 {"EXP",   {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, exp(args[0].n_val)}; }}},
                 {"RAND",  {2, [](Context&, const std::vector<Value>& args) {
-                    static std::mt19937 gen(0); // Seed with 0 for deterministic results
+                    static std::mt19937 gen(0);
                     std::uniform_int_distribution<> distrib((int)args[0].n_val, (int)args[1].n_val);
                     return Value{Value::Type::NUMBER, (double)distrib(gen)};
                 }}},
                 {"RND",   {0, [](Context&, const std::vector<Value>& args) {
-                    static std::mt19937 gen(1); // Seed with 1 for deterministic results
+                    static std::mt19937 gen(1);
                     std::uniform_real_distribution<> distrib(0.0, 1.0);
                     return Value{Value::Type::NUMBER, distrib(gen)};
                 }}},
                 {"RRND",  {2, [](Context&, const std::vector<Value>& args) {
-                    static std::mt19937 gen(0); // Same seed as RAND for same sequence
+                    static std::mt19937 gen(0);
                     std::uniform_int_distribution<> distrib((int)args[0].n_val, (int)args[1].n_val);
                     return Value{Value::Type::NUMBER, (double)distrib(gen)};
                 }}},
@@ -1191,7 +1236,13 @@ class Strings {
             if (const_it != get_constant_map().end()) {
                 tokens.push_back({Token::Type::NUMBER, "", const_it->second});
             } else if (get_function_map().count(upper_symbol)) {
-                tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0.0, 12, false});
+                size_t next_char_idx = j;
+                while (next_char_idx < expr.length() && isspace(expr[next_char_idx]))
+                    next_char_idx++;
+                if (next_char_idx < expr.length() && expr[next_char_idx] == '(')
+                    tokens.push_back({Token::Type::FUNCTION, upper_symbol, 0.0, 12, false});
+                else
+                    tokens.push_back({Token::Type::SYMBOL, symbol_str});
             } else {
                 auto op_it = get_operator_map().find(upper_symbol);
                 if (op_it != get_operator_map().end())
