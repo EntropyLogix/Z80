@@ -1020,6 +1020,19 @@ class Strings {
                         return Value{Value::Type::NUMBER, 1.0};
                     return Value{Value::Type::NUMBER, 0.0};
                 }}},
+                {"ISSTRING", {1, [](Context& context, const std::vector<Value>& args) {
+                    return Value{Value::Type::NUMBER, (args[0].type == Value::Type::STRING) ? 1.0 : 0.0};
+                }}},
+                {"ISNUMBER", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type == Value::Type::NUMBER)
+                        return Value{Value::Type::NUMBER, 1.0};
+                    if (args[0].type == Value::Type::STRING) {
+                        int32_t dummy;
+                        if (Strings::is_number(args[0].s_val, dummy))
+                            return Value{Value::Type::NUMBER, 1.0};
+                    }
+                    return Value{Value::Type::NUMBER, 0.0};
+                }}},
                 {"STR", {1, [](Context& context, const std::vector<Value>& args) {
                     if (args[0].type != Value::Type::NUMBER)
                         context.assembler.report_error("Argument to STR must be a number.");
