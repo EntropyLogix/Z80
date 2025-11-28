@@ -898,7 +898,7 @@ class Strings {
             UNARY_MINUS, UNARY_PLUS, LOGICAL_NOT, BITWISE_NOT,
             ADD, SUB, MUL, DIV, MOD,
             BITWISE_AND, BITWISE_OR, BITWISE_XOR,
-            SHL, SHR,
+            SHL, SHR, DEFINED,
             GT, LT, GTE, LTE, EQ, NE,
             LOGICAL_AND, LOGICAL_OR
         };
@@ -952,6 +952,15 @@ class Strings {
                 // unary
                 {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](Context& ctx, const Value& a, const Value&) { if(a.type == Value::Type::STRING) ctx.assembler.report_error("Unary minus not supported for strings."); return Value{Value::Type::NUMBER, -a.n_val}; }}},
                 {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](Context& ctx, const Value& a, const Value&) { if(a.type == Value::Type::STRING) ctx.assembler.report_error("Bitwise NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(~(int32_t)a.n_val)}; }}},
+                {"DEFINED", {OperatorType::DEFINED, 10, true, false, [](Context& ctx, const Value& a, const Value&) {
+                    if (a.type != Value::Type::STRING)
+                        ctx.assembler.report_error("Argument to DEFINED must be a symbol name.");
+                    const std::string& symbol_name = a.s_val;
+                    int32_t dummy;
+                    if (ctx.defines.map.count(symbol_name) || (ctx.current_phase && ctx.current_phase->on_symbol_resolve(symbol_name, dummy)))
+                        return Value{Value::Type::NUMBER, 1.0};
+                    return Value{Value::Type::NUMBER, 0.0};
+                }}},
                 {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](Context& ctx, const Value& a, const Value&) { if(a.type == Value::Type::STRING) ctx.assembler.report_error("Logical NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(!a.n_val)}; }}},
                 {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](Context& ctx, const Value& a, const Value&) { if(a.type == Value::Type::STRING) ctx.assembler.report_error("Bitwise NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(~(int32_t)a.n_val)}; }}},
                 // binary
@@ -1013,16 +1022,6 @@ class Strings {
         }
         static const std::map<std::string, FunctionInfo>& get_function_map() {
             static const std::map<std::string, FunctionInfo> func_map = {
-                {"DEFINED", {1, [](Context& context, const std::vector<Value>& args) {
-                    if (args[0].type != Value::Type::STRING)
-                        context.assembler.report_error("Argument to DEFINED must be a string literal.");
-                    const std::string& symbol_name = args[0].s_val;
-                    if (context.defines.map.count(symbol_name))
-                        return Value{Value::Type::NUMBER, 1.0};
-                    if (context.symbols.map.count(symbol_name))
-                        return Value{Value::Type::NUMBER, 1.0};
-                    return Value{Value::Type::NUMBER, 0.0};
-                }}},
                 {"ISSTRING", {1, [](Context& context, const std::vector<Value>& args) {
                     return Value{Value::Type::NUMBER, (args[0].type == Value::Type::STRING) ? 1.0 : 0.0};
                 }}},
