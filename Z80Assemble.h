@@ -786,16 +786,6 @@ class Strings {
             Operand operand;
             operand.str_val = operand_string;
             std::string upper_operand_string = operand_string;
-            Strings::to_upper(upper_operand_string);
-            if (is_char_literal(operand_string)) {
-                operand.num_val = (uint8_t)operand_string[1];
-                operand.type = OperandType::CHAR_LITERAL;
-                return operand;
-            } else if (is_string_literal(operand_string)) {
-                operand.str_val = operand_string.substr(1, operand_string.length() - 2);
-                operand.type = OperandType::STRING_LITERAL;
-                return operand;
-            }
             if (upper_operand_string == "(C)") {
                  operand.type = OperandType::MEM_REG16;
                  operand.str_val = "C";
@@ -987,10 +977,26 @@ class Strings {
                 {"GE", {OperatorType::GTE,         6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator GE not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val >= b.n_val)}; }}},
                 {"<=", {OperatorType::LTE,         6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator <= not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val <= b.n_val)}; }}},
                 {"LE", {OperatorType::LTE,         6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator LE not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val <= b.n_val)}; }}},
-                {"==", {OperatorType::EQ,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator == not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val == b.n_val)}; }}},
-                {"EQ", {OperatorType::EQ,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator EQ not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val == b.n_val)}; }}},
-                {"!=", {OperatorType::NE,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator != not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val != b.n_val)}; }}},
-                {"NE", {OperatorType::NE,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator NE not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val != b.n_val)}; }}},
+                {"==", {OperatorType::EQ,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) {
+                    if (a.type != b.type) return Value{Value::Type::NUMBER, 0.0}; // false
+                    if (a.type == Value::Type::STRING) return Value{Value::Type::NUMBER, (double)(a.s_val == b.s_val)};
+                    return Value{Value::Type::NUMBER, (double)(a.n_val == b.n_val)};
+                }}},
+                {"EQ", {OperatorType::EQ,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) {
+                    if (a.type != b.type) return Value{Value::Type::NUMBER, 0.0}; // false
+                    if (a.type == Value::Type::STRING) return Value{Value::Type::NUMBER, (double)(a.s_val == b.s_val)};
+                    return Value{Value::Type::NUMBER, (double)(a.n_val == b.n_val)};
+                }}},
+                {"!=", {OperatorType::NE,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) {
+                    if (a.type != b.type) return Value{Value::Type::NUMBER, 1.0}; // true
+                    if (a.type == Value::Type::STRING) return Value{Value::Type::NUMBER, (double)(a.s_val != b.s_val)};
+                    return Value{Value::Type::NUMBER, (double)(a.n_val != b.n_val)};
+                }}},
+                {"NE", {OperatorType::NE,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) {
+                    if (a.type != b.type) return Value{Value::Type::NUMBER, 1.0}; // true
+                    if (a.type == Value::Type::STRING) return Value{Value::Type::NUMBER, (double)(a.s_val != b.s_val)};
+                    return Value{Value::Type::NUMBER, (double)(a.n_val != b.n_val)};
+                }}},
                 {"&",  {OperatorType::BITWISE_AND, 4, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator & not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val & (int32_t)b.n_val)}; }}},
                 {"AND",{OperatorType::BITWISE_AND, 4, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator AND not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val & (int32_t)b.n_val)}; }}},
                 {"^",  {OperatorType::BITWISE_XOR, 3, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator ^ not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val ^ (int32_t)b.n_val)}; }}},
