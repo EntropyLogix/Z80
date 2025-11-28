@@ -1010,6 +1010,16 @@ class Strings {
         }
         static const std::map<std::string, FunctionInfo>& get_function_map() {
             static const std::map<std::string, FunctionInfo> func_map = {
+                {"DEFINED", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING)
+                        context.assembler.report_error("Argument to DEFINED must be a string literal.");
+                    const std::string& symbol_name = args[0].s_val;
+                    if (context.defines.map.count(symbol_name))
+                        return Value{Value::Type::NUMBER, 1.0};
+                    if (context.symbols.map.count(symbol_name))
+                        return Value{Value::Type::NUMBER, 1.0};
+                    return Value{Value::Type::NUMBER, 0.0};
+                }}},
                 {"MEM", {1, [](Context& context, const std::vector<Value>& args) { 
                     uint16_t addr = (uint16_t)((int32_t)args[0].n_val);
                     return Value{Value::Type::NUMBER, (double)context.memory->peek(addr)};
