@@ -344,6 +344,7 @@ public:
         for (auto& phase : m_phases) {
             if (!phase)
                 continue;
+            m_context.current_phase = phase;
             phase->on_initialize();
             bool end_phase = false;
             m_context.source.current_pass = 1;
@@ -383,6 +384,7 @@ private:
         throw std::runtime_error(error_stream.str());
     }
     const Options m_options;
+    class IPhasePolicy;
 class Strings {
     public:
         static void trim_whitespace(std::string& s) {
@@ -581,6 +583,7 @@ class Strings {
         Z80Assembler<TMemory>& assembler;
         TMemory* memory = nullptr;
         ISourceProvider* source_provider = nullptr;
+        IPhasePolicy* current_phase = nullptr;
         struct Address {
             uint16_t start = 0;
             uint16_t current_logical = 0;
