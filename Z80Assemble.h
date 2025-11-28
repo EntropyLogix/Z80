@@ -3330,24 +3330,23 @@ class Strings {
     class Source {
     public:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
-
         bool process_line(const std::string& initial_line) {
             m_policy.context().source.lines_stack.clear();
             m_policy.context().source.lines_stack.push_back(initial_line);
-
             while (!m_policy.context().source.lines_stack.empty() || m_policy.context().macros.in_expansion) {
                 if (m_policy.context().macros.in_expansion) {
                     m_policy.on_macro_line();
                     if (m_policy.context().source.lines_stack.empty())
                         continue;
                 }
-
                 std::string current_line = m_policy.context().source.lines_stack.back();
                 m_policy.context().source.lines_stack.pop_back();
-                apply_defines(current_line);
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
+                if (handle_define_directive())
+                    continue;
+                apply_defines_on_tokens();
                 if (process_repeat(current_line))
                     continue;
                 if (process_conditional_directives()) {
@@ -3368,25 +3367,52 @@ class Strings {
             return true;
         }
     private:
-        void apply_defines(std::string& line) {
-            const auto& defines_map = m_policy.context().defines.map;
-            if (defines_map.empty()) {
-                return;
+        bool handle_define_directive() {
+            const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
+            if (!const_opts.enabled || !const_opts.allow_define || m_tokens.count() < 2)
+                return false;
+            size_t define_idx = 0;
+            if (m_tokens.count() > 1 && Keywords::is_valid_label_name(m_tokens[0].original()) && !Keywords::is_reserved(m_tokens[0].upper())) {
+                define_idx = 1;
             }
-
-            std::vector<std::pair<std::string, std::string>> sorted_defines(defines_map.begin(), defines_map.end());
-            std::sort(sorted_defines.begin(), sorted_defines.end(), [](const auto& a, const auto& b) {
-                return a.first.length() > b.first.length();
-            });
-
-            for (const auto& [key, val] : sorted_defines) {
-                size_t start_pos = 0;
-                while ((start_pos = line.find(key, start_pos)) != std::string::npos) {
-                    if ((start_pos == 0 || !isalnum(line[start_pos - 1])) && (start_pos + key.length() >= line.length() || !isalnum(line[start_pos + key.length()])))
-                        line.replace(start_pos, key.length(), val);
-                    start_pos += val.length();
+            if (m_tokens.count() > define_idx && m_tokens[define_idx].upper() == "DEFINE") {
+                if (m_tokens.count() < define_idx + 2)
+                    m_policy.context().assembler.report_error("DEFINE directive requires a key.");
+                const std::string& key = m_tokens[define_idx + 1].original();
+                if (!Keywords::is_valid_label_name(key))
+                    m_policy.context().assembler.report_error("Invalid key name for DEFINE directive: '" + key + "'");
+                std::string value;
+                if (m_tokens.count() > define_idx + 2) {
+                    m_tokens.merge(define_idx + 2, m_tokens.count() - 1);
+                    value = m_tokens[define_idx + 2].original();
                 }
+                m_policy.on_define_directive(key, value);
+                return true;
             }
+            return false;
+        }
+        void apply_defines_on_tokens() {
+            const auto& defines_map = m_policy.context().defines.map;
+            if (defines_map.empty())
+                return;
+            std::string rebuilt_line;
+            for (size_t i = 0; i < m_tokens.count(); ++i) {
+                std::string token_str = m_tokens[i].original();
+                if (token_str.length() > 1 && token_str.front() == '"' && token_str.back() == '"') {
+                    // It's a string literal, don't substitute inside it.
+                } else {
+                    std::set<std::string> visited;
+                    while (defines_map.count(token_str)) {
+                        if (visited.count(token_str))
+                            m_policy.context().assembler.report_error("Circular DEFINE reference detected for '" + token_str + "'");
+                        visited.insert(token_str);
+                        token_str = defines_map.at(token_str);
+                    }
+                }
+                if (!rebuilt_line.empty()) rebuilt_line += " ";
+                rebuilt_line += token_str;
+            }
+            m_tokens.process(rebuilt_line);
         }
         bool process_macro() {
             if (!m_policy.context().assembler.m_options.directives.enabled || !m_policy.context().assembler.m_options.directives.allow_macros)
@@ -3542,23 +3568,8 @@ class Strings {
         bool process_constant_directives() {
             const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
             if (!const_opts.enabled || m_tokens.count() < 2)
-                return false;
-            const std::string& directive_upper = m_tokens[0].upper();
-            if (const_opts.allow_define && directive_upper == "DEFINE") {
-                if (m_tokens.count() < 2)
-                    m_policy.context().assembler.report_error("DEFINE directive requires a key.");
-                const std::string& key = m_tokens[1].original();
-                if (!Keywords::is_valid_label_name(key))
-                    m_policy.context().assembler.report_error("Invalid key name for DEFINE directive: '" + key + "'");
-                std::string value;
-                if (m_tokens.count() > 2) {
-                    m_tokens.merge(2, m_tokens.count() - 1);
-                    value = m_tokens[2].original();
-                }
-                m_policy.on_define_directive(key, value);
-                return true;
-            }
-            if (const_opts.allow_undefine && directive_upper == "UNDEFINE") {
+                return false;            
+            if (const_opts.allow_undefine && m_tokens[0].upper() == "UNDEFINE") {
                 m_policy.on_undefine_directive(m_tokens[1].original());
                 return true;
             }
