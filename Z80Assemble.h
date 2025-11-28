@@ -788,10 +788,11 @@ class Strings {
             std::string upper_operand_string = operand_string;
             Strings::to_upper(upper_operand_string);
             if (is_char_literal(operand_string)) {
-                operand.num_val = (uint8_t)(operand_string[1]);
+                operand.num_val = (uint8_t)operand_string[1];
                 operand.type = OperandType::CHAR_LITERAL;
                 return operand;
             } else if (is_string_literal(operand_string)) {
+                operand.str_val = operand_string.substr(1, operand_string.length() - 2);
                 operand.type = OperandType::STRING_LITERAL;
                 return operand;
             }
@@ -856,10 +857,15 @@ class Strings {
                 }
             }
             Expressions expression(m_policy);
-            int32_t num_val = 0;
-            if (expression.evaluate(operand_string, num_val)) {
-                operand.num_val = num_val;
-                operand.type = OperandType::IMMEDIATE;
+            typename Expressions::Value value;
+            if (expression.evaluate(operand_string, value)) {
+                if (value.type == Expressions::Value::Type::STRING) {
+                    operand.str_val = value.s_val;
+                    operand.type = OperandType::STRING_LITERAL;
+                } else {
+                    operand.num_val = (int32_t)value.n_val;
+                    operand.type = OperandType::IMMEDIATE;
+                }
                 return operand;
             }
             m_policy.on_unknown_operand(operand_string);
@@ -2309,16 +2315,13 @@ class Strings {
                 return false;
             if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM") {
                 for (const auto& op : ops) {
-                    if (match_imm16(op) || match_char(op)) {
-                        if (op.num_val > 0xFF)
-                            m_policy.context().assembler.report_error("Value in DB statement exceeds 1 byte: " + op.str_val);
-                        assemble({(uint8_t)(op.num_val)});
-                    } else if (match_string(op)) {
-                        std::string str_content = op.str_val.substr(1, op.str_val.length() - 2);
-                        for (char c : str_content)
-                            assemble({(uint8_t)(c)});
-                    } else
-                        m_policy.context().assembler.report_error("Unsupported operand for DB: " + op.str_val);
+                    if (op.type == OperandType::STRING_LITERAL) {
+                        for (char c : op.str_val)
+                            assemble({(uint8_t)c});
+                    } else if (match_imm8(op)) 
+                        assemble({(uint8_t)op.num_val});
+                    else
+                        m_policy.context().assembler.report_error("Unsupported or out-of-range operand for DB: " + op.str_val);
                 }
                 return true;
             } else if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
@@ -2351,8 +2354,8 @@ class Strings {
                     m_policy.context().assembler.report_error(mnemonic + " requires at least one string argument.");
                 for (const auto& op : ops) {
                     if (!match_string(op))
-                        m_policy.context().assembler.report_error(mnemonic + " arguments must be string literals. Found: " + op.str_val);
-                    std::string hex_str = op.str_val.substr(1, op.str_val.length() - 2);
+                        m_policy.context().assembler.report_error(mnemonic + " arguments must be string literals. Found: '" + op.str_val + "'");
+                    std::string hex_str = op.str_val;
                     std::string continuous_hex;
                     for (char c : hex_str) {
                         if (!isspace(c))
@@ -2375,17 +2378,16 @@ class Strings {
                     m_policy.context().assembler.report_error(mnemonic + " requires at least one argument.");
                 for (const auto& op : ops) {
                     if (match_string(op)) {
-                        std::string str_content = op.str_val.substr(1, op.str_val.length() - 2);
-                        for (char c : str_content)
+                        for (char c : op.str_val)
                             assemble({(uint8_t)c});
-                    } else if (match_imm8(op) || match_char(op)) {
+                    } else if (match_imm8(op))
                         assemble({(uint8_t)op.num_val});
-                    } else
+                    else
                         m_policy.context().assembler.report_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
                 }
                 assemble({0x00});
                 return true;
-            } if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
+            } else if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
                 if (ops.empty() || ops.size() > 2)
                     m_policy.context().assembler.report_error(mnemonic + " requires 1 or 2 operands.");
                 if (!match_imm16(ops[0]))
@@ -2395,11 +2397,11 @@ class Strings {
                 for (size_t i = 0; i < count; ++i)
                     assemble({fill_value});
                 return true;
-            } if (mnemonic == "DG" || mnemonic == "DEFG") {
+            } else if (mnemonic == "DG" || mnemonic == "DEFG") {
                 for (const auto& op : ops) {
                     if (!match_string(op))
                         m_policy.context().assembler.report_error("DG directive requires a string literal operand.");
-                    std::string content = op.str_val.substr(1, op.str_val.length() - 2);
+                    std::string content = op.str_val;
                     std::string all_bits;
                     for (char c : content) {
                         if (isspace(c)) continue;
