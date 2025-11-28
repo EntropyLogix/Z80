@@ -885,18 +885,12 @@ class Strings {
     };
     class Expressions {
     public:
-        Expressions(IPhasePolicy& policy) : m_policy(policy){}
-        bool evaluate(const std::string& s, int32_t& out_value) const {
-            if (!m_policy.context().assembler.m_options.expressions.enabled) {
-                if (Strings::is_number(s, out_value))
-                    return true;
-                return false;
-            }
-            auto tokens = tokenize_expression(s);
-            auto rpn = shunting_yard(tokens);
-            return evaluate_rpn(rpn, out_value);
-        }
-    private:
+        struct Value {
+            enum class Type { NUMBER, STRING };
+            Type type = Type::NUMBER;
+            double n_val = 0.0;
+            std::string s_val;
+        };
         enum class OperatorType {
             UNARY_MINUS, UNARY_PLUS, LOGICAL_NOT, BITWISE_NOT,
             ADD, SUB, MUL, DIV, MOD,
@@ -910,11 +904,11 @@ class Strings {
             int precedence;
             bool is_unary;
             bool left_assoc;
-            std::function<double(Context&, double, double)> apply;
+            std::function<Value(Context&, const Value&, const Value&)> apply;
         };
         struct FunctionInfo {
             int num_args; //if negative, it's a variadic function with at least -num_args arguments.
-            std::function<double(Context&, const std::vector<double> &)> apply;
+            std::function<Value(Context&, const std::vector<Value>&)> apply;
         };
         struct Token {
             enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, CHAR_LITERAL, STRING_LITERAL, COMMA };
@@ -925,111 +919,142 @@ class Strings {
             bool left_assoc = true;
             const OperatorInfo* op_info = nullptr;
         };
+        Expressions(IPhasePolicy& policy) : m_policy(policy){}
+        bool evaluate(const std::string& s, int32_t& out_value) const {
+            if (!m_policy.context().assembler.m_options.expressions.enabled) {
+                if (Strings::is_number(s, out_value))
+                    return true;
+                return false;
+            }
+            auto tokens = tokenize_expression(s);
+            auto rpn = shunting_yard(tokens);
+            return evaluate_rpn(rpn, out_value);
+        }
+        bool evaluate(const std::string& s, Value& out_value) const {
+            if (!m_policy.context().assembler.m_options.expressions.enabled) {
+                int32_t num_val;
+                if (Strings::is_number(s, num_val)) {
+                    out_value = { Value::Type::NUMBER, (double)num_val };
+                    return true;
+                }
+                return false;
+            }
+            auto tokens = tokenize_expression(s);
+            auto rpn = shunting_yard(tokens);
+            return evaluate_rpn(rpn, out_value);
+        }
     private:
         static const std::map<std::string, OperatorInfo>& get_operator_map() {
             static const std::map<std::string, OperatorInfo> op_map = {
                 // unary
-                {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](Context&, double a, double) { return -a; }}},
-                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](Context&, double a, double) { return ~(int32_t)a; }}},
-                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](Context&, double a, double) { return !a; }}},
-                {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](Context&, double a, double) { return ~(int32_t)a; }}},
+                {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](Context& ctx, const Value& a, const Value&) { if(a.type == Value::Type::STRING) ctx.assembler.report_error("Unary minus not supported for strings."); return Value{Value::Type::NUMBER, -a.n_val}; }}},
+                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](Context& ctx, const Value& a, const Value&) { if(a.type == Value::Type::STRING) ctx.assembler.report_error("Bitwise NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(~(int32_t)a.n_val)}; }}},
+                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](Context& ctx, const Value& a, const Value&) { if(a.type == Value::Type::STRING) ctx.assembler.report_error("Logical NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(!a.n_val)}; }}},
+                {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](Context& ctx, const Value& a, const Value&) { if(a.type == Value::Type::STRING) ctx.assembler.report_error("Bitwise NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(~(int32_t)a.n_val)}; }}},
                 // binary
-                {"*",  {OperatorType::MUL,         9, false, true,  [](Context&, double a, double b) { if (b==0) throw std::runtime_error("Division by zero."); return a * b; }}},
-                {"/",  {OperatorType::DIV,         9, false, true,  [](Context&, double a, double b) { if (b==0) throw std::runtime_error("Division by zero."); return a / b; }}},
-                {"%",  {OperatorType::MOD,         9, false, true,  [](Context&, double a, double b) { if ((int32_t)b==0) throw std::runtime_error("Division by zero."); return (int32_t)a % (int32_t)b; }}},
-                {"MOD",{OperatorType::MOD,         9, false, true,  [](Context&, double a, double b) { if ((int32_t)b==0) throw std::runtime_error("Division by zero."); return (int32_t)a % (int32_t)b; }}},
-                {"+",  {OperatorType::ADD,         8, false, true,  [](Context&, double a, double b) { return a + b; }}},
-                {"-",  {OperatorType::SUB,         8, false, true,  [](Context&, double a, double b) { return a - b; }}},
-                {"<<", {OperatorType::SHL,         7, false, true,  [](Context&, double a, double b) { return (int32_t)a << (int32_t)b; }}},
-                {">>", {OperatorType::SHR,         7, false, true,  [](Context&, double a, double b) { return (int32_t)a >> (int32_t)b; }}},
-                {"SHL",{OperatorType::SHL,         7, false, true,  [](Context&, double a, double b) { return (int32_t)a << (int32_t)b; }}},
-                {"SHR",{OperatorType::SHR,         7, false, true,  [](Context&, double a, double b) { return (int32_t)a >> (int32_t)b; }}},
-                {">",  {OperatorType::GT,          6, false, true,  [](Context&, double a, double b) { return a > b; }}},
-                {"GT", {OperatorType::GT,          6, false, true,  [](Context&, double a, double b) { return a > b; }}},
-                {"<",  {OperatorType::LT,          6, false, true,  [](Context&, double a, double b) { return a < b; }}},
-                {"LT", {OperatorType::LT,          6, false, true,  [](Context&, double a, double b) { return a < b; }}},
-                {">=", {OperatorType::GTE,         6, false, true,  [](Context&, double a, double b) { return a >= b; }}},
-                {"GE", {OperatorType::GTE,         6, false, true,  [](Context&, double a, double b) { return a >= b; }}},
-                {"<=", {OperatorType::LTE,         6, false, true,  [](Context&, double a, double b) { return a <= b; }}},
-                {"LE", {OperatorType::LTE,         6, false, true,  [](Context&, double a, double b) { return a <= b; }}},
-                {"==", {OperatorType::EQ,          5, false, true,  [](Context&, double a, double b) { return a == b; }}},
-                {"EQ", {OperatorType::EQ,          5, false, true,  [](Context&, double a, double b) { return a == b; }}},
-                {"!=", {OperatorType::NE,          5, false, true,  [](Context&, double a, double b) { return a != b; }}},
-                {"NE", {OperatorType::NE,          5, false, true,  [](Context&, double a, double b) { return a != b; }}},
-                {"&",  {OperatorType::BITWISE_AND, 4, false, true,  [](Context&, double a, double b) { return (int32_t)a & (int32_t)b; }}},
-                {"AND",{OperatorType::BITWISE_AND, 4, false, true,  [](Context&, double a, double b) { return (int32_t)a & (int32_t)b; }}},
-                {"^",  {OperatorType::BITWISE_XOR, 3, false, true,  [](Context&, double a, double b) { return (int32_t)a ^ (int32_t)b; }}},
-                {"XOR",{OperatorType::BITWISE_XOR, 3, false, true,  [](Context&, double a, double b) { return (int32_t)a ^ (int32_t)b; }}},
-                {"|",  {OperatorType::BITWISE_OR,  2, false, true,  [](Context&, double a, double b) { return (int32_t)a | (int32_t)b; }}},
-                {"OR", {OperatorType::BITWISE_OR,  2, false, true,  [](Context&, double a, double b) { return (int32_t)a | (int32_t)b; }}},
-                {"&&", {OperatorType::LOGICAL_AND, 1, false, true,  [](Context&, double a, double b) { return a && b; }}},
-                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](Context&, double a, double b) { return a || b; }}}
+                {"*",  {OperatorType::MUL,         9, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator * not supported for strings."); if (b.n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, a.n_val * b.n_val}; }}},
+                {"/",  {OperatorType::DIV,         9, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator / not supported for strings."); if (b.n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, a.n_val / b.n_val}; }}},
+                {"%",  {OperatorType::MOD,         9, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator % not supported for strings."); if ((int32_t)b.n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val % (int32_t)b.n_val)}; }}},
+                {"MOD",{OperatorType::MOD,         9, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator MOD not supported for strings."); if ((int32_t)b.n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val % (int32_t)b.n_val)}; }}},
+                {"+",  {OperatorType::ADD,         8, false, true,  [](Context& ctx, const Value& a, const Value& b) {
+                    if (a.type == Value::Type::STRING || b.type == Value::Type::STRING) {
+                        std::string s1 = (a.type == Value::Type::STRING) ? a.s_val : std::to_string((int32_t)a.n_val);
+                        std::string s2 = (b.type == Value::Type::STRING) ? b.s_val : std::to_string((int32_t)b.n_val);
+                        return Value{Value::Type::STRING, 0.0, s1 + s2};
+                    }
+                    return Value{Value::Type::NUMBER, a.n_val + b.n_val};
+                }}},
+                {"-",  {OperatorType::SUB,         8, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator - not supported for strings."); return Value{Value::Type::NUMBER, a.n_val - b.n_val}; }}},
+                {"<<", {OperatorType::SHL,         7, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator << not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val << (int32_t)b.n_val)}; }}},
+                {">>", {OperatorType::SHR,         7, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator >> not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val >> (int32_t)b.n_val)}; }}},
+                {"SHL",{OperatorType::SHL,         7, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator SHL not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val << (int32_t)b.n_val)}; }}},
+                {"SHR",{OperatorType::SHR,         7, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator SHR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val >> (int32_t)b.n_val)}; }}},
+                {">",  {OperatorType::GT,          6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator > not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val > b.n_val)}; }}},
+                {"GT", {OperatorType::GT,          6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator GT not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val > b.n_val)}; }}},
+                {"<",  {OperatorType::LT,          6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator < not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val < b.n_val)}; }}},
+                {"LT", {OperatorType::LT,          6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator LT not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val < b.n_val)}; }}},
+                {">=", {OperatorType::GTE,         6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator >= not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val >= b.n_val)}; }}},
+                {"GE", {OperatorType::GTE,         6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator GE not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val >= b.n_val)}; }}},
+                {"<=", {OperatorType::LTE,         6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator <= not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val <= b.n_val)}; }}},
+                {"LE", {OperatorType::LTE,         6, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator LE not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val <= b.n_val)}; }}},
+                {"==", {OperatorType::EQ,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator == not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val == b.n_val)}; }}},
+                {"EQ", {OperatorType::EQ,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator EQ not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val == b.n_val)}; }}},
+                {"!=", {OperatorType::NE,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator != not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val != b.n_val)}; }}},
+                {"NE", {OperatorType::NE,          5, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator NE not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val != b.n_val)}; }}},
+                {"&",  {OperatorType::BITWISE_AND, 4, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator & not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val & (int32_t)b.n_val)}; }}},
+                {"AND",{OperatorType::BITWISE_AND, 4, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator AND not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val & (int32_t)b.n_val)}; }}},
+                {"^",  {OperatorType::BITWISE_XOR, 3, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator ^ not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val ^ (int32_t)b.n_val)}; }}},
+                {"XOR",{OperatorType::BITWISE_XOR, 3, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator XOR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val ^ (int32_t)b.n_val)}; }}},
+                {"|",  {OperatorType::BITWISE_OR,  2, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator | not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val | (int32_t)b.n_val)}; }}},
+                {"OR", {OperatorType::BITWISE_OR,  2, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator OR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val | (int32_t)b.n_val)}; }}},
+                {"&&", {OperatorType::LOGICAL_AND, 1, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator && not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val && b.n_val)}; }}},
+                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator || not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val || b.n_val)}; }}}
             };
             return op_map;
         }
         static const std::map<std::string, FunctionInfo>& get_function_map() {
             static const std::map<std::string, FunctionInfo> func_map = {
-                {"MEM", {1, [](Context& context, const std::vector<double>& args) {
-                    uint16_t addr = (uint16_t)((int32_t)args[0]);
-                    return context.memory->peek(addr);
+                {"MEM", {1, [](Context& context, const std::vector<Value>& args) { 
+                    uint16_t addr = (uint16_t)((int32_t)args[0].n_val);
+                    return Value{Value::Type::NUMBER, (double)context.memory->peek(addr)};
                 }}},
-                {"HIGH", {1, [](Context&, const std::vector<double>& args) { return ((int32_t)args[0] >> 8) & 0xFF; }}},
-                {"LOW",  {1, [](Context&, const std::vector<double>& args) { return (int32_t)args[0] & 0xFF; }}},
-                {"MIN",  {-2, [](Context&, const std::vector<double>& args) {
+                {"HIGH", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)(((int32_t)args[0].n_val >> 8) & 0xFF)}; }}},
+                {"LOW",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val & 0xFF)}; }}},
+                {"MIN",  {-2, [](Context&, const std::vector<Value>& args) {
                     if (args.size() < 2) throw std::runtime_error("MIN requires at least two arguments.");
-                    double result = args[0];
+                    double result = args[0].n_val;
                     for (size_t i = 1; i < args.size(); ++i)
-                        result = std::min(result, args[i]);
-                    return result;
+                        result = std::min(result, args[i].n_val);
+                    return Value{Value::Type::NUMBER, result};
                 }}},
-                {"MAX",  {-2, [](Context&, const std::vector<double>& args) {
+                {"MAX",  {-2, [](Context&, const std::vector<Value>& args) {
                     if (args.size() < 2) throw std::runtime_error("MAX requires at least two arguments.");
-                    double result = args[0];
+                    double result = args[0].n_val;
                     for (size_t i = 1; i < args.size(); ++i)
-                        result = std::max(result, args[i]);
-                    return result;
+                        result = std::max(result, args[i].n_val);
+                    return Value{Value::Type::NUMBER, result};
                 }}},
-                {"SIN",   {1, [](Context&, const std::vector<double>& args) { return sin(args[0]); }}},
-                {"COS",   {1, [](Context&, const std::vector<double>& args) { return cos(args[0]); }}},
-                {"TAN",   {1, [](Context&, const std::vector<double>& args) { return tan(args[0]); }}},
-                {"ASIN",  {1, [](Context&, const std::vector<double>& args) { return asin(args[0]); }}},
-                {"ACOS",  {1, [](Context&, const std::vector<double>& args) { return acos(args[0]); }}},
-                {"ATAN",  {1, [](Context&, const std::vector<double>& args) { return atan(args[0]); }}},
-                {"ATAN2", {2, [](Context&, const std::vector<double>& args) { return atan2(args[0], args[1]); }}},
-                {"SINH",  {1, [](Context&, const std::vector<double>& args) { return sinh(args[0]); }}},
-                {"COSH",  {1, [](Context&, const std::vector<double>& args) { return cosh(args[0]); }}},
-                {"TANH",  {1, [](Context&, const std::vector<double>& args) { return tanh(args[0]); }}},
-                {"ASINH", {1, [](Context&, const std::vector<double>& args) { return asinh(args[0]); }}},
-                {"ACOSH", {1, [](Context&, const std::vector<double>& args) { return acosh(args[0]); }}},
-                {"ATANH", {1, [](Context&, const std::vector<double>& args) { return atanh(args[0]); }}},
-                {"ABS",   {1, [](Context&, const std::vector<double>& args) { return fabs(args[0]); }}},
-                {"POW",   {2, [](Context&, const std::vector<double>& args) { return pow(args[0], args[1]); }}},
-                {"SQRT",  {1, [](Context&, const std::vector<double>& args) { return sqrt(args[0]); }}},
-                {"LOG",   {1, [](Context&, const std::vector<double>& args) { return log(args[0]); }}},
-                {"LOG10", {1, [](Context&, const std::vector<double>& args) { return log10(args[0]); }}},
-                {"LOG2",  {1, [](Context&, const std::vector<double>& args) { return log2(args[0]); }}},
-                {"EXP",   {1, [](Context&, const std::vector<double>& args) { return exp(args[0]); }}},
-                {"RAND",  {2, [](Context&, const std::vector<double>& args) {
+                {"SIN",   {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, sin(args[0].n_val)}; }}},
+                {"COS",   {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, cos(args[0].n_val)}; }}},
+                {"TAN",   {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, tan(args[0].n_val)}; }}},
+                {"ASIN",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, asin(args[0].n_val)}; }}},
+                {"ACOS",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, acos(args[0].n_val)}; }}},
+                {"ATAN",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, atan(args[0].n_val)}; }}},
+                {"ATAN2", {2, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, atan2(args[0].n_val, args[1].n_val)}; }}},
+                {"SINH",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, sinh(args[0].n_val)}; }}},
+                {"COSH",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, cosh(args[0].n_val)}; }}},
+                {"TANH",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, tanh(args[0].n_val)}; }}},
+                {"ASINH", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, asinh(args[0].n_val)}; }}},
+                {"ACOSH", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, acosh(args[0].n_val)}; }}},
+                {"ATANH", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, atanh(args[0].n_val)}; }}},
+                {"ABS",   {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, fabs(args[0].n_val)}; }}},
+                {"POW",   {2, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, pow(args[0].n_val, args[1].n_val)}; }}},
+                {"SQRT",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, sqrt(args[0].n_val)}; }}},
+                {"LOG",   {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, log(args[0].n_val)}; }}},
+                {"LOG10", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, log10(args[0].n_val)}; }}},
+                {"LOG2",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, log2(args[0].n_val)}; }}},
+                {"EXP",   {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, exp(args[0].n_val)}; }}},
+                {"RAND",  {2, [](Context&, const std::vector<Value>& args) {
                     static std::mt19937 gen(0); // Seed with 0 for deterministic results
-                    std::uniform_int_distribution<> distrib((int)args[0], (int)args[1]);
-                    return (double)distrib(gen);
+                    std::uniform_int_distribution<> distrib((int)args[0].n_val, (int)args[1].n_val);
+                    return Value{Value::Type::NUMBER, (double)distrib(gen)};
                 }}},
-                {"RND",   {0, [](Context&, const std::vector<double>& args) {
+                {"RND",   {0, [](Context&, const std::vector<Value>& args) {
                     static std::mt19937 gen(1); // Seed with 1 for deterministic results
                     std::uniform_real_distribution<> distrib(0.0, 1.0);
-                    return distrib(gen);
+                    return Value{Value::Type::NUMBER, distrib(gen)};
                 }}},
-                {"RRND",  {2, [](Context&, const std::vector<double>& args) {
+                {"RRND",  {2, [](Context&, const std::vector<Value>& args) {
                     static std::mt19937 gen(0); // Same seed as RAND for same sequence
-                    std::uniform_int_distribution<> distrib((int)args[0], (int)args[1]);
-                    return (double)distrib(gen);
+                    std::uniform_int_distribution<> distrib((int)args[0].n_val, (int)args[1].n_val);
+                    return Value{Value::Type::NUMBER, (double)distrib(gen)};
                 }}},
-                {"FLOOR", {1, [](Context&, const std::vector<double>& args) { return floor(args[0]); }}},
-                {"CEIL",  {1, [](Context&, const std::vector<double>& args) { return ceil(args[0]); }}},
-                {"ROUND", {1, [](Context&, const std::vector<double>& args) { return round(args[0]); }}},
-                {"TRUNC", {1, [](Context&, const std::vector<double>& args) { return trunc(args[0]); }}},
-                {"SGN",   {1, [](Context&, const std::vector<double>& args) {
-                    return (args[0] > 0) - (args[0] < 0);
+                {"FLOOR", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, floor(args[0].n_val)}; }}},
+                {"CEIL",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, ceil(args[0].n_val)}; }}},
+                {"ROUND", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, round(args[0].n_val)}; }}},
+                {"TRUNC", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, trunc(args[0].n_val)}; }}},
+                {"SGN",   {1, [](Context&, const std::vector<Value>& args) {
+                    return Value{Value::Type::NUMBER, (double)((args[0].n_val > 0) - (args[0].n_val < 0))};
                 }}}
             };
             return func_map;
@@ -1051,7 +1076,7 @@ class Strings {
             };
             return const_map;
         }
-        bool parse_char_literal(const std::string& expr, int& i, std::vector<Token>& tokens) const {
+        bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
                 tokens.push_back({Token::Type::CHAR_LITERAL, "", (double)(expr[i+1])});
                 i += 2;
@@ -1059,7 +1084,7 @@ class Strings {
             }
             return false;
         }
-        bool parse_string_literal(const std::string& expr, int& i, std::vector<Token>& tokens) const {
+        bool parse_string_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '"') {
                 size_t end_pos = expr.find('"', i + 1);
                 if (end_pos != std::string::npos) {
@@ -1070,7 +1095,7 @@ class Strings {
             }
             return false;
         }
-        bool parse_symbol(const std::string& expr, int& i, std::vector<Token>& tokens) const {
+        bool parse_symbol(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '?' && expr[i] != '$' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
                 return false;
             size_t j = i;
@@ -1098,7 +1123,7 @@ class Strings {
             i = j - 1;
             return true;
         }
-        bool parse_number(const std::string& expr, int& i, std::vector<Token>& tokens) const {
+        bool parse_number(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (isdigit(expr[i]) || (expr[i] == '.' && i + 1 < expr.length() && isdigit(expr[i + 1]))) {
                 size_t j = i;
                 bool has_dot = false;
@@ -1135,7 +1160,7 @@ class Strings {
             }
             return false;
         }
-        bool parse_operator(const std::string& expr, int& i, std::vector<Token>& tokens) const {
+        bool parse_operator(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             std::string op_str;
             if (i + 1 < expr.length()) {
                 op_str = expr.substr(i, 2);
@@ -1158,7 +1183,7 @@ class Strings {
             i += op_str.length() - 1;
             return true;
         }
-        bool parse_parens(const std::string& expr, int& i, std::vector<Token>& tokens) const {
+        bool parse_parens(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '(') {
                 tokens.push_back({Token::Type::LPAREN, "("});
                 return true;
@@ -1169,7 +1194,7 @@ class Strings {
             }
             return false;
         }
-        bool parse_comma(const std::string& expr, int& i, std::vector<Token>& tokens) const {
+        bool parse_comma(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == ',') {
                 tokens.push_back({Token::Type::COMMA, ","});
                 return true;
@@ -1178,7 +1203,7 @@ class Strings {
         }
         std::vector<Token> tokenize_expression(const std::string& expr) const {
             std::vector<Token> tokens;
-            for (int i = 0; i < expr.length(); ++i) {
+            for (size_t i = 0; i < expr.length(); ++i) {
                 char c = expr[i];
                 if (isspace(c))
                     continue;
@@ -1210,6 +1235,7 @@ class Strings {
                 switch (token.type) {
                     case Token::Type::NUMBER:
                     case Token::Type::CHAR_LITERAL:
+                    case Token::Type::STRING_LITERAL:
                     case Token::Type::SYMBOL:
                         postfix.push_back(token);
                         break; 
@@ -1272,23 +1298,28 @@ class Strings {
             }
             return postfix;
         }
-        bool evaluate_rpn(const std::vector<Token>& rpn, int32_t& out_value) const {
-            std::vector<double> val_stack;
+        bool evaluate_rpn(const std::vector<Token>& rpn, Value& out_value) const {
+            std::vector<Value> val_stack;
             for (const auto& token : rpn) {
                 if (token.type == Token::Type::NUMBER || token.type == Token::Type::CHAR_LITERAL) {
-                    val_stack.push_back(token.n_val);
+                    val_stack.push_back({Value::Type::NUMBER, token.n_val});
+                } else if (token.type == Token::Type::STRING_LITERAL) {
+                    std::string s = token.s_val;
+                    if (s.length() >= 2 && s.front() == '"' && s.back() == '"')
+                        s = s.substr(1, s.length() - 2);
+                    val_stack.push_back({Value::Type::STRING, 0.0, s});
                 } else if (token.type == Token::Type::SYMBOL) {
                     int32_t sum_val;
                     if (!m_policy.on_symbol_resolve(token.s_val, sum_val))
                         return false;
-                    val_stack.push_back((double)(sum_val));
+                    val_stack.push_back({Value::Type::NUMBER, (double)sum_val});
                 } else if (token.type == Token::Type::FUNCTION) {
                     auto it = get_function_map().find(token.s_val);
                     if (it == get_function_map().end())
                         m_policy.context().assembler.report_error("Unknown function in RPN evaluation: " + token.s_val);
                     const auto& func_info = it->second;
                     int num_args_provided = token.n_val > 0 ? (int)(token.n_val) : 0;
-                    if (func_info.num_args > 0) {
+                    if (func_info.num_args >= 0) {
                         if (num_args_provided != func_info.num_args)
                             m_policy.context().assembler.report_error("Function " + token.s_val + " expects " + std::to_string(func_info.num_args) + " arguments, but got " + std::to_string(num_args_provided));
                     } else { // variadic
@@ -1298,7 +1329,7 @@ class Strings {
                     }
                     if (val_stack.size() < (size_t)num_args_provided)
                         m_policy.context().assembler.report_error("Not enough values on stack for function " + token.s_val);
-                    std::vector<double> args;
+                    std::vector<Value> args;
                     if (num_args_provided > 0) {
                         args.resize(num_args_provided);
                         for (int i = num_args_provided - 1; i >= 0; --i) {
@@ -1315,23 +1346,37 @@ class Strings {
                     if (op_info.is_unary) {
                         if (val_stack.size() < 1)
                             m_policy.context().assembler.report_error("Invalid expression syntax for unary operator.");
-                        double v = val_stack.back();
-                        val_stack.back() = op_info.apply(m_policy.context(), v, 0.0);
+                        Value v1 = val_stack.back();
+                        val_stack.pop_back();
+                        val_stack.push_back(op_info.apply(m_policy.context(), v1, {}));
                         continue;
                     }
-                    // Binary operators
                     if (val_stack.size() < 2)
                         m_policy.context().assembler.report_error("Invalid expression syntax for binary operator.");
-                    double v2 = val_stack.back();
+                    Value v2 = val_stack.back(); 
                     val_stack.pop_back();
-                    double v1 = val_stack.back();
+                    Value v1 = val_stack.back();
                     val_stack.pop_back();
                     val_stack.push_back(op_info.apply(m_policy.context(), v1, v2));
                 }
             }
-            if (val_stack.size() != 1)
+            if (val_stack.size() != 1) {
                 m_policy.context().assembler.report_error("Invalid expression syntax.");
-            out_value = (int32_t)(val_stack.back());
+                return false;
+            }
+            out_value = val_stack.back();
+            return true;
+        }
+        bool evaluate_rpn(const std::vector<Token>& rpn, int32_t& out_value) const {
+            Value result_val;
+            if (!evaluate_rpn(rpn, result_val)) {
+                return false;
+            }
+            if (result_val.type == Value::Type::STRING) {
+                m_policy.context().assembler.report_error("Expression resulted in a string, but a numeric value was expected.");
+                return false;
+            }
+            out_value = (int32_t)result_val.n_val;
             return true;
         }
         IPhasePolicy& m_policy;
@@ -1538,29 +1583,34 @@ class Strings {
                 else if (s.length() > 1 && s.front() == '"' && s.back() == '"') {
                     ss << s.substr(1, s.length() - 2);
                 } else {
+                    typename Expressions::Value value;
                     Expressions expr_eval(*this);
-                    int32_t value;
                     if (expr_eval.evaluate(s, value)) {
-                        switch (format) {
-                            case DisplayFormat::DEC:
-                                ss << value; break;
-                            case DisplayFormat::BIN: {
-                                uint8_t val8 = value;
-                                std::string bin_str;
-                                for(int i = 7; i >= 0; --i)
-                                    bin_str += ((val8 >> i) & 1) ? '1' : '0';
-                                ss << bin_str;
-                                break;
+                        if (value.type == Expressions::Value::Type::STRING) {
+                            ss << value.s_val;
+                        } else {
+                            int32_t num_val = (int32_t)value.n_val;
+                            switch (format) {
+                                case DisplayFormat::DEC:
+                                    ss << num_val; break;
+                                case DisplayFormat::BIN: {
+                                    uint8_t val8 = num_val;
+                                    std::string bin_str;
+                                    for(int i = 7; i >= 0; --i)
+                                        bin_str += ((val8 >> i) & 1) ? '1' : '0';
+                                    ss << bin_str;
+                                    break;
+                                }
+                                case DisplayFormat::CHR:
+                                    ss << "'" << (char)(num_val & 0xFF) << "'";
+                                    break;
+                                case DisplayFormat::HEX:
+                                    ss << "0x" << std::hex << num_val << std::dec;
+                                    break;
+                                case DisplayFormat::HEX_DEC:
+                                    ss << "0x" << std::hex << num_val << std::dec << ", " << num_val;
+                                    break;
                             }
-                            case DisplayFormat::CHR:
-                                ss << "'" << (char)(value & 0xFF) << "'";
-                                break;
-                            case DisplayFormat::HEX:
-                                ss << "0x" << std::hex << value << std::dec;
-                                break;
-                            case DisplayFormat::HEX_DEC:
-                                ss << "0x" << std::hex << value << std::dec << ", " << value;
-                                break;
                         }
                     } else
                         ss << s;
