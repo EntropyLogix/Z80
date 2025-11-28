@@ -1020,6 +1020,59 @@ class Strings {
                         return Value{Value::Type::NUMBER, 1.0};
                     return Value{Value::Type::NUMBER, 0.0};
                 }}},
+                {"STRLEN", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING)
+                        context.assembler.report_error("Argument to STRLEN must be a string.");
+                    return Value{Value::Type::NUMBER, (double)args[0].s_val.length()};
+                }}},
+                {"SUBSTR", {3, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING) context.assembler.report_error("SUBSTR: First argument must be a string.");
+                    if (args[1].type != Value::Type::NUMBER) context.assembler.report_error("SUBSTR: Second argument (pos) must be a number.");
+                    if (args[2].type != Value::Type::NUMBER) context.assembler.report_error("SUBSTR: Third argument (len) must be a number.");
+                    const std::string& str = args[0].s_val;
+                    size_t pos = (size_t)args[1].n_val;
+                    size_t len = (size_t)args[2].n_val;
+                    if (pos == 0) context.assembler.report_error("SUBSTR: Position is 1-based and cannot be 0.");
+                    pos--; // Adjust from 1-based to 0-based index
+                    return Value{Value::Type::STRING, 0.0, str.substr(pos, len)};
+                }}},
+                {"STRIN", {2, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING) context.assembler.report_error("STRIN: First argument must be a string.");
+                    if (args[1].type != Value::Type::STRING) context.assembler.report_error("STRIN: Second argument must be a string.");
+                    const std::string& str = args[0].s_val;
+                    const std::string& sub = args[1].s_val;
+                    size_t pos = str.find(sub);
+                    if (pos == std::string::npos)
+                        return Value{Value::Type::NUMBER, 0.0};
+                    return Value{Value::Type::NUMBER, (double)(pos + 1)};
+                }}},
+                {"REPLACE", {3, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING) context.assembler.report_error("REPLACE: First argument must be a string.");
+                    if (args[1].type != Value::Type::STRING) context.assembler.report_error("REPLACE: Second argument must be a string.");
+                    if (args[2].type != Value::Type::STRING) context.assembler.report_error("REPLACE: Third argument must be a string.");
+                    std::string s = args[0].s_val;
+                    const std::string& old_str = args[1].s_val;
+                    const std::string& new_str = args[2].s_val;
+                    if (old_str.empty()) return Value{Value::Type::STRING, 0.0, s};
+                    size_t start_pos = 0;
+                    while((start_pos = s.find(old_str, start_pos)) != std::string::npos) {
+                        s.replace(start_pos, old_str.length(), new_str);
+                        start_pos += new_str.length();
+                    }
+                    return Value{Value::Type::STRING, 0.0, s};
+                }}},
+                {"LCASE", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING) context.assembler.report_error("Argument to LCASE must be a string.");
+                    std::string s = args[0].s_val;
+                    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+                    return Value{Value::Type::STRING, 0.0, s};
+                }}},
+                {"UCASE", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING) context.assembler.report_error("Argument to UCASE must be a string.");
+                    std::string s = args[0].s_val;
+                    std::transform(s.begin(), s.end(), s.begin(), ::toupper);
+                    return Value{Value::Type::STRING, 0.0, s};
+                }}},
                 {"MEM", {1, [](Context& context, const std::vector<Value>& args) { 
                     uint16_t addr = (uint16_t)((int32_t)args[0].n_val);
                     return Value{Value::Type::NUMBER, (double)context.memory->peek(addr)};
