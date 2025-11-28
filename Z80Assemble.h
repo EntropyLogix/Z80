@@ -143,7 +143,7 @@
 //   Directive | Syntax              | Description                                                        | Example
 //   ----------|---------------------|--------------------------------------------------------------------|-----------------
 //   EQU       | <label> EQU <expr>  | Assigns a constant value. Redefinition causes an error.            | PORTA EQU 0x80
-//   SET       | <label> SET <expr>  | Assigns a value. The symbol can be redefined later.                | Counter SET 0
+//   SET       | <label> SET <expr>  | Assigns a numeric value. The symbol can be redefined later.        | Counter SET 0
 //   DEFINE    | DEFINE <lbl> <expr> | An alias for SET.                                                  | DEBUG DEFINE 1
 //   =         | <label> = <expr>    | By default, acts as EQU. Can be configured to act as SET.          | PORTA = 0x80
 //
@@ -286,6 +286,7 @@ public:
                 bool allow_equ = true;
                 bool allow_set = true;
                 bool allow_define = true;
+                bool allow_undefine = true;
                 bool assignments_as_eqs = true;
             } constants;
             bool allow_org = true;
@@ -648,6 +649,9 @@ class Strings {
             };
             std::vector<State> stack;
         } repeat;
+        struct Defines {
+            std::map<std::string, std::string> map;
+        } defines;
     };
     class Preprocessor {
     public:
@@ -1415,6 +1419,7 @@ class Strings {
         virtual void on_ifnb_directive(const std::string& arg) = 0;
         virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) = 0;
         virtual void on_else_directive() = 0;
+        virtual void on_define_directive(const std::string& key, const std::string& value) = 0;
         virtual void on_display_directive(const std::vector<typename Strings::Tokens::Token>& tokens) = 0;
         virtual void on_endif_directive() = 0;
         virtual void on_error_directive(const std::string& message) = 0;
@@ -1424,11 +1429,10 @@ class Strings {
         virtual bool on_repeat_recording(const std::string& line) = 0;
         virtual void on_endr_directive() = 0;
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) = 0;
+        virtual void on_undefine_directive(const std::string& key) = 0;
         virtual void on_macro_line() = 0;
-
         virtual void on_unknown_operand(const std::string& operand) = 0;
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
-
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
     class BasePolicy : public IPhasePolicy {
@@ -1446,6 +1450,7 @@ class Strings {
             m_context.source.conditional_stack.clear();
             m_context.macros.stack.clear();
             m_context.repeat.stack.clear();
+            m_context.defines.map.clear();
         }
         virtual void on_finalize() override {
             if (m_context.macros.in_expansion)
@@ -1467,6 +1472,7 @@ class Strings {
             m_context.macros.unique_id_counter = 0;
             m_context.source.conditional_stack.clear();
             m_context.source.control_stack.clear();
+            m_context.defines.map.clear();
         }
         virtual bool on_pass_end() override { return true; }
         virtual void on_pass_next() override {}
@@ -1536,14 +1542,20 @@ class Strings {
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
         virtual void on_ifdef_directive(const std::string& symbol) override {
+            bool is_defined_in_symbols = false;
             int32_t dummy;
-            bool condition_result = is_conditional_block_active() && on_symbol_resolve(symbol, dummy);
+            is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
+            bool is_defined_in_defines = m_context.defines.map.count(symbol) > 0;
+            bool condition_result = is_conditional_block_active() && (is_defined_in_symbols || is_defined_in_defines);
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifndef_directive(const std::string& symbol) override {
+            bool is_defined_in_symbols = false;
             int32_t dummy;
-            bool condition_result = is_conditional_block_active() && !on_symbol_resolve(symbol, dummy);
+            is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
+            bool is_defined_in_defines = m_context.defines.map.count(symbol) > 0;
+            bool condition_result = is_conditional_block_active() && !is_defined_in_symbols && !is_defined_in_defines;
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
@@ -1562,6 +1574,12 @@ class Strings {
             bool condition_result = is_conditional_block_active() && (s1 == s2);
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
+        }
+        virtual void on_define_directive(const std::string& key, const std::string& value) override {
+            m_context.defines.map[key] = value;
+        }
+        virtual void on_undefine_directive(const std::string& key) override {
+            m_context.defines.map.erase(key);
         }
         virtual void on_display_directive(const std::vector<typename Strings::Tokens::Token>& tokens) override {
             enum class DisplayFormat { DEC, BIN, CHR, HEX, HEX_DEC };
@@ -2202,10 +2220,10 @@ class Strings {
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "BYTE", "DM", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "ORG", "DH", "HEX", "DEFH", "DZ", "ASCIZ", "DG", "DEFG",
-                "EQU", "SET", "DEFL", "MACRO", "ENDM", "EXITM",
-                "INCLUDE", "ALIGN", "INCBIN", "BINARY", "PHASE", "DEPHASE", "UNPHASE", "LOCAL", "DEFINE", "PROC", "ENDP", "SHIFT", "ERROR", "ASSERT", "EXITR",
+                "EQU", "SET", "DEFL", "DEFINE", "UNDEFINE",
+                "INCLUDE", "ALIGN", "INCBIN", "BINARY", "PHASE", "DEPHASE", "UNPHASE", "ERROR", "ASSERT", "EXITR",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
-                "REPT", "ENDR", "DUP", "EDUP"
+                "REPT", "ENDR", "DUP", "EDUP", "MACRO", "ENDM", "EXITM", "LOCAL", "PROC", "ENDP", "SHIFT"
             };
             return directives;
         }
@@ -3304,17 +3322,21 @@ class Strings {
     class Source {
     public:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
+
         bool process_line(const std::string& initial_line) {
             m_policy.context().source.lines_stack.clear();
             m_policy.context().source.lines_stack.push_back(initial_line);
+
             while (!m_policy.context().source.lines_stack.empty() || m_policy.context().macros.in_expansion) {
                 if (m_policy.context().macros.in_expansion) {
                     m_policy.on_macro_line();
                     if (m_policy.context().source.lines_stack.empty())
                         continue;
                 }
+
                 std::string current_line = m_policy.context().source.lines_stack.back();
                 m_policy.context().source.lines_stack.pop_back();
+                apply_defines(current_line);
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
@@ -3338,6 +3360,33 @@ class Strings {
             return true;
         }
     private:
+        void apply_defines(std::string& line) {
+            const auto& defines = m_policy.context().defines.map;
+            if (defines.empty())
+                return;
+            std::vector<std::pair<std::string, std::string>> sorted_defines(defines.begin(), defines.end());
+            std::sort(sorted_defines.begin(), sorted_defines.end(), [](const auto& a, const auto& b) {
+                return a.first.length() > b.first.length();
+            });
+            typename Strings::Tokens temp_tokens;
+            temp_tokens.process(line);
+            std::string new_line;
+            for (size_t i = 0; i < temp_tokens.count(); ++i) {
+                const auto& token = temp_tokens[i];
+                bool replaced = false;
+                for (const auto& def : sorted_defines) {
+                    if (token.original() == def.first) {
+                        new_line += def.second;
+                        replaced = true;
+                        break;
+                    }
+                }
+                if (!replaced)
+                    new_line += token.original();
+                new_line += " ";
+            }
+            line = new_line;
+        }
         bool process_macro() {
             if (!m_policy.context().assembler.m_options.directives.enabled || !m_policy.context().assembler.m_options.directives.allow_macros)
                 return false;
@@ -3493,14 +3542,23 @@ class Strings {
             const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
             if (!const_opts.enabled || m_tokens.count() < 2)
                 return false;
-            if (const_opts.allow_define && m_tokens[0].upper() == "DEFINE") {
-                if (m_tokens.count() < 3)
-                    m_policy.context().assembler.report_error("DEFINE directive requires a label and a value.");
-                const std::string& label = m_tokens[1].original();
-                if (!Keywords::is_valid_label_name(label))
-                    m_policy.context().assembler.report_error("Invalid label name for DEFINE directive: '" + label + "'");
-                m_tokens.merge(2, m_tokens.count() - 1);
-                m_policy.on_set_directive(label, m_tokens[2].original());
+            const std::string& directive_upper = m_tokens[0].upper();
+            if (const_opts.allow_define && directive_upper == "DEFINE") {
+                if (m_tokens.count() < 2)
+                    m_policy.context().assembler.report_error("DEFINE directive requires a key.");
+                const std::string& key = m_tokens[1].original();
+                if (!Keywords::is_valid_label_name(key))
+                    m_policy.context().assembler.report_error("Invalid key name for DEFINE directive: '" + key + "'");
+                std::string value;
+                if (m_tokens.count() > 2) {
+                    m_tokens.merge(2, m_tokens.count() - 1);
+                    value = m_tokens[2].original();
+                }
+                m_policy.on_define_directive(key, value);
+                return true;
+            }
+            if (const_opts.allow_undefine && directive_upper == "UNDEFINE") {
+                m_policy.on_undefine_directive(m_tokens[1].original());
                 return true;
             }
             if (m_tokens.count() >= 3 && m_tokens[1].original() == "=") {
