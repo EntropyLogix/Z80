@@ -1681,36 +1681,40 @@ class Strings {
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
         virtual void on_ifdef_directive(const std::string& symbol) override {
+            bool parent_active = is_conditional_block_active();
             bool is_defined_in_symbols = false;
             int32_t dummy;
             is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
             bool is_defined_in_defines = m_context.defines.map.count(symbol) > 0;
-            bool condition_result = is_conditional_block_active() && (is_defined_in_symbols || is_defined_in_defines);
+            bool condition_result = parent_active && (is_defined_in_symbols || is_defined_in_defines);
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
-        virtual void on_ifndef_directive(const std::string& symbol) override {
+        virtual void on_ifndef_directive(const std::string& symbol) override {            
+            bool parent_active = is_conditional_block_active();
             bool is_defined_in_symbols = false;
             int32_t dummy;
             is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
             bool is_defined_in_defines = m_context.defines.map.count(symbol) > 0;
-            bool condition_result = is_conditional_block_active() && !is_defined_in_symbols && !is_defined_in_defines;
+            bool condition_result = parent_active && !is_defined_in_symbols && !is_defined_in_defines;
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
-        virtual void on_ifnb_directive(const std::string& arg) override {
-            bool condition_result = is_conditional_block_active() && !arg.empty();
+        virtual void on_ifnb_directive(const std::string& arg) override {            
+            bool parent_active = is_conditional_block_active();
+            bool condition_result = parent_active && !arg.empty();
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
-        virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {
+        virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {            
+            bool parent_active = is_conditional_block_active();
             std::string s1 = arg1;
             std::string s2 = arg2;
             if (s1.length() >= 2 && s1.front() == '<' && s1.back() == '>')
                 s1 = s1.substr(1, s1.length() - 2);
             if (s2.length() >= 2 && s2.front() == '<' && s2.back() == '>')
                 s2 = s2.substr(1, s2.length() - 2);
-            bool condition_result = is_conditional_block_active() && (s1 == s2);
+            bool condition_result = parent_active && (s1 == s2);
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
@@ -1803,9 +1807,6 @@ class Strings {
                 m_context.assembler.report_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
             m_context.source.control_stack.pop_back();
             m_context.source.conditional_stack.pop_back();
-        }
-        virtual bool is_conditional_block_active() const override {
-            return m_context.source.conditional_stack.empty() || m_context.source.conditional_stack.back().is_active;
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
         virtual bool on_repeat_recording(const std::string& line) override {
@@ -1973,20 +1974,25 @@ class Strings {
             }
             line = final_line;
         }
+    protected:
+        bool is_conditional_block_active() const {
+            return m_context.source.conditional_stack.empty() || m_context.source.conditional_stack.back().is_active;
+        }
         void on_if_directive(const std::string& expression, bool stop_on_evaluate_error) {
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
+            bool parent_active = is_conditional_block_active();
             bool condition_result = false;
-            if (is_conditional_block_active()) {
+            if (parent_active) {
                 Expressions expr_eval(*this);
                 int32_t value;
                 if (expr_eval.evaluate(expression, value))
                     condition_result = (value != 0);
                 else {
                     if (stop_on_evaluate_error)
-                        throw std::runtime_error("Invalid IF expression: " + expression);
+                        m_context.assembler.report_error("Invalid IF expression: " + expression);
                 }
             }
-            m_context.source.conditional_stack.push_back({is_conditional_block_active() && condition_result, false});
+            m_context.source.conditional_stack.push_back({parent_active && condition_result, false});
         }
         void on_rept_directive(const std::string& counter_expr, bool stop_on_evaluate_error) {
             m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
@@ -3471,8 +3477,6 @@ class Strings {
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
-                if (process_defines())
-                    continue;
                 if (process_repeat(current_line))
                     continue;
                 if (process_conditional_directives()) {
@@ -3481,6 +3485,8 @@ class Strings {
                     continue;
                 }
                 if (!m_policy.is_conditional_block_active())
+                    continue;
+                if (process_defines())
                     continue;
                 if (process_macro())
                     continue;
