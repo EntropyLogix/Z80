@@ -82,33 +82,60 @@
 //   Arithmetic, bitwise, and logical operators are supported, respecting standard
 //   operator precedence. Both symbols and keywords can be used.
 //
-//   Category     | Operators (Symbol)      | Operators (Keyword)         | Example
-//   -------------|-------------------------|-----------------------------|------------------
-//   Arithmetic   | +, -, *, /, %           | MOD                         | (5 + 3) * 2
-//   Bitwise      | &, |, ^, ~, <<, >>      | AND, OR, XOR, NOT, SHL, SHR | MY_CONST & 0x0F
-//   Logical      | !, &&, ||               |                             | (A > 5) && (B < 3)
-//   Comparison   | ==, !=, >, <, >=, <=    | EQ, NE, GT, LT, GE, LE      | MY_CONST == 10
-//   Unary        | +, - (sign)             |                             | LD A, -5
+//   Category     | Operators (Symbol)      | Operators (Keyword)         | Description
+//   -------------|-------------------------|-----------------------------|------------------------------------
+//   Arithmetic   | +, -, *, /, %           | MOD                         | Addition, subtraction, etc.
+//   Bitwise      | &, |, ^, ~, <<, >>      | AND, OR, XOR, NOT, SHL, SHR | Bitwise operations.
+//   Logical      | !, &&, ||               |                             | Logical NOT, AND, OR.
+//   Comparison   | ==, !=, >, <, >=, <=    | EQ, NE, GT, LT, GE, LE      | Comparison operators.
+//   Unary        | +, - (sign)             | DEFINED                     | Sign operators and symbol check.
 //
 // Functions:
-//   Function                       | Description                                    | Example
-//   -------------------------------|------------------------------------------------|-----------------------------
-//   HIGH(val), LOW(val)            | Returns the high/low byte of a 16-bit value.   | LD A, HIGH(0x1234)
-//   SIN(n), COS(n), TAN(n)         | Trigonometric functions (argument in radians). | DB ROUND(SIN(MATH_PI / 2))
-//   ASIN(n), ACOS(n), ATAN(n)      | Inverse trigonometric functions.               | DB ROUND(ACOS(1))
-//   SINH(n), COSH(n), TANH(n)      | Hyperbolic functions.                          | DB ROUND(COSH(0))
-//   ASINH(n), ACOSH(n), ATANH(n)   | Inverse hyperbolic functions.                  | DB ROUND(ASINH(0))
-//   POW(b, e)                      | Power (b to the power of e).                   | DB POW(2, 7)
-//   SQRT(x)                        | Square root.                                   | DB SQRT(64)
-//   LOG(x), LOG10(x), LOG2(x)      | Logarithms (natural, base 10, base 2).         | DB LOG10(100)
-//   ABS(x)                         | Absolute value.                                | DB ABS(-10)
-//   ROUND(n), FLOOR(n), CEIL(n)    | Rounding (nearest, down, up).                  | DB ROUND(3.14)
-//   TRUNC(n)                       | Truncates the fractional part (towards zero).  | DB TRUNC(3.9)
-//   RAND(min, max), RRND(min, max) | Returns a random integer within the range.     | DB RAND(1, 100)
-//   RND()                          | Random floating-point number [0.0, 1.0).       | DB RND()
-//   MEM(addr)                      | Reads a byte from memory at the given address. | DB MEM(0x8000)
-//   SGN(n)                         | Returns the sign of a number (-1, 0, or 1).    | DB SGN(-5)
-//   MIN(...), MAX(...)             | Returns the minimum/maximum of a list.         | DB MIN(10, 5, 20)
+//   The assembler supports a wide range of built-in functions for compile-time calculations.
+//
+//   String & Type Conversion:
+//   Function                       | Description
+//   -------------------------------|--------------------------------------------------------------------------------
+//   ISSTRING(val)                  | Returns TRUE if the argument is a string.
+//   ISNUMBER(val)                  | Returns TRUE if the argument is a number or a string that can be converted to a number.
+//   STR(num)                       | Converts a number to its string representation.
+//   VAL(str)                       | Converts a string representation of a number into a numeric value.
+//   CHR(num)                       | Returns a single-character string from an ASCII code.
+//   ASC(str)                       | Returns the ASCII code of the first character of a string.
+//   CHARS(str)                     | Converts a string of up to 4 characters into a little-endian integer value.
+//   STRLEN(str)                    | Returns the length of a string.
+//   SUBSTR(str, pos, len)          | Extracts a substring of a given length starting from a specified position (0-based).
+//   STRIN(str, sub)                | Finds the starting position (1-based) of a substring within a string. Returns 0 if not found.
+//   REPLACE(str, old, new)         | Replaces all occurrences of a substring with a new string.
+//   LCASE(str)                     | Converts a string to lowercase.
+//   UCASE(str)                     | Converts a string to uppercase.
+//
+//   Bit, Byte & Memory:
+//   Function                       | Description
+//   -------------------------------|--------------------------------------------------------------------------------
+//   HIGH(val)                      | Returns the high byte of a 16-bit value.
+//   LOW(val)                       | Returns the low byte of a 16-bit value.
+//   MEM(addr)                      | Reads a byte from memory at the specified address during the final assembly pass.
+//
+//   Mathematical Functions:
+//   Function                       | Description
+//   -------------------------------|--------------------------------------------------------------------------------
+//   MIN(n1, n2,...), MAX(n1, n2,...) | Returns the minimum/maximum value from a list of numbers.
+//   ABS(x)                         | Returns the absolute value of a number.
+//   SGN(n)                         | Returns the sign of a number (-1 for negative, 0 for zero, 1 for positive).
+//   POW(base, exp)                 | Calculates base raised to the power of exp.
+//   SQRT(x)                        | Calculates the square root of a number.
+//   LOG(x), LOG10(x), LOG2(x)      | Calculates the natural, base-10, and base-2 logarithm.
+//   ROUND(n), FLOOR(n), CEIL(n)    | Rounds a number to the nearest integer, down, or up.
+//   TRUNC(n)                       | Truncates the fractional part of a number (rounds towards zero).
+//   SIN(n), COS(n), TAN(n)         | Trigonometric functions (angle in radians).
+//   ASIN(n), ACOS(n), ATAN(n)      | Inverse trigonometric functions.
+//   ATAN2(y, x)                    | Arc tangent of y/x, using the signs of arguments to determine the quadrant.
+//   SINH(n), COSH(n), TANH(n)      | Hyperbolic functions.
+//   ASINH(n), ACOSH(n), ATANH(n)   | Inverse hyperbolic functions.
+//   RAND(min, max)                 | Returns a pseudo-random integer within the specified range [min, max].
+//   RRND(min, max)                 | (Repeatable) Returns a pseudo-random integer from a generator seeded to 0.
+//   RND()                          | (Repeatable) Returns a pseudo-random float between 0.0 and 1.0 from a generator seeded to 1.
 //
 // Special Variables:
 //   Variable | Description
@@ -1246,7 +1273,6 @@ class Strings {
             std::string symbol_str = expr.substr(i, j - i);
             std::string upper_symbol = symbol_str;
             Strings::to_upper(upper_symbol);
-
             auto const_it = get_constant_map().find(upper_symbol);
             if (const_it != get_constant_map().end()) {
                 tokens.push_back({Token::Type::NUMBER, "", const_it->second});
