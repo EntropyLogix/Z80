@@ -3344,9 +3344,8 @@ class Strings {
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
-                if (handle_define_directive())
+                if (process_defines())
                     continue;
-                apply_defines_on_tokens();
                 if (process_repeat(current_line))
                     continue;
                 if (process_conditional_directives()) {
@@ -3367,40 +3366,35 @@ class Strings {
             return true;
         }
     private:
-        bool handle_define_directive() {
+        bool process_defines() {
             const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
-            if (!const_opts.enabled || !const_opts.allow_define || m_tokens.count() < 2)
-                return false;
-            size_t define_idx = 0;
-            if (m_tokens.count() > 1 && Keywords::is_valid_label_name(m_tokens[0].original()) && !Keywords::is_reserved(m_tokens[0].upper())) {
-                define_idx = 1;
-            }
-            if (m_tokens.count() > define_idx && m_tokens[define_idx].upper() == "DEFINE") {
-                if (m_tokens.count() < define_idx + 2)
-                    m_policy.context().assembler.report_error("DEFINE directive requires a key.");
-                const std::string& key = m_tokens[define_idx + 1].original();
-                if (!Keywords::is_valid_label_name(key))
-                    m_policy.context().assembler.report_error("Invalid key name for DEFINE directive: '" + key + "'");
-                std::string value;
-                if (m_tokens.count() > define_idx + 2) {
-                    m_tokens.merge(define_idx + 2, m_tokens.count() - 1);
-                    value = m_tokens[define_idx + 2].original();
+            if (const_opts.enabled && const_opts.allow_define && m_tokens.count() >= 2) {
+                size_t define_idx = 0;
+                if (m_tokens.count() > 1 && Keywords::is_valid_label_name(m_tokens[0].original()) && !Keywords::is_reserved(m_tokens[0].upper())) {
+                    define_idx = 1;
                 }
-                m_policy.on_define_directive(key, value);
-                return true;
+                if (m_tokens.count() > define_idx && m_tokens[define_idx].upper() == "DEFINE") {
+                    if (m_tokens.count() < define_idx + 2)
+                        m_policy.context().assembler.report_error("DEFINE directive requires a key.");
+                    const std::string& key = m_tokens[define_idx + 1].original();
+                    if (!Keywords::is_valid_label_name(key))
+                        m_policy.context().assembler.report_error("Invalid key name for DEFINE directive: '" + key + "'");
+                    std::string value;
+                    if (m_tokens.count() > define_idx + 2) {
+                        m_tokens.merge(define_idx + 2, m_tokens.count() - 1);
+                        value = m_tokens[define_idx + 2].original();
+                    }
+                    m_policy.on_define_directive(key, value);
+                    return true;
+                }
             }
-            return false;
-        }
-        void apply_defines_on_tokens() {
             const auto& defines_map = m_policy.context().defines.map;
             if (defines_map.empty())
-                return;
+                return false;
             std::string rebuilt_line;
             for (size_t i = 0; i < m_tokens.count(); ++i) {
                 std::string token_str = m_tokens[i].original();
-                if (token_str.length() > 1 && token_str.front() == '"' && token_str.back() == '"') {
-                    // It's a string literal, don't substitute inside it.
-                } else {
+                if (!(token_str.length() > 1 && token_str.front() == '"' && token_str.back() == '"')) {
                     std::set<std::string> visited;
                     while (defines_map.count(token_str)) {
                         if (visited.count(token_str))
@@ -3409,10 +3403,12 @@ class Strings {
                         token_str = defines_map.at(token_str);
                     }
                 }
-                if (!rebuilt_line.empty()) rebuilt_line += " ";
+                if (!rebuilt_line.empty())
+                    rebuilt_line += " ";
                 rebuilt_line += token_str;
             }
             m_tokens.process(rebuilt_line);
+            return false;
         }
         bool process_macro() {
             if (!m_policy.context().assembler.m_options.directives.enabled || !m_policy.context().assembler.m_options.directives.allow_macros)
