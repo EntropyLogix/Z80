@@ -1086,7 +1086,7 @@ TEST_CASE(SETDirective) {
 
 TEST_CASE(EqualsAsSetDirective) {
     Z80Assembler<Z80DefaultBus>::Options options;
-    options.directives.constants.assignments_as_eqs = false;
+    options.directives.constants.assignments_as_set = true;
 
     // 1. Basic usage of '=' as SET
     ASSERT_CODE_WITH_OPTS(R"( 
@@ -1117,7 +1117,7 @@ TEST_CASE(EqualsAsSetDirective) {
 
 TEST_CASE(EqualsAsEquDirective) {
     Z80Assembler<Z80DefaultBus>::Options options;
-    options.directives.constants.assignments_as_eqs = true; // Default behavior
+    options.directives.constants.assignments_as_set = false;
 
     // 1. Basic usage of '=' as EQU
     ASSERT_CODE_WITH_OPTS(R"(
