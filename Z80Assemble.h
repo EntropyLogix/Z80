@@ -953,7 +953,7 @@ class Strings {
     class Expressions {
     public:
         struct Value {
-            enum class Type { NUMBER, STRING };
+        enum class Type { NUMBER, STRING, TERNARY_SKIP };
             Type type = Type::NUMBER;
             double n_val = 0.0;
             std::string s_val;
@@ -1087,11 +1087,9 @@ class Strings {
                         ctx.assembler.report_error("Ternary condition must be a number.");
                     if (condition.n_val != 0)
                         return true_branch;
-                    throw std::logic_error("Ternary branch skip");
+                    return Value{Value::Type::TERNARY_SKIP};
                 }}},
-                {":",  {OperatorType::TERNARY_ELSE,-1, false, false, [](Context& ctx, const Value& true_result, const Value& false_branch) {
-                    return true_result;
-                }}}
+                {":",  {OperatorType::TERNARY_ELSE,-2, false, false, [](Context& ctx, const Value& left_operand, const Value& false_branch) { return (left_operand.type == Value::Type::TERNARY_SKIP) ? false_branch : left_operand; }}}
             };
             return op_map;
         }
@@ -1614,13 +1612,7 @@ class Strings {
                     val_stack.pop_back();
                     Value v1 = val_stack.back();
                     val_stack.pop_back();
-                    try {
-                        val_stack.push_back(op_info.apply(m_policy.context(), v1, v2));
-                    } catch (const std::logic_error& e) {
-                        if (std::string(e.what()) == "Ternary branch skip") {
-                            val_stack.push_back(v2);
-                        } else { throw; }
-                    } catch (const std::runtime_error& e) { throw; }
+                    val_stack.push_back(op_info.apply(m_policy.context(), v1, v2));
                 } else if (token.type == Token::Type::OPERATOR) {
                     if (token.s_val == "{}") {
                         if (val_stack.empty())
