@@ -964,7 +964,8 @@ class Strings {
             BITWISE_AND, BITWISE_OR, BITWISE_XOR,
             SHL, SHR, DEFINED,
             GT, LT, GTE, LTE, EQ, NE,
-            LOGICAL_AND, LOGICAL_OR
+            LOGICAL_AND, LOGICAL_OR,
+            TERNARY_IF, TERNARY_ELSE
         };
         struct OperatorInfo {
             OperatorType type;
@@ -1080,7 +1081,17 @@ class Strings {
                 {"|",  {OperatorType::BITWISE_OR,  2, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator | not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val | (int32_t)b.n_val)}; }}},
                 {"OR", {OperatorType::BITWISE_OR,  2, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator OR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val | (int32_t)b.n_val)}; }}},
                 {"&&", {OperatorType::LOGICAL_AND, 1, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator && not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val && b.n_val)}; }}},
-                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator || not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val || b.n_val)}; }}}
+                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator || not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val || b.n_val)}; }}},
+                {"?",  {OperatorType::TERNARY_IF, -1, false, false, [](Context& ctx, const Value& condition, const Value& true_branch) {
+                    if (condition.type != Value::Type::NUMBER)
+                        ctx.assembler.report_error("Ternary condition must be a number.");
+                    if (condition.n_val != 0)
+                        return true_branch;
+                    throw std::logic_error("Ternary branch skip");
+                }}},
+                {":",  {OperatorType::TERNARY_ELSE,-1, false, false, [](Context& ctx, const Value& true_result, const Value& false_branch) {
+                    return true_result;
+                }}}
             };
             return op_map;
         }
@@ -1301,11 +1312,11 @@ class Strings {
             return false;
         }
         bool parse_symbol(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
-            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '?' && expr[i] != '$' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
+            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '$' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
                 return false;
             size_t j = i;
             if (expr[j] == '$' && j + 1 < expr.length() && isalpha(expr[j+1])) j++; // $PASS
-            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.' || expr[j] == '@' || expr[j] == '?' || expr[j] == '$')) {
+            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.' || expr[j] == '@' || expr[j] == '$')) {
                 if (expr[j] == '.' && j == i && (j + 1 >= expr.length() || !isalnum(expr[j+1]))) break; // Don't treat a single dot as a symbol
                 j++;
             }
@@ -1422,6 +1433,16 @@ class Strings {
                 char c = expr[i];
                 if (isspace(c))
                     continue;
+                if (c == '?') {
+                    bool is_operator = true;
+                    if (i > 0) {
+                        char prev_char = expr[i - 1];
+                        if (isalnum(prev_char) || prev_char == '_' || prev_char == '.' || prev_char == '@' || prev_char == '?' || prev_char == '$')
+                            is_operator = false;
+                    }
+                    if (is_operator && parse_operator(expr, i, tokens))
+                        continue;
+                }
                 if (parse_string_literal(expr, i, tokens))
                     continue;
                 if (parse_number(expr, i, tokens))
@@ -1593,7 +1614,22 @@ class Strings {
                     val_stack.pop_back();
                     Value v1 = val_stack.back();
                     val_stack.pop_back();
-                    val_stack.push_back(op_info.apply(m_policy.context(), v1, v2));
+                    try {
+                        val_stack.push_back(op_info.apply(m_policy.context(), v1, v2));
+                    } catch (const std::logic_error& e) {
+                        if (std::string(e.what()) == "Ternary branch skip") {
+                            val_stack.push_back(v2);
+                        } else { throw; }
+                    } catch (const std::runtime_error& e) { throw; }
+                } else if (token.type == Token::Type::OPERATOR) {
+                    if (token.s_val == "{}") {
+                        if (val_stack.empty())
+                            m_policy.context().assembler.report_error("Invalid memory access expression {}.");
+                        Value addr_val = val_stack.back();
+                        val_stack.pop_back();
+                        val_stack.push_back({Value::Type::NUMBER, (double)m_policy.context().memory->peek((uint16_t)addr_val.n_val)});
+                        continue;
+                    }
                 }
             }
             if (val_stack.size() != 1) {
