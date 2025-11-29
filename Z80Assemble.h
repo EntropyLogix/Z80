@@ -125,6 +125,8 @@
 //   SGN(n)                         | Returns the sign of a number (-1 for negative, 0 for zero, 1 for positive).
 //   POW(base, exp)                 | Calculates base raised to the power of exp.
 //   SQRT(x)                        | Calculates the square root of a number.
+//   HYPOT(x, y)                    | Calculates the hypotenuse of a right-angled triangle (sqrt(x^2 + y^2)).
+//   FMOD(x, y)                     | Returns the floating-point remainder of x/y.
 //   LOG(x), LOG10(x), LOG2(x)      | Calculates the natural, base-10, and base-2 logarithm.
 //   ROUND(n), FLOOR(n), CEIL(n)    | Rounds a number to the nearest integer, down, or up.
 //   TRUNC(n)                       | Truncates the fractional part of a number (rounds towards zero).
@@ -1207,6 +1209,8 @@ class Strings {
                 {"ATANH", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, atanh(args[0].n_val)}; }}},
                 {"ABS",   {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, fabs(args[0].n_val)}; }}},
                 {"POW",   {2, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, pow(args[0].n_val, args[1].n_val)}; }}},
+                {"HYPOT", {2, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, hypot(args[0].n_val, args[1].n_val)}; }}},
+                {"FMOD",  {2, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, fmod(args[0].n_val, args[1].n_val)}; }}},
                 {"SQRT",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, sqrt(args[0].n_val)}; }}},
                 {"LOG",   {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, log(args[0].n_val)}; }}},
                 {"LOG10", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, log10(args[0].n_val)}; }}},
