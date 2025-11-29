@@ -351,6 +351,7 @@ public:
     struct SymbolInfo {
         std::string name;
         int32_t value;
+        bool label;
     };
     struct BlockInfo {
         uint16_t start_address;
@@ -633,6 +634,7 @@ class Strings {
                 std::vector<int32_t> value;
                 std::vector<bool> undefined;
                 bool used;
+                bool label;
             };
             struct Scope {
                 std::string full_name;
@@ -2089,7 +2091,7 @@ class Strings {
                         if (symbol) {
                             int index = symbol->index;
                             if (!symbol->undefined[index])
-                                this->m_context.results.symbols_table[symbol_pair.first] = {symbol_pair.first, symbol->value[index]};
+                                this->m_context.results.symbols_table[symbol_pair.first] = {symbol_pair.first, symbol->value[index], symbol->label};
                         }
                     }
                     return true;
@@ -2148,7 +2150,7 @@ class Strings {
         }
         virtual void on_label_definition(const std::string& label) override {
             BasePolicy::on_label_definition(label);
-            update_symbol(label, this->m_context.address.current_logical, false, false);
+            update_symbol(label, this->m_context.address.current_logical, false, false, true);
         };
         virtual void on_equ_directive(const std::string& label, const std::string& value) override {
             on_const(label, value, false);
@@ -2206,7 +2208,7 @@ class Strings {
             int32_t num_val = 0;
             Expressions expression(*this);
             bool evaluated = expression.evaluate(value, num_val);
-            update_symbol(label, num_val, !evaluated, redefinable);
+            update_symbol(label, num_val, !evaluated, redefinable, false);
         };
         bool all_used_symbols_defined() const {
             bool all_used_defined = true;
@@ -2221,11 +2223,11 @@ class Strings {
             }
             return all_used_defined;
         }
-        void update_symbol(const std::string& name, int32_t value, bool is_undefined, bool redefinable) {
+        void update_symbol(const std::string& name, int32_t value, bool undefined, bool redefinable, bool label) {
             std::string actual_name = this->get_absolute_symbol_name(name);
             auto it = this->m_context.symbols.map.find(actual_name);
             if (it == this->m_context.symbols.map.end()) {
-                typename Context::Symbols::Symbol* new_symbol = new typename Context::Symbols::Symbol{redefinable, 0, {value}, {is_undefined}};
+                typename Context::Symbols::Symbol* new_symbol = new typename Context::Symbols::Symbol{redefinable, 0, {value}, {undefined}, false, label};
                 this->m_context.symbols.map[actual_name] = new_symbol;
                 m_symbols_stable = false;
             } else {
@@ -2239,13 +2241,13 @@ class Strings {
                         if (!redefinable)
                             this->m_context.assembler.report_error("Duplicate symbol definition: " + actual_name);
                         symbol->value.push_back(value);
-                        symbol->undefined.push_back(is_undefined);
+                        symbol->undefined.push_back(undefined);
                         m_symbols_stable = false;
                         return;
                     }
-                    if (symbol->value[index] != value || symbol->undefined[index] != is_undefined) {
+                    if (symbol->value[index] != value || symbol->undefined[index] != undefined) {
                         symbol->value[index] = value;
-                        symbol->undefined[index] = is_undefined;
+                        symbol->undefined[index] = undefined;
                         m_symbols_stable = false;
                     }
                 }
