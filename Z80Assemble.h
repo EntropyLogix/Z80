@@ -255,6 +255,16 @@
 //   ASSERT    | ASSERT <expression>        | Halts compilation if the expression evaluates to false (zero).
 //   END       | END                        | Terminates the assembly process.
 //
+// Known Limitations
+// -----------------
+// - **Interaction between `WHILE` and `REPT`:**
+//   - Using `REPT` inside a `WHILE` loop is generally safe and works as expected.
+//   - However, placing a `WHILE` loop inside a `REPT` block is not supported and will
+//     lead to incorrect behavior. This is due to a conflict between the expansion
+//     mechanism of `REPT` (which expands all iterations at once) and the re-evaluation
+//     mechanism of `WHILE` (which re-inserts the entire block for the next iteration).
+//     This can cause incorrect nesting and assembly errors.
+//
 // Supported Instructions (Mnemonics)
 // ----------------------------------
 // The assembler supports the full standard and most of the undocumented Z80 instruction set.
@@ -943,7 +953,7 @@ class Strings {
     class Expressions {
     public:
         struct Value {
-            enum class Type { NUMBER, STRING };
+        enum class Type { NUMBER, STRING, TERNARY_SKIP };
             Type type = Type::NUMBER;
             double n_val = 0.0;
             std::string s_val;
@@ -954,7 +964,8 @@ class Strings {
             BITWISE_AND, BITWISE_OR, BITWISE_XOR,
             SHL, SHR, DEFINED,
             GT, LT, GTE, LTE, EQ, NE,
-            LOGICAL_AND, LOGICAL_OR
+            LOGICAL_AND, LOGICAL_OR,
+            TERNARY_IF, TERNARY_ELSE
         };
         struct OperatorInfo {
             OperatorType type;
@@ -1070,7 +1081,15 @@ class Strings {
                 {"|",  {OperatorType::BITWISE_OR,  2, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator | not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val | (int32_t)b.n_val)}; }}},
                 {"OR", {OperatorType::BITWISE_OR,  2, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator OR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)a.n_val | (int32_t)b.n_val)}; }}},
                 {"&&", {OperatorType::LOGICAL_AND, 1, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator && not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val && b.n_val)}; }}},
-                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator || not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val || b.n_val)}; }}}
+                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](Context& ctx, const Value& a, const Value& b) { if(a.type == Value::Type::STRING || b.type == Value::Type::STRING) ctx.assembler.report_error("Operator || not supported for strings."); return Value{Value::Type::NUMBER, (double)(a.n_val || b.n_val)}; }}},
+                {"?",  {OperatorType::TERNARY_IF, -1, false, false, [](Context& ctx, const Value& condition, const Value& true_branch) {
+                    if (condition.type != Value::Type::NUMBER)
+                        ctx.assembler.report_error("Ternary condition must be a number.");
+                    if (condition.n_val != 0)
+                        return true_branch;
+                    return Value{Value::Type::TERNARY_SKIP};
+                }}},
+                {":",  {OperatorType::TERNARY_ELSE,-2, false, false, [](Context& ctx, const Value& left_operand, const Value& false_branch) { return (left_operand.type == Value::Type::TERNARY_SKIP) ? false_branch : left_operand; }}}
             };
             return op_map;
         }
@@ -1291,12 +1310,13 @@ class Strings {
             return false;
         }
         bool parse_symbol(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
-            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '?' && expr[i] != '$' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
+            if (!isalpha(expr[i]) && expr[i] != '_' && expr[i] != '@' && expr[i] != '$' && expr[i] != '?' && !(expr[i] == '.' && i + 1 < expr.length() && (isalpha(expr[i+1]) || expr[i+1] == '_')))
                 return false;
             size_t j = i;
             if (expr[j] == '$' && j + 1 < expr.length() && isalpha(expr[j+1])) j++; // $PASS
-            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.' || expr[j] == '@' || expr[j] == '?' || expr[j] == '$')) {
-                if (expr[j] == '.' && j == i && (j + 1 >= expr.length() || !isalnum(expr[j+1]))) break; // Don't treat a single dot as a symbol
+            while (j < expr.length() && (isalnum(expr[j]) || expr[j] == '_' || expr[j] == '.' || expr[j] == '@' || expr[j] == '$' || expr[j] == '?')) {
+                if (expr[j] == '.' && j == i && (j + 1 >= expr.length() || !isalnum(expr[j+1])))
+                    break;
                 j++;
             }
             std::string symbol_str = expr.substr(i, j - i);
@@ -1360,6 +1380,18 @@ class Strings {
             }
             return false;
         }
+        bool parse_ternary_operator(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (expr[i] == '?') {
+                bool is_operator = true;
+                if (!tokens.empty()) {
+                    const auto& last_token = tokens.back();
+                    if (last_token.type == Token::Type::SYMBOL)
+                        is_operator = false;
+                }
+                return is_operator && parse_operator(expr, i, tokens);
+            }
+            return false;
+        }
         bool parse_operator(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             std::string op_str;
             if (i + 1 < expr.length()) {
@@ -1419,6 +1451,8 @@ class Strings {
                 if (parse_char_literal(expr, i, tokens))
                     continue;
                 if (parse_symbol(expr, i, tokens))
+                    continue;
+                if (parse_ternary_operator(expr, i, tokens))
                     continue;
                 if (parse_operator(expr, i, tokens))
                     continue;
@@ -1584,6 +1618,15 @@ class Strings {
                     Value v1 = val_stack.back();
                     val_stack.pop_back();
                     val_stack.push_back(op_info.apply(m_policy.context(), v1, v2));
+                } else if (token.type == Token::Type::OPERATOR) {
+                    if (token.s_val == "{}") {
+                        if (val_stack.empty())
+                            m_policy.context().assembler.report_error("Invalid memory access expression {}.");
+                        Value addr_val = val_stack.back();
+                        val_stack.pop_back();
+                        val_stack.push_back({Value::Type::NUMBER, (double)m_policy.context().memory->peek((uint16_t)addr_val.n_val)});
+                        continue;
+                    }
                 }
             }
             if (val_stack.size() != 1) {
@@ -1868,15 +1911,6 @@ class Strings {
             }
             std::cout << "> " << ss.str() << std::endl;
         }
-        virtual void on_while_directive(const std::string& expression) override {
-            bool condition_result = false;
-            Expressions expr_eval(*this);
-            int32_t value;
-            if (expr_eval.evaluate(expression, value))
-                condition_result = (value != 0);
-            m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
-            m_context.while_loop.stack.push_back({expression, {}, condition_result});
-        }
         virtual void on_endw_directive() override {
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::WHILE) {
                 m_context.assembler.report_error("Mismatched ENDW. An ENDIF, ENDR or ENDP might be missing.");
@@ -2133,6 +2167,19 @@ class Strings {
                 m_context.repeat.stack.push_back({0, {}});
             }
         }
+        virtual void on_while_directive(const std::string& expression, bool stop_on_evaluate_error) {
+            bool condition_result = false;
+            Expressions expr_eval(*this);
+            int32_t value;
+            if (expr_eval.evaluate(expression, value))
+                condition_result = (value != 0);
+            else {
+                if (stop_on_evaluate_error)
+                    m_context.assembler.report_error("Invalid WHILE expression: " + expression);
+            }
+            m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
+            m_context.while_loop.stack.push_back({expression, {}, condition_result});
+        }
         void on_align_directive(const std::string& boundary, bool stop_on_evaluate_error) {
             if (!this->m_context.assembler.m_options.directives.allow_align)
                 return;
@@ -2279,6 +2326,9 @@ class Strings {
         }
         virtual void on_rept_directive(const std::string& counter_expr) override {
             BasePolicy::on_rept_directive(counter_expr, false);
+        }
+        virtual void on_while_directive(const std::string& expression) override {
+            BasePolicy::on_while_directive(expression, false);
         }
         virtual void on_align_directive(const std::string& boundary) override {
             BasePolicy::on_align_directive(boundary, false);
@@ -2432,6 +2482,9 @@ class Strings {
         }
         virtual void on_rept_directive(const std::string& counter_expr) override {
             BasePolicy::on_rept_directive(counter_expr, true);
+        }
+        virtual void on_while_directive(const std::string& expression) override {
+            BasePolicy::on_while_directive(expression, true);
         }
         virtual void on_align_directive(const std::string& boundary) override {
             BasePolicy::on_align_directive(boundary, true);
