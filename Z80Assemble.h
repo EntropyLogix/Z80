@@ -140,17 +140,25 @@
 // Special Variables:
 //   Variable | Description
 //   ---------|------------------------------------------------------------------
-//   $, @     | Current logical address (synonyms).
+//   $, @     | Current logical address.
 //   $PASS    | The current assembly pass number (starting from 1).
 //   $$       | Current physical address (useful in PHASE/DEPHASE blocks).
 //
 // Constants:
-//   Constant   | Description
-//   -----------|------------------------------
-//   TRUE       | The value 1.
-//   FALSE      | The value 0.
-//   MATH_PI    | The constant Pi (≈3.14159).
-//   MATH_E     | Euler's number (≈2.71828).
+//   Constant     | Description
+//   -------------|-------------------------------------------------
+//   TRUE         | The value 1.
+//   FALSE        | The value 0.
+//   MATH_PI      | The constant Pi (≈3.14159).
+//   MATH_E       | Euler's number (≈2.71828).
+//   MATH_PI_2    | Pi / 2.
+//   MATH_PI_4    | Pi / 4.
+//   MATH_LN2     | Natural logarithm of 2.
+//   MATH_LN10    | Natural logarithm of 10.
+//   MATH_LOG2E   | Base-2 logarithm of E.
+//   MATH_LOG10E  | Base-10 logarithm of E.
+//   MATH_SQRT2   | Square root of 2.
+//   MATH_SQRT1_2 | Square root of 1/2.
 //
 // Assembler Directives
 // --------------------
@@ -287,10 +295,12 @@
 #include <optional>
 #include <vector>
 
-class ISourceProvider {
+class IFileProvider {
 public:
-	virtual ~ISourceProvider() = default;
-	virtual bool get_source(const std::string& identifier, std::vector<uint8_t>& data) = 0;
+	virtual ~IFileProvider() = default;
+	virtual bool read_file(const std::string& identifier, std::vector<uint8_t>& data) = 0;
+	virtual size_t file_size(const std::string& identifier) = 0;
+	virtual bool exists(const std::string& identifier) = 0;
 };
 template <typename TMemory> class Z80Assembler {
 public:
@@ -346,7 +356,7 @@ public:
         uint16_t start_address;
         uint16_t size;
     };
-    Z80Assembler(TMemory* memory, ISourceProvider* source_provider, const Options& options = get_default_options()) : m_options(options), m_context(*this) {
+    Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = get_default_options()) : m_options(options), m_context(*this) {
         m_context.memory = memory;
         m_context.source_provider = source_provider;
     }
@@ -609,7 +619,7 @@ class Strings {
 
         Z80Assembler<TMemory>& assembler;
         TMemory* memory = nullptr;
-        ISourceProvider* source_provider = nullptr;
+        IFileProvider* source_provider = nullptr;
         IPhasePolicy* current_phase = nullptr;
         struct Address {
             uint16_t start = 0;
@@ -658,7 +668,7 @@ class Strings {
             enum class ControlType {
                 NONE,
                 CONDITIONAL,
-                REPT,
+                REPEAT,
                 PROCEDURE
             };
             struct ConditionalState {
@@ -731,7 +741,7 @@ class Strings {
             included_files.insert(identifier);
 
             std::vector<uint8_t> source_data;
-            if (!m_context.source_provider->get_source(identifier, source_data))
+            if (!m_context.source_provider->read_file(identifier, source_data))
                 return false;
 
             std::string source_content(source_data.begin(), source_data.end());
@@ -1626,7 +1636,7 @@ class Strings {
                 switch (m_context.source.control_stack.back()) {
                     case Context::Source::ControlType::CONDITIONAL:
                         m_context.assembler.report_error("Unterminated conditional compilation block (missing ENDIF).");
-                    case Context::Source::ControlType::REPT:
+                    case Context::Source::ControlType::REPEAT:
                         m_context.assembler.report_error("Unterminated REPT block (missing ENDR).");
                     case Context::Source::ControlType::PROCEDURE:
                         m_context.assembler.report_error("Unterminated PROC block (missing ENDP).");
@@ -1672,7 +1682,7 @@ class Strings {
         virtual void on_incbin_directive(const std::string& filename) override {
             if (!this->m_context.assembler.m_options.directives.allow_incbin) return;
             std::vector<uint8_t> data;
-            if (this->m_context.source_provider->get_source(filename, data))
+            if (this->m_context.source_provider->read_file(filename, data))
                 on_assemble(data);
             else
                 m_context.assembler.report_error("Could not open file for INCBIN: " + filename);
@@ -1845,7 +1855,7 @@ class Strings {
             return false;
         }
         virtual void on_endr_directive() override {
-            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPT) {
+            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPEAT) {
                 m_context.assembler.report_error("Mismatched ENDR. An ENDIF might be missing.");
             }
             m_context.source.control_stack.pop_back();
@@ -2023,7 +2033,7 @@ class Strings {
             m_context.source.conditional_stack.push_back({parent_active && condition_result, false});
         }
         void on_rept_directive(const std::string& counter_expr, bool stop_on_evaluate_error) {
-            m_context.source.control_stack.push_back(Context::Source::ControlType::REPT);
+            m_context.source.control_stack.push_back(Context::Source::ControlType::REPEAT);
             Expressions expression(*this);
             int32_t count;
             if (expression.evaluate(counter_expr, count)) {

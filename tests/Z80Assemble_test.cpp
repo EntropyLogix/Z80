@@ -51,14 +51,25 @@ void run_all_tests() {
     }
 }
 
-class MockSourceProvider : public ISourceProvider {
+class MockFileProvider : public IFileProvider {
 public:
-    bool get_source(const std::string& identifier, std::vector<uint8_t>& data) override {
+    bool read_file(const std::string& identifier, std::vector<uint8_t>& data) override {
         if (m_sources.count(identifier)) {
             data = m_sources[identifier];
             return true;
         }
         return false;
+    }
+
+    size_t file_size(const std::string& identifier) override {
+        if (m_sources.count(identifier)) {
+            return m_sources.at(identifier).size();
+        }
+        return 0;
+    }
+
+    bool exists(const std::string& identifier) override {
+        return m_sources.count(identifier) > 0;
     }
 
     void add_source(const std::string& identifier, const std::string& content) {
@@ -74,9 +85,9 @@ private:
 
 void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes, const Z80Assembler<Z80DefaultBus>::Options& options) {
     Z80DefaultBus bus;
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider, options);
     bool success = true;
     try {
         success = assembler.compile("main.asm", 0x0000);
@@ -138,9 +149,9 @@ void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expect
 
 void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::vector<uint8_t>>& expected_blocks) {
     Z80DefaultBus bus;
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
     bool success = assembler.compile("main.asm", 0x0000);
     if (!success) {
         std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
@@ -191,9 +202,9 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
 
 void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assembler<Z80DefaultBus>::Options& options) {
     Z80DefaultBus bus;
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider, options);    
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider, options);    
     bool success = true;
     try {
         success = assembler.compile("main.asm", 0x0000);
@@ -211,8 +222,8 @@ void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assemb
 
 void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
     Z80DefaultBus bus;
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", asm_code);
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", asm_code);
     Z80Assembler<Z80DefaultBus>::Options options;
     // Użyj zunifikowanej logiki z ASSERT_COMPILE_FAILS_WITH_OPTS
     ASSERT_COMPILE_FAILS_WITH_OPTS(asm_code, options);
@@ -997,9 +1008,9 @@ TEST_CASE(LabelsAndExpressions) {
     };
 
     Z80DefaultBus bus;
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
     bool success = assembler.compile("main.asm");
     assert(success && "Compilation with labels failed");
 
@@ -1278,9 +1289,9 @@ TEST_CASE(RelativeJumpBoundaries) {
     // Helper to test code with ORG directive
     auto assert_org_code = [](const std::string& asm_code, uint16_t org_addr, const std::vector<uint8_t>& expected_bytes) {
         Z80DefaultBus bus;
-        MockSourceProvider source_provider;
-        source_provider.add_source("main.asm", asm_code);
-        Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+        MockFileProvider file_provider;
+        file_provider.add_source("main.asm", asm_code);
+        Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
         assembler.compile("main.asm");
         bool mismatch = false;
         for (size_t i = 0; i < expected_bytes.size(); ++i) {
@@ -1507,9 +1518,9 @@ TEST_CASE(ExpressionOperators) {
 
 void ASSERT_RAND_IN_RANGE(const std::string& asm_code, int min_val, int max_val) {
     Z80DefaultBus bus;
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", asm_code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
     bool success = assembler.compile("main.asm", 0x0000);
     if (!success) {
         std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
@@ -1542,9 +1553,9 @@ void reset_rand_seed() {
     // we can't easily reset it. To get a fresh sequence for tests, we compile
     // a dummy expression that re-initializes the static generator.
     Z80DefaultBus bus;
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", "DB RAND(0,0)");
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", "DB RAND(0,0)");
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
     assembler.compile("main.asm");
 }
 
@@ -1820,12 +1831,12 @@ TEST_CASE(CyclicDependency) {
 }
 
 TEST_CASE(IncludeDirective_Basic) {
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", "LD A, 5\nINCLUDE \"included.asm\"\nADD A, B");
-    source_provider.add_source("included.asm", "LD B, 10\n");
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", "LD A, 5\nINCLUDE \"included.asm\"\nADD A, B");
+    file_provider.add_source("included.asm", "LD B, 10\n");
 
     Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
     assembler.compile("main.asm");
 
     std::vector<uint8_t> expected = {0x3E, 0x05, 0x06, 0x0A, 0x80};
@@ -1840,13 +1851,13 @@ TEST_CASE(IncludeDirective_Basic) {
 }
 
 TEST_CASE(IncludeDirective_Nested) {
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", "INCLUDE \"level1.asm\"");
-    source_provider.add_source("level1.asm", "LD A, 1\nINCLUDE \"level2.asm\"");
-    source_provider.add_source("level2.asm", "LD B, 2\n");
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", "INCLUDE \"level1.asm\"");
+    file_provider.add_source("level1.asm", "LD A, 1\nINCLUDE \"level2.asm\"");
+    file_provider.add_source("level2.asm", "LD B, 2\n");
 
     Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
     assembler.compile("main.asm");
 
     std::vector<uint8_t> expected = {0x3E, 0x01, 0x06, 0x02};
@@ -1861,11 +1872,11 @@ TEST_CASE(IncludeDirective_Nested) {
 }
 
 TEST_CASE(IncludeDirective_CircularDependency) {
-    MockSourceProvider source_provider;
-    source_provider.add_source("a.asm", "INCLUDE \"b.asm\"");
-    source_provider.add_source("b.asm", "INCLUDE \"a.asm\"");
+    MockFileProvider file_provider;
+    file_provider.add_source("a.asm", "INCLUDE \"b.asm\"");
+    file_provider.add_source("b.asm", "INCLUDE \"a.asm\"");
     Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
     try {
         assembler.compile("a.asm");
         tests_failed++;
@@ -1878,11 +1889,11 @@ TEST_CASE(IncludeDirective_CircularDependency) {
 TEST_CASE(IncbinDirective) {
     // Basic INCBIN
     {
-        MockSourceProvider source_provider;
-        source_provider.add_source("main.asm", "ORG 0x100\nINCBIN \"data.bin\"\nNOP");
-        source_provider.add_binary_source("data.bin", {0xDE, 0xAD, 0xBE, 0xEF});
+        MockFileProvider file_provider;
+        file_provider.add_source("main.asm", "ORG 0x100\nINCBIN \"data.bin\"\nNOP");
+        file_provider.add_binary_source("data.bin", {0xDE, 0xAD, 0xBE, 0xEF});
         Z80DefaultBus bus;
-        Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+        Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
         bool success = assembler.compile("main.asm");
         assert(success);
 
@@ -1899,8 +1910,8 @@ TEST_CASE(IncbinDirective) {
 
     // INCBIN with labels
     {
-        MockSourceProvider source_provider;
-        source_provider.add_source("main.asm", R"(
+        MockFileProvider file_provider;
+        file_provider.add_source("main.asm", R"(
             ORG 0x8000
             LD HL, SPRITE_DATA
             JP END_LABEL
@@ -1909,9 +1920,9 @@ TEST_CASE(IncbinDirective) {
         END_LABEL:
             NOP
         )");
-        source_provider.add_binary_source("sprite.dat", {0xFF, 0x81, 0x81, 0xFF});
+        file_provider.add_binary_source("sprite.dat", {0xFF, 0x81, 0x81, 0xFF});
         Z80DefaultBus bus;
-        Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+        Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
         bool success = assembler.compile("main.asm");
         assert(success);
         auto symbols = assembler.get_symbols();
@@ -1924,8 +1935,8 @@ TEST_CASE(IncbinDirective) {
     {
         Z80Assembler<Z80DefaultBus>::Options options;
         options.directives.allow_incbin = false;
-        MockSourceProvider source_provider;
-        source_provider.add_binary_source("data.bin", {0x01, 0x02});
+        MockFileProvider file_provider;
+        file_provider.add_binary_source("data.bin", {0x01, 0x02});
         ASSERT_COMPILE_FAILS_WITH_OPTS("INCBIN \"data.bin\"", options);
     }
 }
@@ -2256,11 +2267,11 @@ TEST_CASE(DirectiveOptions) {
     // 8. Test directives.allow_includes = false
     options = Z80Assembler<Z80DefaultBus>::get_default_options();
     options.directives.allow_includes = false;
-    MockSourceProvider source_provider_no_include;
-    source_provider_no_include.add_source("main.asm", "INCLUDE \"other.asm\"");
-    source_provider_no_include.add_source("other.asm", "NOP");
+    MockFileProvider file_provider_no_include;
+    file_provider_no_include.add_source("main.asm", "INCLUDE \"other.asm\"");
+    file_provider_no_include.add_source("other.asm", "NOP");
     Z80DefaultBus bus_no_include;
-    Z80Assembler<Z80DefaultBus> assembler_no_include(&bus_no_include, &source_provider_no_include, options);
+    Z80Assembler<Z80DefaultBus> assembler_no_include(&bus_no_include, &file_provider_no_include, options);
     try {
         assembler_no_include.compile("main.asm");
         tests_failed++;
@@ -2363,9 +2374,9 @@ COUNT           SET 100
     )";
 
     Z80DefaultBus bus;
-    MockSourceProvider source_provider;
-    source_provider.add_source("main.asm", code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
     bool success = assembler.compile("main.asm");
     assert(success && "Complex forward reference compilation failed");
 
@@ -2579,8 +2590,8 @@ TEST_CASE(PhaseDephaseDirectives) {
         0x16, 0x04  // LD D, 4 at 0x1006
     };
     Z80DefaultBus bus1;
-    MockSourceProvider sp1;
-    sp1.add_source("main.asm", code1);
+    MockFileProvider sp1;
+    sp1.add_source("main.asm", code1); // Use MockFileProvider
     Z80Assembler<Z80DefaultBus> assembler1(&bus1, &sp1);
     assert(assembler1.compile("main.asm") && "Phase/Dephase test 1 compilation failed");
     auto symbols1 = assembler1.get_symbols();
