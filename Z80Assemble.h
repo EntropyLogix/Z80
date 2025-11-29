@@ -255,6 +255,16 @@
 //   ASSERT    | ASSERT <expression>        | Halts compilation if the expression evaluates to false (zero).
 //   END       | END                        | Terminates the assembly process.
 //
+// Known Limitations
+// -----------------
+// - **Interaction between `WHILE` and `REPT`:**
+//   - Using `REPT` inside a `WHILE` loop is generally safe and works as expected.
+//   - However, placing a `WHILE` loop inside a `REPT` block is not supported and will
+//     lead to incorrect behavior. This is due to a conflict between the expansion
+//     mechanism of `REPT` (which expands all iterations at once) and the re-evaluation
+//     mechanism of `WHILE` (which re-inserts the entire block for the next iteration).
+//     This can cause incorrect nesting and assembly errors.
+//
 // Supported Instructions (Mnemonics)
 // ----------------------------------
 // The assembler supports the full standard and most of the undocumented Z80 instruction set.
@@ -1868,15 +1878,6 @@ class Strings {
             }
             std::cout << "> " << ss.str() << std::endl;
         }
-        virtual void on_while_directive(const std::string& expression) override {
-            bool condition_result = false;
-            Expressions expr_eval(*this);
-            int32_t value;
-            if (expr_eval.evaluate(expression, value))
-                condition_result = (value != 0);
-            m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
-            m_context.while_loop.stack.push_back({expression, {}, condition_result});
-        }
         virtual void on_endw_directive() override {
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::WHILE) {
                 m_context.assembler.report_error("Mismatched ENDW. An ENDIF, ENDR or ENDP might be missing.");
@@ -2133,6 +2134,19 @@ class Strings {
                 m_context.repeat.stack.push_back({0, {}});
             }
         }
+        virtual void on_while_directive(const std::string& expression, bool stop_on_evaluate_error) {
+            bool condition_result = false;
+            Expressions expr_eval(*this);
+            int32_t value;
+            if (expr_eval.evaluate(expression, value))
+                condition_result = (value != 0);
+            else {
+                if (stop_on_evaluate_error)
+                    m_context.assembler.report_error("Invalid WHILE expression: " + expression);
+            }
+            m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
+            m_context.while_loop.stack.push_back({expression, {}, condition_result});
+        }
         void on_align_directive(const std::string& boundary, bool stop_on_evaluate_error) {
             if (!this->m_context.assembler.m_options.directives.allow_align)
                 return;
@@ -2279,6 +2293,9 @@ class Strings {
         }
         virtual void on_rept_directive(const std::string& counter_expr) override {
             BasePolicy::on_rept_directive(counter_expr, false);
+        }
+        virtual void on_while_directive(const std::string& expression) override {
+            BasePolicy::on_while_directive(expression, false);
         }
         virtual void on_align_directive(const std::string& boundary) override {
             BasePolicy::on_align_directive(boundary, false);
@@ -2432,6 +2449,9 @@ class Strings {
         }
         virtual void on_rept_directive(const std::string& counter_expr) override {
             BasePolicy::on_rept_directive(counter_expr, true);
+        }
+        virtual void on_while_directive(const std::string& expression) override {
+            BasePolicy::on_while_directive(expression, true);
         }
         virtual void on_align_directive(const std::string& boundary) override {
             BasePolicy::on_align_directive(boundary, true);
