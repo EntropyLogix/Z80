@@ -89,6 +89,7 @@
 //   Logical      | !, &&, ||               |                             | Logical NOT, AND, OR.
 //   Comparison   | ==, !=, >, <, >=, <=    | EQ, NE, GT, LT, GE, LE      | Comparison operators.
 //   Unary        | +, - (sign)             | DEFINED                     | Sign operators and symbol check.
+//   Conditional  | ? :                     |                             | Ternary operator (e.g., `cond ? val1 : val2`).
 //
 // Functions:
 //   The assembler supports a wide range of built-in functions for compile-time calculations.
@@ -257,13 +258,10 @@
 //
 // Known Limitations
 // -----------------
-// - **Interaction between `WHILE` and `REPT`:**
-//   - Using `REPT` inside a `WHILE` loop is generally safe and works as expected.
-//   - However, placing a `WHILE` loop inside a `REPT` block is not supported and will
-//     lead to incorrect behavior. This is due to a conflict between the expansion
-//     mechanism of `REPT` (which expands all iterations at once) and the re-evaluation
-//     mechanism of `WHILE` (which re-inserts the entire block for the next iteration).
-//     This can cause incorrect nesting and assembly errors.
+// - Nested `WHILE` loops are not supported.
+// - Placing a `WHILE` loop inside a `REPT` block is not supported and will lead to errors.
+// - Using the `END` directive inside a `REPT` block will terminate assembly prematurely.
+// - There is no `EXITW` directive to exit a `WHILE` loop; use conditional logic inside the loop.
 //
 // Supported Instructions (Mnemonics)
 // ----------------------------------
@@ -394,8 +392,9 @@ public:
         SymbolsPhase symbols_building(m_context, m_options.compilation.max_passes);
         m_context.address.start = start_addr;
         AssemblyPhase code_generation(m_context);
-        std::vector<IPhasePolicy*> m_phases = {&symbols_building, &code_generation};
-        for (auto& phase : m_phases) {
+        std::vector<IPhasePolicy*> phases = {&symbols_building, &code_generation};
+        m_context.phase_index = 1;
+        for (auto& phase : phases) {
             if (!phase)
                 continue;
             m_context.current_phase = phase;
@@ -417,6 +416,7 @@ public:
                     phase->on_pass_next();
                 }
             } while (!end_phase);
+            m_context.phase_index++;
             phase->on_finalize();
         }
         return true;
@@ -638,6 +638,7 @@ class Strings {
         TMemory* memory = nullptr;
         IFileProvider* source_provider = nullptr;
         IPhasePolicy* current_phase = nullptr;
+        int phase_index = 0;
         struct Address {
             uint16_t start = 0;
             uint16_t current_logical = 0;
@@ -1754,6 +1755,10 @@ class Strings {
             }
             else if (symbol == "$$") {
                 out_value = this->m_context.address.current_physical;
+                return true;
+            }
+            if (symbol == "$PHASE") {
+                out_value = this->m_context.phase_index;
                 return true;
             }
             std::string upper_symbol = symbol;

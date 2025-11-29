@@ -3282,6 +3282,23 @@ TEST_CASE(TernaryOperator) {
     )", {0x00, 0xC3, 0x00, 0x00});
 }
 
+TEST_CASE(PhaseVariable) {
+    // Test 1: Check $PHASE in a simple expression
+    // The value should be 2 in the final (code generation) phase.
+    ASSERT_CODE("DB $PHASE", {2});
+
+    // Test 2: Use $PHASE in a conditional directive
+    // This requires at least two passes.
+    // Pass 1: MY_VAL is not defined, IF is false.
+    // Pass 2: MY_VAL is defined, IF is true, code is generated. $PHASE is 2.
+    ASSERT_CODE(R"(
+        IFDEF MY_VAL
+            DB $PHASE
+        ENDIF
+        MY_VAL EQU 1
+    )", {2});
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
