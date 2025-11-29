@@ -3165,6 +3165,43 @@ TEST_CASE(DgDirective) {
     ASSERT_COMPILE_FAILS("DG 123"); // Not a string literal
 }
 
+TEST_CASE(MemoryAccessOperator) {
+    // Test 1: Basic read from a numeric address
+    ASSERT_BLOCKS(R"(
+        ORG 0x100
+        DB 0xDE, 0xAD, 0xBE, 0xEF
+
+        ORG 0x200
+        LD A, {0x101} ; Read 0xAD
+        LD B, {0x103} ; Read 0xEF
+    )", {
+        {0x100, {0xDE, 0xAD, 0xBE, 0xEF}},
+        {0x200, {0x3E, 0xAD, 0x06, 0xEF}}
+    });
+
+    // Test 2: Read using a label
+    ASSERT_CODE(R"(
+        MyData:
+            DB 10, 20, 30, 40
+        LD A, {MyData + 2} ; Read 30
+    )", {
+        10, 20, 30, 40,
+        0x3E, 30
+    });
+
+    // Test 3: Read a byte, resolving label with forward reference, but data is set later
+    ASSERT_CODE(R"(
+        LD A, {ForwardData}
+        NOP
+    ForwardData:
+        DB 0x99
+    )", {
+        0x3E, 0x00, // LD A, 0x00
+        0x00,       // NOP
+        0x99        // DB 0x99
+    });
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
