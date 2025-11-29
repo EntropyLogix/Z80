@@ -282,9 +282,9 @@ void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, cons
 
 // --- Source Provider (from Z80Asm) ---
 
-class FileSystemSourceProvider : public ISourceProvider {
+class FileSystemSourceProvider : public IFileProvider {
 public:
-    bool get_source(const std::string& identifier, std::vector<uint8_t>& data) override {
+    bool read_file(const std::string& identifier, std::vector<uint8_t>& data) override {
         std::filesystem::path file_path;
         if (m_current_path_stack.empty())
             file_path = std::filesystem::canonical(identifier);
@@ -303,6 +303,15 @@ public:
         m_current_path_stack.pop_back();
         return true;
     }
+    size_t file_size(const std::string& identifier) override {
+        try {
+            return std::filesystem::file_size(identifier);
+        } catch (const std::filesystem::filesystem_error&) {
+            return 0;
+        }
+    }
+    bool exists(const std::string& identifier) override { return std::filesystem::exists(identifier); }
+
 private:
     std::vector<std::filesystem::path> m_current_path_stack;
 };
@@ -502,8 +511,8 @@ int main(int argc, char* argv[]) {
                 std::cout << "\n--- Disassembly of Generated Code ---\n";
                 for (const auto& block : blocks) {
                     uint16_t pc = block.start_address;
-                    uint16_t end_addr = pc + block.size;                    
-                    auto listing = analyzer.disassemble(pc, (end_addr - pc), nullptr); // No colors in non-interactive mode
+                    uint16_t end_addr = pc + block.size;
+                    auto listing = analyzer.disassemble(pc, block.size, nullptr);
                     for (const auto& line : listing) {
                         std::cout << line << std::endl;
                     }

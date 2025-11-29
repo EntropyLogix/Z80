@@ -113,6 +113,7 @@
 //   Bit, Byte & Memory:
 //   Function                       | Description
 //   -------------------------------|--------------------------------------------------------------------------------
+//   {addr}                         | Reads a byte from memory at the specified address during compilation.
 //   HIGH(val)                      | Returns the high byte of a 16-bit value.
 //   LOW(val)                       | Returns the low byte of a 16-bit value.
 //   MEM(addr)                      | Reads a byte from memory at the specified address during the final assembly pass.
@@ -136,8 +137,8 @@
 //   SINH(n), COSH(n), TANH(n)      | Hyperbolic functions.
 //   ASINH(n), ACOSH(n), ATANH(n)   | Inverse hyperbolic functions.
 //   RAND(min, max)                 | Returns a pseudo-random integer within the specified range [min, max].
-//   RRND(min, max)                 | (Repeatable) Returns a pseudo-random integer from a generator seeded to 0.
-//   RND()                          | (Repeatable) Returns a pseudo-random float between 0.0 and 1.0 from a generator seeded to 1.
+//   RRND(min, max)                 | Returns a pseudo-random integer from a generator seeded to 0.
+//   RND()                          | Returns a pseudo-random float between 0.0 and 1.0 from a generator seeded to 1.
 //
 // Special Variables:
 //   Variable | Description
@@ -955,7 +956,7 @@ class Strings {
             std::function<Value(Context&, const std::vector<Value>&)> apply;
         };
         struct Token {
-            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, CHAR_LITERAL, STRING_LITERAL, COMMA };
+            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, MEM_LBRACE, MEM_RBRACE, CHAR_LITERAL, STRING_LITERAL, COMMA };
             Type type = Type::FUNCTION;
             std::string s_val;
             double n_val = 0.0;
@@ -1374,9 +1375,14 @@ class Strings {
             if (expr[i] == '(') {
                 tokens.push_back({Token::Type::LPAREN, "("});
                 return true;
-            }
-            if (expr[i] == ')') {
+            } else if (expr[i] == ')') {
                 tokens.push_back({Token::Type::RPAREN, ")"});
+                return true;
+            } else if (expr[i] == '{') {
+                tokens.push_back({Token::Type::MEM_LBRACE, "{"});
+                return true;
+            } else if (expr[i] == '}') {
+                tokens.push_back({Token::Type::MEM_RBRACE, "}"});
                 return true;
             }
             return false;
@@ -1447,6 +1453,19 @@ class Strings {
                         }
                         op_stack.push_back(token);
                         break;
+                    case Token::Type::MEM_LBRACE:
+                        op_stack.push_back(token);
+                        break;
+                    case Token::Type::MEM_RBRACE:
+                        while (!op_stack.empty() && op_stack.back().type != Token::Type::MEM_LBRACE) {
+                            postfix.push_back(op_stack.back());
+                            op_stack.pop_back();
+                        }
+                        if (op_stack.empty())
+                            m_policy.context().assembler.report_error("Mismatched braces {} in expression.");
+                        op_stack.pop_back();
+                        postfix.push_back({Token::Type::OPERATOR, "{}"});
+                        break;
                     case Token::Type::RPAREN:
                         while (!op_stack.empty() && op_stack.back().type != Token::Type::LPAREN) {
                             postfix.push_back(op_stack.back());
@@ -1479,7 +1498,7 @@ class Strings {
             }
             while (!op_stack.empty()) {
                 if (op_stack.back().type == Token::Type::LPAREN || op_stack.back().type == Token::Type::RPAREN)
-                    m_policy.context().assembler.report_error("Mismatched parentheses in expression.");
+                    m_policy.context().assembler.report_error("Mismatched parentheses or braces in expression.");
                 postfix.push_back(op_stack.back());
                 op_stack.pop_back();
             }
@@ -1526,6 +1545,14 @@ class Strings {
                     }
                     val_stack.push_back(it->second.apply(m_policy.context(), args));
                 } else if (token.type == Token::Type::OPERATOR) {
+                    if (token.s_val == "{}") {
+                        if (val_stack.empty())
+                            m_policy.context().assembler.report_error("Invalid memory access expression {}.");
+                        Value addr_val = val_stack.back();
+                        val_stack.pop_back();
+                        val_stack.push_back({Value::Type::NUMBER, (double)m_policy.context().memory->peek((uint16_t)addr_val.n_val)});
+                        continue;
+                    }
                     auto it = get_operator_map().find(token.s_val);
                     if (it == get_operator_map().end())
                         m_policy.context().assembler.report_error("Unknown operator in RPN evaluation: " + token.s_val);

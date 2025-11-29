@@ -33,9 +33,9 @@ void print_usage() {
               << "If no output options are provided, the result is printed to the screen only.\n";
 }
 
-class FileSystemSourceProvider : public ISourceProvider {
+class FileSystemSourceProvider : public IFileProvider {
 public:
-    bool get_source(const std::string& identifier, std::vector<uint8_t>& data) override {
+    bool read_file(const std::string& identifier, std::vector<uint8_t>& data) override {
         std::filesystem::path file_path;
         if (m_current_path_stack.empty())
             file_path = std::filesystem::canonical(identifier);
