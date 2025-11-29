@@ -3202,6 +3202,86 @@ TEST_CASE(MemoryAccessOperator) {
     });
 }
 
+TEST_CASE(TernaryOperator) {
+    // --- Testy numeryczne ---
+    // Prosty warunek prawdziwy
+    ASSERT_CODE("DB 1 ? 10 : 20", {10});
+    // Prosty warunek fałszywy
+    ASSERT_CODE("DB 0 ? 10 : 20", {20});
+    // Wyrażenie jako warunek (prawda)
+    ASSERT_CODE("DB (5 > 2) ? 100 : 200", {100});
+    // Wyrażenie jako warunek (fałsz)
+    ASSERT_CODE("DB (5 < 2) ? 100 : 200", {200});
+    // Wyrażenia w gałęziach
+    ASSERT_CODE("DB 1 ? 10+5 : 20-5", {15});
+    ASSERT_CODE("DB 0 ? 10+5 : 20-5", {15});
+
+    // --- Testy z ciągami znaków ---
+    // Prosty warunek prawdziwy
+    ASSERT_CODE("DB 1 ? \"A\" : \"B\"", {'A'});
+    // Prosty warunek fałszywy
+    ASSERT_CODE("DB 0 ? \"A\" : \"B\"", {'B'});
+    // Dłuższe ciągi znaków
+    ASSERT_CODE("DB 1 ? \"OK\" : \"FAIL\"", {'O', 'K'});
+    ASSERT_CODE("DB 0 ? \"FAIL\" : \"OK\"", {'O', 'K'});
+    // Konkatenacja w gałęziach
+    ASSERT_CODE("DB 1 ? \"A\"+\"B\" : \"C\"", {'A', 'B'});
+    ASSERT_CODE("DB 0 ? \"A\" : \"B\"+\"C\"", {'B', 'C'});
+
+    // --- Testy z referencjami w przód (forward reference) ---
+    // Warunek zależny od referencji w przód
+    ASSERT_CODE(R"(
+        DB DO_TRUE ? 100 : 200
+        DO_TRUE EQU 1
+    )", {100});
+    ASSERT_CODE(R"(
+        DB DO_FALSE ? 100 : 200
+        DO_FALSE EQU 0
+    )", {200});
+    // Gałęzie zależne od referencji w przód
+    ASSERT_CODE(R"(
+        DB 1 ? VAL_A : VAL_B
+        VAL_A EQU 55
+        VAL_B EQU 99
+    )", {55});
+    ASSERT_CODE(R"(
+        DB 0 ? VAL_A : VAL_B
+        VAL_A EQU 55
+        VAL_B EQU 99
+    )", {99});
+
+    // --- Testy zagnieżdżone ---
+    // Prawda -> Prawda
+    ASSERT_CODE("DB 1 ? (1 ? 10 : 20) : 30", {10});
+    // Prawda -> Fałsz
+    ASSERT_CODE("DB 1 ? (0 ? 10 : 20) : 30", {20});
+    // Fałsz -> Prawda
+    ASSERT_CODE("DB 0 ? 10 : (1 ? 20 : 30)", {20});
+    // Fałsz -> Fałsz
+    ASSERT_CODE("DB 0 ? 10 : (0 ? 20 : 30)", {30});
+
+    // --- Złożone wyrażenia ---
+    // Zagnieżdżone z referencją w przód
+    ASSERT_CODE(R"(
+        DB OUTER_COND ? (INNER_COND ? VAL_A : VAL_B) : VAL_C
+        OUTER_COND EQU 1
+        INNER_COND EQU 0
+        VAL_A EQU 11
+        VAL_B EQU 22
+        VAL_C EQU 33
+    )", {22});
+
+    // Zagnieżdżone z ciągami znaków
+    ASSERT_CODE("DB 1 ? (0 ? \"A\" : \"B\") : \"C\"", {'B'});
+    ASSERT_CODE("DB 0 ? \"A\" : (1 ? \"B\" : \"C\")", {'B'});
+
+    // Sprawdzenie, czy etykiety z '?' nie są parsowane jako operator trójargumentowy
+    ASSERT_CODE(R"(
+        label?: NOP
+        JP label?
+    )", {0x00, 0xC3, 0x00, 0x00});
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
