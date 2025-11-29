@@ -230,6 +230,8 @@
 //   ----------|---------|--------------|------------------------------------------------------------------
 //   REPT      | DUP     | REPT <count> | Repeats a block of code a specified number of times.
 //   ENDR      | EDUP    | ENDR         | Ends a REPT block.
+//   WHILE     |         | WHILE <expr> | Repeats a block of code as long as the expression is true.
+//   ENDW      |         | ENDW         | Ends a WHILE block.
 //   EXITR     |         | EXITR        | Exits the current REPT loop.
 //
 //   Inside a REPT loop, the special symbol \@ represents the current iteration (from 1).
@@ -327,7 +329,7 @@ public:
                 bool allow_set = true;
                 bool allow_define = true;
                 bool allow_undefine = true;
-                bool assignments_as_eqs = true;
+                bool assignments_as_set = true;
             } constants;
             bool allow_org = true;
             bool allow_align = true;
@@ -337,6 +339,7 @@ public:
             bool allow_conditionals = true;
             bool allow_repeat = true;
             bool allow_phase = true;
+            bool allow_while = true;
             bool allow_proc = true;
             bool allow_macros = true;
         } directives;
@@ -674,6 +677,7 @@ class Strings {
                 NONE,
                 CONDITIONAL,
                 REPEAT,
+                WHILE,
                 PROCEDURE
             };
             struct ConditionalState {
@@ -694,6 +698,14 @@ class Strings {
             };
             std::vector<State> stack;
         } repeat;
+        struct While {
+            struct State {
+                std::string expression;
+                std::vector<std::string> body;
+                bool active;
+            };
+            std::vector<State> stack;
+        } while_loop;
         struct Defines {
             std::map<std::string, std::string> map;
         } defines;
@@ -1634,6 +1646,9 @@ class Strings {
         virtual void on_endif_directive() = 0;
         virtual void on_error_directive(const std::string& message) = 0;
         virtual void on_assert_directive(const std::string& expression) = 0;
+        virtual void on_while_directive(const std::string& expression) = 0;
+        virtual void on_endw_directive() = 0;
+        virtual bool on_while_recording(const std::string& line) = 0;
         virtual bool is_conditional_block_active() const = 0;
         virtual void on_rept_directive(const std::string& expression) = 0;
         virtual bool on_repeat_recording(const std::string& line) = 0;
@@ -1660,6 +1675,7 @@ class Strings {
             m_context.source.conditional_stack.clear();
             m_context.macros.stack.clear();
             m_context.repeat.stack.clear();
+            m_context.while_loop.stack.clear();
             m_context.defines.map.clear();
         }
         virtual void on_finalize() override {
@@ -1671,6 +1687,8 @@ class Strings {
                         m_context.assembler.report_error("Unterminated conditional compilation block (missing ENDIF).");
                     case Context::Source::ControlType::REPEAT:
                         m_context.assembler.report_error("Unterminated REPT block (missing ENDR).");
+                    case Context::Source::ControlType::WHILE:
+                        m_context.assembler.report_error("Unterminated WHILE block (missing ENDW).");
                     case Context::Source::ControlType::PROCEDURE:
                         m_context.assembler.report_error("Unterminated PROC block (missing ENDP).");
                 }
@@ -1849,6 +1867,42 @@ class Strings {
                 }
             }
             std::cout << "> " << ss.str() << std::endl;
+        }
+        virtual void on_while_directive(const std::string& expression) override {
+            bool condition_result = false;
+            Expressions expr_eval(*this);
+            int32_t value;
+            if (expr_eval.evaluate(expression, value))
+                condition_result = (value != 0);
+            m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
+            m_context.while_loop.stack.push_back({expression, {}, condition_result});
+        }
+        virtual void on_endw_directive() override {
+            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::WHILE) {
+                m_context.assembler.report_error("Mismatched ENDW. An ENDIF, ENDR or ENDP might be missing.");
+                return;
+            }
+            typename Context::While::State while_block = m_context.while_loop.stack.back();
+            m_context.while_loop.stack.pop_back();
+            m_context.source.control_stack.pop_back();
+            if (while_block.active) {
+                std::vector<std::string> lines_to_reprocess;
+                lines_to_reprocess.push_back("WHILE " + while_block.expression);
+                lines_to_reprocess.insert(lines_to_reprocess.end(), while_block.body.begin(), while_block.body.end());
+                lines_to_reprocess.push_back("ENDW");
+                if (m_context.macros.in_expansion && !m_context.macros.stack.empty()) {
+                    typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
+                    current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, lines_to_reprocess.begin(), lines_to_reprocess.end());
+                } else
+                    m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), lines_to_reprocess.rbegin(), lines_to_reprocess.rend());
+            }
+        }
+        virtual bool on_while_recording(const std::string& line) override {
+            if (!m_context.while_loop.stack.empty()) {
+                m_context.while_loop.stack.back().body.push_back(line);
+                return !m_context.while_loop.stack.back().active;
+            }
+            return false; 
         }
         virtual void on_error_directive(const std::string& message) override {
             m_context.assembler.report_error("ERROR: " + message);
@@ -2437,7 +2491,7 @@ class Strings {
             static const std::set<std::string> directives = {
                 "DB", "DEFB", "BYTE", "DM", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "ORG", "DH", "HEX", "DEFH", "DZ", "ASCIZ", "DG", "DEFG",
                 "EQU", "SET", "DEFL", "DEFINE", "UNDEFINE",
-                "INCLUDE", "ALIGN", "INCBIN", "BINARY", "PHASE", "DEPHASE", "UNPHASE", "ERROR", "ASSERT", "EXITR",
+                "INCLUDE", "ALIGN", "INCBIN", "BINARY", "PHASE", "DEPHASE", "UNPHASE", "ERROR", "ASSERT", "EXITR", "WHILE", "ENDW", "WEND",
                 "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
                 "REPT", "ENDR", "DUP", "EDUP", "MACRO", "ENDM", "EXITM", "LOCAL", "PROC", "ENDP", "SHIFT"
             };
@@ -3548,14 +3602,16 @@ class Strings {
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
-                if (process_repeat(current_line))
-                    continue;
                 if (process_conditional_directives()) {
                     if (m_end_of_source)
                         return false;
                     continue;
                 }
                 if (!m_policy.is_conditional_block_active())
+                    continue;
+                if (process_while(current_line))
+                    continue;
+                if (process_repeat(current_line))
                     continue;
                 if (process_defines())
                     continue;
@@ -3631,6 +3687,24 @@ class Strings {
                 return true;
             }
             return false;            
+        }
+        bool process_while(const std::string& line) {
+            if (!m_policy.context().assembler.m_options.directives.enabled)
+                return false;
+            if (m_policy.context().assembler.m_options.directives.allow_while) {
+                if (m_tokens.count() >= 2 && m_tokens[0].upper() == "WHILE") {
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    const std::string& expr_str = m_tokens[1].original();
+                    m_policy.on_while_directive(expr_str);
+                    return true;
+                }
+                if (m_tokens.count() == 1 && (m_tokens[0].upper() == "ENDW")) {
+                    m_policy.on_endw_directive();
+                    return true;
+                }
+                return m_policy.on_while_recording(line);
+            }
+            return false;
         }
         bool process_repeat(const std::string& line) {
             if (!m_policy.context().assembler.m_options.directives.enabled)
@@ -3778,7 +3852,7 @@ class Strings {
                 if (Keywords::is_valid_label_name(label) && !Keywords::is_reserved(m_tokens[0].upper())) {
                     m_tokens.merge(2, m_tokens.count() - 1);
                     const std::string& value = m_tokens[2].original();
-                    if (const_opts.assignments_as_eqs && const_opts.allow_equ)
+                    if (!const_opts.assignments_as_set && const_opts.allow_equ)
                         m_policy.on_equ_directive(label, value);
                     else if (const_opts.allow_set)
                         m_policy.on_set_directive(label, value);
