@@ -260,7 +260,6 @@
 // -----------------
 // - Nested `WHILE` loops are not supported.
 // - Placing a `WHILE` loop inside a `REPT` block is not supported and will lead to errors.
-// - Using the `END` directive inside a `REPT` block will terminate assembly prematurely.
 // - There is no `EXITW` directive to exit a `WHILE` loop; use conditional logic inside the loop.
 //
 // Supported Instructions (Mnemonics)
@@ -3660,11 +3659,9 @@ class Strings {
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
-                if (process_conditional_directives()) {
-                    if (m_end_of_source)
-                        return false;
+                if (process_conditional_directives())
                     continue;
-                }
+
                 if (!m_policy.is_conditional_block_active())
                     continue;
                 if (process_while(current_line))
@@ -3679,6 +3676,8 @@ class Strings {
                     continue;
                 if (process_non_conditional_directives())
                     continue;
+                if (m_end_of_source)
+                    return false;
                 process_instruction();
             }
             return true;
@@ -3853,10 +3852,7 @@ class Strings {
             if (m_tokens.count() == 0)
                 return false;
             const std::string& directive = m_tokens[0].upper();
-            if (directive == "END") {
-                m_end_of_source = true;
-                return true;
-            } else if (directive == "IF") {
+            if (directive == "IF") {
                 if (m_tokens.count() < 2)
                     m_policy.context().assembler.report_error("IF directive requires an expression.");
                 m_tokens.merge(1, m_tokens.count() - 1);
@@ -3976,8 +3972,11 @@ class Strings {
             const auto& directive_token = m_tokens[0];
             const std::string& directive_upper = directive_token.upper();
             if (directive_upper == "ERROR") {
-                if (m_tokens.count() < 2)
-                    m_policy.context().assembler.report_error("ERROR directive requires a message.");
+                if (m_tokens.count() < 2) {
+                    m_policy.on_error_directive("");
+                    return true;
+                }
+                m_policy.context().assembler.report_error("ERROR directive requires a message.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_error_directive(m_tokens[1].original());
                 return true;
@@ -3994,6 +3993,10 @@ class Strings {
                 m_tokens.merge(1, m_tokens.count() - 1);
                 auto args = m_tokens[1].to_arguments();
                 m_policy.on_display_directive(args);
+                return true;
+            }
+            if (directive_upper == "END") {
+                m_end_of_source = true;
                 return true;
             }
             return false;

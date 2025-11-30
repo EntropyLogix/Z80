@@ -90,13 +90,13 @@ void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_
     Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider, options);
     bool success = true;
     try {
-        success = assembler.compile("main.asm", 0x0000);
+        assembler.compile("main.asm", 0x0000);
     } catch (const std::runtime_error& e) {
         success = false;
     }
     if (!success) {
         std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
-        std::cerr << "Assertion failed: Compilation failed for '" << asm_code << "'\n";
+        std::cerr << "Assertion failed: Compilation failed with an exception for '" << asm_code << "'\n";
         tests_failed++;
         return;
     }
@@ -3280,6 +3280,80 @@ TEST_CASE(TernaryOperator) {
         label?: NOP
         JP label?
     )", {0x00, 0xC3, 0x00, 0x00});
+}
+
+TEST_CASE(EndDirective) {
+    // Test 1: Basic END directive stops assembly.
+    ASSERT_CODE(R"(
+        NOP
+        END
+        HALT ; This should be ignored
+    )", {0x00});
+
+    // Test 2: END inside an IF block that is true.
+    ASSERT_CODE(R"(
+        NOP
+        IF 1
+            END
+        ENDIF
+        HALT ; This should be ignored
+    )", {0x00});
+
+    // Test 3: END inside an IF block that is false is ignored.
+    ASSERT_CODE(R"(
+        NOP
+        IF 0
+            END
+        ENDIF
+        HALT ; This should be processed
+    )", {0x00, 0x76});
+
+    // Test 4: END inside a REPT block.
+    // With REPT 0, the block is skipped, and END is not processed.
+    ASSERT_CODE(R"(
+        NOP
+        REPT 0
+            END
+        ENDR
+        HALT ; This should be processed
+    )", {0x00, 0x76});
+
+    // With REPT 1, the block is processed once, and END terminates assembly.
+    ASSERT_CODE(R"(
+        NOP
+        REPT 1
+            END
+        ENDR
+        HALT ; This should be ignored
+    )", {0x00});
+
+    // Test 4b: Code before END inside a REPT block is executed.
+    ASSERT_CODE(R"(
+        REPT 2
+            NOP ; This should be assembled on the first iteration
+            END
+        ENDR
+        HALT ; This should be ignored
+    )", {0x00});
+
+    // Test 5: END inside a macro.
+    ASSERT_CODE(R"(
+        STOP_MACRO MACRO
+            END
+        ENDM
+        NOP
+        STOP_MACRO
+        HALT ; This should be ignored
+    )", {0x00});
+
+    // Test 6: END inside a macro that is not called.
+    ASSERT_CODE(R"(
+        STOP_MACRO MACRO
+            END
+        ENDM
+        NOP
+        HALT ; This should be processed
+    )", {0x00, 0x76});
 }
 
 TEST_CASE(PhaseVariable) {
