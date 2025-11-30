@@ -3655,19 +3655,19 @@ class Strings {
             m_policy.context().source.lines_stack.clear();
             m_policy.context().source.lines_stack.push_back(initial_line);
             while (!m_policy.context().source.lines_stack.empty() || m_policy.context().macros.in_expansion) {
-                if (m_policy.context().macros.in_expansion) {
-                    m_policy.on_macro_line();
-                    if (m_policy.context().source.lines_stack.empty())
-                        continue;
-                }
+                if (expand_macro())
+                    continue;
                 std::string current_line = m_policy.context().source.lines_stack.back();
                 m_policy.context().source.lines_stack.pop_back();
                 m_tokens.process(current_line);
                 if (m_tokens.count() == 0)
                     continue;
+
+                //apply_defines();
+                //perform_recordings();
+
                 if (process_conditional_directives())
                     continue;
-
                 if (!m_policy.is_conditional_block_active())
                     continue;
                 if (process_while(current_line))
@@ -3689,6 +3689,13 @@ class Strings {
             return true;
         }
     private:
+        bool expand_macro() {
+            if (m_policy.context().macros.in_expansion) {
+                m_policy.on_macro_line();
+                return m_policy.context().source.lines_stack.empty();
+            }
+            return false;
+        }
         bool process_defines() {
             const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
             if (const_opts.enabled && const_opts.allow_define && m_tokens.count() >= 2) {
