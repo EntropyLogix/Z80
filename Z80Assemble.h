@@ -258,7 +258,6 @@
 //
 // Known Limitations
 // -----------------
-// - Nested `WHILE` loops are not supported.
 // - Placing a `WHILE` loop inside a `REPT` block is not supported and will lead to errors.
 // - There is no `EXITW` directive to exit a `WHILE` loop; use conditional logic inside the loop.
 //
@@ -1917,22 +1916,27 @@ class Strings {
         }
         virtual void on_endw_directive() override {
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::WHILE) {
-                m_context.assembler.report_error("Mismatched ENDW. An ENDIF, ENDR or ENDP might be missing.");
+                m_context.assembler.report_error("Mismatched ENDW. An ENDIF, ENDR, or ENDP might be missing.");
                 return;
             }
             typename Context::While::State while_block = m_context.while_loop.stack.back();
             m_context.while_loop.stack.pop_back();
             m_context.source.control_stack.pop_back();
+            std::vector<std::string> lines_to_reprocess;
+            lines_to_reprocess.push_back("WHILE " + while_block.expression);
+            lines_to_reprocess.insert(lines_to_reprocess.end(), while_block.body.begin(), while_block.body.end());
+            lines_to_reprocess.push_back("ENDW");
             if (while_block.active) {
-                std::vector<std::string> lines_to_reprocess;
-                lines_to_reprocess.push_back("WHILE " + while_block.expression);
-                lines_to_reprocess.insert(lines_to_reprocess.end(), while_block.body.begin(), while_block.body.end());
-                lines_to_reprocess.push_back("ENDW");
                 if (m_context.macros.in_expansion && !m_context.macros.stack.empty()) {
                     typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
                     current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, lines_to_reprocess.begin(), lines_to_reprocess.end());
                 } else
                     m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), lines_to_reprocess.rbegin(), lines_to_reprocess.rend());
+            } else {
+                if (!m_context.while_loop.stack.empty()) {
+                    auto& parent_while = m_context.while_loop.stack.back();
+                    parent_while.body.insert(parent_while.body.end(), lines_to_reprocess.begin(), lines_to_reprocess.end());
+                }
             }
         }
         virtual bool on_while_recording(const std::string& line) override {
@@ -2173,13 +2177,15 @@ class Strings {
         }
         virtual void on_while_directive(const std::string& expression, bool stop_on_evaluate_error) {
             bool condition_result = false;
-            Expressions expr_eval(*this);
-            int32_t value;
-            if (expr_eval.evaluate(expression, value))
-                condition_result = (value != 0);
-            else {
-                if (stop_on_evaluate_error)
-                    m_context.assembler.report_error("Invalid WHILE expression: " + expression);
+            if (m_context.while_loop.stack.empty() || m_context.while_loop.stack.back().active) {
+                Expressions expr_eval(*this);
+                int32_t value;
+                if (expr_eval.evaluate(expression, value))
+                    condition_result = (value != 0);
+                else {
+                    if (stop_on_evaluate_error)
+                        m_context.assembler.report_error("Invalid WHILE expression: " + expression);
+                }
             }
             m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
             m_context.while_loop.stack.push_back({expression, {}, condition_result});
