@@ -2038,13 +2038,18 @@ class Strings {
                 if (m_context.repeat.stack.empty()) {                
                     typename Strings::Tokens tokens;
                     tokens.process(line);
-                    if (tokens.count() == 1) {
-                        if (tokens[0].upper() == "SHIFT") {
+                    if (tokens.count() > 0) {
+                        const std::string& directive = tokens[0].upper();
+                        if (directive == "SHIFT") {
+                            if (tokens.count() > 1)
+                                m_context.assembler.report_error("SHIFT directive does not take any arguments.");
                             if (!current_macro_state.parameters.empty())
                                 current_macro_state.parameters.erase(current_macro_state.parameters.begin());
                             return;
                         }
-                        else if (tokens[0].upper() == "EXITM") {
+                        else if (directive == "EXITM") {
+                            if (tokens.count() > 1)
+                                m_context.assembler.report_error("EXITM directive does not take any arguments.");
                             m_context.macros.is_exiting = true;
                             return;
                         }
@@ -3662,9 +3667,7 @@ class Strings {
                 m_tokens.process(m_line);
                 if (m_tokens.count() == 0)
                     continue;
-
-                //apply_defines();
-
+                apply_defines();
                 if (process_conditional_directives())
                     continue;
                 if (!m_policy.is_conditional_block_active())
