@@ -1689,7 +1689,6 @@ class Strings {
         virtual void on_while_directive(const std::string& expression) = 0;
         virtual void on_endw_directive() = 0;
         virtual bool on_while_recording(const std::string& line) = 0;
-        virtual bool is_conditional_block_active() const = 0;
         virtual void on_rept_directive(const std::string& expression) = 0;
         virtual bool on_repeat_recording(const std::string& line) = 0;
         virtual void on_endr_directive() = 0;
@@ -1814,7 +1813,7 @@ class Strings {
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
         virtual void on_ifdef_directive(const std::string& symbol) override {
-            bool parent_active = is_conditional_block_active();
+            bool parent_active = is_in_active_block();
             bool is_defined_in_symbols = false;
             int32_t dummy;
             is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
@@ -1824,7 +1823,7 @@ class Strings {
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifndef_directive(const std::string& symbol) override {            
-            bool parent_active = is_conditional_block_active();
+            bool parent_active = is_in_active_block();
             bool is_defined_in_symbols = false;
             int32_t dummy;
             is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
@@ -1834,13 +1833,13 @@ class Strings {
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifnb_directive(const std::string& arg) override {            
-            bool parent_active = is_conditional_block_active();
+            bool parent_active = is_in_active_block();
             bool condition_result = parent_active && !arg.empty();
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
         virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {            
-            bool parent_active = is_conditional_block_active();
+            bool parent_active = is_in_active_block();
             std::string s1 = arg1;
             std::string s2 = arg2;
             if (s1.length() >= 2 && s1.front() == '<' && s1.back() == '>')
@@ -2144,12 +2143,12 @@ class Strings {
             line = final_line;
         }
     protected:
-        bool is_conditional_block_active() const {
+        bool is_in_active_block() const {
             return m_context.source.conditional_stack.empty() || m_context.source.conditional_stack.back().is_active;
         }
         void on_if_directive(const std::string& expression, bool stop_on_evaluate_error) {
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
-            bool parent_active = is_conditional_block_active();
+            bool parent_active = is_in_active_block();
             bool condition_result = false;
             if (parent_active) {
                 Expressions expr_eval(*this);
@@ -3668,27 +3667,30 @@ class Strings {
                 apply_defines();
                 if (process_conditional_directives())
                     continue;
-                if (!m_policy.is_conditional_block_active())
+                if (process_loops())
                     continue;
-                if (process_while())
-                    continue;
-                if (process_repeat())
-                    continue;
-                if (process_defines())
-                    continue;
-                if (process_macro())
-                    continue;
-                if (process_label())
-                    continue;
-                if (process_non_conditional_directives())
-                    continue;
-                if (m_end_of_source)
-                    return false;
-                process_instruction();
+                if (is_in_active_block()) {
+                    if (process_recordings())
+                        continue;
+                    if (process_defines())
+                        continue;
+                    if (process_macro())
+                        continue;
+                    if (process_label())
+                        continue;
+                    if (process_non_conditional_directives())
+                        continue;
+                    if (m_end_of_source)
+                        return false;
+                    process_instruction();
+                }
             }
             return true;
         }
     private:
+        bool is_in_active_block() {
+            return m_policy.context().source.conditional_stack.empty() || m_policy.context().source.conditional_stack.back().is_active;
+        }
         bool expand_macro() {
             if (m_policy.context().macros.in_expansion) {
                 m_policy.on_macro_line();
@@ -3740,7 +3742,6 @@ class Strings {
                     return true;
                 }
             }
-            apply_defines();
             return false;
         }
         bool process_macro() {
@@ -3761,7 +3762,7 @@ class Strings {
             }
             return false;            
         }
-        bool process_while() {
+        bool process_loops() {
             if (!m_policy.context().assembler.m_options.directives.enabled)
                 return false;
             if (m_policy.context().assembler.m_options.directives.allow_while) {
@@ -3775,13 +3776,7 @@ class Strings {
                     m_policy.on_endw_directive();
                     return true;
                 }
-                return m_policy.on_while_recording(m_line);
             }
-            return false;
-        }
-        bool process_repeat() {
-            if (!m_policy.context().assembler.m_options.directives.enabled)
-                return false;
             if (m_policy.context().assembler.m_options.directives.allow_repeat) {
                 if (m_tokens.count() >= 2 && (m_tokens[0].upper() == "REPT" || m_tokens[0].upper() == "DUP")) {
                     m_tokens.merge(1, m_tokens.count() - 1);
@@ -3793,7 +3788,19 @@ class Strings {
                     m_policy.on_endr_directive();
                     return true;
                 }
-                return m_policy.on_repeat_recording(m_line);
+            }
+            return false;
+        }
+        bool process_recordings() {
+            if (!m_policy.context().assembler.m_options.directives.enabled)
+                return false;
+            if (m_policy.context().assembler.m_options.directives.allow_while) {
+                if (m_policy.on_while_recording(m_line))
+                    return true;
+            }
+            if (m_policy.context().assembler.m_options.directives.allow_repeat) {
+                if (is_in_active_block() && m_policy.on_repeat_recording(m_line))
+                    return true;
             }
             return false;
         }
