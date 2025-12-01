@@ -3657,22 +3657,21 @@ class Strings {
             while (!m_policy.context().source.lines_stack.empty() || m_policy.context().macros.in_expansion) {
                 if (expand_macro())
                     continue;
-                std::string current_line = m_policy.context().source.lines_stack.back();
+                m_line = m_policy.context().source.lines_stack.back();
                 m_policy.context().source.lines_stack.pop_back();
-                m_tokens.process(current_line);
+                m_tokens.process(m_line);
                 if (m_tokens.count() == 0)
                     continue;
 
                 //apply_defines();
-                //perform_recordings();
 
                 if (process_conditional_directives())
                     continue;
                 if (!m_policy.is_conditional_block_active())
                     continue;
-                if (process_while(current_line))
+                if (process_while())
                     continue;
-                if (process_repeat(current_line))
+                if (process_repeat())
                     continue;
                 if (process_defines())
                     continue;
@@ -3696,6 +3695,28 @@ class Strings {
             }
             return false;
         }
+        void apply_defines() {
+            const auto& defines_map = m_policy.context().defines.map;
+            if (defines_map.empty())
+                return;
+            std::string rebuilt_line;
+            for (size_t i = 0; i < m_tokens.count(); ++i) {
+                std::string token_str = m_tokens[i].original();
+                if (!(token_str.length() > 1 && token_str.front() == '"' && token_str.back() == '"')) {
+                    std::set<std::string> visited;
+                    while (defines_map.count(token_str)) {
+                        if (visited.count(token_str))
+                            m_policy.context().assembler.report_error("Circular DEFINE reference detected for '" + token_str + "'");
+                        visited.insert(token_str);
+                        token_str = defines_map.at(token_str);
+                    }
+                }
+                if (!rebuilt_line.empty())
+                    rebuilt_line += " ";
+                rebuilt_line += token_str;
+            }
+            m_tokens.process(rebuilt_line);
+        }
         bool process_defines() {
             const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
             if (const_opts.enabled && const_opts.allow_define && m_tokens.count() >= 2) {
@@ -3718,26 +3739,7 @@ class Strings {
                     return true;
                 }
             }
-            const auto& defines_map = m_policy.context().defines.map;
-            if (defines_map.empty())
-                return false;
-            std::string rebuilt_line;
-            for (size_t i = 0; i < m_tokens.count(); ++i) {
-                std::string token_str = m_tokens[i].original();
-                if (!(token_str.length() > 1 && token_str.front() == '"' && token_str.back() == '"')) {
-                    std::set<std::string> visited;
-                    while (defines_map.count(token_str)) {
-                        if (visited.count(token_str))
-                            m_policy.context().assembler.report_error("Circular DEFINE reference detected for '" + token_str + "'");
-                        visited.insert(token_str);
-                        token_str = defines_map.at(token_str);
-                    }
-                }
-                if (!rebuilt_line.empty())
-                    rebuilt_line += " ";
-                rebuilt_line += token_str;
-            }
-            m_tokens.process(rebuilt_line);
+            apply_defines();
             return false;
         }
         bool process_macro() {
@@ -3758,7 +3760,7 @@ class Strings {
             }
             return false;            
         }
-        bool process_while(const std::string& line) {
+        bool process_while() {
             if (!m_policy.context().assembler.m_options.directives.enabled)
                 return false;
             if (m_policy.context().assembler.m_options.directives.allow_while) {
@@ -3772,11 +3774,11 @@ class Strings {
                     m_policy.on_endw_directive();
                     return true;
                 }
-                return m_policy.on_while_recording(line);
+                return m_policy.on_while_recording(m_line);
             }
             return false;
         }
-        bool process_repeat(const std::string& line) {
+        bool process_repeat() {
             if (!m_policy.context().assembler.m_options.directives.enabled)
                 return false;
             if (m_policy.context().assembler.m_options.directives.allow_repeat) {
@@ -3790,7 +3792,7 @@ class Strings {
                     m_policy.on_endr_directive();
                     return true;
                 }
-                return m_policy.on_repeat_recording(line);
+                return m_policy.on_repeat_recording(m_line);
             }
             return false;
         }
@@ -4062,6 +4064,7 @@ class Strings {
             return false;
         }
         IPhasePolicy& m_policy;
+        std::string m_line;
         typename Strings::Tokens m_tokens;
         bool m_end_of_source = false;
     };
