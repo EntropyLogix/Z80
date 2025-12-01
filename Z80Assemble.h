@@ -835,12 +835,12 @@ class Strings {
         }
         Context& m_context;
     };
-    class OperandParser {
+    class Operands {
     public:
-        OperandParser(IPhasePolicy& policy) : m_policy(policy) {}
-        enum class OperandType { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, CHAR_LITERAL, STRING_LITERAL, UNKNOWN };
+        Operands(IPhasePolicy& policy) : m_policy(policy) {}
         struct Operand {
-            OperandType type = OperandType::UNKNOWN;
+            enum class Type { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, CHAR_LITERAL, STRING_LITERAL, UNKNOWN };
+            Type type = Type::UNKNOWN;
             std::string str_val;
             int32_t num_val = 0;
             int16_t offset = 0;
@@ -851,24 +851,24 @@ class Strings {
             operand.str_val = operand_string;
             std::string upper_operand_string = operand_string;
             if (upper_operand_string == "(C)") {
-                 operand.type = OperandType::MEM_REG16;
+                 operand.type = Operand::Type::MEM_REG16;
                  operand.str_val = "C";
                  return operand;
             }
             if ((mnemonic == "RET" || mnemonic == "JP" || mnemonic == "CALL" || mnemonic == "JR") && is_condition(upper_operand_string)) {
-                operand.type = OperandType::CONDITION;
+                operand.type = Operand::Type::CONDITION;
                 return operand;
             }
             if (is_reg8(upper_operand_string)) {
-                operand.type = OperandType::REG8;
+                operand.type = Operand::Type::REG8;
                 return operand;
             }
             if (is_reg16(upper_operand_string)) {
-                operand.type = OperandType::REG16;
+                operand.type = Operand::Type::REG16;
                 return operand;
             }
             if (is_condition(upper_operand_string)) {
-                operand.type = OperandType::CONDITION;
+                operand.type = Operand::Type::CONDITION;
                 return operand;
             }
             if (is_mem_ptr(operand_string)) {
@@ -879,7 +879,7 @@ class Strings {
                 Strings::to_upper(upper_inner);
                 if (is_reg16(upper_inner)) {
                     // Handle (REG16)
-                    operand.type = OperandType::MEM_REG16;
+                    operand.type = Operand::Type::MEM_REG16;
                     operand.str_val = upper_inner;
                     return operand;
                 }
@@ -894,7 +894,7 @@ class Strings {
                         int32_t offset_val;
                         if (Strings::is_number(offset_str, offset_val)) {
                             // Handle (IX/IY +/- d)
-                            operand.type = OperandType::MEM_INDEXED;
+                            operand.type = Operand::Type::MEM_INDEXED;
                             operand.base_reg = base_reg_str;
                             operand.offset = (int16_t)(offset_val);
                             return operand;
@@ -905,7 +905,7 @@ class Strings {
                 int32_t inner_num_val = 0;
                 if (expression.evaluate(inner, inner_num_val)) {
                     // Handle (number) or (LABEL)
-                    operand.type = OperandType::MEM_IMMEDIATE;
+                    operand.type = Operand::Type::MEM_IMMEDIATE;
                     operand.num_val = inner_num_val;
                     return operand;
                 }
@@ -915,10 +915,10 @@ class Strings {
             if (expression.evaluate(operand_string, value)) {
                 if (value.type == Expressions::Value::Type::STRING) {
                     operand.str_val = value.s_val;
-                    operand.type = OperandType::STRING_LITERAL;
+                    operand.type = Operand::Type::STRING_LITERAL;
                 } else {
                     operand.num_val = (int32_t)value.n_val;
-                    operand.type = OperandType::IMMEDIATE;
+                    operand.type = Operand::Type::IMMEDIATE;
                 }
                 return operand;
             }
@@ -1649,8 +1649,8 @@ class Strings {
     };
     class IPhasePolicy {
     public:
-        using Operand = typename OperandParser::Operand;
-        using OperandType = typename OperandParser::OperandType;
+        using Operand = typename Operands::Operand;
+        using OperandType = typename Operands::Operand::Type;
 
         virtual ~IPhasePolicy() = default;
         virtual Context& context() = 0;
@@ -2210,8 +2210,8 @@ class Strings {
     };
     class SymbolsPhase : public BasePolicy {
     public:
-        using Operand = typename OperandParser::Operand;
-        using OperandType = typename OperandParser::OperandType;
+        using Operand = typename Operands::Operand;
+        using OperandType = typename Operands::Operand::Type;
 
         SymbolsPhase(Context& context, int max_pass) : BasePolicy(context), m_max_pass(max_pass) {}
         virtual ~SymbolsPhase() {}
@@ -2327,7 +2327,7 @@ class Strings {
         virtual void on_dephase_directive() override {
             this->m_context.address.current_logical = this->m_context.address.current_physical;
         }
-        virtual bool on_operand_not_matching(const Operand& operand, typename OperandParser::OperandType expected) override {
+        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override {
             if (operand.type == OperandType::UNKNOWN)
                 return expected == OperandType::IMMEDIATE || expected == OperandType::MEM_IMMEDIATE;
             return false;
@@ -2405,8 +2405,8 @@ class Strings {
     };
     class AssemblyPhase : public BasePolicy {
     public:
-        using Operand = typename OperandParser::Operand;
-        using OperandType = typename OperandParser::OperandType;
+        using Operand = typename Operands::Operand;
+        using OperandType = typename Operands::Operand::Type;
         
         AssemblyPhase(Context& context) : BasePolicy(context) {}
         virtual ~AssemblyPhase() = default;
@@ -2570,7 +2570,7 @@ class Strings {
     class Instructions{
     public:
         Instructions(IPhasePolicy& policy) : m_policy(policy) {}
-        bool encode(const std::string& mnemonic, const std::vector<typename OperandParser::Operand>& operands) {
+        bool encode(const std::string& mnemonic, const std::vector<typename Operands::Operand>& operands) {
             if (Keywords::is_directive(mnemonic)) {
                 if (encode_data_block(mnemonic, operands))
                     return true;
@@ -2613,8 +2613,8 @@ class Strings {
             static const std::map<std::string, uint8_t> map = { {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}};
             return map;
         }
-        using Operand = typename OperandParser::Operand;
-        using OperandType = typename OperandParser::OperandType;
+        using Operand = typename Operands::Operand;
+        using OperandType = typename Operands::Operand::Type;
         bool match(const Operand& operand, OperandType expected) const {
             bool match = operand.type == expected;
             if (!match)
@@ -3854,8 +3854,8 @@ class Strings {
         bool process_instruction() {
             if (m_tokens.count() > 0) {
                 std::string mnemonic = m_tokens[0].upper();
-                OperandParser operand_parser(m_policy);
-                std::vector<typename OperandParser::Operand> operands;
+                Operands operand_parser(m_policy);
+                std::vector<typename Operands::Operand> operands;
                 if (m_tokens.count() > 1) {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     auto arg_tokens = m_tokens[1].to_arguments();
