@@ -251,7 +251,7 @@
 // Other Directives:
 //   Directive | Syntax                     | Description
 //   ----------|----------------------------|------------------------------------------------------------------
-//   DISPLAY   | DISPLAY <msg>, <expr>...   | Prints a message or value to the console during compilation.
+//   DISPLAY   | DISPLAY <msg>, <expr>...   | Prints a message or value to the console during compilation. (Alias: ECHO)
 //   ERROR     | ERROR "<message>"          | Halts compilation and prints an error message.
 //   ASSERT    | ASSERT <expression>        | Halts compilation if the expression evaluates to false (zero).
 //   END       | END                        | Terminates the assembly process.
@@ -2556,11 +2556,12 @@ class Strings {
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-                "DB", "DEFB", "BYTE", "DM", "DEFS", "DEFW", "DW", "WORD", "DWORD", "DD", "DQ", "DS", "BLOCK", "ORG", "DH", "HEX", "DEFH", "DZ", "ASCIZ", "DG", "DEFG",
-                "EQU", "SET", "DEFL", "DEFINE", "UNDEFINE",
-                "INCLUDE", "ALIGN", "INCBIN", "BINARY", "PHASE", "DEPHASE", "UNPHASE", "ERROR", "ASSERT", "EXITR", "WHILE", "ENDW", "WEND",
-                "IF", "ELSE", "ENDIF", "IFDEF", "IFNDEF", "IFNB", "IFIDN", "DISPLAY", "END",
-                "REPT", "ENDR", "DUP", "EDUP", "MACRO", "ENDM", "EXITM", "LOCAL", "PROC", "ENDP", "SHIFT"
+                "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BYTE", "DB", "DD", "DEFB", "DEFH",
+                "DEFINE", "DEFL", "DEFG", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM",
+                "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM",
+                "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF",
+                "IFIDN", "IFNB", "IFNDEF", "INCBIN", "INCLUDE", "LOCAL", "MACRO", "ORG", "PHASE",
+                "PROC", "REPT", "SET", "SHIFT", "UNDEFINE", "UNPHASE", "WEND", "WHILE", "WORD"
             };
             return directives;
         }
@@ -4003,8 +4004,7 @@ class Strings {
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_assert_directive(m_tokens[1].original());
                 return true;
-            }
-            if (directive_upper == "DISPLAY") {
+            } else if (directive_upper == "DISPLAY" || directive_upper == "ECHO") {
                 if (m_tokens.count() < 2)
                     m_policy.context().assembler.report_error("DISPLAY directive requires arguments.");
                 m_tokens.merge(1, m_tokens.count() - 1);
