@@ -2041,15 +2041,14 @@ class Strings {
                     if (tokens.count() > 0) {
                         const std::string& directive = tokens[0].upper();
                         if (directive == "SHIFT") {
-                            if (tokens.count() > 1)
-                                m_context.assembler.report_error("SHIFT directive does not take any arguments.");
+                            if (tokens.count() > 1) m_context.assembler.report_error("SHIFT directive expects no parameters.");
                             if (!current_macro_state.parameters.empty())
                                 current_macro_state.parameters.erase(current_macro_state.parameters.begin());
                             return;
                         }
                         else if (directive == "EXITM") {
                             if (tokens.count() > 1)
-                                m_context.assembler.report_error("EXITM directive does not take any arguments.");
+                                m_context.assembler.report_error("EXITM directive expects no parameters.");
                             m_context.macros.is_exiting = true;
                             return;
                         }
