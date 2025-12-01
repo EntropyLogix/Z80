@@ -277,7 +277,6 @@
 // - Call and Return: CALL, RET, RETI, RETN, RST
 // - Input and Output: IN, INI, INIR, IND, INDR, OUT, OUTI, OTIR, OUTD, OTDR
 // - Undocumented: SLL (alias SLI), OUT (C), etc.
-
 #ifndef __Z80ASSEMBLE_H__
 #define __Z80ASSEMBLE_H__
 
@@ -836,7 +835,6 @@ class Strings {
         }
         Context& m_context;
     };
-    class IPhasePolicy;
     class OperandParser {
     public:
         OperandParser(IPhasePolicy& policy) : m_policy(policy) {}
@@ -1322,9 +1320,9 @@ class Strings {
             std::string upper_symbol = symbol_str;
             Strings::to_upper(upper_symbol);
             auto const_it = get_constant_map().find(upper_symbol);
-            if (const_it != get_constant_map().end()) {
+            if (const_it != get_constant_map().end())
                 tokens.push_back({Token::Type::NUMBER, "", const_it->second});
-            } else if (get_function_map().count(upper_symbol)) {
+            else if (get_function_map().count(upper_symbol)) {
                 size_t next_char_idx = j;
                 while (next_char_idx < expr.length() && isspace(expr[next_char_idx]))
                     next_char_idx++;
