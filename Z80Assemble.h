@@ -1916,23 +1916,21 @@ class Strings {
                 m_context.assembler.report_error("Mismatched ENDW. An ENDIF, ENDR, or ENDP might be missing.");
                 return;
             }
-            typename Context::While::State while_block = m_context.while_loop.stack.back();
+            typename Context::While::State while_block = std::move(m_context.while_loop.stack.back());
             m_context.while_loop.stack.pop_back();
             m_context.source.control_stack.pop_back();
-            std::vector<std::string> lines_to_reprocess;
-            lines_to_reprocess.push_back("WHILE " + while_block.expression);
-            lines_to_reprocess.insert(lines_to_reprocess.end(), while_block.body.begin(), while_block.body.end());
-            lines_to_reprocess.push_back("ENDW");
+            while_block.body.insert(while_block.body.begin(), "WHILE " + while_block.expression);
+            while_block.body.push_back("ENDW");
             if (while_block.active) {
                 if (m_context.macros.in_expansion && !m_context.macros.stack.empty()) {
                     typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
-                    current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, lines_to_reprocess.begin(), lines_to_reprocess.end());
+                    current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, std::make_move_iterator(while_block.body.begin()), std::make_move_iterator(while_block.body.end()));
                 } else
-                    m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), lines_to_reprocess.rbegin(), lines_to_reprocess.rend());
+                    m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), std::make_move_iterator(while_block.body.rbegin()), std::make_move_iterator(while_block.body.rend()));
             } else {
                 if (!m_context.while_loop.stack.empty()) {
                     auto& parent_while = m_context.while_loop.stack.back();
-                    parent_while.body.insert(parent_while.body.end(), lines_to_reprocess.begin(), lines_to_reprocess.end());
+                    parent_while.body.insert(parent_while.body.end(), std::make_move_iterator(while_block.body.begin()), std::make_move_iterator(while_block.body.end()));
                 }
             }
         }
