@@ -1986,7 +1986,6 @@ class Strings {
             }
             m_context.source.control_stack.pop_back();
             typename Context::Repeat::State& rept_block = m_context.repeat.stack.back();
-
             std::vector<std::string> expanded_lines;
             for (size_t i = 0; i < rept_block.count; ++i) {
                 rept_block.current_iteration = i + 1;
@@ -2001,14 +2000,11 @@ class Strings {
                     expanded_lines.push_back(line);
                 }
             }
-
             if (m_context.macros.in_expansion && !m_context.macros.stack.empty()) {
                 typename Context::Macros::ExpansionState& current_macro_state = m_context.macros.stack.back();
                 current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, expanded_lines.begin(), expanded_lines.end());
-            } else {
+            } else
                 m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), expanded_lines.rbegin(), expanded_lines.rend());
-            }
-
             m_context.repeat.stack.pop_back();
         }
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) {
@@ -3765,7 +3761,7 @@ class Strings {
         bool process_loops() {
             if (!m_policy.context().assembler.m_options.directives.enabled)
                 return false;
-            if (m_policy.context().assembler.m_options.directives.allow_while) {
+            if (m_policy.context().assembler.m_options.directives.allow_while && !is_in_repeat_block()) {
                 if (m_tokens.count() >= 2 && m_tokens[0].upper() == "WHILE") {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     const std::string& expr_str = m_tokens[1].original();
@@ -3794,7 +3790,7 @@ class Strings {
         bool process_recordings() {
             if (!m_policy.context().assembler.m_options.directives.enabled)
                 return false;
-            if (m_policy.context().assembler.m_options.directives.allow_while) {
+            if (m_policy.context().assembler.m_options.directives.allow_while && !is_in_repeat_block()) {
                 if (m_policy.on_while_recording(m_line))
                     return true;
             }
