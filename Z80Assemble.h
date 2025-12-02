@@ -1917,7 +1917,7 @@ class Strings {
         }
         virtual void on_endw_directive() override {
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::WHILE) {
-                m_context.assembler.report_error("Mismatched ENDW. An ENDIF, ENDR, or ENDP might be missing.");
+                m_context.assembler.report_error("Mismatched ENDW.");
                 return;
             }
             typename Context::While::State while_block = std::move(m_context.while_loop.stack.back());
@@ -1974,7 +1974,7 @@ class Strings {
             if (m_context.source.conditional_stack.empty())
                 m_context.assembler.report_error("ENDIF without IF");
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::CONDITIONAL)
-                m_context.assembler.report_error("Mismatched ENDIF. An ENDR or ENDP might be missing.");
+                m_context.assembler.report_error("Mismatched ENDIF.");
             m_context.source.control_stack.pop_back();
             m_context.source.conditional_stack.pop_back();
         }
@@ -1988,7 +1988,7 @@ class Strings {
         }
         virtual void on_endr_directive() override {
             if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPEAT) {
-                m_context.assembler.report_error("Mismatched ENDR. An ENDIF might be missing.");
+                m_context.assembler.report_error("Mismatched ENDR.");
             }
             m_context.source.control_stack.pop_back();
             typename Context::Repeat::State& rept_block = m_context.repeat.stack.back();
@@ -3973,7 +3973,7 @@ class Strings {
                 }
                 if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDP") {
                     if (m_policy.context().source.control_stack.empty() || m_policy.context().source.control_stack.back() != Context::Source::ControlType::PROCEDURE)
-                        m_policy.context().assembler.report_error("Mismatched ENDP. An ENDIF or ENDR might be missing.");
+                        m_policy.context().assembler.report_error("Mismatched ENDP.");
                     m_policy.on_proc_end();
                     m_policy.context().source.control_stack.pop_back();
                     return true;
