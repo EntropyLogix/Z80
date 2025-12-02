@@ -714,6 +714,7 @@ class Strings {
                 std::vector<std::string> body;
                 bool active;
                 size_t skip_lines;
+                bool is_exiting;
             };
             std::vector<State> stack;
         } while_loop;
@@ -1944,7 +1945,7 @@ class Strings {
                     while_block.skip_lines--;
                 } else
                     while_block.body.push_back(line);
-                return !while_block.active;
+                return !while_block.active || while_block.is_exiting;
             }
             return false; 
         }
@@ -2194,7 +2195,7 @@ class Strings {
                 }
             }
             m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
-            m_context.while_loop.stack.push_back({expression, {}, condition_result, 0});
+            m_context.while_loop.stack.push_back({expression, {}, condition_result, 0, false});
         }
         void on_align_directive(const std::string& boundary, bool stop_on_evaluate_error) {
             if (!this->m_context.assembler.m_options.directives.allow_align)
@@ -3806,6 +3807,14 @@ class Strings {
             if (m_policy.context().assembler.m_options.directives.allow_repeat) {
                 if (this->is_in_active_block() && m_policy.on_repeat_recording(m_line))
                     return true;
+            }
+            if (m_tokens.count() == 1 && m_tokens[0].upper() == "EXITW") {
+                if (!is_in_while_block())
+                    m_policy.context().assembler.report_error("EXITW not in WHILE block");
+                auto& while_block = m_policy.context().while_loop.stack.back();
+                if (while_block.active)
+                    while_block.is_exiting = true;
+                return true;
             }
             return false;
         }
