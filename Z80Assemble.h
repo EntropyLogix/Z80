@@ -401,6 +401,7 @@ public:
             do {
                 phase->on_pass_begin();
                 Source source(*phase);
+                m_context.source.parser = &source;
                 for (size_t i = 0; i < source_lines.size(); ++i) {
                     m_context.source.source_location = &source_lines[i];
                     if (!source.process_line(source_lines[i].content))
@@ -697,6 +698,7 @@ class Strings {
             const SourceLine* source_location = nullptr;
             std::vector<std::string> lines_stack;
             std::vector<ConditionalState> conditional_stack;
+            typename Z80Assembler<TMemory>::Source* parser = nullptr;
         } source;
         struct Repeat {
             struct State {
@@ -1813,7 +1815,7 @@ class Strings {
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
         virtual void on_ifdef_directive(const std::string& symbol) override {
-            bool parent_active = is_in_active_block();
+            bool parent_active = this->m_context.source.parser->is_in_active_block();
             bool is_defined_in_symbols = false;
             int32_t dummy;
             is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
@@ -1822,8 +1824,8 @@ class Strings {
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
-        virtual void on_ifndef_directive(const std::string& symbol) override {            
-            bool parent_active = is_in_active_block();
+        virtual void on_ifndef_directive(const std::string& symbol) override {
+            bool parent_active = this->m_context.source.parser->is_in_active_block();
             bool is_defined_in_symbols = false;
             int32_t dummy;
             is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
@@ -1832,14 +1834,14 @@ class Strings {
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
-        virtual void on_ifnb_directive(const std::string& arg) override {            
-            bool parent_active = is_in_active_block();
+        virtual void on_ifnb_directive(const std::string& arg) override {
+            bool parent_active = this->m_context.source.parser->is_in_active_block();
             bool condition_result = parent_active && !arg.empty();
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
-        virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {            
-            bool parent_active = is_in_active_block();
+        virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) override {
+            bool parent_active = this->m_context.source.parser->is_in_active_block();
             std::string s1 = arg1;
             std::string s2 = arg2;
             if (s1.length() >= 2 && s1.front() == '<' && s1.back() == '>')
@@ -2141,12 +2143,9 @@ class Strings {
             line = final_line;
         }
     protected:
-        bool is_in_active_block() const {
-            return m_context.source.conditional_stack.empty() || m_context.source.conditional_stack.back().is_active;
-        }
         void on_if_directive(const std::string& expression, bool stop_on_evaluate_error) {
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
-            bool parent_active = is_in_active_block();
+            bool parent_active = this->m_context.source.parser->is_in_active_block();
             bool condition_result = false;
             if (parent_active) {
                 Expressions expr_eval(*this);
@@ -3685,10 +3684,13 @@ class Strings {
             }
             return true;
         }
-    private:
-        bool is_in_active_block() {
+        bool is_in_active_block() const {
             return m_policy.context().source.conditional_stack.empty() || m_policy.context().source.conditional_stack.back().is_active;
         }
+        bool is_in_repeat_block() const {
+            return !m_policy.context().repeat.stack.empty();
+        }
+    private:
         bool expand_macro() {
             if (m_policy.context().macros.in_expansion) {
                 m_policy.on_macro_line();
@@ -3797,7 +3799,7 @@ class Strings {
                     return true;
             }
             if (m_policy.context().assembler.m_options.directives.allow_repeat) {
-                if (is_in_active_block() && m_policy.on_repeat_recording(m_line))
+                if (this->is_in_active_block() && m_policy.on_repeat_recording(m_line))
                     return true;
             }
             return false;
