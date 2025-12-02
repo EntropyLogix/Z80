@@ -256,10 +256,6 @@
 //   ASSERT    | ASSERT <expression>        | Halts compilation if the expression evaluates to false (zero).
 //   END       | END                        | Terminates the assembly process.
 //
-// Known Limitations
-// -----------------
-// - There is no `EXITW` directive to exit a `WHILE` loop; use conditional logic inside the loop.
-//
 // Supported Instructions (Mnemonics)
 // ----------------------------------
 // The assembler supports the full standard and most of the undocumented Z80 instruction set.
@@ -2560,7 +2556,7 @@ class Strings {
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BYTE", "DB", "DD", "DEFB", "DEFH",
-                "DEFINE", "DEFL", "DEFG", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM",
+                "DEFINE", "DEFL", "DEFG", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM", "EXITW",
                 "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM",
                 "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF",
                 "IFIDN", "IFNB", "IFNDEF", "INCBIN", "INCLUDE", "LOCAL", "MACRO", "ORG", "PHASE",
@@ -3781,6 +3777,11 @@ class Strings {
                 if (m_tokens.count() == 1 && (m_tokens[0].upper() == "ENDW")) {
                     m_policy.on_endw_directive();
                     return true;
+                }
+                if (is_in_while_block()) {
+                    if (m_tokens.count() == 1 && m_tokens[0].upper() == "EXITW") {
+                        m_policy.context().while_loop.stack.back().is_exiting = true;
+                    }
                 }
             }
             if (m_policy.context().assembler.m_options.directives.allow_repeat) {
