@@ -1996,7 +1996,7 @@ class Strings {
                     std::string line = line_template;
                     typename Strings::Tokens tokens;
                     tokens.process(line);
-                    if (tokens.count() > 0 && tokens[0].upper() == "EXITR")
+                    if (tokens.count() > 0 && (tokens[0].upper() == "EXITR" || tokens[0].upper() == "BREAK"))
                         break;
                     Strings::replace_words(line, "\\@", iteration_str);
                     expanded_lines.push_back(line);
@@ -2555,7 +2555,7 @@ class Strings {
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-                "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BYTE", "DB", "DD", "DEFB", "DEFH",
+                "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BREAK", "BYTE", "DB", "DD", "DEFB", "DEFH",
                 "DEFINE", "DEFL", "DEFG", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM", "EXITW",
                 "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM",
                 "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF",
@@ -3779,7 +3779,7 @@ class Strings {
                     return true;
                 }
                 if (is_in_while_block()) {
-                    if (m_tokens.count() == 1 && m_tokens[0].upper() == "EXITW") {
+                    if (m_tokens.count() == 1 && (m_tokens[0].upper() == "EXITW" || m_tokens[0].upper() == "BREAK")) {
                         m_policy.context().while_loop.stack.back().is_exiting = true;
                     }
                 }
