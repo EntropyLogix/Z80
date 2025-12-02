@@ -258,7 +258,6 @@
 //
 // Known Limitations
 // -----------------
-// - Placing a `WHILE` loop inside a `REPT` block is not supported and will lead to errors.
 // - There is no `EXITW` directive to exit a `WHILE` loop; use conditional logic inside the loop.
 //
 // Supported Instructions (Mnemonics)
@@ -705,6 +704,7 @@ class Strings {
                 size_t count;
                 size_t current_iteration;
                 std::vector<std::string> body;
+                std::string expression;
             };
             std::vector<State> stack;
         } repeat;
@@ -713,6 +713,7 @@ class Strings {
                 std::string expression;
                 std::vector<std::string> body;
                 bool active;
+                size_t skip_lines;
             };
             std::vector<State> stack;
         } while_loop;
@@ -1938,8 +1939,12 @@ class Strings {
         }
         virtual bool on_while_recording(const std::string& line) override {
             if (!m_context.while_loop.stack.empty()) {
-                m_context.while_loop.stack.back().body.push_back(line);
-                return !m_context.while_loop.stack.back().active;
+                auto& while_block = m_context.while_loop.stack.back();
+                if (while_block.skip_lines > 0) {
+                    while_block.skip_lines--;
+                } else
+                    while_block.body.push_back(line);
+                return !while_block.active;
             }
             return false; 
         }
@@ -2005,6 +2010,13 @@ class Strings {
                 current_macro_state.macro.body.insert(current_macro_state.macro.body.begin() + current_macro_state.next_line_index, expanded_lines.begin(), expanded_lines.end());
             } else
                 m_context.source.lines_stack.insert(m_context.source.lines_stack.end(), expanded_lines.rbegin(), expanded_lines.rend());
+            if (this->m_context.source.parser->is_in_while_block()) {
+                auto& while_block = m_context.while_loop.stack.back();
+                while_block.body.insert(m_context.while_loop.stack.back().body.end(), "REPT " + rept_block.expression);
+                while_block.body.insert(m_context.while_loop.stack.back().body.end(), rept_block.body.begin(), rept_block.body.end());
+                while_block.body.insert(m_context.while_loop.stack.back().body.end(), "ENDR");
+                while_block.skip_lines = expanded_lines.size();
+            }
             m_context.repeat.stack.pop_back();
         }
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) {
@@ -2162,11 +2174,11 @@ class Strings {
             if (expression.evaluate(counter_expr, count)) {
                 if (count < 0)
                     m_context.assembler.report_error("REPT count cannot be negative.");
-                m_context.repeat.stack.push_back({(size_t)count, 0, {}});
+                m_context.repeat.stack.push_back({(size_t)count, 0, {}, counter_expr});
             } else {
                 if (stop_on_evaluate_error)
                     m_context.assembler.report_error("Invalid REPT expression: " + counter_expr);
-                m_context.repeat.stack.push_back({0, {}});
+                m_context.repeat.stack.push_back({0, 0, {}, counter_expr});
             }
         }
         virtual void on_while_directive(const std::string& expression, bool stop_on_evaluate_error) {
@@ -2182,7 +2194,7 @@ class Strings {
                 }
             }
             m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
-            m_context.while_loop.stack.push_back({expression, {}, condition_result});
+            m_context.while_loop.stack.push_back({expression, {}, condition_result, 0});
         }
         void on_align_directive(const std::string& boundary, bool stop_on_evaluate_error) {
             if (!this->m_context.assembler.m_options.directives.allow_align)
@@ -3680,12 +3692,9 @@ class Strings {
             }
             return true;
         }
-        bool is_in_active_block() const {
-            return m_policy.context().source.conditional_stack.empty() || m_policy.context().source.conditional_stack.back().is_active;
-        }
-        bool is_in_repeat_block() const {
-            return !m_policy.context().repeat.stack.empty();
-        }
+        bool is_in_active_block() const { return m_policy.context().source.conditional_stack.empty() || m_policy.context().source.conditional_stack.back().is_active; }
+        bool is_in_repeat_block() const { return !m_policy.context().repeat.stack.empty(); }
+        bool is_in_while_block() const { return !m_policy.context().while_loop.stack.empty(); }
     private:
         bool expand_macro() {
             if (m_policy.context().macros.in_expansion) {

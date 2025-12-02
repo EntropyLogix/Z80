@@ -3138,6 +3138,36 @@ TEST_CASE(ReptDirectiveWithIterationCounter) {
     });
 }
 
+TEST_CASE(WhileAndReptDirectives) {
+    // Test 1: REPT inside a WHILE loop
+    // The WHILE loop should execute 3 times, and in each iteration,
+    // the REPT loop should generate a decreasing number of bytes.
+    ASSERT_CODE(R"(
+        COUNTER SET 3
+        WHILE COUNTER > 0
+            REPT COUNTER
+                DB \@  ; The REPT iteration counter (1, 2, ...)
+            ENDR
+            DB 0xFF ; Separator
+            COUNTER SET COUNTER - 1
+        ENDW
+    )", {0x01, 0x02, 0x03, 0xFF, 0x01, 0x02, 0xFF, 0x01, 0xFF});
+
+    // Test 2: WHILE inside a REPT loop
+    // The REPT loop executes 3 times. In each iteration, the WHILE loop
+    // generates bytes from the current REPT iteration number down to 1.
+    ASSERT_CODE(R"(
+        REPT 3
+            COUNTER SET \@ ; Set counter to REPT iteration (1, 2, 3)
+            WHILE COUNTER > 0
+                DB COUNTER
+                COUNTER SET COUNTER - 1
+            ENDW
+            DB 0xFF ; Separator
+        ENDR
+    )", {0x01, 0xFF, 0x02, 0x01, 0xFF, 0x03, 0x02, 0x01, 0xFF});
+}
+
 TEST_CASE(DgDirective) {
     // Test 1: Basic 8-bit definition with '1' and '0'
     ASSERT_CODE("DG \"11110000\"", {0xF0});
