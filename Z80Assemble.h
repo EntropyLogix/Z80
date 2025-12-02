@@ -3671,13 +3671,13 @@ class Strings {
                 if (m_tokens.count() == 0)
                     continue;
                 apply_defines();
+                if (is_in_active_block() && process_loops())
+                    continue;
+                if (process_recordings())
+                    continue;
                 if (process_conditional_directives())
                     continue;
-                if (process_loops())
-                    continue;
                 if (is_in_active_block()) {
-                    if (process_recordings())
-                        continue;
                     if (process_defines())
                         continue;
                     if (process_macro())
@@ -3807,14 +3807,6 @@ class Strings {
             if (m_policy.context().assembler.m_options.directives.allow_repeat) {
                 if (this->is_in_active_block() && m_policy.on_repeat_recording(m_line))
                     return true;
-            }
-            if (m_tokens.count() == 1 && m_tokens[0].upper() == "EXITW") {
-                if (!is_in_while_block())
-                    m_policy.context().assembler.report_error("EXITW not in WHILE block");
-                auto& while_block = m_policy.context().while_loop.stack.back();
-                if (while_block.active)
-                    while_block.is_exiting = true;
-                return true;
             }
             return false;
         }
