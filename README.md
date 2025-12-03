@@ -642,26 +642,39 @@ The Z80Assembler class is a powerful, two-pass assembler that converts Z80 assem
 
 #### **Usage and Initialization**
 To use the assembler, you must initialize it by passing a pointer to a memory object (which implements peek() and poke()) and a pointer to a source code provider (ISourceProvider).
+ 
+`Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = ...)`
+ 
+`IFileProvider` is an interface you must implement to allow the assembler to load source files. This enables loading code from the file system, memory, or any other source. It requires three methods:
+*   `read_file(identifier, data)`: Reads file content into a vector of bytes.
+*   `exists(identifier)`: Checks if a file exists.
+*   `file_size(identifier)`: Returns the size of a file.
 
-`Z80Assembler(TMemory* memory, ISourceProvider* source_provider)`
-
-ISourceProvider is an interface you must implement to allow the assembler to load source files. This enables loading code from the file system, memory, or any other source.
-
-**Simple `ISourceProvider` Implementation:**
+**Simple `IFileProvider` Implementation:**
 
 ```cpp
 #include <map>
 #include <string>
+#include <vector>
+#include <cstdint>
 
-class MemorySourceProvider : public ISourceProvider {
+class MemorySourceProvider : public IFileProvider {
 public:
-    // Implement the virtual method
-    bool get_source(const std::string& identifier, std::string& source) override {
+    bool read_file(const std::string& identifier, std::vector<uint8_t>& data) override {
         if (m_sources.count(identifier)) {
-            source = m_sources[identifier];
+            const auto& content = m_sources[identifier];
+            data.assign(content.begin(), content.end());
             return true;
         }
         return false;
+    }
+
+    bool exists(const std::string& identifier) override {
+        return m_sources.count(identifier) > 0;
+    }
+
+    size_t file_size(const std::string& identifier) override {
+        return m_sources.count(identifier) ? m_sources[identifier].size() : 0;
     }
 
     // Helper method to add source code
