@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.0.5
+// Verson: 1.1.0
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.

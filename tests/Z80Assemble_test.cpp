@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble_test.cpp
-// Verson: 1.0.5
+// Verson: 1.1.0
 //
 // This file contains unit tests for the Z80Assembler class.
 //
@@ -225,7 +225,7 @@ void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", asm_code);
     Z80Assembler<Z80DefaultBus>::Options options;
-    // Użyj zunifikowanej logiki z ASSERT_COMPILE_FAILS_WITH_OPTS
+    // Use the unified logic from ASSERT_COMPILE_FAILS_WITH_OPTS
     ASSERT_COMPILE_FAILS_WITH_OPTS(asm_code, options);
 }
 
