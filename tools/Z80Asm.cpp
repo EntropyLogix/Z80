@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Asm.cpp
-// Verson: 1.0.5
+// Verson: 1.1.0
 //
 // This file contains a command-line utility for assembling Z80 code.
 // It serves as an example of how to use the Z80Assembler class.
@@ -54,6 +54,21 @@ public:
         m_current_path_stack.pop_back();
         return true;
     }
+
+    bool exists(const std::string& identifier) override {
+        if (m_current_path_stack.empty())
+            return std::filesystem::exists(identifier);
+        else
+            return std::filesystem::exists(m_current_path_stack.back().parent_path() / identifier);
+    }
+
+    size_t file_size(const std::string& identifier) override {
+        if (m_current_path_stack.empty())
+            return std::filesystem::file_size(identifier);
+        else
+            return std::filesystem::file_size(m_current_path_stack.back().parent_path() / identifier);
+    }
+
 private:
     std::vector<std::filesystem::path> m_current_path_stack;
 };
@@ -200,7 +215,10 @@ int main(int argc, char* argv[]) {
                     std::cout << "\n--- Disassembly for Block #" << i << " ---\n";
                     uint16_t disasm_addr = start_addr;
                     while (disasm_addr < start_addr + len) {
-                        std::cout << analyzer.disassemble(disasm_addr, "%a: %-12b %-15m") << std::endl;
+                        auto listing = analyzer.disassemble(disasm_addr, 1);
+                        for (const auto& line : listing) {
+                            std::cout << line << std::endl;
+                        }
                     }
                 }
                 std::cout << std::endl;
