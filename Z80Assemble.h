@@ -1690,6 +1690,9 @@ class Strings {
         virtual void on_assert_directive(const std::string& expression) = 0;
         virtual void on_while_directive(const std::string& expression) = 0;
         virtual void on_endw_directive() = 0;
+        virtual void on_exitw_directive() = 0;
+        virtual void on_exitr_directive() = 0;
+        virtual void on_break_directive() = 0;
         virtual bool on_while_recording(const std::string& line) = 0;
         virtual void on_rept_directive(const std::string& expression) = 0;
         virtual bool on_repeat_recording(const std::string& line) = 0;
@@ -1940,6 +1943,29 @@ class Strings {
                     m_context.while_loop.iteration_counters.pop_back();
             }
         }
+        virtual void on_exitw_directive() override {
+            if (this->m_context.source.parser->is_in_while_block()) {
+                if (!m_context.while_loop.stack.empty())
+                    m_context.while_loop.stack.back().is_exiting = true;
+            } else
+                m_context.assembler.report_error("EXITW directive used outside of a WHILE block.");
+        }
+        virtual void on_break_directive() override {
+            if (!m_context.source.control_stack.empty()) {
+                auto& control_stack = m_context.source.control_stack;
+                auto it = std::find_if(control_stack.rbegin(), control_stack.rend(), [](const auto& type) {
+                    return type == Context::Source::ControlType::WHILE || type == Context::Source::ControlType::REPEAT;
+                });
+                if (it != control_stack.rend()) {
+                    if (*it == Context::Source::ControlType::WHILE)
+                        on_exitw_directive();
+                    else if (*it == Context::Source::ControlType::REPEAT)
+                        on_exitr_directive();
+                }
+                return;
+            }
+            m_context.assembler.report_error("BREAK directive used outside of a loop block.");
+        }
         virtual bool on_while_recording(const std::string& line) override {
             if (!m_context.while_loop.stack.empty()) {
                 auto& while_block = m_context.while_loop.stack.back();
@@ -1950,6 +1976,10 @@ class Strings {
                 return !while_block.active || while_block.is_exiting;
             }
             return false; 
+        }
+        virtual void on_exitr_directive() override {
+            if (!this->m_context.source.parser->is_in_repeat_block())
+                m_context.assembler.report_error("EXITR directive used outside of a REPT block.");
         }
         virtual void on_error_directive(const std::string& message) override {
             m_context.assembler.report_error("ERROR: " + message);
@@ -1989,10 +2019,8 @@ class Strings {
             return false;
         }
         virtual void on_endr_directive() override {
-            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPEAT) {
+            if (m_context.source.control_stack.empty() || m_context.source.control_stack.back() != Context::Source::ControlType::REPEAT)
                 m_context.assembler.report_error("Mismatched ENDR.");
-            }
-            m_context.source.control_stack.pop_back();
             typename Context::Repeat::State& rept_block = m_context.repeat.stack.back();
             std::vector<std::string> expanded_lines;
             for (size_t i = 0; i < rept_block.count; ++i) {
@@ -2002,8 +2030,10 @@ class Strings {
                     std::string line = line_template;
                     typename Strings::Tokens tokens;
                     tokens.process(line);
-                    if (tokens.count() > 0 && (tokens[0].upper() == "EXITR" || tokens[0].upper() == "BREAK"))
+                    if (tokens.count() > 0 && tokens[0].upper() == "EXITR") {
+                        on_exitr_directive();
                         break;
+                    }
                     Strings::replace_words(line, "\\@", iteration_str);
                     expanded_lines.push_back(line);
                 }
@@ -2021,6 +2051,7 @@ class Strings {
                 while_block.skip_lines = expanded_lines.size();
             }
             m_context.repeat.stack.pop_back();
+            m_context.source.control_stack.pop_back();
         }
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) {
             typename Context::Macros::Macro macro = m_context.macros.definitions.at(name);
@@ -3794,10 +3825,13 @@ class Strings {
                     m_policy.on_endw_directive();
                     return true;
                 }
-                if (is_in_while_block()) {
-                    if (m_tokens.count() == 1 && (m_tokens[0].upper() == "EXITW" || m_tokens[0].upper() == "BREAK")) {
-                        m_policy.context().while_loop.stack.back().is_exiting = true;
-                    }
+                if (m_tokens.count() == 1 && m_tokens[0].upper() == "EXITW") {
+                    m_policy.on_exitw_directive();
+                    return true;
+                }
+                if (m_tokens.count() == 1 && m_tokens[0].upper() == "BREAK") {
+                    m_policy.on_break_directive();
+                    return true;
                 }
             }
             if (m_policy.context().assembler.m_options.directives.allow_repeat) {
@@ -3809,6 +3843,14 @@ class Strings {
                 }
                 if (m_tokens.count() == 1 && (m_tokens[0].upper() == "ENDR" || m_tokens[0].upper() == "EDUP")) {
                     m_policy.on_endr_directive();
+                    return true;
+                }
+                if (m_tokens.count() == 1 && m_tokens[0].upper() == "EXITR") {
+                    m_policy.on_exitr_directive();
+                    return false;
+                }
+                if (m_tokens.count() == 1 && m_tokens[0].upper() == "BREAK") {
+                    m_policy.on_break_directive();
                     return true;
                 }
             }
