@@ -641,7 +641,7 @@ Z80DefaultFiles<Z80DefaultBus, Z80<>> files(cpu.get_bus(), &cpu);
 The Z80Assembler class is a powerful, two-pass assembler that converts Z80 assembly source code into machine code. It is designed for flexibility, with built-in support for labels, directives, expressions, and forward references.
 
 #### **Usage and Initialization**
-To use the assembler, you must initialize it by passing a pointer to a memory object (which implements peek() and poke()) and a pointer to a source code provider (ISourceProvider).
+To use the assembler, you must initialize it by passing a pointer to a memory object (which implements peek() and poke()) and a pointer to a source code provider (`IFileProvider`).
  
 `Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = ...)`
  
@@ -679,11 +679,11 @@ public:
 
     // Helper method to add source code
     void add_source(const std::string& identifier, const std::string& content) {
-        m_sources[identifier] = content;
+        m_sources[identifier] = std::vector<uint8_t>(content.begin(), content.end());
     }
 
 private:
-    std::map<std::string, std::string> m_sources;
+    std::map<std::string, std::vector<uint8_t>> m_sources;
 };
 ```
 
