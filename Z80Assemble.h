@@ -348,6 +348,7 @@ public:
         } expressions;
         struct CompilationOptions {
             int max_passes = 10;
+            int max_while_iterations = 10000;
         } compilation;
     };
     static const Options& get_default_options() {
@@ -713,6 +714,7 @@ class Strings {
                 bool is_exiting;
             };
             std::vector<State> stack;
+            std::vector<size_t> iteration_counters;
         } while_loop;
         struct Defines {
             std::map<std::string, std::string> map;
@@ -1933,6 +1935,10 @@ class Strings {
                     parent_while.body.insert(parent_while.body.end(), std::make_move_iterator(while_block.body.begin()), std::make_move_iterator(while_block.body.end()));
                 }
             }
+            if (!while_block.active) {
+                if (!m_context.while_loop.iteration_counters.empty())
+                    m_context.while_loop.iteration_counters.pop_back();
+            }
         }
         virtual bool on_while_recording(const std::string& line) override {
             if (!m_context.while_loop.stack.empty()) {
@@ -2190,7 +2196,16 @@ class Strings {
                         m_context.assembler.report_error("Invalid WHILE expression: " + expression);
                 }
             }
+            if (m_context.while_loop.iteration_counters.size() <= m_context.while_loop.stack.size()) {
+                m_context.while_loop.iteration_counters.push_back(0);
+            }
             m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
+            if (this->m_context.source.parser->is_in_active_block() && !m_context.while_loop.iteration_counters.empty()) {
+                m_context.while_loop.iteration_counters.back()++;
+                if (m_context.while_loop.iteration_counters.back() > m_context.assembler.m_options.compilation.max_while_iterations) {
+                    m_context.assembler.report_error("WHILE loop exceeded max iterations (" + std::to_string(m_context.assembler.m_options.compilation.max_while_iterations) + "). Possible infinite loop.");
+                }
+            }
             m_context.while_loop.stack.push_back({expression, {}, condition_result, 0, false});
         }
         void on_align_directive(const std::string& boundary, bool stop_on_evaluate_error) {
@@ -3692,6 +3707,8 @@ class Strings {
         bool is_in_active_block() const { return m_policy.context().source.conditional_stack.empty() || m_policy.context().source.conditional_stack.back().is_active; }
         bool is_in_repeat_block() const { return !m_policy.context().repeat.stack.empty(); }
         bool is_in_while_block() const { return !m_policy.context().while_loop.stack.empty(); }
+        bool is_breaking() const { return (m_policy.context().while_loop.stack.empty() && m_policy.context().while_loop.stack.back().is_exiting) || 
+                                          (!m_policy.context().repeat.stack.empty() || m_policy.context().repeat.stack.back().is_exiting);}
     private:
         bool expand_macro() {
             if (m_policy.context().macros.in_expansion) {
