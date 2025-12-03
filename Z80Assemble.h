@@ -2172,21 +2172,22 @@ class Strings {
         }
         void on_rept_directive(const std::string& counter_expr, bool stop_on_evaluate_error) {
             m_context.source.control_stack.push_back(Context::Source::ControlType::REPEAT);
-            Expressions expression(*this);
-            int32_t count;
-            if (expression.evaluate(counter_expr, count)) {
-                if (count < 0)
-                    m_context.assembler.report_error("REPT count cannot be negative.");
-                m_context.repeat.stack.push_back({(size_t)count, 0, {}, counter_expr});
-            } else {
-                if (stop_on_evaluate_error)
-                    m_context.assembler.report_error("Invalid REPT expression: " + counter_expr);
-                m_context.repeat.stack.push_back({0, 0, {}, counter_expr});
+            int32_t count = 0;
+            if (m_context.while_loop.stack.empty() || (m_context.while_loop.stack.back().active && !m_context.while_loop.stack.back().is_exiting)) {
+                Expressions expression(*this);
+                if (expression.evaluate(counter_expr, count)) {
+                    if (count < 0)
+                        m_context.assembler.report_error("REPT count cannot be negative.");
+                } else {
+                    if (stop_on_evaluate_error)
+                        m_context.assembler.report_error("Invalid REPT expression: " + counter_expr);
+                }
             }
+            m_context.repeat.stack.push_back({(size_t)count, 0, {}, counter_expr});
         }
         virtual void on_while_directive(const std::string& expression, bool stop_on_evaluate_error) {
             bool condition_result = false;
-            if (m_context.while_loop.stack.empty() || m_context.while_loop.stack.back().active) {
+            if (m_context.while_loop.stack.empty() || (m_context.while_loop.stack.back().active && !m_context.while_loop.stack.back().is_exiting)) {
                 Expressions expr_eval(*this);
                 int32_t value;
                 if (expr_eval.evaluate(expression, value))
@@ -3707,8 +3708,6 @@ class Strings {
         bool is_in_active_block() const { return m_policy.context().source.conditional_stack.empty() || m_policy.context().source.conditional_stack.back().is_active; }
         bool is_in_repeat_block() const { return !m_policy.context().repeat.stack.empty(); }
         bool is_in_while_block() const { return !m_policy.context().while_loop.stack.empty(); }
-        bool is_breaking() const { return (m_policy.context().while_loop.stack.empty() && m_policy.context().while_loop.stack.back().is_exiting) || 
-                                          (!m_policy.context().repeat.stack.empty() || m_policy.context().repeat.stack.back().is_exiting);}
     private:
         bool expand_macro() {
             if (m_policy.context().macros.in_expansion) {
