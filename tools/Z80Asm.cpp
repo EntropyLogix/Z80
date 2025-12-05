@@ -24,6 +24,12 @@
 #include <vector>
 #include <filesystem>
 
+template <typename T> std::string format_hex(T value, int width) {
+    std::stringstream ss;
+    ss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(width) << value;
+    return ss.str();
+}
+
 void print_usage() {
     std::cerr << "Usage: Z80Asm <input_file> [options]\n"
               << "Options:\n"
@@ -145,6 +151,45 @@ void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, cons
     file.write(reinterpret_cast<const char*>(image.data()), image.size());
 }
 
+std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
+    std::stringstream ss;
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        if (hex)
+            ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i]);
+        else
+            ss << std::dec << static_cast<int>(bytes[i]);
+        if (i < bytes.size() - 1) ss << " ";
+    }
+    return ss.str();
+}
+
+using Analyzer = Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels>;
+
+std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
+    if (operands.empty()) return "";
+    std::stringstream ss;
+    for (size_t i = 0; i < operands.size(); ++i) {
+        const auto& op = operands[i];
+        switch (op.type) {
+            case Analyzer::Operand::Type::REG8:
+            case Analyzer::Operand::Type::REG16:
+            case Analyzer::Operand::Type::CONDITION:
+                ss << op.s_val;
+                break;
+            case Analyzer::Operand::Type::IMM8:
+            case Analyzer::Operand::Type::PORT_IMM8:
+                ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
+                break;
+            case Analyzer::Operand::Type::IMM16:
+            case Analyzer::Operand::Type::MEM_IMM16: {
+                 ss << format_hex(op.num_val, 4);
+                break;
+            }
+        }
+        if (i < operands.size() - 1) ss << ", ";
+    }
+    return ss.str();
+}
 #ifndef Z80ASM_TEST_BUILD
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -196,7 +241,7 @@ int main(int argc, char* argv[]) {
             std::cout << std::endl;
 
             // Print memory map of code blocks
-            Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(&bus, &cpu, nullptr);
+            Analyzer analyzer(&bus, &cpu, nullptr);
             auto blocks = assembler.get_blocks();
             std::cout << "--- Code Blocks ---" << std::endl;
             for (size_t i = 0; i < blocks.size(); ++i) {
@@ -207,18 +252,29 @@ int main(int argc, char* argv[]) {
                 std::cout << "--- Block #" << i << ": Address=0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << start_addr << ", Size=" << std::dec << len << " bytes ---\n";
 
                 if (len > 0) {
-                    uint16_t dump_addr = start_addr;
-                    auto dump = analyzer.dump_memory(dump_addr, (len + 15) / 16, 16);
-                    for (const auto& line : dump) {
-                        std::cout << line << std::endl;
+                    const size_t cols = 16;
+                    for (uint16_t addr = start_addr; addr < start_addr + len; addr += cols) {
+                        std::cout << format_hex(addr, 4) << ": ";
+                        std::string ascii_chars;
+                        for (size_t j = 0; j < cols; ++j) {
+                            if (addr + j < start_addr + len) {
+                                uint8_t byte = bus.peek(addr + j);
+                                std::cout << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)byte << " ";
+                                ascii_chars += (isprint(byte) ? (char)byte : '.');
+                            } else {
+                                std::cout << "   ";
+                            }
+                        }
+                        std::cout << " " << ascii_chars << std::endl;
                     }
                     std::cout << "\n--- Disassembly for Block #" << i << " ---\n";
                     uint16_t disasm_addr = start_addr;
                     while (disasm_addr < start_addr + len) {
-                        auto listing = analyzer.disassemble(disasm_addr, 1);
-                        for (const auto& line : listing) {
-                            std::cout << line << std::endl;
-                        }
+                        uint16_t current_pc = disasm_addr;
+                        Analyzer::CodeLine line_info = analyzer.parse_instruction(disasm_addr);
+                        std::cout << format_hex(current_pc, 4) << ":\t" << std::left << std::setw(12) << format_bytes_str(line_info.bytes, true)
+                                  << std::setw(7) << line_info.mnemonic << std::setw(18) << format_operands(line_info.operands)
+                                  << "(" << line_info.ticks << (line_info.ticks_alt > 0 ? "/" + std::to_string(line_info.ticks_alt) : "") << "T)" << std::endl;
                     }
                 }
                 std::cout << std::endl;

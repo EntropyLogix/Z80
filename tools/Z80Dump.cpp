@@ -1,3 +1,4 @@
+
 //  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄
 //  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██
 //      ██▀   ██▄  ▄██  ██    ██
@@ -5,7 +6,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Dump.cpp
-// Verson: 1.1.0
+// Verson: 1.1.1
 //
 // This file contains a command-line utility for dumping memory, registers,
 // and disassembling code from Z80 binary files and snapshots.
@@ -331,6 +332,153 @@ uint16_t resolve_address(const std::string& addr_str, const Z80<>& cpu) {
     }
 }
 
+std::string format_flags_string(const Z80<>& cpu) {
+    std::stringstream ss;
+    auto f = cpu.get_F();
+    using Flags = Z80<>::Flags;
+    ss << (f.is_set(Flags::S) ? 'S' : '-');
+    ss << (f.is_set(Flags::Z) ? 'Z' : '-');
+    ss << (f.is_set(Flags::Y) ? 'Y' : '-');
+    ss << (f.is_set(Flags::H) ? 'H' : '-');
+    ss << (f.is_set(Flags::X) ? 'X' : '-');
+    ss << (f.is_set(Flags::PV) ? 'P' : '-');
+    ss << (f.is_set(Flags::N) ? 'N' : '-');
+    ss << (f.is_set(Flags::C) ? 'C' : '-');
+    return ss.str();
+}
+
+std::string format_register_segment(const std::string& specifier, const Z80<>& cpu) {
+    std::string s_lower = specifier;
+    std::transform(s_lower.begin(), s_lower.end(), s_lower.begin(), ::tolower);
+    bool is_upper = (specifier.length() > 0 && isupper(specifier[0]));
+    if (s_lower == "af")
+        return is_upper ? std::to_string(cpu.get_AF()) : format_hex(cpu.get_AF(), 4);
+    if (s_lower == "bc")
+        return is_upper ? std::to_string(cpu.get_BC()) : format_hex(cpu.get_BC(), 4);
+    if (s_lower == "de")
+        return is_upper ? std::to_string(cpu.get_DE()) : format_hex(cpu.get_DE(), 4);
+    if (s_lower == "hl")
+        return is_upper ? std::to_string(cpu.get_HL()) : format_hex(cpu.get_HL(), 4);
+    if (s_lower == "ix")
+        return is_upper ? std::to_string(cpu.get_IX()) : format_hex(cpu.get_IX(), 4);
+    if (s_lower == "iy")
+        return is_upper ? std::to_string(cpu.get_IY()) : format_hex(cpu.get_IY(), 4);
+    if (s_lower == "sp")
+        return is_upper ? std::to_string(cpu.get_SP()) : format_hex(cpu.get_SP(), 4);
+    if (s_lower == "pc")
+        return is_upper ? std::to_string(cpu.get_PC()) : format_hex(cpu.get_PC(), 4);
+    if (s_lower == "af'")
+        return is_upper ? std::to_string(cpu.get_AFp()) : format_hex(cpu.get_AFp(), 4);
+    if (s_lower == "bc'")
+        return is_upper ? std::to_string(cpu.get_BCp()) : format_hex(cpu.get_BCp(), 4);
+    if (s_lower == "de'")
+        return is_upper ? std::to_string(cpu.get_DEp()) : format_hex(cpu.get_DEp(), 4);
+    if (s_lower == "hl'")
+        return is_upper ? std::to_string(cpu.get_HLp()) : format_hex(cpu.get_HLp(), 4);
+    if (s_lower == "a")
+        return is_upper ? std::to_string(cpu.get_A()) : format_hex(cpu.get_A(), 2);
+    if (s_lower == "f")
+        return is_upper ? std::to_string(cpu.get_F()) : format_hex(cpu.get_F(), 2);
+    if (s_lower == "b")
+        return is_upper ? std::to_string(cpu.get_B()) : format_hex(cpu.get_B(), 2);
+    if (s_lower == "c")
+        return is_upper ? std::to_string(cpu.get_C()) : format_hex(cpu.get_C(), 2);
+    if (s_lower == "d")
+        return is_upper ? std::to_string(cpu.get_D()) : format_hex(cpu.get_D(), 2);
+    if (s_lower == "e")
+        return is_upper ? std::to_string(cpu.get_E()) : format_hex(cpu.get_E(), 2);
+    if (s_lower == "h")
+        return is_upper ? std::to_string(cpu.get_H()) : format_hex(cpu.get_H(), 2);
+    if (s_lower == "l")
+        return is_upper ? std::to_string(cpu.get_L()) : format_hex(cpu.get_L(), 2);
+    if (s_lower == "i")
+        return is_upper ? std::to_string(cpu.get_I()) : format_hex(cpu.get_I(), 2);
+    if (s_lower == "r")
+        return is_upper ? std::to_string(cpu.get_R()) : format_hex(cpu.get_R(), 2);
+    if (s_lower == "flags")
+        return format_flags_string(cpu);
+    return "%" + specifier;
+}
+
+std::string dump_registers(const std::string& format, const Z80<>& cpu) {
+    std::stringstream ss;
+    for (size_t i = 0; i < format.length(); ++i) {
+        if (format[i] == '%' && i + 1 < format.length()) {
+            std::string specifier;
+            size_t j = i + 1;
+            while (j < format.length() && (isalnum(format[j]) || format[j] == '\''))
+                specifier += format[j++];
+            if (!specifier.empty()) {
+                ss << format_register_segment(specifier, cpu);
+                i = j - 1;
+            } else
+                ss << format[i];
+        } else if (format[i] == '\\' && i + 1 < format.length()) {
+            switch (format[i + 1]) {
+            case 'n': ss << '\n'; break;
+            case 't': ss << '\t'; break;
+            default: ss << format[i + 1]; break;
+            }
+            i++;
+        } else
+            ss << format[i];
+    }
+    return ss.str();
+}
+
+std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
+    std::stringstream ss;
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        if (hex)
+            ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i]);
+        else
+            ss << std::dec << static_cast<int>(bytes[i]);
+        if (i < bytes.size() - 1) ss << " ";
+    }
+    return ss.str();
+}
+
+using Analyzer = Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels>;
+
+std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
+    if (operands.empty()) return "";
+    std::stringstream ss;
+    for (size_t i = 0; i < operands.size(); ++i) {
+        const auto& op = operands[i];
+        switch (op.type) {
+            case Analyzer::Operand::Type::REG8:
+            case Analyzer::Operand::Type::REG16:
+            case Analyzer::Operand::Type::CONDITION:
+                ss << op.s_val;
+                break;
+            case Analyzer::Operand::Type::IMM8:
+                ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
+                break;
+            case Analyzer::Operand::Type::IMM16:
+            case Analyzer::Operand::Type::MEM_IMM16: {
+                std::string formatted_addr = op.label.empty() ? format_hex(op.num_val, 4) : op.label;
+                if (op.type == Analyzer::Operand::Type::MEM_IMM16) ss << "(" << formatted_addr << ")";
+                else ss << formatted_addr;
+                break;
+            }
+            case Analyzer::Operand::Type::MEM_REG16:
+                ss << "(" << op.s_val << ")";
+                break;
+            case Analyzer::Operand::Type::MEM_INDEXED:
+                ss << "(" << op.s_val << (op.offset >= 0 ? "+" : "") << static_cast<int>(op.offset) << ")";
+                break;
+            case Analyzer::Operand::Type::PORT_IMM8:
+                ss << "(" << format_hex(static_cast<uint8_t>(op.num_val), 2) << ")";
+                break;
+            case Analyzer::Operand::Type::STRING:
+                ss << "\"" << op.s_val << "\"";
+                break;
+        }
+        if (i < operands.size() - 1) ss << ", ";
+    }
+    return ss.str();
+}
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         print_usage();
@@ -389,7 +537,7 @@ int main(int argc, char* argv[]) {
     }
     Z80<> cpu;
     Z80DefaultLabels label_handler;
-    Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels> analyzer(cpu.get_bus(), &cpu, &label_handler);
+    Analyzer analyzer(cpu.get_bus(), &cpu, &label_handler);
     try {
         for (const auto& map_file : map_files) {
             std::ifstream file(map_file);
@@ -459,7 +607,7 @@ int main(int argc, char* argv[]) {
                                                        "PC=%pc SP=%sp | %flags"
                                                      : reg_dump_format;
         std::cout << "--- Register Dump ---\n";
-        std::cout << analyzer.dump_registers(format) << std::endl;
+        std::cout << dump_registers(format, cpu) << std::endl;
     }
     if (mem_dump_size > 0) {
         uint16_t mem_dump_addr = resolve_address(mem_dump_addr_str, cpu);
@@ -468,24 +616,34 @@ int main(int argc, char* argv[]) {
         uint16_t current_addr = mem_dump_addr;
         size_t bytes_remaining = mem_dump_size;
         const size_t cols = 16;
-        while (bytes_remaining > 0) {
-            size_t rows_to_dump = (bytes_remaining + cols - 1) / cols;
-            if (rows_to_dump == 0)
-                break;
-            auto dump = analyzer.dump_memory(current_addr, 1, cols);
-            for (const auto& line : dump)
-                std::cout << line << std::endl;
-            size_t bytes_dumped = std::min(bytes_remaining, cols);
-            bytes_remaining -= bytes_dumped;
+        for (size_t i = 0; i < mem_dump_size; i += cols) {
+            std::cout << format_hex(current_addr, 4) << ": ";
+            std::string ascii_chars;
+            for (size_t j = 0; j < cols; ++j) {
+                if (i + j < mem_dump_size) {
+                    uint8_t byte = cpu.get_bus()->peek(current_addr + j);
+                    std::cout << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)byte << " ";
+                    ascii_chars += (isprint(byte) ? (char)byte : '.');
+                } else {
+                    std::cout << "   ";
+                }
+            }
+            std::cout << " " << ascii_chars << std::endl;
+            current_addr += cols;
         }
     }
     if (disasm_lines > 0) {
         uint16_t disasm_addr = resolve_address(disasm_addr_str, cpu);
         std::cout << "\n--- Disassembly from " << format_hex(disasm_addr, 4) << " (" << disasm_lines << " lines) ---\n";
         uint16_t pc = disasm_addr;
-        auto listing = analyzer.disassemble(pc, disasm_lines);
-        for (const auto& line : listing)
-            std::cout << line << std::endl;
+        for (size_t i = 0; i < disasm_lines; ++i) {
+            uint16_t start_pc = pc;
+            Analyzer::CodeLine line_info = analyzer.parse_instruction(pc);
+            std::cout << (line_info.label.empty() ? "" : line_info.label + ":") << "\t"
+                      << format_hex(start_pc, 4) << ":\t" << std::left << std::setw(12) << format_bytes_str(line_info.bytes, true)
+                      << std::setw(7) << line_info.mnemonic << std::setw(18) << format_operands(line_info.operands)
+                      << "(" << line_info.ticks << (line_info.ticks_alt > 0 ? "/" + std::to_string(line_info.ticks_alt) : "") << "T)" << std::endl;
+        }
     }
     if (mem_dump_size == 0 && disasm_lines == 0 && !reg_dump_action) {
         std::cout << "\nNo action specified. Use --reg-dump, --mem-dump, or "
