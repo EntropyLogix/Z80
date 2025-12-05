@@ -26,7 +26,7 @@
 
 template <typename T> std::string format_hex(T value, int width) {
     std::stringstream ss;
-    ss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(width) << value;
+    ss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(width) << static_cast<int>(value);
     return ss.str();
 }
 
@@ -182,9 +182,22 @@ std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
                 break;
             case Analyzer::Operand::Type::IMM16:
             case Analyzer::Operand::Type::MEM_IMM16: {
-                 ss << format_hex(op.num_val, 4);
+                std::string formatted_addr = op.label.empty() ? format_hex(op.num_val, 4) : op.label;
+                if (op.type == Analyzer::Operand::Type::MEM_IMM16) ss << "(" << formatted_addr << ")";
+                else ss << formatted_addr;
                 break;
             }
+            case Analyzer::Operand::Type::MEM_REG16:
+                ss << "(" << op.s_val << ")";
+                break;
+            case Analyzer::Operand::Type::MEM_INDEXED:
+                ss << "(" << op.s_val << (op.offset >= 0 ? "+" : "") << static_cast<int>(op.offset) << ")";
+                break;
+            case Analyzer::Operand::Type::STRING:
+                ss << "\"" << op.s_val << "\"";
+                break;
+            default:
+                break;
         }
         if (i < operands.size() - 1) ss << ", ";
     }
@@ -241,7 +254,9 @@ int main(int argc, char* argv[]) {
             std::cout << std::endl;
 
             // Print memory map of code blocks
-            Analyzer analyzer(&bus, &cpu, nullptr);
+            Z80DefaultLabels label_handler;
+            for(const auto& sym : symbols) label_handler.add_label(sym.second.value, sym.first);
+            Analyzer analyzer(&bus, &cpu, &label_handler);
             auto blocks = assembler.get_blocks();
             std::cout << "--- Code Blocks ---" << std::endl;
             for (size_t i = 0; i < blocks.size(); ++i) {
@@ -266,15 +281,27 @@ int main(int argc, char* argv[]) {
                             }
                         }
                         std::cout << " " << ascii_chars << std::endl;
+                        std::cout << std::dec << std::setfill(' '); // Reset format for next outputs
                     }
                     std::cout << "\n--- Disassembly for Block #" << i << " ---\n";
                     uint16_t disasm_addr = start_addr;
                     while (disasm_addr < start_addr + len) {
                         uint16_t current_pc = disasm_addr;
                         Analyzer::CodeLine line_info = analyzer.parse_instruction(disasm_addr);
-                        std::cout << format_hex(current_pc, 4) << ":\t" << std::left << std::setw(12) << format_bytes_str(line_info.bytes, true)
-                                  << std::setw(7) << line_info.mnemonic << std::setw(18) << format_operands(line_info.operands)
-                                  << "(" << line_info.ticks << (line_info.ticks_alt > 0 ? "/" + std::to_string(line_info.ticks_alt) : "") << "T)" << std::endl;
+                        std::string ticks_str;
+                        if (line_info.ticks > 0) {
+                            ticks_str = "(" + std::to_string(line_info.ticks);
+                            if (line_info.ticks_alt > 0)
+                                ticks_str += "/" + std::to_string(line_info.ticks_alt);
+                            ticks_str += "T)";
+                        }
+                        if (!line_info.label.empty()) {
+                            std::cout << line_info.label << ":\t";
+                        } else {
+                            std::cout << "\t";
+                        }
+                        std::cout << std::left << format_hex(current_pc, 4) << "  " << std::setw(12) << format_bytes_str(line_info.bytes, true) << " "
+                                  << std::setw(10) << ticks_str << " " << std::setw(7) << line_info.mnemonic << " " << std::setw(18) << format_operands(line_info.operands) << std::endl;
                     }
                 }
                 std::cout << std::endl;

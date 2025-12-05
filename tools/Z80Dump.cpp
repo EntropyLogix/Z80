@@ -27,7 +27,7 @@
 
 template <typename T> std::string format_hex(T value, int width) {
     std::stringstream ss;
-    ss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(width) << value;
+    ss << "0x" << std::hex << std::uppercase << std::setfill('0') << std::setw(width) << static_cast<int>(value);
     return ss.str();
 }
 
@@ -493,32 +493,49 @@ int main(int argc, char* argv[]) {
     long long run_steps = 0;
     bool reg_dump_action = false;
     std::string reg_dump_format;
+    Analyzer::DisassemblyMode disassembly_mode = Analyzer::DisassemblyMode::RAW;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--mem-dump" && i + 2 < argc) {
+        if ((arg == "--mem-dump" || arg == "-mem-dump") && i + 2 < argc) {
             mem_dump_addr_str = argv[++i];
             mem_dump_size = std::stoul(argv[++i], nullptr, 16);
-        } else if (arg == "--disassemble" && i + 2 < argc) {
+        } else if ((arg == "--disassemble" || arg == "-disassemble")) {
+            if (i + 2 >= argc) {
+                std::cerr << "Error: --disassemble requires at least <address> and <lines>." << std::endl;
+                return 1;
+            }
             disasm_addr_str = argv[++i];
             disasm_lines = std::stoul(argv[++i], nullptr, 10);
-        } else if (arg == "--load-addr" && i + 1 < argc)
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                std::string mode_str = argv[++i];
+                std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
+                if (mode_str == "heuristic") {
+                    disassembly_mode = Analyzer::DisassemblyMode::HEURISTIC;
+                } else if (mode_str != "raw") {
+                    std::cerr << "Error: Invalid disassembly mode '" << mode_str << "'. Use 'raw' or 'heuristic'." << std::endl;
+                    return 1;
+                }
+            }
+        }
+        else if ((arg == "--load-addr" || arg == "-load-addr") && i + 1 < argc)
             load_addr_str = argv[++i];
-        else if (arg == "--map" && i + 1 < argc)
+        else if ((arg == "--map" || arg == "-map") && i + 1 < argc)
             map_files.push_back(argv[++i]);
-        else if (arg == "--ctl" && i + 1 < argc)
+        else if ((arg == "--ctl" || arg == "-ctl") && i + 1 < argc)
             ctl_files.push_back(argv[++i]);
-        else if (arg == "--reg-dump") {
+        else if (arg == "--reg-dump" || arg == "-reg-dump") {
             reg_dump_action = true;
             if (i + 1 < argc && argv[i + 1][0] != '-')
                 reg_dump_format = argv[++i];
-        } else if (arg == "--run-ticks" && i + 1 < argc)
+        } else if ((arg == "--run-ticks" || arg == "-run-ticks") && i + 1 < argc)
             run_ticks = std::stoll(argv[++i], nullptr, 10);
-        else if (arg == "--run-steps" && i + 1 < argc)
+        else if ((arg == "--run-steps" || arg == "-run-steps") && i + 1 < argc)
             run_steps = std::stoll(argv[++i], nullptr, 10);
         else {
             bool is_known_arg_with_missing_value =
-                ((arg == "--mem-dump" || arg == "--disassemble") && i + 2 >= argc) ||
-                ((arg == "--load-addr" || arg == "--map" || arg == "--ctl" || arg == "--run-ticks" || arg == "--run-steps") && i + 1 >= argc);
+                ((arg == "--mem-dump" || arg == "-mem-dump") && i + 2 >= argc) ||
+                ((arg == "--load-addr" || arg == "-load-addr" || arg == "--map" || arg == "-map" || arg == "--ctl" || arg == "-ctl" || arg == "--run-ticks" || arg == "-run-ticks" || arg == "--run-steps" || arg == "-run-steps") && i + 1 >= argc);
+
             if (is_known_arg_with_missing_value)
                 std::cerr << "Error: Incomplete argument for '" << arg << "'. Expected two values." << std::endl;
             else
@@ -636,13 +653,21 @@ int main(int argc, char* argv[]) {
         uint16_t disasm_addr = resolve_address(disasm_addr_str, cpu);
         std::cout << "\n--- Disassembly from " << format_hex(disasm_addr, 4) << " (" << disasm_lines << " lines) ---\n";
         uint16_t pc = disasm_addr;
-        for (size_t i = 0; i < disasm_lines; ++i) {
-            uint16_t start_pc = pc;
-            Analyzer::CodeLine line_info = analyzer.parse_instruction(pc);
-            std::cout << (line_info.label.empty() ? "" : line_info.label + ":") << "\t"
-                      << format_hex(start_pc, 4) << ":\t" << std::left << std::setw(12) << format_bytes_str(line_info.bytes, true)
-                      << std::setw(7) << line_info.mnemonic << std::setw(18) << format_operands(line_info.operands)
-                      << "(" << line_info.ticks << (line_info.ticks_alt > 0 ? "/" + std::to_string(line_info.ticks_alt) : "") << "T)" << std::endl;
+        auto listing = analyzer.disassemble(pc, disasm_lines, disassembly_mode); 
+        for (const auto& line_info : listing) {
+            uint16_t start_pc = line_info.address;
+            std::string ticks_str;
+            if (line_info.ticks > 0) {
+                ticks_str = "(" + std::to_string(line_info.ticks) + (line_info.ticks_alt > 0 ? "/" + std::to_string(line_info.ticks_alt) : "") + "T)";
+            }
+            if (!line_info.label.empty()) {
+                std::cout << line_info.label << ":\t";
+            } else {
+                std::cout << "\t";
+            }
+            std::cout << std::left << format_hex(start_pc, 4) << "  " << std::setw(12) << format_bytes_str(line_info.bytes, true) << " "
+                      << std::setw(10) << ticks_str << " " << std::setw(7) << line_info.mnemonic << " " << std::setw(18) << format_operands(line_info.operands) << std::endl;
+            std::cout << std::setfill(' '); // Reset fill character
         }
     }
     if (mem_dump_size == 0 && disasm_lines == 0 && !reg_dump_action) {
