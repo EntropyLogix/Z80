@@ -99,6 +99,14 @@ public:
     Z80Analyzer(TMemory* memory, ILabels* labels = nullptr) : m_memory(memory), m_labels(labels) {}
 
     enum class DisassemblyMode { RAW, HEURISTIC };
+    std::vector<CodeLine> disassemble(uint16_t start_address, size_t instruction_limit, DisassemblyMode mode) {
+        if (mode == DisassemblyMode::RAW) {
+            return disassemble_raw(start_address, instruction_limit);
+        } else {
+            std::set<uint16_t> visited;
+            return disassemble_heuristic(start_address, instruction_limit);
+        }
+    }
 
     CodeLine parse_db(uint16_t& address, size_t count = 1) {
         CodeLine line_info;
@@ -268,7 +276,7 @@ public:
             line_info.mnemonic = "RRCA"; line_info.type = CodeLine::Type::SHIFT_ROTATE;
             line_info.ticks = 4;
             break;
-        case 0x10: { // DJNZ
+        case 0x10: {
             int8_t offset = static_cast<int8_t>(ctx.peek_byte());
             uint16_t target_address = address + offset;
             line_info.mnemonic = "DJNZ"; line_info.type = CodeLine::Type::JUMP;
@@ -492,7 +500,8 @@ public:
             break;
         case 0x36: {
             Operand addr_op = get_indexed_addr_operand(ctx);
-            line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+            line_info.mnemonic = "LD";
+            line_info.type = CodeLine::Type::LOAD;
             line_info.operands = {addr_op, Operand(Operand::IMM8, ctx.peek_byte())};
             line_info.ticks = (get_index_mode() == IndexMode::HL) ? 10 : 19;
             break;
@@ -729,7 +738,8 @@ public:
             break;
         case 0x64: {
             std::string reg = get_indexed_h_str();
-            line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+            line_info.mnemonic = "LD";
+            line_info.type = CodeLine::Type::LOAD;
             line_info.operands = {Operand(Operand::REG8, reg), Operand(Operand::REG8, reg)};
             line_info.ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
             break;
@@ -821,8 +831,9 @@ public:
             line_info.operands = {get_indexed_addr_operand(ctx), Operand(Operand::REG8, "L")};
             line_info.ticks = (get_index_mode() == IndexMode::HL) ? 7 : 19;
             break;
-        case 0x76: // HALT
-            line_info.mnemonic = "HALT"; line_info.type = CodeLine::Type::CPU_CONTROL;
+        case 0x76:
+            line_info.mnemonic = "HALT";
+            line_info.type = CodeLine::Type::CPU_CONTROL;
             line_info.ticks = 4;
             break;
         case 0x77:
@@ -1201,14 +1212,15 @@ public:
             line_info.operands = {Operand(Operand::REG16, "BC")};
             line_info.ticks = 10;
             break;
-        case 0xC2:
+        case 0xC2: {
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "NZ"), target_op};
-            }
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {Operand(Operand::CONDITION, "NZ"), target_op};
             line_info.ticks = 10;
             break;
+        }
         case 0xC3: {
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
             Operand target_op(Operand::IMM16, ctx.peek_word());
@@ -1219,7 +1231,8 @@ public:
             break;
         }
         case 0xC4: {
-            line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
+            line_info.mnemonic = "CALL";
+            line_info.type = CodeLine::Type::CALL;
             Operand target_op(Operand::IMM16, ctx.peek_word());
             if (m_labels)
                 target_op.label = m_labels->get_label(target_op.num_val);
@@ -1262,7 +1275,7 @@ public:
             line_info.ticks = 10;
             break;
         }
-        case 0xCB:
+        case 0xCB: {
             if (get_index_mode() == IndexMode::HL) {
                 uint8_t cb_opcode = ctx.peek_byte();
                 const char* registers[] = {"B", "C", "D", "E", "H", "L", "(HL)", "A"};
@@ -1273,11 +1286,13 @@ public:
                 uint8_t reg_code = cb_opcode & 0x07;
                 std::string reg_str = registers[reg_code];
                 if (operation_group == 0) {
-                    line_info.mnemonic = operations[bit]; line_info.type = CodeLine::Type::SHIFT_ROTATE;
+                    line_info.mnemonic = operations[bit];
+                    line_info.type = CodeLine::Type::SHIFT_ROTATE;
                     line_info.operands = {Operand(Operand::REG8, reg_str)};
                     line_info.ticks = (reg_code == 6) ? 15 : 8;
                 } else {
-                    line_info.mnemonic = bit_ops[operation_group - 1]; line_info.type = CodeLine::Type::BIT;
+                    line_info.mnemonic = bit_ops[operation_group - 1];
+                    line_info.type = CodeLine::Type::BIT;
                     line_info.operands = {Operand(Operand::IMM8, (int32_t)bit), Operand(Operand::REG8, reg_str)};
                     line_info.ticks = (reg_code == 6) ? (operation_group == 1 ? 12 : 15) : 8;
                 }
@@ -1293,239 +1308,66 @@ public:
                 uint8_t bit = (cb_opcode >> 3) & 0x07;
                 uint8_t reg_code = cb_opcode & 0x07;
                 if (operation_group == 0) {
-                    line_info.mnemonic = operations[bit]; line_info.type = CodeLine::Type::SHIFT_ROTATE;
+                    line_info.mnemonic = operations[bit];
+                    line_info.type = CodeLine::Type::SHIFT_ROTATE;
                     line_info.operands = {addr_op};
                     line_info.ticks = 23;
                 } else {
-                    line_info.mnemonic = bit_ops[operation_group - 1]; line_info.type = CodeLine::Type::BIT;
+                    line_info.mnemonic = bit_ops[operation_group - 1];
+                    line_info.type = CodeLine::Type::BIT;
                     line_info.operands = {Operand(Operand::IMM8, (int32_t)bit), addr_op};
                     line_info.ticks = (operation_group == 1) ? 20 : 23;
                 }
-                if (reg_code != 6) {
-                    // This is an undocumented feature, some assemblers create a second operand
+                if (reg_code != 6)
                     line_info.operands.push_back(Operand(Operand::REG8, registers[reg_code]));
-                }
             }
             break;
-        case 0xCC:
-            line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "Z"), target_op};
-            }
+        }
+        case 0xCC: {
+            line_info.mnemonic = "CALL";
+            line_info.type = CodeLine::Type::CALL;
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {Operand(Operand::CONDITION, "Z"), target_op};
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
             break;
-        case 0xCD:
-            line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {target_op};
-            }
-
+        }
+        case 0xCD: {
+            line_info.mnemonic = "CALL";
+            line_info.type = CodeLine::Type::CALL;
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {target_op};
             line_info.ticks = 17;
             break;
-        case 0xCE:
-            line_info.mnemonic = "ADC"; line_info.type = CodeLine::Type::ALU;
-            line_info.operands = {Operand(Operand::REG8, "A"), Operand(Operand::IMM8, ctx.peek_byte())};
-            line_info.ticks = 7;
-            break;
-        case 0xCF:
-            line_info.mnemonic = "RST"; line_info.type = CodeLine::Type::CALL;
-            line_info.operands = {Operand(Operand::IMM8, 0x08)};
-            line_info.ticks = 11;
-            break;
-        case 0xD0:
-            line_info.mnemonic = "RET"; line_info.type = CodeLine::Type::RETURN;
-            line_info.operands = {Operand(Operand::CONDITION, "NC")};
-            line_info.ticks = 5;
-            line_info.ticks_alt = 11;
-            break;
-        case 0xD1:
-            line_info.mnemonic = "POP"; line_info.type = CodeLine::Type::STACK;
-            line_info.operands = {Operand(Operand::REG16, "DE")};
-            line_info.ticks = 10;
-            break;
-        case 0xD2:
-            line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "NC"), target_op};
-            }
-            line_info.ticks = 10;
-            break;
-        case 0xD3:
-            line_info.mnemonic = "OUT"; line_info.type = CodeLine::Type::IO;
-            line_info.operands = {Operand(Operand::PORT_IMM8, ctx.peek_byte()), Operand(Operand::REG8, "A")};
-            line_info.ticks = 11;
-            break;
-        case 0xD4:
-            line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "NC"), target_op};
-            }
-            line_info.ticks = 10;
-            line_info.ticks_alt = 17;
-            break;
-        case 0xD5:
-            line_info.mnemonic = "PUSH"; line_info.type = CodeLine::Type::STACK;
-            line_info.operands = {Operand(Operand::REG16, "DE")};
-            line_info.ticks = 11;
-            break;
-        case 0xD6:
-            line_info.mnemonic = "SUB"; line_info.type = CodeLine::Type::ALU;
-            line_info.operands = {Operand(Operand::IMM8, ctx.peek_byte())};
-            line_info.ticks = 7;
-            break;
-        case 0xD7:
-            line_info.mnemonic = "RST"; line_info.type = CodeLine::Type::CALL;
-            line_info.operands = {Operand(Operand::IMM8, 0x10)};
-            line_info.ticks = 11;
-            break;
-        case 0xD8:
-            line_info.mnemonic = "RET"; line_info.type = CodeLine::Type::RETURN;
-            line_info.operands = {Operand(Operand::CONDITION, "C")};
-            line_info.ticks = 5;
-            line_info.ticks_alt = 11;
-            break;
-        case 0xD9:
-            line_info.mnemonic = "EXX"; line_info.type = CodeLine::Type::EXCHANGE;
-            line_info.ticks = 4;
-            break;
-        case 0xDA:
-            line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "C"), target_op};
-            }
-            line_info.ticks = 10;
-            break;
-        case 0xDB:
-            line_info.mnemonic = "IN"; line_info.type = CodeLine::Type::IO;
-            line_info.operands = {Operand(Operand::REG8, "A"), Operand(Operand::PORT_IMM8, ctx.peek_byte())};
-            line_info.ticks = 11;
-            break;
-        case 0xDC:
-            line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "C"), target_op};
-            }
-            line_info.ticks = 10;
-            line_info.ticks_alt = 17;
-            break;
-        case 0xDE:
-            line_info.mnemonic = "SBC"; line_info.type = CodeLine::Type::ALU;
-            line_info.operands = {Operand(Operand::REG8, "A"), Operand(Operand::IMM8, ctx.peek_byte())};
-            line_info.ticks = 7;
-            break;
-        case 0xDF:
-            line_info.mnemonic = "RST"; line_info.type = CodeLine::Type::CALL;
-            line_info.operands = {Operand(Operand::IMM8, 0x18)};
-            line_info.ticks = 11;
-            break;
-        case 0xE0:
-            line_info.mnemonic = "RET"; line_info.type = CodeLine::Type::RETURN;
-            line_info.operands = {Operand(Operand::CONDITION, "PO")};
-            line_info.ticks = 5;
-            line_info.ticks_alt = 11;
-            break;
-        case 0xE1:
-            line_info.mnemonic = "POP"; line_info.type = CodeLine::Type::STACK;
-            line_info.operands = {Operand(Operand::REG16, get_indexed_reg_str())};
-            line_info.ticks = (get_index_mode() == IndexMode::HL) ? 10 : 14;
-            break;
-        case 0xE2:
-            line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "PO"), target_op};
-            }
-            line_info.ticks = 10;
-            break;
-        case 0xE3:
-            line_info.mnemonic = "EX"; line_info.type = CodeLine::Type::EXCHANGE;
-            line_info.operands = {Operand(Operand::MEM_REG16, "SP"), Operand(Operand::REG16, get_indexed_reg_str())};
-            line_info.ticks = (get_index_mode() == IndexMode::HL) ? 19 : 23;
-            break;
-        case 0xE4:
-            line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "PO"), target_op};
-            }
-            line_info.ticks = 10;
-            line_info.ticks_alt = 17;
-            break;
-        case 0xE5:
-            line_info.mnemonic = "PUSH"; line_info.type = CodeLine::Type::STACK;
-            line_info.operands = {Operand(Operand::REG16, get_indexed_reg_str())};
-            line_info.ticks = (get_index_mode() == IndexMode::HL) ? 11 : 15;
-            break;
-        case 0xE6:
-            line_info.mnemonic = "AND"; line_info.type = CodeLine::Type::ALU;
-            line_info.operands = {Operand(Operand::IMM8, ctx.peek_byte())};
-            line_info.ticks = 7;
-            break;
-        case 0xE7:
-            line_info.mnemonic = "RST"; line_info.type = CodeLine::Type::CALL;
-            line_info.operands = {Operand(Operand::IMM8, 0x20)};
-            line_info.ticks = 11;
-            break;
-        case 0xE8:
-            line_info.mnemonic = "RET"; line_info.type = CodeLine::Type::RETURN;
-            line_info.operands = {Operand(Operand::CONDITION, "PE")};
-            line_info.ticks = 5;
-            line_info.ticks_alt = 11;
-            break;
-        case 0xE9:
-            line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            line_info.operands = {Operand(Operand::MEM_REG16, get_indexed_reg_str())};
-            line_info.ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
-            break;
-        case 0xEA:
-            line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "PE"), target_op};
-            }
-            line_info.ticks = 10;
-            break;
-        case 0xEB:
-            line_info.mnemonic = "EX"; line_info.type = CodeLine::Type::EXCHANGE;
-            line_info.operands = {Operand(Operand::REG16, "DE"), Operand(Operand::REG16, "HL")};
-            line_info.ticks = 4;
-            break;
-        case 0xEC:
-            line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "PE"), target_op};
-            }
-            line_info.ticks = 10;
-            line_info.ticks_alt = 17;
-            break;
+        }
         case 0xED: {
             uint8_t opcodeED = ctx.peek_byte();
             set_index_mode(IndexMode::HL);
             switch (opcodeED) {
             case 0x40:
-                line_info.mnemonic = "IN"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "IN";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::REG8, "B"), Operand(Operand::MEM_REG16, "C")};
                 line_info.ticks = 12;
                 break;
             case 0x41:
-                line_info.mnemonic = "OUT"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUT";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "B")};
                 line_info.ticks = 12;
                 break;
             case 0x42:
-                line_info.mnemonic = "SBC HL, BC"; line_info.type = CodeLine::Type::ALU;
+                line_info.mnemonic = "SBC HL, BC";
+                line_info.type = CodeLine::Type::ALU;
                 line_info.ticks = 15;
                 break;
             case 0x43:
-                line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.operands = {Operand(Operand::MEM_IMM16, ctx.peek_word()), Operand(Operand::REG16, "BC")};
                 line_info.ticks = 20;
                 break;
@@ -1537,7 +1379,8 @@ public:
             case 0x6C:
             case 0x74:
             case 0x7C:
-                line_info.mnemonic = "NEG"; line_info.type = CodeLine::Type::ALU;
+                line_info.mnemonic = "NEG";
+                line_info.type = CodeLine::Type::ALU;
                 line_info.ticks = 8;
                 break;
             case 0x45:
@@ -1547,274 +1390,341 @@ public:
             case 0x6D:
             case 0x75:
             case 0x7D:
-                line_info.mnemonic = "RETN"; line_info.type = CodeLine::Type::RETURN;
+                line_info.mnemonic = "RETN";
+                line_info.type = CodeLine::Type::RETURN;
                 line_info.ticks = 14;
                 break;
             case 0x46:
             case 0x4E:
             case 0x66:
             case 0x6E:
-                line_info.mnemonic = "IM"; line_info.type = CodeLine::Type::CPU_CONTROL;
+                line_info.mnemonic = "IM";
+                line_info.type = CodeLine::Type::CPU_CONTROL;
                 line_info.operands = {Operand(Operand::IMM8, 0)};
                 line_info.ticks = 8;
                 break;
             case 0x47:
-                line_info.mnemonic = "LD I, A"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD I, A";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.ticks = 9;
                 break;
             case 0x48:
-                line_info.mnemonic = "IN"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "IN";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::REG8, "C"), Operand(Operand::MEM_REG16, "C")};
                 line_info.ticks = 12;
                 break;
             case 0x49:
-                line_info.mnemonic = "OUT"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUT";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "C")};
                 line_info.ticks = 12;
                 break;
             case 0x4A:
-                line_info.mnemonic = "ADC"; line_info.type = CodeLine::Type::ALU;
+                line_info.mnemonic = "ADC";
+                line_info.type = CodeLine::Type::ALU;
                 line_info.operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "BC")};
                 line_info.ticks = 15;
                 break;
             case 0x4B:
-                line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.operands = {Operand(Operand::REG16, "BC"), Operand(Operand::MEM_IMM16, ctx.peek_word())};
                 line_info.ticks = 20;
                 break;
             case 0x4D:
-                line_info.mnemonic = "RETI"; line_info.type = CodeLine::Type::RETURN;
+                line_info.mnemonic = "RETI";
+                line_info.type = CodeLine::Type::RETURN;
                 line_info.ticks = 14;
                 break;
             case 0x4F:
-                line_info.mnemonic = "LD R, A"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD R, A";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.ticks = 9;
                 break;
             case 0x50:
-                line_info.mnemonic = "IN"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "IN";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::REG8, "D"), Operand(Operand::MEM_REG16, "C")};
                 line_info.ticks = 12;
                 break;
             case 0x51:
-                line_info.mnemonic = "OUT"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUT";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "D")};
                 line_info.ticks = 12;
                 break;
             case 0x52:
-                line_info.mnemonic = "SBC"; line_info.type = CodeLine::Type::ALU;
+                line_info.mnemonic = "SBC";
+                line_info.type = CodeLine::Type::ALU;
                 line_info.operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "DE")};
                 line_info.ticks = 15;
                 break;
             case 0x53:
-                line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.operands = {Operand(Operand::MEM_IMM16, ctx.peek_word()), Operand(Operand::REG16, "DE")};
                 line_info.ticks = 20;
                 break;
-            case 0x56: // IM 1
-            case 0x76: // IM 1
-                line_info.mnemonic = "IM"; line_info.type = CodeLine::Type::CPU_CONTROL;
+            case 0x56:
+            case 0x76:
+                line_info.mnemonic = "IM";
+                line_info.type = CodeLine::Type::CPU_CONTROL;
                 line_info.operands = {Operand(Operand::IMM8, 1)};
                 line_info.ticks = 8;
                 break;
             case 0x57:
-                line_info.mnemonic = "LD A, I"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD A, I";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.ticks = 9;
                 break;
             case 0x58:
-                line_info.mnemonic = "IN"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "IN";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::REG8, "E"), Operand(Operand::MEM_REG16, "C")};
                 line_info.ticks = 12;
                 break;
             case 0x59:
-                line_info.mnemonic = "OUT"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUT";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "E")};
                 line_info.ticks = 12;
                 break;
             case 0x5A:
-                line_info.mnemonic = "ADC"; line_info.type = CodeLine::Type::ALU;
+                line_info.mnemonic = "ADC";
+                line_info.type = CodeLine::Type::ALU;
                 line_info.operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "DE")};
                 line_info.ticks = 15;
                 break;
             case 0x5B:
-                line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.operands = {Operand(Operand::REG16, "DE"), Operand(Operand::MEM_IMM16, ctx.peek_word())};
                 line_info.ticks = 20;
                 break;
             case 0x5E:
             case 0x7E:
-                line_info.mnemonic = "IM"; line_info.type = CodeLine::Type::CPU_CONTROL;
+                line_info.mnemonic = "IM";
+                line_info.type = CodeLine::Type::CPU_CONTROL;
                 line_info.operands = {Operand(Operand::IMM8, 2)};
                 line_info.ticks = 8;
                 break;
             case 0x5F:
-                line_info.mnemonic = "LD A, R"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD A, R";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.ticks = 9;
                 break;
             case 0x60:
-                line_info.mnemonic = "IN"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "IN";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::REG8, "H"), Operand(Operand::MEM_REG16, "C")};
                 line_info.ticks = 12;
                 break;
             case 0x61:
-                line_info.mnemonic = "OUT"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUT";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "H")};
                 line_info.ticks = 12;
                 break;
             case 0x62:
-                line_info.mnemonic = "SBC"; line_info.type = CodeLine::Type::ALU;
+                line_info.mnemonic = "SBC";
+                line_info.type = CodeLine::Type::ALU;
                 line_info.operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "HL")};
                 line_info.ticks = 15;
                 break;
             case 0x63:
-                line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.operands = {Operand(Operand::MEM_IMM16, ctx.peek_word()), Operand(Operand::REG16, "HL")};
                 line_info.ticks = 20;
                 break;
             case 0x67:
-                line_info.mnemonic = "RRD"; line_info.type = CodeLine::Type::SHIFT_ROTATE;
+                line_info.mnemonic = "RRD";
+                line_info.type = CodeLine::Type::SHIFT_ROTATE;
                 line_info.ticks = 18;
                 break;
             case 0x68:
-                line_info.mnemonic = "IN"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "IN";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::REG8, "L"), Operand(Operand::MEM_REG16, "C")};
                 line_info.ticks = 12;
                 break;
             case 0x69:
-                line_info.mnemonic = "OUT"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUT";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "L")};
                 line_info.ticks = 12;
                 break;
             case 0x6A:
-                line_info.mnemonic = "ADC"; line_info.type = CodeLine::Type::ALU;
+                line_info.mnemonic = "ADC";
+                line_info.type = CodeLine::Type::ALU;
                 line_info.operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "HL")};
                 line_info.ticks = 15;
                 break;
             case 0x6B:
-                line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.operands = {Operand(Operand::REG16, "HL"), Operand(Operand::MEM_IMM16, ctx.peek_word())};
                 line_info.ticks = 20;
                 break;
             case 0x6F:
-                line_info.mnemonic = "RLD"; line_info.type = CodeLine::Type::SHIFT_ROTATE;
+                line_info.mnemonic = "RLD";
+                line_info.type = CodeLine::Type::SHIFT_ROTATE;
                 line_info.ticks = 18;
                 break;
             case 0x70:
-                line_info.mnemonic = "IN"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "IN";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::MEM_REG16, "C")};
                 line_info.ticks = 12;
                 break;
             case 0x71:
-                line_info.mnemonic = "OUT"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUT";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::IMM8, 0)};
                 line_info.ticks = 12;
                 break;
             case 0x72:
-                line_info.mnemonic = "SBC"; line_info.type = CodeLine::Type::ALU;
+                line_info.mnemonic = "SBC";
+                line_info.type = CodeLine::Type::ALU;
                 line_info.operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "SP")};
                 line_info.ticks = 15;
                 break;
             case 0x73:
-                line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.operands = {Operand(Operand::MEM_IMM16, ctx.peek_word()), Operand(Operand::REG16, "SP")};
                 line_info.ticks = 20;
                 break;
             case 0x78:
-                line_info.mnemonic = "IN"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "IN";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::REG8, "A"), Operand(Operand::MEM_REG16, "C")};
                 line_info.ticks = 12;
                 break;
             case 0x79:
-                line_info.mnemonic = "OUT"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUT";
+                line_info.type = CodeLine::Type::IO;
                 line_info.operands = {Operand(Operand::MEM_REG16, "C"), Operand(Operand::REG8, "A")};
                 line_info.ticks = 12;
                 break;
             case 0x7A:
-                line_info.mnemonic = "ADC"; line_info.type = CodeLine::Type::ALU;
+                line_info.mnemonic = "ADC";
+                line_info.type = CodeLine::Type::ALU;
                 line_info.operands = {Operand(Operand::REG16, "HL"), Operand(Operand::REG16, "SP")};
                 line_info.ticks = 15;
                 break;
             case 0x7B:
-                line_info.mnemonic = "LD"; line_info.type = CodeLine::Type::LOAD;
+                line_info.mnemonic = "LD";
+                line_info.type = CodeLine::Type::LOAD;
                 line_info.operands = {Operand(Operand::REG16, "SP"), Operand(Operand::MEM_IMM16, ctx.peek_word())};
                 line_info.ticks = 20;
                 break;
             case 0xA0:
-                line_info.mnemonic = "LDI"; line_info.type = CodeLine::Type::BLOCK;
+                line_info.mnemonic = "LDI";
+                line_info.type = CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 break;
             case 0xA1:
-                line_info.mnemonic = "CPI"; line_info.type = CodeLine::Type::BLOCK;
+                line_info.mnemonic = "CPI";
+                line_info.type = CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 break;
             case 0xA2:
-                line_info.mnemonic = "INI"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "INI";
+                line_info.type = CodeLine::Type::IO;
                 line_info.ticks = 16;
                 break;
             case 0xA3:
-                line_info.mnemonic = "OUTI"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUTI";
+                line_info.type = CodeLine::Type::IO;
                 line_info.ticks = 16;
                 break;
             case 0xA8:
-                line_info.mnemonic = "LDD"; line_info.type = CodeLine::Type::BLOCK;
+                line_info.mnemonic = "LDD";
+                line_info.type = CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 break;
             case 0xA9:
-                line_info.mnemonic = "CPD"; line_info.type = CodeLine::Type::BLOCK;
+                line_info.mnemonic = "CPD";
+                line_info.type = CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 break;
             case 0xAA:
-                line_info.mnemonic = "IND"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "IND";
+                line_info.type = CodeLine::Type::IO;
                 line_info.ticks = 16;
                 break;
             case 0xAB:
-                line_info.mnemonic = "OUTD"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OUTD";
+                line_info.type = CodeLine::Type::IO;
                 line_info.ticks = 16;
                 break;
             case 0xB0:
-                line_info.mnemonic = "LDIR"; line_info.type = CodeLine::Type::BLOCK;
+                line_info.mnemonic = "LDIR";
+                line_info.type = CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
             case 0xB1:
-                line_info.mnemonic = "CPIR"; line_info.type = CodeLine::Type::BLOCK;
+                line_info.mnemonic = "CPIR";
+                line_info.type = CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
             case 0xB2:
-                line_info.mnemonic = "INIR"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "INIR";
+                line_info.type = CodeLine::Type::IO;
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
             case 0xB3:
-                line_info.mnemonic = "OTIR"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OTIR";
+                line_info.type = CodeLine::Type::IO;
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
             case 0xB8:
-                line_info.mnemonic = "LDDR"; line_info.type = CodeLine::Type::BLOCK;
+                line_info.mnemonic = "LDDR";
+                line_info.type = CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
             case 0xB9:
-                line_info.mnemonic = "CPDR"; line_info.type = CodeLine::Type::BLOCK;
+                line_info.mnemonic = "CPDR";
+                line_info.type = CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
             case 0xBA:
-                line_info.mnemonic = "INDR"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "INDR";
+                line_info.type = CodeLine::Type::IO;
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
             case 0xBB:
-                line_info.mnemonic = "OTDR"; line_info.type = CodeLine::Type::IO;
+                line_info.mnemonic = "OTDR";
+                line_info.type = CodeLine::Type::IO;
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
             default:
-                line_info.mnemonic = "NOP"; line_info.type = CodeLine::Type::CPU_CONTROL;
+                line_info.mnemonic = "NOP";
+                line_info.type = CodeLine::Type::CPU_CONTROL;
                 line_info.operands = {Operand(Operand::IMM8, 0xED), Operand(Operand::IMM8, opcodeED)};
                 line_info.ticks = 8;
             }
+            break;
+        }
+        case 0xEC: {
+            line_info.mnemonic = "CALL";
+            line_info.type = CodeLine::Type::CALL;
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {Operand(Operand::CONDITION, "PE"), target_op};
+            line_info.ticks = 10;
+            line_info.ticks_alt = 17;
             break;
         }
         case 0xEE:
@@ -1838,27 +1748,29 @@ public:
             line_info.operands = {Operand(Operand::REG16, "AF")};
             line_info.ticks = 10;
             break;
-        case 0xF2:
+        case 0xF2: {
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "P"), target_op};
-            }
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {Operand(Operand::CONDITION, "P"), target_op};
             line_info.ticks = 10;
             break;
+        }
         case 0xF3:
             line_info.mnemonic = "DI"; line_info.type = CodeLine::Type::CPU_CONTROL;
             line_info.ticks = 4;
             break;
-        case 0xF4:
+        case 0xF4: {
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "P"), target_op};
-            }
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {Operand(Operand::CONDITION, "P"), target_op};
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
             break;
+        }
         case 0xF5:
             line_info.mnemonic = "PUSH"; line_info.type = CodeLine::Type::STACK;
             line_info.operands = {Operand(Operand::REG16, "AF")};
@@ -1885,34 +1797,39 @@ public:
             line_info.operands = {Operand(Operand::REG16, "SP"), Operand(Operand::REG16, get_indexed_reg_str())};
             line_info.ticks = (get_index_mode() == IndexMode::HL) ? 6 : 10;
             break;
-        case 0xFA:
-            line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "M"), target_op};
-            }
+        case 0xFA: {
+            line_info.mnemonic = "JP";
+            line_info.type = CodeLine::Type::JUMP;
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {Operand(Operand::CONDITION, "M"), target_op};
             line_info.ticks = 10;
             break;
+        }
         case 0xFB:
             line_info.mnemonic = "EI"; line_info.type = CodeLine::Type::CPU_CONTROL;
             line_info.ticks = 4;
             break;
-        case 0xFC:
-            line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "M"), target_op};
-            }
+        case 0xFC: {
+            line_info.mnemonic = "CALL";
+            line_info.type = CodeLine::Type::CALL;
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {Operand(Operand::CONDITION, "M"), target_op};
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
             break;
+        }
         case 0xFE:
             line_info.mnemonic = "CP"; line_info.type = CodeLine::Type::ALU;
             line_info.operands = {Operand(Operand::IMM8, ctx.peek_byte())};
             line_info.ticks = 7;
             break;
         case 0xFF:
-            line_info.mnemonic = "RST"; line_info.type = CodeLine::Type::CALL;
+            line_info.mnemonic = "RST";
+            line_info.type = CodeLine::Type::CALL;
             line_info.operands = {Operand(Operand::IMM8, 0x38)};
             line_info.ticks = 11;
             break;
@@ -1923,15 +1840,6 @@ public:
             line_info.operands = {Operand(Operand::IMM8, opcode)};
         }
         return line_info;
-    }
-
-    std::vector<CodeLine> disassemble(uint16_t start_address, size_t instruction_limit, DisassemblyMode mode) {
-        if (mode == DisassemblyMode::RAW) {
-            return disassemble_raw(start_address, instruction_limit);
-        } else {
-            std::set<uint16_t> visited;
-            return disassemble_heuristic(start_address, instruction_limit);
-        }
     }
 private:
     enum class IndexMode { HL, IX, IY };
