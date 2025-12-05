@@ -11,3 +11,4 @@ build/
 *~
 CMakeCache.txt
 knightlore.ctl
+.vscode/settings.json
