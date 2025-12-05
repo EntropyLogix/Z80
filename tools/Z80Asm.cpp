@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Asm.cpp
-// Verson: 1.1.0
+// Verson: 1.1.1
 //
 // This file contains a command-line utility for assembling Z80 code.
 // It serves as an example of how to use the Z80Assembler class.
@@ -60,21 +60,18 @@ public:
         m_current_path_stack.pop_back();
         return true;
     }
-
     bool exists(const std::string& identifier) override {
         if (m_current_path_stack.empty())
             return std::filesystem::exists(identifier);
         else
             return std::filesystem::exists(m_current_path_stack.back().parent_path() / identifier);
     }
-
     size_t file_size(const std::string& identifier) override {
         if (m_current_path_stack.empty())
             return std::filesystem::file_size(identifier);
         else
             return std::filesystem::file_size(m_current_path_stack.back().parent_path() / identifier);
     }
-
 private:
     std::vector<std::filesystem::path> m_current_path_stack;
 };
@@ -84,9 +81,11 @@ void write_map_file(const std::string& file_path, const std::map<std::string, Z8
     if (!file)
         throw std::runtime_error("Cannot open map file for writing: " + file_path);
     for (const auto& symbol : symbols) {
+        std::stringstream hex_val;
+        hex_val << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<uint16_t>(symbol.second.value);
         file << std::setw(20) << std::left << std::setfill(' ') << symbol.first
-             << " EQU $" << std::hex << std::uppercase << std::setw(4) << std::setfill('0')
-             << symbol.second.value << std::endl;
+             << " EQU $" << hex_val.str()
+             << '\n';
     }
 }
 
@@ -96,20 +95,15 @@ void write_hex_file(const std::string& file_path, const Z80DefaultBus& bus, cons
     for (const auto& block : blocks) {
         uint16_t current_addr = block.start_address;
         uint16_t remaining_len = block.size;
-
         while (remaining_len > 0) {
             uint8_t line_len = std::min((size_t)remaining_len, bytes_per_line);
             uint8_t checksum = 0;
-
             file << ":" << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)line_len;
             checksum += line_len;
-
             file << std::setw(4) << std::setfill('0') << current_addr;
             checksum += (current_addr >> 8) & 0xFF;
             checksum += current_addr & 0xFF;
-
-            file << "00"; // Record type 00 (Data)
-
+            file << "00";
             for (uint8_t i = 0; i < line_len; ++i) {
                 uint8_t byte = bus.peek(current_addr + i);
                 file << std::setw(2) << std::setfill('0') << (int)byte;
@@ -120,16 +114,14 @@ void write_hex_file(const std::string& file_path, const Z80DefaultBus& bus, cons
             remaining_len -= line_len;
         }
     }
-    file << ":00000001FF" << std::endl; // End of File record
+    file << ":00000001FF" << std::endl;
 }
 
 void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, const std::vector<Z80Assembler<Z80DefaultBus>::BlockInfo>& blocks) {
     if (blocks.empty())
         return;
-    // Find the overall memory range
     uint16_t min_addr = blocks[0].start_address;
     uint16_t max_addr = blocks[0].start_address + blocks[0].size -1;
-
     for (const auto& block : blocks) {
         if (block.start_address < min_addr)
             min_addr = block.start_address;
@@ -137,16 +129,12 @@ void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, cons
         if (block_end_addr > max_addr)
             max_addr = block_end_addr;
     }
-
     size_t total_size = max_addr - min_addr + 1;
-    std::vector<uint8_t> image(total_size, 0x00); // Fill with 0x00 by default
-
-    // Copy the data from each block into the image
+    std::vector<uint8_t> image(total_size, 0x00);
     for (const auto& block : blocks) {
         for (uint16_t i = 0; i < block.size; ++i)
             image[block.start_address - min_addr + i] = bus.peek(block.start_address + i);
     }
-
     std::ofstream file(file_path, std::ios::binary);
     file.write(reinterpret_cast<const char*>(image.data()), image.size());
 }
@@ -158,12 +146,24 @@ std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
             ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i]);
         else
             ss << std::dec << static_cast<int>(bytes[i]);
-        if (i < bytes.size() - 1) ss << " ";
+        if (i < bytes.size() - 1)
+            ss << " ";
     }
     return ss.str();
 }
 
-using Analyzer = Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels>;
+class AsmLabelHandler : public ILabels {
+public:
+    std::string get_label(uint16_t address) const override {
+        auto it = m_labels.find(address);
+        return (it != m_labels.end()) ? it->second : "";
+    }
+    void add_label(uint16_t address, const std::string& label) override { m_labels[address] = label; }
+private:
+    std::map<uint16_t, std::string> m_labels;
+};
+
+using Analyzer = Z80Analyzer<Z80DefaultBus>;
 
 std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
     if (operands.empty()) return "";
@@ -203,69 +203,58 @@ std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
     }
     return ss.str();
 }
+
 #ifndef Z80ASM_TEST_BUILD
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         print_usage();
         return 1;
     }
-
     std::string input_file;
     std::string output_bin_file, output_hex_file;
     std::string output_map_file;
-
     input_file = argv[1];
-
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--bin" && i + 1 < argc) {
+        if (arg == "--bin" && i + 1 < argc)
             output_bin_file = argv[++i];
-        } else if (arg == "--hex" && i + 1 < argc) {
+        else if (arg == "--hex" && i + 1 < argc)
             output_hex_file = argv[++i];
-        } else if (arg == "--map" && i + 1 < argc) {
+        else if (arg == "--map" && i + 1 < argc)
             output_map_file = argv[++i];
-        } else {
+        else {
             std::cerr << "Unknown or incomplete argument: " << arg << std::endl;
             print_usage();
             return 1;
         }
     }
-
     Z80<> cpu;
     Z80DefaultBus bus;
     FileSystemSourceProvider source_provider;
     Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
-
     try {
         std::cout << "Assembling source code from: " << input_file << std::endl;
-
         if (assembler.compile(input_file, 0x0000)) {
             std::cout << "\n--- Assembly Successful ---\n" << std::endl;
-
-            // Print symbols
             const auto& symbols = assembler.get_symbols();
             std::cout << "--- Calculated Symbols ---" << std::endl;
             for (const auto& symbol : symbols) {
                 std::stringstream hex_val;
                 hex_val << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<uint16_t>(symbol.second.value);
-
                 std::cout << std::setw(20) << std::left << std::setfill(' ') << symbol.first << " = " << hex_val.str() << " (" << std::dec << symbol.second.value << ")" << std::endl;
             }
             std::cout << std::endl;
-
-            // Print memory map of code blocks
-            Z80DefaultLabels label_handler;
+            AsmLabelHandler label_handler;
             for(const auto& sym : symbols) label_handler.add_label(sym.second.value, sym.first);
-            Analyzer analyzer(&bus, &cpu, &label_handler);
+            Analyzer analyzer(&bus, &label_handler);
             auto blocks = assembler.get_blocks();
             std::cout << "--- Code Blocks ---" << std::endl;
             for (size_t i = 0; i < blocks.size(); ++i) {
                 const auto& block = blocks[i];
                 uint16_t start_addr = block.start_address;
                 uint16_t len = block.size;
-
                 std::cout << "--- Block #" << i << ": Address=0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << start_addr << ", Size=" << std::dec << len << " bytes ---\n";
-
                 if (len > 0) {
                     const size_t cols = 16;
                     for (uint16_t addr = start_addr; addr < start_addr + len; addr += cols) {
@@ -276,12 +265,11 @@ int main(int argc, char* argv[]) {
                                 uint8_t byte = bus.peek(addr + j);
                                 std::cout << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)byte << " ";
                                 ascii_chars += (isprint(byte) ? (char)byte : '.');
-                            } else {
+                            } else
                                 std::cout << "   ";
-                            }
                         }
                         std::cout << " " << ascii_chars << std::endl;
-                        std::cout << std::dec << std::setfill(' '); // Reset format for next outputs
+                        std::cout << std::dec << std::setfill(' ');
                     }
                     std::cout << "\n--- Disassembly for Block #" << i << " ---\n";
                     uint16_t disasm_addr = start_addr;
@@ -295,19 +283,16 @@ int main(int argc, char* argv[]) {
                                 ticks_str += "/" + std::to_string(line_info.ticks_alt);
                             ticks_str += "T)";
                         }
-                        if (!line_info.label.empty()) {
+                        if (!line_info.label.empty())
                             std::cout << line_info.label << ":\t";
-                        } else {
+                        else
                             std::cout << "\t";
-                        }
                         std::cout << std::left << format_hex(current_pc, 4) << "  " << std::setw(12) << format_bytes_str(line_info.bytes, true) << " "
                                   << std::setw(10) << ticks_str << " " << std::setw(7) << line_info.mnemonic << " " << std::setw(18) << format_operands(line_info.operands) << std::endl;
                     }
                 }
                 std::cout << std::endl;
             }
-
-            // Write output files
             if (!output_bin_file.empty()) {
                 write_bin_file(output_bin_file, bus, blocks);
                 std::cout << "Binary code written to " << output_bin_file << std::endl;
@@ -320,12 +305,10 @@ int main(int argc, char* argv[]) {
                 write_map_file(output_map_file, symbols);
                 std::cout << "Symbols written to " << output_map_file << std::endl;
             }
-
         }
     } catch (const std::exception& e) {
         std::cerr << "Assembly error: " << e.what() << std::endl;
     }
-
     return 0;
 }
-#endif
+#endif//Z80ASM_TEST_BUILD

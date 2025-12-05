@@ -69,9 +69,8 @@ void print_usage() {
 
 std::string get_file_extension(const std::string& filename) {
     size_t dot_pos = filename.rfind('.');
-    if (dot_pos == std::string::npos) {
+    if (dot_pos == std::string::npos)
         return "";
-    }
     std::string ext = filename.substr(dot_pos + 1);
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
     return ext;
@@ -230,8 +229,8 @@ bool load_z80_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
                 if (data_ptr + 3 >= data.size())
                     break; // Corrupted sequence
                 uint8_t count = data[data_ptr + 2];
-                uint8_t value = data[data_ptr + 2];
-                data_ptr += 3;
+            uint8_t value = data[data_ptr + 3];
+            data_ptr += 4;
                 for (int i = 0; i < count && mem_addr < 0xFFFF; ++i)
                     cpu.get_bus()->write(mem_addr++, value);
             } else
@@ -290,25 +289,22 @@ uint16_t resolve_address(const std::string& addr_str, const Z80<>& cpu) {
                 pos += 1;
             } else 
                 offset = std::stoi(offset_str, &pos, 10);
-            if (pos != offset_str.length()) {
+            if (pos != offset_str.length())
                 throw std::invalid_argument("Invalid characters in offset");
-            }
         } catch (const std::exception&) {
             throw std::runtime_error("Invalid offset in address expression: " + offset_str);
         }
         return (op == '+') ? (base_addr + offset) : (base_addr - offset);
     }
-
     try {
         std::string upper_str = addr_str;
         std::transform(upper_str.begin(), upper_str.end(), upper_str.begin(), ::toupper);
-        if (upper_str.size() > 2 && upper_str.substr(0, 2) == "0X") {
+        if (upper_str.size() > 2 && upper_str.substr(0, 2) == "0X")
             return std::stoul(upper_str.substr(2), nullptr, 16);
-        } else if (upper_str.back() == 'H') {
+        else if (upper_str.back() == 'H')
             return std::stoul(upper_str.substr(0, upper_str.length() - 1), nullptr, 16);
-        } else {
+        else
             return std::stoul(addr_str, nullptr, 10);
-        }
     } catch (const std::invalid_argument&) {
         std::string upper_str = addr_str;
         std::transform(upper_str.begin(), upper_str.end(), upper_str.begin(), ::toupper);
@@ -415,9 +411,15 @@ std::string dump_registers(const std::string& format, const Z80<>& cpu) {
                 ss << format[i];
         } else if (format[i] == '\\' && i + 1 < format.length()) {
             switch (format[i + 1]) {
-            case 'n': ss << '\n'; break;
-            case 't': ss << '\t'; break;
-            default: ss << format[i + 1]; break;
+                case 'n':
+                    ss << '\n';
+                    break;
+                case 't':
+                    ss << '\t';
+                    break;
+                default:
+                    ss << format[i + 1];
+                    break;
             }
             i++;
         } else
@@ -433,15 +435,83 @@ std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
             ss << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i]);
         else
             ss << std::dec << static_cast<int>(bytes[i]);
-        if (i < bytes.size() - 1) ss << " ";
+        if (i < bytes.size() - 1)
+            ss << " ";
     }
     return ss.str();
 }
 
-using Analyzer = Z80Analyzer<Z80DefaultBus, Z80<>, Z80DefaultLabels>;
+class DumpLabelHandler : public ILabels {
+public:
+    void load_map(const std::string& content) {
+        std::stringstream file(content);
+        std::string line;
+        while (std::getline(file, line)) {
+            std::stringstream ss(line);
+            uint16_t address;
+            std::string label, equals;
+            ss >> std::hex >> address;
+            if (ss.fail() || ss.get() != ':') {
+                ss.clear();
+                ss.str(line);
+                if (ss >> label >> equals && (equals == "=" || equals == "EQU")) {
+                    ss >> std::ws;
+                    if (ss.peek() == '$')
+                        ss.ignore();
+                    ss >> std::hex >> address;
+                    if (!ss.fail())
+                        add_label(address, label);
+                }
+                continue;
+            }
+            ss >> label;
+            add_label(address, label);
+        }
+    }
+    void load_ctl(const std::string& content) {
+        std::stringstream file(content);
+        std::string line;
+        while (std::getline(file, line)) {
+            if (line.rfind("L ", 0) == 0) {
+                std::stringstream ss(line.substr(2));
+                uint16_t address;
+                std::string label;
+                ss >> std::hex >> address >> label;
+                if (!ss.fail() && !label.empty())
+                    add_label(address, label);
+            } else if (line.rfind("$", 0) == 0 || line.rfind("@ $", 0) == 0) {
+                std::stringstream ss(line);
+                uint16_t address;
+                if (line.rfind("@ $", 0) == 0)
+                    ss.ignore(3);
+                else
+                    ss.ignore(1);
+                ss >> std::hex >> address;
+                std::string remaining;
+                std::getline(ss, remaining);
+                constexpr const char* label_keyword = "label=";
+                size_t label_pos = remaining.find(label_keyword);
+                if (label_pos != std::string::npos) {
+                    std::string label = remaining.substr(label_pos + strlen(label_keyword));
+                    label.erase(0, label.find_first_not_of(" \t"));
+                    label.erase(label.find_last_not_of(" \t") + 1);
+                    if (!label.empty())
+                        add_label(address, label);
+                }
+            }
+        }
+    }
+    std::string get_label(uint16_t address) const override { auto it = m_labels.find(address); return (it != m_labels.end()) ? it->second : ""; }
+    void add_label(uint16_t address, const std::string& label) override { m_labels[address] = label; }
+private:
+    std::map<uint16_t, std::string> m_labels;
+};
+
+using Analyzer = Z80Analyzer<Z80DefaultBus>;
 
 std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
-    if (operands.empty()) return "";
+    if (operands.empty())
+        return "";
     std::stringstream ss;
     for (size_t i = 0; i < operands.size(); ++i) {
         const auto& op = operands[i];
@@ -456,7 +526,7 @@ std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
                 break;
             case Analyzer::Operand::Type::IMM16:
             case Analyzer::Operand::Type::MEM_IMM16: {
-                std::string formatted_addr = op.label.empty() ? format_hex(op.num_val, 4) : op.label;
+                std::string formatted_addr = op.label.empty() ? format_hex(static_cast<uint16_t>(op.num_val), 4) : op.label;
                 if (op.type == Analyzer::Operand::Type::MEM_IMM16) ss << "(" << formatted_addr << ")";
                 else ss << formatted_addr;
                 break;
@@ -465,7 +535,7 @@ std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
                 ss << "(" << op.s_val << ")";
                 break;
             case Analyzer::Operand::Type::MEM_INDEXED:
-                ss << "(" << op.s_val << (op.offset >= 0 ? "+" : "") << static_cast<int>(op.offset) << ")";
+                ss << "(" << op.base_reg << (op.offset >= 0 ? "+" : "") << static_cast<int>(op.offset) << ")";
                 break;
             case Analyzer::Operand::Type::PORT_IMM8:
                 ss << "(" << format_hex(static_cast<uint8_t>(op.num_val), 2) << ")";
@@ -474,7 +544,8 @@ std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
                 ss << "\"" << op.s_val << "\"";
                 break;
         }
-        if (i < operands.size() - 1) ss << ", ";
+        if (i < operands.size() - 1)
+            ss << ", ";
     }
     return ss.str();
 }
@@ -535,7 +606,6 @@ int main(int argc, char* argv[]) {
             bool is_known_arg_with_missing_value =
                 ((arg == "--mem-dump" || arg == "-mem-dump") && i + 2 >= argc) ||
                 ((arg == "--load-addr" || arg == "-load-addr" || arg == "--map" || arg == "-map" || arg == "--ctl" || arg == "-ctl" || arg == "--run-ticks" || arg == "-run-ticks" || arg == "--run-steps" || arg == "-run-steps") && i + 1 >= argc);
-
             if (is_known_arg_with_missing_value)
                 std::cerr << "Error: Incomplete argument for '" << arg << "'. Expected two values." << std::endl;
             else
@@ -553,8 +623,8 @@ int main(int argc, char* argv[]) {
         file_data_str.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
     Z80<> cpu;
-    Z80DefaultLabels label_handler;
-    Analyzer analyzer(cpu.get_bus(), &cpu, &label_handler);
+    DumpLabelHandler label_handler;
+    Analyzer analyzer(cpu.get_bus(), &label_handler);
     try {
         for (const auto& map_file : map_files) {
             std::ifstream file(map_file);
@@ -641,9 +711,8 @@ int main(int argc, char* argv[]) {
                     uint8_t byte = cpu.get_bus()->peek(current_addr + j);
                     std::cout << std::hex << std::uppercase << std::setw(2) << std::setfill('0') << (int)byte << " ";
                     ascii_chars += (isprint(byte) ? (char)byte : '.');
-                } else {
+                } else
                     std::cout << "   ";
-                }
             }
             std::cout << " " << ascii_chars << std::endl;
             current_addr += cols;
@@ -657,14 +726,12 @@ int main(int argc, char* argv[]) {
         for (const auto& line_info : listing) {
             uint16_t start_pc = line_info.address;
             std::string ticks_str;
-            if (line_info.ticks > 0) {
+            if (line_info.ticks > 0)
                 ticks_str = "(" + std::to_string(line_info.ticks) + (line_info.ticks_alt > 0 ? "/" + std::to_string(line_info.ticks_alt) : "") + "T)";
-            }
-            if (!line_info.label.empty()) {
+            if (!line_info.label.empty())
                 std::cout << line_info.label << ":\t";
-            } else {
+            else
                 std::cout << "\t";
-            }
             std::cout << std::left << format_hex(start_pc, 4) << "  " << std::setw(12) << format_bytes_str(line_info.bytes, true) << " "
                       << std::setw(10) << ticks_str << " " << std::setw(7) << line_info.mnemonic << " " << std::setw(18) << format_operands(line_info.operands) << std::endl;
             std::cout << std::setfill(' '); // Reset fill character

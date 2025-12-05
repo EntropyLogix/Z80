@@ -45,27 +45,30 @@
 #define Z80_POP_PACK()
 #endif
 
-template <typename, typename, typename> class Z80;
-
-template <typename TMemory, typename TRegisters, typename TLabels> class Z80Analyzer {
+class ILabels {
+public:
+    virtual ~ILabels() = default;
+    virtual std::string get_label(uint16_t address) const = 0;
+    virtual void add_label(uint16_t address, const std::string& label) = 0;
+};
+template <typename TMemory> class Z80Analyzer {
 public:
     struct Operand {
         enum Type {
             REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, PORT_IMM8, STRING, CHAR_LITERAL, UNKNOWN
         };
+        Operand(Type t, int32_t n) : type(t), num_val(n), offset(0), base_reg("") {}
+        Operand(Type t, const std::string& s) : type(t), s_val(s), num_val(0), offset(0), base_reg("") {}
+        Operand(Type t, const std::string& s, int8_t o) : type(t), s_val(s), num_val(0), offset(o), base_reg("") {}
+        Operand(Type t, const std::string& s, int8_t o, const std::string& base_r) : type(t), s_val(s), num_val(0), offset(o), base_reg(base_r) {}
+
         Type type;
         std::string s_val;
         int32_t num_val;
         int8_t offset;
         std::string label;
-        std::string base_reg; // For MEM_INDEXED operands (IX, IY)
-
-        Operand(Type t, int32_t n) : type(t), num_val(n), offset(0), base_reg("") {}
-        Operand(Type t, const std::string& s) : type(t), s_val(s), num_val(0), offset(0), base_reg("") {}
-        Operand(Type t, const std::string& s, int8_t o) : type(t), s_val(s), num_val(0), offset(o), base_reg("") {}
-        Operand(Type t, const std::string& s, int8_t o, const std::string& base_r) : type(t), s_val(s), num_val(0), offset(o), base_reg(base_r) {}
+        std::string base_reg;
     };
-
     struct CodeLine {
         enum class Type {
             UNKNOWN,
@@ -93,120 +96,86 @@ public:
         std::vector<uint8_t> bytes;
     };
 
-    Z80Analyzer(TMemory* memory, TRegisters* registers, TLabels* labels)
-        : m_memory(memory), m_registers(registers), m_labels(labels) {
-    }
-    
-    enum class IndexMode { HL, IX, IY };
+    Z80Analyzer(TMemory* memory, ILabels* labels = nullptr) : m_memory(memory), m_labels(labels) {}
 
-    enum class DisassemblyMode {
-        RAW,
-        HEURISTIC
-    };
+    enum class DisassemblyMode { RAW, HEURISTIC };
 
     CodeLine parse_db(uint16_t& address, size_t count = 1) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
         line_info.mnemonic = "DB";
-        line_info.ticks = 0; // No ticks for data
+        line_info.ticks = 0;
         line_info.ticks_alt = 0;
-
-        if constexpr (!std::is_same_v<TLabels, void>) {
-            if(m_labels && !m_labels->get_label(address).empty()) {
-                line_info.label = m_labels->get_label(address);
-                // The address is still valid even with a label.
-            }
-        }
+        if (m_labels)
+            line_info.label = m_labels->get_label(address);
         for (size_t i = 0; i < count; ++i) {
             uint8_t byte = m_memory->peek(address++);
-            // line_info.bytes.push_back(byte); // Bytes are redundant for DB, they are in operands
+            line_info.bytes.push_back(byte);
             line_info.operands.push_back(Operand(Operand::IMM8, byte));
         }
         return line_info;
     }
-
     CodeLine parse_dw(uint16_t& address, size_t count = 1) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
         line_info.mnemonic = "DW";
-        line_info.ticks = 0; // No ticks for data
+        line_info.ticks = 0;
         line_info.ticks_alt = 0;
-
-        if constexpr (!std::is_same_v<TLabels, void>) {
-            if (m_labels && !m_labels->get_label(address).empty()) {
-                line_info.label = m_labels->get_label(address);
-            }
-        }
+        if (m_labels)
+            line_info.label = m_labels->get_label(address);
         for (size_t i = 0; i < count; ++i) {
             uint8_t low = m_memory->peek(address++);
             uint8_t high = m_memory->peek(address++);
+            line_info.bytes.push_back(low);
+            line_info.bytes.push_back(high);
             line_info.operands.push_back(Operand(Operand::IMM16, (uint16_t)(high << 8) | low));
         }
         return line_info;
     }
-
     CodeLine parse_dz(uint16_t& address) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
         line_info.mnemonic = "DZ";
-        line_info.ticks = 0; // No ticks for data
+        line_info.ticks = 0;
         line_info.ticks_alt = 0;
-
-        if constexpr (!std::is_same_v<TLabels, void>) {
-            if (m_labels && !m_labels->get_label(address).empty()) {
-                line_info.label = m_labels->get_label(address);
-            }
-        }
+        if (m_labels)
+            line_info.label = m_labels->get_label(address);
         std::string text;
         uint8_t byte;
         while ((byte = m_memory->peek(address++)) != 0) {
+            line_info.bytes.push_back(byte);
             text += static_cast<char>(byte);
         }
         line_info.operands.push_back(Operand(Operand::STRING, text));
         return line_info;
     }
-
-private:
-    struct ParseContext {
-        uint16_t& address;
-        std::vector<uint8_t>& bytes;
-        TMemory* memory;
-
-        ParseContext(uint16_t& addr, std::vector<uint8_t>& b, TMemory* mem)
-            : address(addr), bytes(b), memory(mem) {}
-
-        uint8_t peek_byte() {
-            uint8_t value = memory->peek(address++);
-            bytes.push_back(value);
-            return value;
-        }
-
-        uint16_t peek_word() {
-            uint8_t low_byte = peek_byte();
-            uint8_t high_byte = peek_byte();
-            return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
-        }
-    };
-
-public:
+    CodeLine parse_ds(uint16_t& address, size_t count, std::optional<uint8_t> fill_byte = std::nullopt) {
+        CodeLine line_info;
+        line_info.address = address;
+        line_info.type = CodeLine::Type::DATA;
+        line_info.mnemonic = "DS";
+        line_info.ticks = 0;
+        line_info.ticks_alt = 0;
+        if (m_labels)
+            line_info.label = m_labels->get_label(address);
+        line_info.operands.push_back(Operand(Operand::IMM16, count));
+        if (fill_byte.has_value())
+            line_info.operands.push_back(Operand(Operand::IMM8, *fill_byte));
+        address += count;
+        return line_info;
+    }
     CodeLine parse_instruction(uint16_t& address) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::UNKNOWN;
         line_info.ticks = 0;
         line_info.ticks_alt = 0;
-
         ParseContext ctx(address, line_info.bytes, m_memory);
-
-        if constexpr (!std::is_same_v<TLabels, void>) {
-            if (m_labels && !m_labels->get_label(ctx.address).empty()) {
-                line_info.label = m_labels->get_label(ctx.address);
-            }
-        }
-
+        if (m_labels)
+            line_info.label = m_labels->get_label(address);
         set_index_mode(IndexMode::HL);
         uint8_t opcode = ctx.peek_byte();
         while (opcode == 0xDD || opcode == 0xFD) {
@@ -304,9 +273,8 @@ public:
             uint16_t target_address = address + offset;
             line_info.mnemonic = "DJNZ"; line_info.type = CodeLine::Type::JUMP;
             Operand target_op(Operand::IMM16, target_address);
-            if constexpr (!std::is_same_v<TLabels, void>)
-                if (m_labels)
-                    target_op.label = m_labels->get_label(target_address);
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_address);
             line_info.operands = {target_op};
             line_info.ticks = 8;
             line_info.ticks_alt = 13;
@@ -346,14 +314,13 @@ public:
             line_info.mnemonic = "RLA"; line_info.type = CodeLine::Type::SHIFT_ROTATE;
             line_info.ticks = 4;
             break;
-        case 0x18: { // JR
+        case 0x18: {
             int8_t offset = static_cast<int8_t>(ctx.peek_byte());
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR"; line_info.type = CodeLine::Type::JUMP;
             Operand target_op(Operand::IMM16, target_address);
-            if constexpr (!std::is_same_v<TLabels, void>)
-                if (m_labels)
-                    target_op.label = m_labels->get_label(target_address);
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_address);
             line_info.operands = {target_op};
             line_info.ticks = 12;
             break;
@@ -392,14 +359,13 @@ public:
             line_info.mnemonic = "RRA"; line_info.type = CodeLine::Type::SHIFT_ROTATE;
             line_info.ticks = 4;
             break;
-        case 0x20: { // JR NZ, e
+        case 0x20: {
             int8_t offset = static_cast<int8_t>(ctx.peek_byte());
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR"; line_info.type = CodeLine::Type::JUMP;
             Operand target_op(Operand::IMM16, target_address);
-            if constexpr (!std::is_same_v<TLabels, void>)
-                if (m_labels)
-                    target_op.label = m_labels->get_label(target_address);
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_address);
             line_info.operands = {Operand(Operand::CONDITION, "NZ"), target_op};
             line_info.ticks = 7;
             line_info.ticks_alt = 12;
@@ -439,14 +405,13 @@ public:
             line_info.mnemonic = "DAA"; line_info.type = CodeLine::Type::CPU_CONTROL;
             line_info.ticks = 4;
             break;
-        case 0x28: { // JR Z, e
+        case 0x28: {
             int8_t offset = static_cast<int8_t>(ctx.peek_byte());
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR"; line_info.type = CodeLine::Type::JUMP;
             Operand target_op(Operand::IMM16, target_address);
-            if constexpr (!std::is_same_v<TLabels, void>)
-                if (m_labels)
-                    target_op.label = m_labels->get_label(target_address);
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_address);
             line_info.operands = {Operand(Operand::CONDITION, "Z"), target_op};
             line_info.ticks = 7;
             line_info.ticks_alt = 12;
@@ -488,14 +453,13 @@ public:
             line_info.mnemonic = "CPL"; line_info.type = CodeLine::Type::CPU_CONTROL;
             line_info.ticks = 4;
             break;
-        case 0x30: { // JR NC, e
+        case 0x30: {
             int8_t offset = static_cast<int8_t>(ctx.peek_byte());
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR"; line_info.type = CodeLine::Type::JUMP;
             Operand target_op(Operand::IMM16, target_address);
-            if constexpr (!std::is_same_v<TLabels, void>)
-                if (m_labels)
-                    target_op.label = m_labels->get_label(target_address);
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_address);
             line_info.operands = {Operand(Operand::CONDITION, "NC"), target_op};
             line_info.ticks = 7;
             line_info.ticks_alt = 12;
@@ -537,14 +501,13 @@ public:
             line_info.mnemonic = "SCF"; line_info.type = CodeLine::Type::CPU_CONTROL;
             line_info.ticks = 4;
             break;
-        case 0x38: { // JR C, e
+        case 0x38: {
             int8_t offset = static_cast<int8_t>(ctx.peek_byte());
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR"; line_info.type = CodeLine::Type::JUMP;
             Operand target_op(Operand::IMM16, target_address);
-            if constexpr (!std::is_same_v<TLabels, void>)
-                if (m_labels)
-                    target_op.label = m_labels->get_label(target_address);
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_address);
             line_info.operands = {Operand(Operand::CONDITION, "C"), target_op};
             line_info.ticks = 7;
             line_info.ticks_alt = 12;
@@ -1242,30 +1205,29 @@ public:
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "NZ"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "NZ"), target_op};
             }
             line_info.ticks = 10;
             break;
-        case 0xC3:
+        case 0xC3: {
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {target_op};
-            }
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {target_op};
             line_info.ticks = 10;
             break;
-        case 0xC4:
+        }
+        case 0xC4: {
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "NZ"), target_op};
-            }
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {Operand(Operand::CONDITION, "NZ"), target_op};
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
             break;
+        }
         case 0xC5:
             line_info.mnemonic = "PUSH"; line_info.type = CodeLine::Type::STACK;
             line_info.operands = {Operand(Operand::REG16, "BC")};
@@ -1291,26 +1253,18 @@ public:
             line_info.mnemonic = "RET"; line_info.type = CodeLine::Type::RETURN;
             line_info.ticks = 10;
             break;
-        case 0xCA:
+        case 0xCA: {
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
-            {
-                Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "Z"), target_op};
-            }
+            Operand target_op(Operand::IMM16, ctx.peek_word());
+            if (m_labels)
+                target_op.label = m_labels->get_label(target_op.num_val);
+            line_info.operands = {Operand(Operand::CONDITION, "Z"), target_op};
             line_info.ticks = 10;
             break;
+        }
         case 0xCB:
             if (get_index_mode() == IndexMode::HL) {
-                 uint8_t cb_opcode = ctx.peek_byte();
-                if (cb_opcode == 0x30) { // Undocumented SLL (alias SLI)
-                    line_info.mnemonic = "SLL"; line_info.type = CodeLine::Type::SHIFT_ROTATE;
-                    line_info.operands = {Operand(Operand::REG8, "B")}; // Example, needs full decoding
-                    line_info.ticks = 8;
-                    break;
-                }
-
-
+                uint8_t cb_opcode = ctx.peek_byte();
                 const char* registers[] = {"B", "C", "D", "E", "H", "L", "(HL)", "A"};
                 const char* operations[] = {"RLC", "RRC", "RL", "RR", "SLA", "SRA", "SLL", "SRL"};
                 const char* bit_ops[] = {"BIT", "RES", "SET"};
@@ -1357,8 +1311,7 @@ public:
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "Z"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "Z"), target_op};
             }
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
@@ -1367,10 +1320,7 @@ public:
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>)
-                    if (m_labels)
-                        target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {target_op};
             }
 
             line_info.ticks = 17;
@@ -1400,8 +1350,7 @@ public:
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "NC"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "NC"), target_op};
             }
             line_info.ticks = 10;
             break;
@@ -1414,8 +1363,7 @@ public:
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "NC"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "NC"), target_op};
             }
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
@@ -1449,8 +1397,7 @@ public:
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "C"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "C"), target_op};
             }
             line_info.ticks = 10;
             break;
@@ -1463,8 +1410,7 @@ public:
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "C"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "C"), target_op};
             }
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
@@ -1494,8 +1440,7 @@ public:
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "PO"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "PO"), target_op};
             }
             line_info.ticks = 10;
             break;
@@ -1508,8 +1453,7 @@ public:
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "PO"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "PO"), target_op};
             }
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
@@ -1544,8 +1488,7 @@ public:
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "PE"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "PE"), target_op};
             }
             line_info.ticks = 10;
             break;
@@ -1558,8 +1501,7 @@ public:
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "PE"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "PE"), target_op};
             }
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
@@ -1900,8 +1842,7 @@ public:
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "P"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "P"), target_op};
             }
             line_info.ticks = 10;
             break;
@@ -1913,8 +1854,7 @@ public:
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "P"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "P"), target_op};
             }
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
@@ -1949,8 +1889,7 @@ public:
             line_info.mnemonic = "JP"; line_info.type = CodeLine::Type::JUMP;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "M"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "M"), target_op};
             }
             line_info.ticks = 10;
             break;
@@ -1962,8 +1901,7 @@ public:
             line_info.mnemonic = "CALL"; line_info.type = CodeLine::Type::CALL;
             {
                 Operand target_op(Operand::IMM16, ctx.peek_word());
-                if constexpr (!std::is_same_v<TLabels, void>) if (m_labels) target_op.label = m_labels->get_label(target_op.num_val);
-                line_info.operands = {Operand(Operand::CONDITION, "M"), target_op};
+                if (m_labels) target_op.label = m_labels->get_label(target_op.num_val); line_info.operands = {Operand(Operand::CONDITION, "M"), target_op};
             }
             line_info.ticks = 10;
             line_info.ticks_alt = 17;
@@ -1990,42 +1928,38 @@ public:
     std::vector<CodeLine> disassemble(uint16_t start_address, size_t instruction_limit, DisassemblyMode mode) {
         if (mode == DisassemblyMode::RAW) {
             return disassemble_raw(start_address, instruction_limit);
-        } else { // HEURISTIC
+        } else {
             std::set<uint16_t> visited;
             return disassemble_heuristic(start_address, instruction_limit);
         }
     }
-
-    CodeLine parse_ds(uint16_t& address, size_t count, std::optional<uint8_t> fill_byte = std::nullopt) {
-        CodeLine line_info;
-        line_info.address = address;
-        line_info.type = CodeLine::Type::DATA;
-        line_info.mnemonic = "DS";
-        line_info.ticks = 0; // No ticks for data
-        line_info.ticks_alt = 0;
-
-        if constexpr (!std::is_same_v<TLabels, void>) {
-            if (m_labels && !m_labels->get_label(address).empty()) {
-                line_info.label = m_labels->get_label(address);
-            }
-        }
-        line_info.operands.push_back(Operand(Operand::IMM16, count));
-        if (fill_byte.has_value()) {
-            line_info.operands.push_back(Operand(Operand::IMM8, *fill_byte));
-        }
-        address += count;
-        return line_info;
-    }
 private:
+    enum class IndexMode { HL, IX, IY };
+    struct ParseContext {
+        ParseContext(uint16_t& addr, std::vector<uint8_t>& b, TMemory* mem) : address(addr), bytes(b), memory(mem) {}
+        uint8_t peek_byte() {
+            uint8_t value = memory->peek(address++);
+            bytes.push_back(value);
+            return value;
+        }
+        uint16_t peek_word() {
+            uint8_t low_byte = peek_byte();
+            uint8_t high_byte = peek_byte();
+            return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
+        }
+        uint16_t& address;
+        std::vector<uint8_t>& bytes;
+        TMemory* memory;
+    };
     std::vector<CodeLine> disassemble_raw(uint16_t& start_address, size_t instruction_limit) {
         std::vector<CodeLine> result;
         for (size_t i = 0; i < instruction_limit; ++i) {
-            if (result.size() >= instruction_limit) break;
+            if (result.size() >= instruction_limit)
+                break;
             result.push_back(parse_instruction(start_address));
         }
         return result;
     }
-
     std::vector<CodeLine> disassemble_heuristic(uint16_t start_address, size_t instruction_limit) {
         enum class Tag { UNKNOWN, CODE_START, CODE_INTERIOR };
         std::vector<Tag> tag_map(0x10000, Tag::UNKNOWN);
@@ -2159,7 +2093,6 @@ private:
         }
         return result;
     }
-
     IndexMode get_index_mode() const { return m_index_mode; }
     std::string get_indexed_reg_str() {
         if (get_index_mode() == IndexMode::IX)
@@ -2188,297 +2121,18 @@ private:
         ss << "(" << reg << (offset >= 0 ? "+" : "") << static_cast<int>(offset) << ")";
         return ss.str();
     }
-
     Operand get_indexed_addr_operand(ParseContext& ctx) {
         if (get_index_mode() == IndexMode::HL) {
             return Operand(Operand::MEM_REG16, "HL", 0, "HL");
         }
-        // For IX/IY, the displacement byte is always part of the instruction stream.
         int8_t offset = static_cast<int8_t>(ctx.peek_byte());
         std::string base_reg = (get_index_mode() == IndexMode::IX) ? "IX" : "IY";
         return Operand(Operand::MEM_INDEXED, "", offset, base_reg);
     }
-    TRegisters* m_registers;
+
     TMemory* m_memory;
     IndexMode m_index_mode;
-    TLabels* m_labels;
-};
-
-class Z80DefaultLabels {
-public:
-    void clear_labels() { m_labels.clear(); }
-    void load_map(const std::string& content) {
-        std::stringstream file(content);
-        std::string line;
-        while (std::getline(file, line)) {
-            std::stringstream ss(line);
-            uint16_t address;
-            std::string label, equals;
-            ss >> std::hex >> address;
-            if (ss.fail() || ss.get() != ':') {
-                ss.clear();
-                ss.str(line);
-                if (ss >> label >> equals && (equals == "=" || equals == "EQU")) {
-                    ss >> std::ws;
-                    if (ss.peek() == '$')
-                        ss.ignore();
-                    ss >> std::hex >> address;
-                    if (!ss.fail())
-                        add_label(address, label);
-                }
-                continue;
-            }
-            ss >> label;
-            add_label(address, label);
-        }
-    }
-    void load_ctl(const std::string& content) {
-        std::stringstream file(content);
-        std::string line;
-        while (std::getline(file, line)) {
-            if (line.rfind("L ", 0) == 0) {
-                std::stringstream ss(line.substr(2));
-                uint16_t address;
-                std::string label;
-                ss >> std::hex >> address >> label;
-                if (!ss.fail() && !label.empty())
-                    add_label(address, label);
-            } else if (line.rfind("$", 0) == 0 || line.rfind("@ $", 0) == 0) {
-                std::stringstream ss(line);
-                char prefix;
-                uint16_t address;
-                std::string keyword;
-                if (line.rfind("@ $", 0) == 0)
-                    ss.ignore(3);
-                else
-                    ss.ignore(1);
-                ss >> std::hex >> address;
-                add_label_from_spectaculator_format(ss, address);
-            }
-        }
-    }
-    std::string get_label(uint16_t address) const {
-        auto range = m_labels.equal_range(address);
-        if (range.first == range.second)
-            return "";
-        std::string labels_str;
-        for (auto it = range.first; it != range.second; ++it) {
-            if (!labels_str.empty())
-                labels_str += "/";
-            labels_str += it->second;
-        }
-        return labels_str;
-    }
-    std::string get_closest_label(uint16_t address, uint16_t& label_address) const {
-        auto it = m_labels.upper_bound(address);
-        if (it != m_labels.begin()) {
-            --it;
-            label_address = it->first;
-            return it->second;
-        }
-        return "";
-    }
-    void add_label(uint16_t address, const std::string& label) {
-        auto range = m_labels.equal_range(address);
-        for (auto it = range.first; it != range.second; ++it)
-            if (it->second == label)
-                return;
-        m_labels.insert({address, label});
-        m_reverse_labels[label] = address;
-    }
-    uint16_t get_addr(const std::string& label) const {
-        auto it = m_reverse_labels.find(label);
-        if (it != m_reverse_labels.end())
-            return it->second;
-        throw std::runtime_error("Label not found: " + label);
-    }
-    const std::map<std::string, uint16_t>& get_labels() const { return m_reverse_labels; }
-private:
-    void add_label_from_spectaculator_format(std::stringstream& ss, uint16_t address) {
-        std::string remaining;
-        std::getline(ss, remaining);
-        constexpr const char* label_keyword = "label=";
-        size_t label_pos = remaining.find(label_keyword);
-        if (label_pos != std::string::npos) {
-            std::string label = remaining.substr(label_pos + strlen(label_keyword));
-            label.erase(0, label.find_first_not_of(" \t"));
-            label.erase(label.find_last_not_of(" \t") + 1);
-            if (!label.empty())
-                add_label(address, label);
-        }
-    }
-    std::multimap<uint16_t, std::string> m_labels;
-    std::map<std::string, uint16_t> m_reverse_labels;
-};
-
-template <typename TMemory, typename TRegisters> class Z80DefaultFiles {
-public:
-    Z80DefaultFiles(TMemory* memory, TRegisters* registers) : m_memory(memory), m_registers(registers) {}
-    bool load_bin_file(const std::vector<uint8_t>& data, uint16_t load_addr) {
-        for (size_t i = 0; i < data.size(); ++i) {
-            if (load_addr + i > MAX_ADDRESS)
-                throw std::runtime_error("Binary file too large.");
-            m_memory->poke(load_addr + i, data[i]);
-        }
-        return true;
-    }
-    bool load_hex_file(const std::string& content) {
-        enum class IntelHexRecordType : uint8_t {
-            Data = 0x00,
-            EndOfFile = 0x01,
-            ExtendedLinearAddress = 0x04,
-        };
-        std::stringstream file_stream(content);
-        std::string line;
-        uint32_t extended_linear_address = 0;
-        while (std::getline(file_stream, line)) {
-            if (line.empty() || line[0] != ':')
-                continue;
-            try {
-                uint8_t byte_count = std::stoul(line.substr(1, 2), nullptr, 16);
-                uint16_t address = std::stoul(line.substr(3, 4), nullptr, 16);
-                uint8_t record_type = std::stoul(line.substr(7, 2), nullptr, 16);
-                if (line.length() < 11 + (size_t)byte_count * 2)
-                    throw std::runtime_error("Malformed HEX line (too short): " + line);
-                uint8_t checksum = byte_count + (address >> 8) + (address & 0xFF) + record_type;
-                std::vector<uint8_t> data_bytes;
-                data_bytes.reserve(byte_count);
-                for (int i = 0; i < byte_count; ++i) {
-                    uint8_t byte = std::stoul(line.substr(9 + i * 2, 2), nullptr, 16);
-                    data_bytes.push_back(byte);
-                    checksum += byte;
-                }
-                uint8_t file_checksum = std::stoul(line.substr(9 + byte_count * 2, 2), nullptr, 16);
-                if (((checksum + file_checksum) & 0xFF) != 0)
-                    throw std::runtime_error("Checksum error in HEX line: " + line);
-                switch (static_cast<IntelHexRecordType>(record_type)) {
-                case IntelHexRecordType::Data: {
-                    uint32_t full_address = extended_linear_address + address;
-                    for (size_t i = 0; i < data_bytes.size(); ++i) {
-                        if (full_address + i <= MAX_ADDRESS)
-                            m_memory->poke(full_address + i, data_bytes[i]);
-                    }
-                    break;
-                }
-                case IntelHexRecordType::EndOfFile:
-                    return true;
-                case IntelHexRecordType::ExtendedLinearAddress:
-                    if (byte_count == 2)
-                        extended_linear_address = (data_bytes[0] << 24) | (data_bytes[1] << 16);
-                    break;
-                }
-            } catch (const std::exception& e) {
-                throw std::runtime_error("Could not parse HEX line: " + line + " (" + e.what() + ")");
-            }
-        }
-        return true;
-    }
-    bool load_sna_file(const std::vector<uint8_t>& data) {
-        if (data.size() != SNA_48K_SIZE)
-            throw std::runtime_error("Invalid 48K SNA file size. Expected " + std::to_string(SNA_48K_SIZE) + " bytes, got " + std::to_string(data.size()));
-        const SNAHeader* header = reinterpret_cast<const SNAHeader*>(data.data());
-        typename TRegisters::State state;
-        state.m_I = header->I;
-        state.m_HLp.w = header->HL_prime;
-        state.m_DEp.w = header->DE_prime;
-        state.m_BCp.w = header->BC_prime;
-        state.m_AFp.w = header->AF_prime;
-        state.m_HL.w = header->HL;
-        state.m_DE.w = header->DE;
-        state.m_BC.w = header->BC;
-        state.m_IY.w = header->IY;
-        state.m_IX.w = header->IX;
-        state.m_IFF2 = (header->IFF2 & 0x04) != 0;
-        state.m_IFF1 = state.m_IFF2;
-        state.m_R = header->R;
-        state.m_AF.w = header->AF;
-        state.m_SP.w = header->SP;
-        state.m_IRQ_mode = header->InterruptMode;
-        for (size_t i = 0; i < ZX48K_RAM_SIZE; ++i)
-            m_memory->poke(ZX48K_RAM_START + i, data[sizeof(SNAHeader) + i]);
-        state.m_PC.w = m_memory->peek(state.m_SP.w) | (m_memory->peek(state.m_SP.w + 1) << 8);
-        state.m_SP.w += 2;
-        m_registers->restore_state(state);
-        return true;
-    }
-    bool load_z80_file(const std::vector<uint8_t>& data) {
-        if (data.size() < sizeof(Z80HeaderV1))
-            throw std::runtime_error("Z80 file is too small.");
-        const Z80HeaderV1* header = reinterpret_cast<const Z80HeaderV1*>(data.data());
-        typename TRegisters::State state;
-        memset(&state, 0, sizeof(state));
-        state.m_AF.h = header->A; state.m_AF.l = header->F;
-        state.m_BC.w = header->BC;
-        state.m_HL.w = header->HL;
-        state.m_PC.w = header->PC;
-        state.m_SP.w = header->SP;
-        state.m_I = header->I; state.m_R = header->R;
-        uint8_t byte12 = header->Flags1;
-        if (byte12 == 0xFF)
-            byte12 = 1;
-        state.m_R = (state.m_R & 0x7F) | ((byte12 & 0x01) ? 0x80 : 0);
-        bool compressed = (byte12 & 0x20) != 0;
-        state.m_DE.w = header->DE;
-        state.m_BCp.w = header->BC_prime;
-        state.m_DEp.w = header->DE_prime;
-        state.m_HLp.w = header->HL_prime;
-        state.m_AFp.h = header->A_prime; state.m_AFp.l = header->F_prime;
-        state.m_IY.w = header->IY;
-        state.m_IX.w = header->IX;
-        state.m_IFF1 = header->IFF1 != 0; state.m_IFF2 = header->IFF2 != 0;
-        state.m_IRQ_mode = header->Flags2 & 0x03;
-        m_registers->restore_state(state);
-        if (state.m_PC.w == 0)
-            throw std::runtime_error("Z80 v2/v3 files are not supported.");
-        size_t data_ptr = sizeof(Z80HeaderV1);
-        if (compressed) {
-            for (uint16_t mem_addr = ZX48K_RAM_START; data_ptr < data.size() && mem_addr < 0xFFFF;) {
-                if (data_ptr + 3 < data.size() && data[data_ptr] == 0xED && data[data_ptr + 1] == 0xED) {
-                    uint8_t count = data[data_ptr + 2], value = data[data_ptr + 3];
-                    data_ptr += 4;
-                    for (int i = 0; i < count && mem_addr < 0xFFFF; ++i)
-                        m_memory->poke(mem_addr++, value);
-                } else
-                    m_memory->poke(mem_addr++, data[data_ptr++]);
-            }
-        } else {
-            for (size_t i = data_ptr; i < data.size(); ++i)
-                m_memory->poke(ZX48K_RAM_START + (i - data_ptr), data[i]);
-        }
-        return true;
-    }
-private:
-    Z80_PUSH_PACK(1)
-    struct SNAHeader {
-        uint8_t I;
-        uint16_t HL_prime, DE_prime, BC_prime, AF_prime;
-        uint16_t HL, DE, BC, IY, IX;
-        uint8_t IFF2;
-        uint8_t R;
-        uint16_t AF, SP;
-        uint8_t InterruptMode;
-        uint8_t BorderColor;
-    } Z80_PACKED_STRUCT;
-    struct Z80HeaderV1 {
-        uint8_t A, F;
-        uint16_t BC, HL;
-        uint16_t PC, SP;
-        uint8_t I, R;
-        uint8_t Flags1;
-        uint16_t DE, BC_prime, DE_prime, HL_prime;
-        uint8_t A_prime, F_prime;
-        uint16_t IY, IX;
-        uint8_t IFF1, IFF2;
-        uint8_t Flags2;
-    } Z80_PACKED_STRUCT;
-    Z80_POP_PACK()
-    TMemory* m_memory;
-    TRegisters* m_registers;
-public:
-    static constexpr size_t ZX48K_RAM_SIZE = 49152;
-    static constexpr uint16_t ZX48K_RAM_START = 0x4000;
-    static constexpr uint16_t MAX_ADDRESS = 0xFFFF;
-    static constexpr size_t SNA_48K_SIZE = sizeof(SNAHeader) + ZX48K_RAM_SIZE;
+    ILabels* m_labels = nullptr;
 };
 
 #endif //__Z80ANALYZE_H__
