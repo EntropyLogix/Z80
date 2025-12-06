@@ -54,6 +54,98 @@ public:
     virtual std::string get_label(uint16_t address) const = 0;
     virtual void add_label(uint16_t address, const std::string& label) = 0;
 };
+
+template <typename TMemory>
+class Z80Analyzer; // Forward declaration
+
+template <typename TMemory>
+class CodeMapProfiler {
+public:
+    enum CodeMapFlags : uint8_t {
+        FLAG_NONE = 0,
+        FLAG_CODE_START = 1 << 0,
+        FLAG_CODE_INTERIOR = 1 << 1,
+        FLAG_DATA_READ = 1 << 2,
+        FLAG_DATA_WRITE = 1 << 3,
+    };
+    std::vector<uint8_t> m_code_map;
+
+    CodeMapProfiler() : m_ram(0x10000,0), m_code_map(0x10000, FLAG_NONE), m_cpu(nullptr), m_labels(nullptr) {
+    }
+    void connect(Z80<CodeMapProfiler<TMemory>, Z80DefaultEvents, CodeMapProfiler<TMemory>>* cpu) {
+        m_cpu = cpu;
+    }
+    void set_analyzer(Z80Analyzer<TMemory>* analyzer) {
+        m_analyzer = analyzer;
+    }
+    void set_labels(ILabels* labels) {
+        m_labels = labels;
+    }
+    void reset() {
+        std::fill(m_ram.begin(), m_ram.end(), 0);
+        std::fill(m_code_map.begin(), m_code_map.end(), FLAG_NONE);
+    }
+    //memory
+    uint8_t read(uint16_t address) {
+        if (m_inside_instruction && m_cpu && m_cpu->get_PC() == address) {
+            m_instruction_byte_count++;
+            m_code_map[address] |= (m_instruction_byte_count == 1) ? FLAG_CODE_START : FLAG_CODE_INTERIOR;
+        } else {
+            m_code_map[address] |= FLAG_DATA_READ;
+        }
+        return m_ram[address];
+    }
+    void write(uint16_t address, uint8_t value) {
+        m_code_map[address] |= FLAG_DATA_WRITE;
+        m_ram[address] = value;
+    }
+    uint8_t peek(uint16_t address) const { return m_ram[address]; }
+    void poke(uint16_t address, uint8_t value) {
+        m_ram[address] = value;
+    }
+    //ports
+    uint8_t in(uint16_t port) { return 0xFF; }
+    void out(uint16_t port, uint8_t value) {}
+    //instructions
+    void before_step() {
+        m_inside_instruction = true;
+        if (m_cpu) {
+            m_pc_before_step = m_cpu->get_PC();
+            m_instruction_byte_count = 0;
+        }
+    }
+    void after_step() {
+        m_inside_instruction = false;
+        if (!m_cpu || !m_labels || !m_analyzer) return;
+        uint16_t pc_after_step = m_cpu->get_PC();
+    
+        // This check is crucial. We only care about instructions that actually change the PC flow.
+        bool is_flow_control = m_pc_before_step + m_instruction_byte_count != pc_after_step;
+    
+        if (is_flow_control) {
+            if (m_labels->get_label(pc_after_step).empty()) {
+                std::stringstream ss;
+                ss << "L_" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << pc_after_step << "_dyn";
+                m_labels->add_label(pc_after_step, ss.str());
+            }
+        }
+    }
+
+    void before_IRQ() {}
+    void after_IRQ() {}
+    void before_NMI() {}
+    void after_NMI() {}
+
+private:
+    Z80<CodeMapProfiler<TMemory>, Z80DefaultEvents, CodeMapProfiler<TMemory>>* m_cpu;
+    Z80Analyzer<TMemory>* m_analyzer = nullptr;
+    ILabels* m_labels;
+    std::vector<uint8_t> m_ram;
+    uint16_t m_pc_before_step;
+    bool m_inside_instruction = false;
+    uint8_t m_instruction_byte_count = 0;
+};
+
 template <typename TMemory> class Z80Analyzer {
 public:
     struct CodeLine {
@@ -2252,73 +2344,12 @@ private:
         }
         return result;
     }
-    class CodeMapProfiler {
-    public:
-        enum CodeMapFlags : uint8_t {
-            FLAG_NONE = 0,
-            FLAG_CODE_START = 1 << 0,
-            FLAG_CODE_INTERIOR = 1 << 1,
-            FLAG_DATA_READ = 1 << 2,
-            FLAG_DATA_WRITE = 1 << 3,
-        };
-        std::vector<uint8_t> m_code_map;
-
-        CodeMapProfiler() : m_ram(0x10000,0), m_code_map(0x10000, FLAG_NONE) {
-        }
-        void connect(Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler>* cpu) {
-            m_cpu = cpu;
-        }
-        void reset() {
-            std::fill(m_ram.begin(), m_ram.end(), 0);
-            std::fill(m_code_map.begin(), m_code_map.end(), FLAG_NONE);
-        }
-        //memory
-        uint8_t read(uint16_t address) {
-            if (m_cpu->get_PC() == address) {
-                if (m_inside_instruction)
-                    m_code_map[address] |= FLAG_CODE_INTERIOR;
-                else 
-                    m_code_map[address] |= FLAG_CODE_START;
-            }
-            else 
-                m_code_map[address] |= FLAG_DATA_READ;
-            return m_ram[address];
-        }
-        void write(uint16_t address, uint8_t value) {
-            m_code_map[address] |= FLAG_DATA_WRITE;
-            m_ram[address] = value;
-        }
-        uint8_t peek(uint16_t address) const {
-            return m_ram[address];
-        }
-        void poke(uint16_t address, uint8_t value) {
-            m_ram[address] = value;
-        }
-        //ports
-        uint8_t in(uint16_t port) { return 0xFF; }
-        void out(uint16_t port, uint8_t value) {}
-        //instructions
-        void before_step() {
-            m_inside_instruction = true;
-        }
-        void after_step() {
-            m_inside_instruction = false;
-        }
-        void before_IRQ() {}
-        void after_IRQ() {}
-        void before_NMI() {}
-        void after_NMI() {}
-
-    private:
-        Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler>* m_cpu;
-        std::vector<uint8_t> m_ram;
-        bool m_inside_instruction = false;
-    };
 
     std::vector<CodeLine> disassemble_exec(uint16_t start_address, size_t instruction_limit) {
-        CodeMapProfiler profiler;
-        Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler> cpu(&profiler, nullptr, &profiler);
-        profiler.connect(&cpu);
+        CodeMapProfiler<TMemory> profiler;
+        profiler.set_analyzer(this);
+        profiler.set_labels(m_labels);
+        Z80<CodeMapProfiler<TMemory>, Z80DefaultEvents, CodeMapProfiler<TMemory>> cpu(&profiler, nullptr, &profiler);
         for (uint32_t i = 0; i < 0x10000; ++i)
             profiler.poke(i, m_memory->peek(i));
         cpu.set_PC(start_address);
@@ -2337,22 +2368,24 @@ private:
         for (int i = 0; i < 0x100; ++i) {
             if (i % 16 == 0) std::cout << std::hex << std::setw(4) << std::setfill('0') << i << ": ";
             char c = '.';
-            if (profiler.m_code_map[i] & CodeMapProfiler::FLAG_CODE_START) c = 'C'; // Code start
-            else if (profiler.m_code_map[i] & CodeMapProfiler::FLAG_CODE_INTERIOR) c = 'I'; // Code interior
-            else if (profiler.m_code_map[i] & CodeMapProfiler::FLAG_DATA_READ) c = 'R';
-            if (profiler.m_code_map[i] & CodeMapProfiler::FLAG_DATA_WRITE) c = 'W';
+            if (profiler.m_code_map[i] & CodeMapProfiler<TMemory>::FLAG_CODE_START) c = 'C'; // Code start
+            else if (profiler.m_code_map[i] & CodeMapProfiler<TMemory>::FLAG_CODE_INTERIOR) c = 'I'; // Code interior
+            else if (profiler.m_code_map[i] & CodeMapProfiler<TMemory>::FLAG_DATA_READ) c = 'R';
+            if (profiler.m_code_map[i] & CodeMapProfiler<TMemory>::FLAG_DATA_WRITE) c = 'W';
             std::cout << c << " ";
             if (i % 16 == 15) std::cout << std::endl;
         }
         std::cout << "------------------------\n" << std::dec << std::setfill(' ') << std::endl;
         // --- END DEBUG ---
 
+        analyze_code_map(profiler);
+
         std::vector<CodeLine> result;
         uint32_t pc = start_address;
         while (pc < 0x10000 && result.size() < instruction_limit) {
             uint16_t current_pc = static_cast<uint16_t>(pc);
             CodeLine line;
-            if (profiler.m_code_map[current_pc] & CodeMapProfiler::FLAG_CODE_START) {
+            if (profiler.m_code_map[current_pc] & CodeMapProfiler<TMemory>::FLAG_CODE_START) {
                 line = parse_instruction(current_pc);
                 if (line.bytes.empty()) { // Failsafe for invalid instruction
                     line = parse_db(current_pc, 1);
@@ -2475,6 +2508,28 @@ private:
             }
         }
         return result;
+    }
+
+    void analyze_code_map(const CodeMapProfiler<TMemory>& profiler) {
+        std::cout << "\n--- Code Map Analysis ---\n";
+        bool found_smc = false;
+        for (uint32_t i = 0; i < 0x10000; ++i) {
+            uint8_t flags = profiler.m_code_map[i];
+            bool is_code = (flags & CodeMapProfiler<TMemory>::FLAG_CODE_START) || (flags & CodeMapProfiler<TMemory>::FLAG_CODE_INTERIOR);
+            bool is_written = (flags & CodeMapProfiler<TMemory>::FLAG_DATA_WRITE);
+
+            if (is_code && is_written) {
+                if (!found_smc) {
+                    std::cout << "Self-modifying code locations (executed and written):\n";
+                    found_smc = true;
+                }
+                std::cout << "  - Address 0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << i << std::dec << "\n";
+            }
+        }
+        if (!found_smc) {
+            std::cout << "No self-modifying code detected.\n";
+        }
+        std::cout << "------------------------\n" << std::endl;
     }
     IndexMode get_index_mode() const { return m_index_mode; }
     std::string get_indexed_reg_str() {
