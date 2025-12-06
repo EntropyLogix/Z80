@@ -302,7 +302,8 @@ public:
             break;
         case 0x10: {
             auto byte_opt = ctx.peek_byte();
-            if (!byte_opt) return to_db(line_info);
+            if (!byte_opt)
+                return to_db(line_info);
             int8_t offset = static_cast<int8_t>(*byte_opt);
             uint16_t target_address = address + offset;
             line_info.mnemonic = "DJNZ";
@@ -426,7 +427,8 @@ public:
             break;
         case 0x20: {
             auto byte_opt = ctx.peek_byte();
-            if (!byte_opt) return to_db(line_info);
+            if (!byte_opt)
+                return to_db(line_info);
             int8_t offset = static_cast<int8_t>(*byte_opt);
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR";
@@ -1625,6 +1627,12 @@ public:
             line_info.ticks_alt = 17;
             break;
         }
+        case 0xE9:
+            line_info.mnemonic = "JP";
+            line_info.type = CodeLine::Type::JUMP;
+            line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::MEM_REG16, get_indexed_reg_str())};
+            line_info.ticks = (get_index_mode() == IndexMode::HL) ? 4 : 8;
+            break;
         case 0xCD: {
             line_info.mnemonic = "CALL";
             line_info.type = CodeLine::Type::CALL;
@@ -2201,7 +2209,7 @@ public:
             break;
         }
         if (line_info.mnemonic.empty())
-            return to_db(line_info, opcode);
+            return to_db(line_info);
         return line_info;
     }
 private:
@@ -2391,10 +2399,7 @@ private:
     IndexMode m_index_mode;
     ILabels* m_labels = nullptr;
 
-    CodeLine to_db(CodeLine& line_info, std::optional<uint8_t> last_opcode = std::nullopt) {
-        if (last_opcode) {
-            line_info.bytes.push_back(*last_opcode);
-        }
+    CodeLine to_db(CodeLine& line_info) {
         line_info.mnemonic = "DB";
         line_info.type = CodeLine::Type::DATA;
         line_info.operands.clear();
