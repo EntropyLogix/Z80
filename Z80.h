@@ -7684,7 +7684,7 @@ public:
     uint8_t in(uint16_t port) {
         return 0xFF;
     }
-    void out(uint16_t port, uint8_t value) { /* no-op */
+    void out(uint16_t port, uint8_t value) { 
     }
 
 private:
@@ -7709,7 +7709,7 @@ public:
     }
     void reset() {
     }
-    void before_step(const std::vector<uint8_t>& opcodes) {
+    void before_step(const std::vector<uint8_t>& opcodes) { //first opcode byte(s)
     }
     void after_step(const std::vector<uint8_t>& opcodes) {
     }

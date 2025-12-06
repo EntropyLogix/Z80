@@ -16,6 +16,8 @@
 #ifndef __Z80ANALYZE_H__
 #define __Z80ANALYZE_H__
 
+#include "Z80.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -27,6 +29,7 @@
 #include <vector>
 #include <optional>
 #include <set>
+#include <iostream>
 
 #if defined(__GNUC__) || defined(__clang__)
 #define Z80_PACKED_STRUCT __attribute__((packed))
@@ -98,14 +101,17 @@ public:
 
     Z80Analyzer(TMemory* memory, ILabels* labels = nullptr) : m_memory(memory), m_labels(labels) {}
 
-    enum class DisassemblyMode { RAW, HEURISTIC };
+    enum class DisassemblyMode { RAW, HEURISTIC, EXEC };
     std::vector<CodeLine> disassemble(uint16_t start_address, size_t instruction_limit, DisassemblyMode mode) {
-        if (mode == DisassemblyMode::RAW)
+        switch (mode) {
+        case DisassemblyMode::RAW:
             return disassemble_raw(start_address, instruction_limit);
-        else {
-            std::set<uint16_t> visited;
+        case DisassemblyMode::HEURISTIC:
             return disassemble_heuristic(start_address, instruction_limit);
+        case DisassemblyMode::EXEC:
+            return disassemble_exec(start_address, instruction_limit);
         }
+        return {};
     }
     CodeLine parse_db(uint16_t& address, size_t count = 1) {
         CodeLine line_info;
@@ -2245,6 +2251,123 @@ private:
         }
         return result;
     }
+    class ShadowProfiler {
+    public:
+        enum ShadowFlags : uint8_t {
+            FLAG_NONE = 0,
+            FLAG_CODE = 1 << 0,
+            FLAG_DATA_READ = 1 << 1,
+            FLAG_DATA_WRITE = 1 << 2,
+        };
+        std::vector<uint8_t> m_shadow_map;
+
+        ShadowProfiler() : m_ram(0x10000,0), m_shadow_map(0x10000, FLAG_NONE) {
+        }
+        void connect(Z80<ShadowProfiler, Z80DefaultEvents, ShadowProfiler>* cpu) {
+            m_cpu = cpu;
+        }
+        void reset() {
+            std::fill(m_ram.begin(), m_ram.end(), 0);
+            std::fill(m_shadow_map.begin(), m_shadow_map.end(), FLAG_NONE);
+        }
+        //memory
+        uint8_t read(uint16_t address) {
+            if (m_cpu->get_PC() == address)
+                m_shadow_map[address] |= FLAG_CODE;
+            else 
+                m_shadow_map[address] |= FLAG_DATA_READ;
+            return m_ram[address];
+        }
+        void write(uint16_t address, uint8_t value) {
+            m_shadow_map[address] |= FLAG_DATA_WRITE;
+            m_ram[address] = value;
+        }
+        uint8_t peek(uint16_t address) const {
+            return m_ram[address];
+        }
+        void poke(uint16_t address, uint8_t value) {
+            m_ram[address] = value;
+        }
+        //ports
+        uint8_t in(uint16_t port) { return 0xFF; }
+        void out(uint16_t port, uint8_t value) {}
+        //instructions
+        void before_step() {
+        }
+        void after_step() {
+        }
+        void before_IRQ() {}
+        void after_IRQ() {}
+        void before_NMI() {}
+        void after_NMI() {}
+
+    private:
+        Z80<ShadowProfiler, Z80DefaultEvents, ShadowProfiler>* m_cpu;
+        std::vector<uint8_t> m_ram;
+    };
+
+    std::vector<CodeLine> disassemble_exec(uint16_t start_address, size_t instruction_limit) {
+        ShadowProfiler profiler;
+        Z80<ShadowProfiler, Z80DefaultEvents, ShadowProfiler> cpu(&profiler, nullptr, &profiler);
+        profiler.connect(&cpu);
+
+        // Copy memory to profiler's RAM to avoid modifying the original memory
+        for (uint32_t i = 0; i < 0x10000; ++i) {
+            profiler.poke(i, m_memory->peek(i));
+        }
+
+        cpu.set_PC(start_address);
+
+        const size_t execution_limit = 1000000; // Generous limit for execution tracing
+        std::set<uint16_t> executed_pcs;
+
+        for (size_t i = 0; i < execution_limit; ++i) {
+            uint16_t current_pc = cpu.get_PC();
+            if (executed_pcs.count(current_pc)) {
+                break; // Loop detected, stop execution phase.
+            }
+            executed_pcs.insert(current_pc);
+
+            cpu.step();
+
+            if (cpu.is_halted()) {
+                break; // CPU halted, stop execution phase.
+            }
+        }
+
+        // --- DEBUG: Print shadow map ---
+        std::cout << "\n--- Shadow Map Debug ---\n";
+        for (int i = 0; i < 0x100; ++i) {
+            if (i % 16 == 0) std::cout << std::hex << std::setw(4) << std::setfill('0') << i << ": ";
+            char c = '.';
+            if (profiler.m_shadow_map[i] & ShadowProfiler::FLAG_CODE) c = 'C';
+            else if (profiler.m_shadow_map[i] & ShadowProfiler::FLAG_DATA_WRITE) c = 'W';
+            else if (profiler.m_shadow_map[i] & ShadowProfiler::FLAG_DATA_READ) c = 'R';
+            std::cout << c << " ";
+            if (i % 16 == 15) std::cout << std::endl;
+        }
+        std::cout << "------------------------\n" << std::endl;
+        // --- END DEBUG ---
+
+        std::vector<CodeLine> result;
+        uint32_t pc = start_address;
+        while (pc < 0x10000 && result.size() < instruction_limit) {
+            uint16_t current_pc = static_cast<uint16_t>(pc);
+            CodeLine line;
+            if (profiler.m_shadow_map[current_pc] & ShadowProfiler::FLAG_CODE) {
+                line = parse_instruction(current_pc);
+                if (line.bytes.empty()) { // Failsafe for invalid instruction
+                    line = parse_db(current_pc, 1);
+                }
+            } else {
+                line = parse_db(current_pc, 1);
+            }
+            result.push_back(line);
+            pc += line.bytes.size();
+        }
+        return result;
+    }
+
     std::vector<CodeLine> disassemble_heuristic(uint16_t start_address, size_t instruction_limit) {
         enum class Tag { UNKNOWN, CODE_START, CODE_INTERIOR };
         std::vector<Tag> tag_map(0x10000, Tag::UNKNOWN);
