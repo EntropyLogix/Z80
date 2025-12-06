@@ -3133,10 +3133,12 @@ private:
                 else
                     add_ticks(ticks_limit - get_ticks());
             } else {
+                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
 #ifdef Z80_DEBUGGER_OPCODES
-                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
                     m_opcodes.clear();
 #endif // Z80_DEBUGGER_OPCODES
+                    m_debugger->before_step();
+                }
                 set_index_mode(IndexMode::HL);
                 uint8_t opcode = fetch_next_opcode();
                 set_flags_modified(false);
@@ -3144,12 +3146,6 @@ private:
                     set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
                     opcode = fetch_next_opcode();
                 }
-                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
-#ifdef Z80_DEBUGGER_OPCODES
-                    m_debugger->before_step(m_opcodes);
-#else
-                    m_debugger->before_step();
-#endif // Z80_DEBUGGER_OPCODES
                 switch (opcode) {
                 case 0x00:
                     handle_opcode_0x00_NOP();
@@ -7709,7 +7705,7 @@ public:
     }
     void reset() {
     }
-    void before_step(const std::vector<uint8_t>& opcodes) { //first opcode byte(s)
+    void before_step() {
     }
     void after_step(const std::vector<uint8_t>& opcodes) {
     }

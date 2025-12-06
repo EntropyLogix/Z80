@@ -728,6 +728,7 @@ int main(int argc, char* argv[]) {
         std::cout << "\n--- Disassembly from " << format_hex(disasm_addr, 4) << " (" << disasm_lines << " lines) ---\n";
         uint16_t pc = disasm_addr;
         auto listing = analyzer.disassemble(pc, disasm_lines, disassembly_mode); 
+        std::cout << std::setfill(' ');
         for (const auto& line_info : listing) {
             uint16_t start_pc = line_info.address;
             std::string ticks_str;
@@ -739,7 +740,6 @@ int main(int argc, char* argv[]) {
                 std::cout << "\t";
             std::cout << std::left << format_hex(start_pc, 4) << "  " << std::setw(12) << format_bytes_str(line_info.bytes, true) << " "
                       << std::setw(10) << ticks_str << " " << std::setw(7) << line_info.mnemonic << " " << std::setw(18) << format_operands(line_info.operands) << std::endl;
-            std::cout << std::setfill(' '); // Reset fill character
         }
     }
     if (mem_dump_size == 0 && disasm_lines == 0 && !reg_dump_action) {

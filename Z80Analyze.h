@@ -2363,22 +2363,6 @@ private:
             if (cpu.is_halted())
                 break; // CPU halted, stop execution phase.
         }
-        // --- DEBUG: Print code map ---
-        std::cout << "\n--- Code Map Debug ---\n";
-        for (int i = 0; i < 0x100; ++i) {
-            if (i % 16 == 0) std::cout << std::hex << std::setw(4) << std::setfill('0') << i << ": ";
-            char c = '.';
-            if (profiler.m_code_map[i] & CodeMapProfiler<TMemory>::FLAG_CODE_START) c = 'C'; // Code start
-            else if (profiler.m_code_map[i] & CodeMapProfiler<TMemory>::FLAG_CODE_INTERIOR) c = 'I'; // Code interior
-            else if (profiler.m_code_map[i] & CodeMapProfiler<TMemory>::FLAG_DATA_READ) c = 'R';
-            if (profiler.m_code_map[i] & CodeMapProfiler<TMemory>::FLAG_DATA_WRITE) c = 'W';
-            std::cout << c << " ";
-            if (i % 16 == 15) std::cout << std::endl;
-        }
-        std::cout << "------------------------\n" << std::dec << std::setfill(' ') << std::endl;
-        // --- END DEBUG ---
-
-        analyze_code_map(profiler);
 
         std::vector<CodeLine> result;
         uint32_t pc = start_address;
@@ -2388,13 +2372,38 @@ private:
             if (profiler.m_code_map[current_pc] & CodeMapProfiler<TMemory>::FLAG_CODE_START) {
                 line = parse_instruction(current_pc);
                 if (line.bytes.empty()) { // Failsafe for invalid instruction
-                    line = parse_db(current_pc, 1);
+                    uint16_t temp_pc = current_pc;
+                    line = parse_db(temp_pc, 1);
+                    pc = temp_pc;
+                } else {
+                    pc += line.bytes.size();
                 }
+                result.push_back(line);
             } else {
-                line = parse_db(current_pc, 1);
+                uint16_t data_start_pc = current_pc;
+                uint8_t fill_byte = m_memory->peek(data_start_pc);
+                size_t repeat_count = 0;
+                while (pc + repeat_count < 0x10000 && !(profiler.m_code_map[pc + repeat_count] & CodeMapProfiler<TMemory>::FLAG_CODE_START)) {
+                    if (m_memory->peek(pc + repeat_count) != fill_byte) break;
+                    repeat_count++;
+                }
+
+                const size_t DS_THRESHOLD = 4;
+                if (repeat_count >= DS_THRESHOLD) {
+                    result.push_back(parse_ds(data_start_pc, repeat_count, fill_byte));
+                    pc += repeat_count;
+                } else {
+                    size_t db_count = 0;
+                    uint16_t db_start_pc = current_pc;
+                    while (pc < 0x10000 && !(profiler.m_code_map[pc] & CodeMapProfiler<TMemory>::FLAG_CODE_START)) {
+                        db_count++;
+                        pc++;
+                    }
+                    if (db_count > 0) {
+                        result.push_back(parse_db(db_start_pc, db_count));
+                    }
+                }
             }
-            result.push_back(line);
-            pc += line.bytes.size();
         }
         return result;
     }
@@ -2509,27 +2518,24 @@ private:
         }
         return result;
     }
-
-    void analyze_code_map(const CodeMapProfiler<TMemory>& profiler) {
-        std::cout << "\n--- Code Map Analysis ---\n";
-        bool found_smc = false;
+    CodeLine to_db(CodeLine& line_info) {
+        line_info.mnemonic = "DB";
+        line_info.type = CodeLine::Type::DATA;
+        line_info.operands.clear();
+        for (uint8_t byte : line_info.bytes)
+            line_info.operands.emplace_back(CodeLine::Operand::IMM8, byte);
+        return line_info;
+    }
+    std::vector<uint16_t> analyze_code_map(const CodeMapProfiler<TMemory>& profiler) {
+        std::vector<uint16_t> smc_locations;
         for (uint32_t i = 0; i < 0x10000; ++i) {
             uint8_t flags = profiler.m_code_map[i];
             bool is_code = (flags & CodeMapProfiler<TMemory>::FLAG_CODE_START) || (flags & CodeMapProfiler<TMemory>::FLAG_CODE_INTERIOR);
             bool is_written = (flags & CodeMapProfiler<TMemory>::FLAG_DATA_WRITE);
-
-            if (is_code && is_written) {
-                if (!found_smc) {
-                    std::cout << "Self-modifying code locations (executed and written):\n";
-                    found_smc = true;
-                }
-                std::cout << "  - Address 0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << i << std::dec << "\n";
-            }
+            if (is_code && is_written)
+                smc_locations.push_back(static_cast<uint16_t>(i));
         }
-        if (!found_smc) {
-            std::cout << "No self-modifying code detected.\n";
-        }
-        std::cout << "------------------------\n" << std::endl;
+        return smc_locations;
     }
     IndexMode get_index_mode() const { return m_index_mode; }
     std::string get_indexed_reg_str() {
@@ -2573,16 +2579,6 @@ private:
     TMemory* m_memory;
     IndexMode m_index_mode;
     ILabels* m_labels = nullptr;
-
-    CodeLine to_db(CodeLine& line_info) {
-        line_info.mnemonic = "DB";
-        line_info.type = CodeLine::Type::DATA;
-        line_info.operands.clear();
-        for (uint8_t byte : line_info.bytes) {
-            line_info.operands.emplace_back(CodeLine::Operand::IMM8, byte);
-        }
-        return line_info;
-    }
 };
 
 #endif //__Z80ANALYZE_H__
