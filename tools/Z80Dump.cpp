@@ -14,8 +14,8 @@
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 
-#include "Z80.h"
 #include "Z80Analyze.h"
+#include "Z80.h"
 #include <algorithm>
 #include <cctype>
 #include <cstring>
@@ -40,10 +40,11 @@ void print_usage() {
                  "(PC, SP, HL),\n"
               << "    or an expression like 'PC+10' or 'HL-0x20'.\n"
               << "    Example: --mem-dump 4000 100\n\n"
-              << "  --disassemble <address> <lines_dec>\n"
+              << "  --disassemble <address> <lines_dec> [mode]\n"
               << "    Disassembles code. <address> can be a hex value, a "
                  "register, or an expression.\n"
-              << "    Example: --disassemble 8000 20\n\n"
+              << "    Mode can be 'raw', 'heuristic', or 'exec'. Default is 'raw'.\n"
+              << "    Example: --disassemble 8000 20 heuristic\n\n"
               << "  --load-addr <address_hex>\n"
               << "    Specifies the loading address for .bin files (default: "
                  "0x0000).\n"
@@ -580,10 +581,12 @@ int main(int argc, char* argv[]) {
             if (i + 1 < argc && argv[i + 1][0] != '-') {
                 std::string mode_str = argv[++i];
                 std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
-                if (mode_str == "heuristic") {
+                if (mode_str == "heuristic")
                     disassembly_mode = Analyzer::DisassemblyMode::HEURISTIC;
-                } else if (mode_str != "raw") {
-                    std::cerr << "Error: Invalid disassembly mode '" << mode_str << "'. Use 'raw' or 'heuristic'." << std::endl;
+                else if (mode_str == "exec")
+                    disassembly_mode = Analyzer::DisassemblyMode::EXEC;
+                else if (mode_str != "raw") {
+                    std::cerr << "Error: Invalid disassembly mode '" << mode_str << "'. Use 'raw', 'heuristic', or 'exec'." << std::endl;
                     return 1;
                 }
             }
@@ -705,6 +708,7 @@ int main(int argc, char* argv[]) {
         const size_t cols = 16;
         for (size_t i = 0; i < mem_dump_size; i += cols) {
             std::cout << format_hex(current_addr, 4) << ": ";
+            char original_fill = std::cout.fill(); // Save original fill character
             std::string ascii_chars;
             for (size_t j = 0; j < cols; ++j) {
                 if (i + j < mem_dump_size) {
@@ -715,6 +719,7 @@ int main(int argc, char* argv[]) {
                     std::cout << "   ";
             }
             std::cout << " " << ascii_chars << std::endl;
+            std::cout.fill(original_fill); // Restore original fill character
             current_addr += cols;
         }
     }

@@ -2219,6 +2219,7 @@ public:
         return line_info;
     }
 private:
+    static constexpr size_t EXECUTION_TRACE_LIMIT = 1000000;
     enum class IndexMode { HL, IX, IY };
     struct ParseContext {
         ParseContext(uint16_t& addr, std::vector<uint8_t>& b, TMemory* mem) : address(addr), bytes(b), memory(mem) {}
@@ -2251,35 +2252,40 @@ private:
         }
         return result;
     }
-    class ShadowProfiler {
+    class CodeMapProfiler {
     public:
-        enum ShadowFlags : uint8_t {
+        enum CodeMapFlags : uint8_t {
             FLAG_NONE = 0,
-            FLAG_CODE = 1 << 0,
-            FLAG_DATA_READ = 1 << 1,
-            FLAG_DATA_WRITE = 1 << 2,
+            FLAG_CODE_START = 1 << 0,
+            FLAG_CODE_INTERIOR = 1 << 1,
+            FLAG_DATA_READ = 1 << 2,
+            FLAG_DATA_WRITE = 1 << 3,
         };
-        std::vector<uint8_t> m_shadow_map;
+        std::vector<uint8_t> m_code_map;
 
-        ShadowProfiler() : m_ram(0x10000,0), m_shadow_map(0x10000, FLAG_NONE) {
+        CodeMapProfiler() : m_ram(0x10000,0), m_code_map(0x10000, FLAG_NONE) {
         }
-        void connect(Z80<ShadowProfiler, Z80DefaultEvents, ShadowProfiler>* cpu) {
+        void connect(Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler>* cpu) {
             m_cpu = cpu;
         }
         void reset() {
             std::fill(m_ram.begin(), m_ram.end(), 0);
-            std::fill(m_shadow_map.begin(), m_shadow_map.end(), FLAG_NONE);
+            std::fill(m_code_map.begin(), m_code_map.end(), FLAG_NONE);
         }
         //memory
         uint8_t read(uint16_t address) {
-            if (m_cpu->get_PC() == address)
-                m_shadow_map[address] |= FLAG_CODE;
+            if (m_cpu->get_PC() == address) {
+                if (m_inside_instruction)
+                    m_code_map[address] |= FLAG_CODE_INTERIOR;
+                else 
+                    m_code_map[address] |= FLAG_CODE_START;
+            }
             else 
-                m_shadow_map[address] |= FLAG_DATA_READ;
+                m_code_map[address] |= FLAG_DATA_READ;
             return m_ram[address];
         }
         void write(uint16_t address, uint8_t value) {
-            m_shadow_map[address] |= FLAG_DATA_WRITE;
+            m_code_map[address] |= FLAG_DATA_WRITE;
             m_ram[address] = value;
         }
         uint8_t peek(uint16_t address) const {
@@ -2293,8 +2299,10 @@ private:
         void out(uint16_t port, uint8_t value) {}
         //instructions
         void before_step() {
+            m_inside_instruction = true;
         }
         void after_step() {
+            m_inside_instruction = false;
         }
         void before_IRQ() {}
         void after_IRQ() {}
@@ -2302,51 +2310,41 @@ private:
         void after_NMI() {}
 
     private:
-        Z80<ShadowProfiler, Z80DefaultEvents, ShadowProfiler>* m_cpu;
+        Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler>* m_cpu;
         std::vector<uint8_t> m_ram;
+        bool m_inside_instruction = false;
     };
 
     std::vector<CodeLine> disassemble_exec(uint16_t start_address, size_t instruction_limit) {
-        ShadowProfiler profiler;
-        Z80<ShadowProfiler, Z80DefaultEvents, ShadowProfiler> cpu(&profiler, nullptr, &profiler);
+        CodeMapProfiler profiler;
+        Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler> cpu(&profiler, nullptr, &profiler);
         profiler.connect(&cpu);
-
-        // Copy memory to profiler's RAM to avoid modifying the original memory
-        for (uint32_t i = 0; i < 0x10000; ++i) {
+        for (uint32_t i = 0; i < 0x10000; ++i)
             profiler.poke(i, m_memory->peek(i));
-        }
-
         cpu.set_PC(start_address);
-
-        const size_t execution_limit = 1000000; // Generous limit for execution tracing
         std::set<uint16_t> executed_pcs;
-
-        for (size_t i = 0; i < execution_limit; ++i) {
+        for (size_t i = 0; i < EXECUTION_TRACE_LIMIT; ++i) {
             uint16_t current_pc = cpu.get_PC();
-            if (executed_pcs.count(current_pc)) {
+            if (executed_pcs.count(current_pc))
                 break; // Loop detected, stop execution phase.
-            }
             executed_pcs.insert(current_pc);
-
             cpu.step();
-
-            if (cpu.is_halted()) {
+            if (cpu.is_halted())
                 break; // CPU halted, stop execution phase.
-            }
         }
-
-        // --- DEBUG: Print shadow map ---
-        std::cout << "\n--- Shadow Map Debug ---\n";
+        // --- DEBUG: Print code map ---
+        std::cout << "\n--- Code Map Debug ---\n";
         for (int i = 0; i < 0x100; ++i) {
             if (i % 16 == 0) std::cout << std::hex << std::setw(4) << std::setfill('0') << i << ": ";
             char c = '.';
-            if (profiler.m_shadow_map[i] & ShadowProfiler::FLAG_CODE) c = 'C';
-            else if (profiler.m_shadow_map[i] & ShadowProfiler::FLAG_DATA_WRITE) c = 'W';
-            else if (profiler.m_shadow_map[i] & ShadowProfiler::FLAG_DATA_READ) c = 'R';
+            if (profiler.m_code_map[i] & CodeMapProfiler::FLAG_CODE_START) c = 'C'; // Code start
+            else if (profiler.m_code_map[i] & CodeMapProfiler::FLAG_CODE_INTERIOR) c = 'I'; // Code interior
+            else if (profiler.m_code_map[i] & CodeMapProfiler::FLAG_DATA_READ) c = 'R';
+            if (profiler.m_code_map[i] & CodeMapProfiler::FLAG_DATA_WRITE) c = 'W';
             std::cout << c << " ";
             if (i % 16 == 15) std::cout << std::endl;
         }
-        std::cout << "------------------------\n" << std::endl;
+        std::cout << "------------------------\n" << std::dec << std::setfill(' ') << std::endl;
         // --- END DEBUG ---
 
         std::vector<CodeLine> result;
@@ -2354,7 +2352,7 @@ private:
         while (pc < 0x10000 && result.size() < instruction_limit) {
             uint16_t current_pc = static_cast<uint16_t>(pc);
             CodeLine line;
-            if (profiler.m_shadow_map[current_pc] & ShadowProfiler::FLAG_CODE) {
+            if (profiler.m_code_map[current_pc] & CodeMapProfiler::FLAG_CODE_START) {
                 line = parse_instruction(current_pc);
                 if (line.bytes.empty()) { // Failsafe for invalid instruction
                     line = parse_db(current_pc, 1);
@@ -2406,9 +2404,8 @@ private:
                     stop_linear_scan = true;
                 } else if (line.mnemonic == "JP" || line.mnemonic == "JR") {
                     bool is_conditional = line.operands.size() > 1 && line.operands[0].type == CodeLine::Operand::Type::CONDITION;
-                    if (!is_conditional) {
+                    if (!is_conditional)
                         stop_linear_scan = true;
-                    }
                 }
                 if (stop_linear_scan)
                     break;
