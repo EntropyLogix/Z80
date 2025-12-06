@@ -165,35 +165,35 @@ private:
 
 using Analyzer = Z80Analyzer<Z80DefaultBus>;
 
-std::string format_operands(const std::vector<Analyzer::Operand>& operands) {
+std::string format_operands(const std::vector<Analyzer::CodeLine::Operand>& operands) {
     if (operands.empty()) return "";
     std::stringstream ss;
     for (size_t i = 0; i < operands.size(); ++i) {
         const auto& op = operands[i];
         switch (op.type) {
-            case Analyzer::Operand::Type::REG8:
-            case Analyzer::Operand::Type::REG16:
-            case Analyzer::Operand::Type::CONDITION:
+            case Analyzer::CodeLine::Operand::Type::REG8:
+            case Analyzer::CodeLine::Operand::Type::REG16:
+            case Analyzer::CodeLine::Operand::Type::CONDITION:
                 ss << op.s_val;
                 break;
-            case Analyzer::Operand::Type::IMM8:
-            case Analyzer::Operand::Type::PORT_IMM8:
+            case Analyzer::CodeLine::Operand::Type::IMM8:
+            case Analyzer::CodeLine::Operand::Type::PORT_IMM8:
                 ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
                 break;
-            case Analyzer::Operand::Type::IMM16:
-            case Analyzer::Operand::Type::MEM_IMM16: {
+            case Analyzer::CodeLine::Operand::Type::IMM16:
+            case Analyzer::CodeLine::Operand::Type::MEM_IMM16: {
                 std::string formatted_addr = op.label.empty() ? format_hex(op.num_val, 4) : op.label;
-                if (op.type == Analyzer::Operand::Type::MEM_IMM16) ss << "(" << formatted_addr << ")";
+                if (op.type == Analyzer::CodeLine::Operand::Type::MEM_IMM16) ss << "(" << formatted_addr << ")";
                 else ss << formatted_addr;
                 break;
             }
-            case Analyzer::Operand::Type::MEM_REG16:
+            case Analyzer::CodeLine::Operand::Type::MEM_REG16:
                 ss << "(" << op.s_val << ")";
                 break;
-            case Analyzer::Operand::Type::MEM_INDEXED:
+            case Analyzer::CodeLine::Operand::Type::MEM_INDEXED:
                 ss << "(" << op.s_val << (op.offset >= 0 ? "+" : "") << static_cast<int>(op.offset) << ")";
                 break;
-            case Analyzer::Operand::Type::STRING:
+            case Analyzer::CodeLine::Operand::Type::STRING:
                 ss << "\"" << op.s_val << "\"";
                 break;
             default:

@@ -5,12 +5,12 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
-// Verson: 1.1.0
+// Verson: 1.1.1
 //
 // This file defines the core Z80 processor emulation class,
 // including register definitions, state management, and instruction execution logic.
 //
-// Copyright (c) 2025 Adam Szulc
+// Copyright (c) 2025 Adam Szulc 
 // MIT License
 
 #ifndef __Z80_H__
