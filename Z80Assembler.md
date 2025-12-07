@@ -170,8 +170,8 @@ The assembler supports a wide range of built-in functions for compile-time calcu
 ```z80
 ; --- Simple Arithmetic ---
 InitialValue EQU 100
-LD A, InitialValue + 5 * 2 ; A = 110 (operator precedence)
-LD B, (InitialValue + 5) * 2 ; B = 210 (parentheses)
+LD A, InitialValue + 5 * 2 ; A = 110 (operator precedence is respected)
+LD B, (InitialValue + 5) * 2 ; B = 210 (parentheses change order of operations)
 
 ; --- Using Labels to Calculate Size ---
 DataTable:
@@ -192,6 +192,31 @@ TimeoutValue EQU (DEBUG_MODE == 1) ? 100 : 2000
 LD BC, TimeoutValue
 
 SineTable: DB ROUND(SIN(MATH_PI / 4) * 255) ; Using trig functions and rounding
+
+; --- Advanced Examples ---
+
+; 1. String manipulation and type conversion
+VersionString EQU "v1.23"
+; Converts "1.23" to a number, multiplies by 100, and casts to an integer
+VersionNumber EQU VAL(SUBSTR(VersionString, 1, 4)) * 100
+
+; 2. Using the '$' special variable for data alignment
+    ORG 0x8000
+SomeData:
+    DB 1, 2, 3
+; Align the current address to the next 256-byte boundary
+    ALIGN 256
+AlignedData:
+    DW 0xABCD
+
+; 3. Complex expression with nested functions
+; Generate a 4-byte file ID from a string
+FileName EQU "GAME"
+FileID EQU CHARS(UCASE(FileName)) ; Evaluates to 0x454D4147 ('GAME' in little-endian)
+
+Header:
+    DW 0x1234
+    DD FileID ; Insert the 4-byte ID into the code
 ```
 
 ## Assembler Directives
@@ -215,7 +240,7 @@ Directives are commands for the assembler that control the compilation process.
 |:---|:---|:---|:---|
 | `EQU` | `<label> EQU <expression>` | Assigns a constant value. Redefinition causes an error. | `PORTA EQU 0x80` |
 | `SET` | `<label> SET <expression>` | Assigns a numeric value. The symbol can be redefined. | `Counter SET 0` |
-| `DEFINE` | `DEFINE <label> <expression>` | Alias for `SET`. | `DEBUG DEFINE 1` |
+| `DEFINE` | `DEFINE <label> <replacement_text>` | Creates a text substitution macro. Unlike `EQU` or `SET`, it does not evaluate an expression but replaces any occurrence of `<label>` with `<replacement_text>` before the line is processed. | `DEFINE GET_HIGH(val) HIGH(val)` |
 | `=` | `<label> = <expression>` | By default, acts like `EQU`. Can be configured to act like `SET`. | `PORTA = 0x80` |
 
 ### Address and Structure Control
@@ -230,6 +255,45 @@ Directives are commands for the assembler that control the compilation process.
 | `ENDP` | `ENDP` | Ends a procedure block. |
 | `LOCAL` | `LOCAL <sym1>, ...` | Declares symbols as local within a macro or procedure. |
 
+**`PHASE`/`DEPHASE` Example (`$` vs `$$`):**
+
+This example demonstrates how to compile code that is stored at one location but designed to run at another.
+
+```z80
+    ORG 0x4000
+    ; Here, both logical ($) and physical ($$) addresses are 0x4000.
+    DISPLAY "Start:         Logical $ = ", $, ", Physical $$ = ", $$
+
+Loader:
+    LD DE, 0xC000      ; Destination address for the copy
+    LD HL, RelocatedCode ; Source is the physical address of the code
+    LD BC, CodeEnd - RelocatedCode ; Size of the code to copy
+    LDIR               ; Copy the code
+    JP 0xC000          ; Jump to the code in its new location
+
+    ; The loader code is 14 bytes long. The next physical address is 0x400E.
+    DISPLAY "Before PHASE:    Logical $ = ", $, ", Physical $$ = ", $$
+
+; Now, we assemble the code as if it were at 0xC000.
+PHASE 0xC000
+    ; The logical address ($) is now 0xC000.
+    ; The physical address ($$) continues from 0x400E.
+    DISPLAY "Inside PHASE:    Logical $ = ", $, ", Physical $$ = ", $$
+
+RelocatedCode:
+    LD A, 'R'          ; This code is physically at 0x400E
+    CALL PrintChar     ; This call will be to 0xC00A (logical address)
+    RET
+
+PrintChar:             ; This label gets the logical address 0xC00A
+    ; ... printing logic ...
+    RET
+CodeEnd:
+DEPHASE
+    ; Logical and physical addresses are synchronized again.
+    DISPLAY "After DEPHASE:   Logical $ = ", $, ", Physical $$ = ", $$
+```
+
 **`PROC` Example:**
 ```z80
 ; A procedure to clear a 6KB screen memory area
@@ -237,7 +301,7 @@ ClearScreen PROC
     LD   HL, 0x4000      ; Start of video memory
     LD   (HL), 0         ; Clear the first byte
     LD   DE, 0x4001      ; Destination is the next byte
-    LD   BC, 6143        ; Number of remaining bytes (6*1024 - 1)
+    LD   BC, 6143        ; Number of remaining bytes (6144 - 1)
     LDIR                 ; Copy the zeroed byte across the screen
     RET
 
@@ -261,6 +325,42 @@ Main:
 | `IFNDEF` | `IFNDEF <symbol>` | Executes code if the symbol is not defined. |
 | `IFNB` | `IFNB <argument>` | Executes code if the macro argument is not blank. |
 | `IFIDN` | `IFIDN <arg1>, <arg2>` | Executes code if two text arguments are identical. |
+
+**Conditional Compilation Examples:**
+```z80
+; --- IFNB Example: Optional Macro Arguments ---
+; Macro to optionally load a value into a register.
+LOAD_OPTIONAL MACRO {register}, {value}
+    ; IFNB checks if the <value> argument is Not Blank.
+    ; The angle brackets are important to treat the argument as a string.
+    IFNB <{value}>
+        LD {register}, {value}
+    ELSE
+        ; If 'value' is blank, perform a default action.
+        XOR A
+        LD {register}, A
+    ENDIF
+ENDM
+
+; Usage:
+LOAD_OPTIONAL B, 100 ; Assembles: LD B, 100
+LOAD_OPTIONAL C,     ; Assembles: XOR A; LD C, A
+
+; --- IFIDN Example: Comparing String Arguments ---
+; Macro to select an optimization mode.
+OPTIMIZED_ADD MACRO {mode}
+    ; IFIDN compares two strings case-sensitively.
+    IFIDN <{mode}>, <FAST>
+        ADD A, 5         ; Faster, immediate value
+    ELSE
+        ADD A, (HL)      ; Slower, but more flexible
+    ENDIF
+ENDM
+
+; Usage:
+OPTIMIZED_ADD FAST   ; Assembles: ADD A, 5
+OPTIMIZED_ADD SAFE   ; Assembles: ADD A, (HL)
+```
 
 ### Macros
 
@@ -290,32 +390,28 @@ WRITE_BYTES 10, 20, 30 ; Generates: DB 10, DB 20, DB 30
 ; Macro to add a 16-bit value to HL
 ADD_HL MACRO {value}
     LOCAL .add_value
-    LD   DE, .add_value
+    LD   DE, {value}
     ADD  HL, DE
-    EXITM ; Exit macro
-
-.add_value:
-    DW {value}
 ENDM
 
 ; Usage:
-ADD_HL 1000 ; Generates LD DE, <addr>; ADD HL, DE; DW 1000
+ADD_HL value=1000 ; Generates: LD DE, 1000; ADD HL, DE
 ```
 
 ### Repetitions (Loops)
 
 | Directive | Aliases | Syntax | Description |
 |:---|:---|:---|:---|
-| `REPT` | `DUP` | `REPT <count>` | Repeats a block of code a specified number of times. |
-| `ENDR` | `EDUP` | `ENDR` | Ends a `REPT` block. |
-| `WHILE` | | `WHILE <expression>` | Repeats a block of code as long as the expression is true. |
-| `ENDW` | | `ENDW` | Ends a `WHILE` block. |
-| `EXITR` | | `EXITR` | Exits the current `REPT` loop. |
+| `REPT` ... `ENDR` | | `REPT <n>` | Repeats a block of code `n` times. |
+| `WHILE` ... `ENDW` | | `WHILE <expr>` | Repeats a block while an expression is true. |
+| `BREAK` | | | Breaks out of the current `REPT` or `WHILE` loop. |
+| `EXITR` | | | Exits the current `REPT` loop. |
+| `EXITW` | | | Exits the current `WHILE` loop. |
 
-Inside a `REPT` loop, the special symbol `\@` represents the current iteration (starting from 1).
+Inside a `REPT` loop, the special symbol `\@` represents the current iteration count (starting from 1).
 
 **`REPT` Example:**
-```asm
+```z80
 ; Generate a table of squares
 SquaresTable:
 REPT 8
@@ -345,14 +441,37 @@ ENDW
 
 | Directive | Syntax | Description |
 |:---|:---|:---|
-| `DISPLAY` | `DISPLAY <message>, <expression>...` | Displays a message or value on the console during compilation (alias: `ECHO`). |
-| `ERROR` | `ERROR "<message>"` | Stops compilation and displays an error message. |
-| `ASSERT` | `ASSERT <expression>` | Stops compilation if the expression evaluates to false (zero). |
-| `END` | `END` | Ends the assembly process. |
+| `DISPLAY` | `DISPLAY "msg", val` | Prints a message or value to the console during compilation. |
+| `ERROR` | `ERROR "msg"` | Stops compilation and displays an error message. |
+| `ASSERT` | `ASSERT <expr>` | Stops compilation with an error if the expression is false. |
+| `END` | | Terminates the assembly process. |
+
+**`ASSERT` and `ERROR` Example:**
+
+This example shows how to guard against invalid compile-time settings.
+
+```z80
+; --- Build Configuration ---
+PLATFORM_ZX_SPECTRUM EQU 1
+PLATFORM_MSX         EQU 2
+
+; Select the target platform for this build.
+TARGET_PLATFORM SET PLATFORM_ZX_SPECTRUM
+
+; --- Validation ---
+; Use ASSERT to ensure a valid platform is selected. If the expression is false,
+; the assembler will halt with a generic assertion failure.
+ASSERT (TARGET_PLATFORM == PLATFORM_ZX_SPECTRUM) || (TARGET_PLATFORM == PLATFORM_MSX)
+
+; For a more user-friendly message, it's often better to use IF/ERROR.
+IF DEFINED(ScreenAddress) == FALSE
+    ERROR "ScreenAddress is not defined. Please include the correct platform definition file."
+ENDIF
+```
 
 ## Supported Instructions (Mnemonics)
 
-The assembler supports the full standard and most of the undocumented Z80 instruction sets.
+The assembler supports the full Z80 instruction set, including official and undocumented opcodes.
 
 ### 8-bit Load
 *   **Mnemonics**: `LD`
@@ -502,6 +621,8 @@ IOExamples:
 *   **Description**: The assembler also supports many "undocumented" or "illegal" instructions that perform useful operations.
 ```z80
 UndocumentedExamples:
-    SLL B              ; Shift B left, bit 0 is set to 1 (alias for SLI)
-    OUT (C), 0         ; Some assemblers support this form
+    SLL B              ; Shift B left, bit 0 is set to 1 (also aliased as SLI)
+    ; OUT (C), 0       ; This form is invalid. To output 0, you must use a register.
+    LD A, 0
+    OUT (C), A         ; Correct way to output 0 to port specified by C
 ```
