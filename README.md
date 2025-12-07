@@ -176,7 +176,7 @@ Provides hooks that allow an external tool to be attached to monitor and trace c
 | Method | Description |
 | :--- | :--- |
 | `void connect(const Z80<...>* cpu)` | Called by the Z80 constructor. It passes a constant pointer to the CPU to allow the debugger to inspect registers and processor state. |
-| `before_step(...)` / `after_step(...)` | Hooks called before and after each instruction is executed. The method signature depends on the `Z80_DEBUGGER_OPCODES` macro.<br>• **Without macro:** `void before_step()`<br>• **With macro:** `void before_step(const std::vector<uint8_t>& opcodes)`<br>The `opcodes` vector contains the full byte sequence of the instruction (opcode + operands). |
+| `void before_step()` / `after_step(...)` | Hooks called before and after each instruction is executed. The signature of `after_step` depends on the `Z80_DEBUGGER_OPCODES` macro.<br>• **Without macro:** `void after_step()`<br>• **With macro:** `void after_step(const std::vector<uint8_t>& opcodes)`<br>The `opcodes` vector contains the full byte sequence of the instruction (opcode + operands). |
 | `void before_IRQ()` / `void after_IRQ()` | Hooks called just before and after handling a maskable interrupt (IRQ). |
 | `void before_NMI()` / `void after_NMI()` | Hooks called just before and after handling a non-maskable interrupt (NMI). |
 | `void reset()` | Resets the internal state of the debugger. |
@@ -361,7 +361,8 @@ my_project/
 ├── lib/
 │   └── Z80/
 │       ├── Z80.h
-│       └── Z80Analyze.h
+│       ├── Z80Analyze.h
+│       └── Z80Assemble.h
 ├── CMakeLists.txt
 └── main.cpp
 ```
@@ -420,7 +421,7 @@ include(FetchContent)
 FetchContent_Declare(
   Z80
   GIT_REPOSITORY https://github.com/EntropyLogix/Z80
-  GIT_TAG        v1.0.5 # You can use a tag, branch, or a specific commit
+  GIT_TAG        v1.1.1 # You can use a tag, branch, or a specific commit
 )
 
 # Download and make the library available
@@ -444,206 +445,13 @@ In your `main.cpp` file, you include the headers in the same way:
 
 ## 🛠️ **Library Components**
 
-This repository also includes utility classes that can be used alongside the Z80 core for debugging and analysis.
-
-### **Analyzer (`Z80Analyzer`)**
-
-The `Z80Analyzer` class is a powerful, multi-purpose tool for debugging and analysis. It provides methods for disassembling machine code, dumping memory regions, and inspecting the current state of CPU registers.
-
-#### **Memory Dumping**
-
-The `dump_memory` method allows you to inspect a region of memory and format it into a human-readable hex dump.
-
-`std::vector<std::string> dump_memory(uint16_t& address, size_t rows, size_t cols, const std::string& format)`
-
-**Format Specifiers:**
-
-| Specifier | Description |
-| :--- | :--- |
-| `%a` | Row start address (hexadecimal). |
-| `%A` | Row start address (decimal). |
-| `%h` | Byte values in hexadecimal, separated by spaces. |
-| `%d` | Byte values in decimal, separated by spaces. |
-| `%c` | ASCII representation of bytes (non-printable characters are replaced with a dot `.`). |
-
-**Example:**
-
-```cpp
-#include "Z80.h"
-#include "Z80Analyze.h"
-#include <iostream>
-
-int main() {
-    Z80<> cpu;
-    Z80Analyzer analyzer(cpu.get_bus(), &cpu, nullptr);
-
-    // Write some data to memory
-    for (int i = 0; i < 32; ++i) {
-        cpu.get_bus()->write(0x8000 + i, 'A' + i);
-    }
-
-    uint16_t addr = 0x8000;
-    auto dump = analyzer.dump_memory(addr, 2, 16, "%a: %h  %c");
-
-    for (const auto& line : dump) {
-        std::cout << line << std::endl;
-    }
-
-    return 0;
-}
-```
-
-**Output:**
-
-```
-0x8000: 41 42 43 44 45 46 47 48 49 4A 4B 4C 4D 4E 4F 50   ABCDEFGHIJKLMNOP
-0x8010: 51 52 53 54 55 56 57 58 59 5A 5B 5C 5D 5E 5F 60   QRSTUVWXYZ[\]^_`
-```
-
-#### **Register Dumping**
-
-The `dump_registers` method provides a flexible way to inspect the state of the CPU's registers using a custom format string.
-
-`std::string dump_registers(const std::string& format)`
-
-**Format Specifiers:**
-
-| Specifier | Description |
-| :--- | :--- |
-| `%af`, `%bc`, `%de`, `%hl`, `%ix`, `%iy`, `%sp`, `%pc` | 16-bit registers (hexadecimal output). |
-| `%AF`, `%BC`, `%DE`, `%HL`, `%IX`, `%IY`, `%SP`, `%PC` | 16-bit registers (decimal output). |
-| `%af'`, `%bc'`, `%de'`, `%hl'` | Alternate 16-bit registers. |
-| `%a`, `%f`, `%b`, `%c`, `%d`, `%e`, `%h`, `%l` | 8-bit main registers. |
-| `%i`, `%r` | 8-bit special registers. |
-| `%flags` | String representation of the F register (e.g., `SZ-H-PNC`). |
-
-**Example:**
-
-```cpp
-Z80<> cpu;
-Z80Analyzer analyzer(cpu.get_bus(), &cpu, nullptr);
-
-cpu.set_PC(0x1234);
-cpu.set_SP(0xFF00);
-cpu.set_AF(0xABCD);
-
-std::string reg_dump = analyzer.dump_registers("PC=%pc SP=%sp AF=%af (%flags)");
-std::cout << reg_dump << std::endl;
-```
-
-**Output:**
-
-```
-PC=0x1234 SP=0xFF00 AF=0xABCD (S-H--N-)
-```
-
-#### **Disassembly**
-
-The analyzer can convert raw instruction bytes from memory into human-readable assembly mnemonics.
-
-#### **Usage**
-
-To use the analyzer, instantiate it by passing a reference to a bus object (which provides memory access). You can then call the `disassemble` method.
-
-```cpp
-#include "Z80.h"
-#include "Z80Analyze.h"
-#include <iostream>
-
-// Assuming a Bus class that implements read() and peek()
-Bus bus; 
-Z80Analyzer<Bus> analyzer(bus);
-
-// Write some example code to memory
-bus.write(0x0000, 0x21); // LD HL, 0x1234
-bus.write(0x0001, 0x34);
-bus.write(0x0002, 0x12);
-
-uint16_t pc = 0x0000;
-std::string disassembly = analyzer.disassemble(pc);
-
-std::cout << disassembly << std::endl;
-```
-
-#### **Output Formatting**
-
-The `disassemble` method accepts an optional format string that allows you to customize the output's appearance, enabling flexible and clean presentation of disassembled code.
-
-`std::string disassemble(uint16_t& address, const std::string& format)`
-
-| Specifier | Description |
-| :--- | :--- |
-| `%t` | T-states (cycle count) for the instruction. |
-
-| Specifier | Description |
-| :--- | :--- |
-| `%a` | Instruction address (hexadecimal). |
-| `%A` | Instruction address (decimal). |
-| `%b` | Instruction bytes (hexadecimal). |
-| `%B` | Instruction bytes (decimal). |
-| `%m` | Instruction mnemonic. |
-| `%t` | T-states (cycle count) for the instruction. |
-
-The format string also supports standard `printf`-style modifiers for width, alignment, and fill character:
-*   **Width**: `%10b` will set the field width to 10 characters.
-*   **Alignment**: `%-10b` will left-align the output. Right-alignment is the default.
-*   **Fill Character**: `%-15.B` will use a dot `.` as the fill character instead of a space.
-
-#### **Formatting Examples**
-
-The following code, taken from `main.cpp`, demonstrates the use of different format strings:
-
-```cpp
-uint16_t pc = 0x0000;
-bus.write(0x0000, 0x21); bus.write(0x0001, 0x34); bus.write(0x0002, 0x12); // LD HL, 0x1234
-bus.write(0x0003, 0x7E); // LD A, (HL)
-bus.write(0x0004, 0x18); bus.write(0x0005, 0xFB); // JR -5
-
-std::cout << analyzer.disassemble(pc, "%a: %-12b %m") << std::endl;
-std::cout << analyzer.disassemble(pc, "%A: %-15.B %m") << std::endl;
-std::cout << analyzer.disassemble(pc, "%m") << std::endl;
-```
-
-**Output:**
-
-```
-0x0000: 21 34 12     LD HL, 0x1234
-3: 126............. LD A, (HL)
-JR 0x0000
-```
-
-### Z80DefaultFiles Class (`Z80Analyze.h`)
-The `Z80DefaultFiles` class is a utility for loading various common Z80 file formats into the emulator's memory and setting the CPU state accordingly. It is particularly useful for quickly loading programs, ROMs, or snapshot files for analysis or execution.
-
-#### Supported Formats and Methods
-
-| Method | Description |
-| :--- | :--- |
-| `load_bin_file(data, load_addr)` | Loads a raw binary file (`.bin`) into memory at the specified `load_addr`. |
-| `load_hex_file(content)` | Parses and loads an Intel HEX format file (`.hex`). |
-| `load_sna_file(data)` | Loads a 48K ZX Spectrum snapshot file (`.sna`), restoring both memory and the complete CPU register state. |
-| `load_z80_file(data)` | Loads a Z80 snapshot file (`.z80`), supporting both uncompressed and compressed (v1) formats. It restores memory and CPU state. |
-
-**Example:**
-```cpp
-#include "Z80.h"
-#include "Z80Analyze.h" // Contains Z80DefaultFiles
-
-Z80<> cpu;
-Z80DefaultFiles<Z80DefaultBus, Z80<>> files(cpu.get_bus(), &cpu);
-// std::vector<uint8_t> file_data = ... read from file ...
-// files.load_sna_file(file_data);
-```
-
----
-
 ### **Assembler (`Z80Assemble`)**
 The Z80Assembler class is a powerful, two-pass assembler that converts Z80 assembly source code into machine code. It is designed for flexibility, with built-in support for labels, directives, expressions, and forward references.
 
 #### **Usage and Initialization**
 To use the assembler, you must initialize it by passing a pointer to a memory object (which implements peek() and poke()) and a pointer to a source code provider (`IFileProvider`).
  
-`Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = ...)`
+`Z80Assembler(TBus* bus, IFileProvider* source_provider, const Options& options = ...)`
  
 `IFileProvider` is an interface you must implement to allow the assembler to load source files. This enables loading code from the file system, memory, or any other source. It requires three methods:
 *   `read_file(identifier, data)`: Reads file content into a vector of bytes.
@@ -725,6 +533,64 @@ int main() {
     return 0;
 }
 ```
+### **Analyzer (`Z80Analyzer`)**
+
+The `Z80Analyzer` class provides a powerful toolkit for disassembling Z80 machine code. It is designed to work with any object that provides a memory-peeking interface (`peek()`) and can integrate with a label provider (`ILabels`) to produce more readable, symbolic disassembly output.
+
+#### **Usage and Initialization**
+
+To use the analyzer, you need to instantiate it by passing a pointer to a memory object from which it can read code and data.
+
+`Z80Analyzer(TMemory* memory, ILabels* labels = nullptr)`
+
+**Example:**
+
+```cpp
+#include "Z80.h"
+#include "Z80Analyze.h"
+#include <iostream>
+#include <iomanip>
+
+int main() {
+    Z80DefaultBus bus;
+
+    // Load some machine code into the bus
+    // ORG 0x8000
+    // LD A, 0x12
+    bus.poke(0x8000, 0x3E);
+    bus.poke(0x8001, 0x12);
+    // LD B, 0x34
+    bus.poke(0x8002, 0x06);
+    bus.poke(0x8003, 0x34);
+    // ADD A, B
+    bus.poke(0x8004, 0x80);
+    // JP 0x8000
+    bus.poke(0x8005, 0xC3);
+    bus.poke(0x8006, 0x00);
+    bus.poke(0x8007, 0x80);
+
+    // Create an analyzer instance
+    Z80Analyzer<Z80DefaultBus> analyzer(&bus);
+
+    // Disassemble 5 lines of code starting at 0x8000
+    std::cout << "--- Disassembly ---" << std::endl;
+    uint16_t pc = 0x8000;
+    auto code_lines = analyzer.parse_code(pc, 5, Z80Analyzer<Z80DefaultBus>::AnalysisMode::RAW);
+
+    for (const auto& line : code_lines) {
+        std::cout << "0x" << std::hex << std::setw(4) << std::setfill('0') << line.address << ": ";
+        std::cout << line.mnemonic;
+        bool first_op = true;
+        for (const auto& op : line.operands) {
+            if (!first_op) std::cout << ",";
+            std::cout << " " << op.s_val;
+            first_op = false;
+        }
+        std::cout << std::endl;
+    }
+
+    return 0;
+}
 
 #### **Core Features**
 The assembler supports a wide range of standard assembly features.
@@ -746,7 +612,7 @@ After a successful compilation, you can retrieve information about the generated
 
 | Method | Description |
 | :--- | :--- |
-| `get_symbols() const` | Returns a map (`std::map<std::string, int32_t>`) of all defined symbols (labels and `EQU` constants) and their calculated values. |
+| `get_symbols() const` | Returns a map (`std::map<std::string, Symbol>`) of all defined symbols (labels and `EQU` constants) and their calculated values. The `Symbol` struct contains the value and other metadata. |
 | `get_blocks() const` | Returns a vector of pairs (`std::vector<std::pair<uint16_t, uint16_t>>`), where each pair represents a block of generated code as `{start_address, size_in_bytes}`. |
 
 **Example of Retrieving Results:**
@@ -755,14 +621,14 @@ After a successful compilation, you can retrieve information about the generated
 if (assembler.compile("main.asm")) {
     // Display symbols
     std::cout << "--- Symbols ---" << std::endl;
-    auto symbols = assembler.get_symbols();
+    const auto& symbols = assembler.get_symbols();
     for (const auto& sym : symbols) {
-        std::cout << sym.first << " = 0x" << std::hex << sym.second << std::endl;
+        std::cout << sym.first << " = 0x" << std::hex << sym.second.value << std::endl; // Note: sym.second is a struct
     }
 
     // Display code blocks
     std::cout << "\n--- Code Blocks ---" << std::endl;
-    auto blocks = assembler.get_blocks();
+    const auto& blocks = assembler.get_blocks();
     for (const auto& block : blocks) {
         std::cout << "Block @ 0x" << std::hex << block.first
                   << " (Size: " << std::dec << block.second << " bytes)" << std::endl;
@@ -776,46 +642,38 @@ The repository includes two command-line tools that demonstrate the use of the Z
 
 ### Z80Asm Tool
 
-Z80Asm is a utility for assembling Z80 source code files. It takes a source file as input and can generate various output formats.
+Z80Asm is a utility for assembling Z80 source code files. It takes a single source file as input and automatically generates binary, map, and listing files.
 
 *   **Input File:** A Z80 assembler source file (e.g., `.asm`).
-*   **Output Options:**
-    *   `--bin <binary_file>`: Generates a raw binary file.
-    *   `--hex <hex_file>`: Generates an Intel HEX format file.
-    *   `--map <map_file>`: Generates a symbol map file.
+*   **Output Files (Generated Automatically):**
+    *   `<input_file>.bin`: A raw binary file containing the assembled machine code.
+    *   `<input_file>.map`: A symbol map file listing all labels and their corresponding addresses.
+    *   `<input_file>.lst`: A listing file showing the original source code alongside the generated addresses and machine code.
 *   **Usage Example:**
     ```bash
-    Z80Asm my_program.asm --bin my_program.bin --hex my_program.hex --map my_program.map
+    Z80Asm my_program.asm
     ```
-
-If no output options are provided, the assembly result (symbols, memory dump, disassembly) is printed to the console.
 
 ### Z80Dump Tool
 
-Z80Dump is a versatile tool for analyzing Z80 binary files and memory snapshots. It can load various file formats and perform memory dumps, disassembly, and register inspection.
+Z80Dump is a versatile tool for analyzing Z80 binary files and memory snapshots. It can load various file formats and perform memory dumps and disassembly.
 
-*   **Supported Input Formats:** `.bin` (raw binary), `.sna` (ZX Spectrum snapshot), `.z80` (ZX Spectrum snapshot), and `.hex` (Intel HEX).
+*   **Supported Input Formats:** `.bin` (raw binary), `.sna` (48K ZX Spectrum snapshot), `.z80` (v1 48K ZX Spectrum snapshot).
 *   **Analysis Options:**
-    *   `--mem-dump <address> <bytes_hex>`: Dumps a specified region of memory. The address can be a hex value, a register name (PC, SP, HL, etc.), or an expression (e.g., `PC+10`, `HL-0x20`).
-    *   `--disassemble <address> <lines_dec>`: Disassembles a specified number of lines starting from the given address.
-    *   `--reg-dump [format]`: Dumps the current state of the CPU registers. A custom output format can be provided.
-    *   `--load-addr <address_hex>`: Specifies the load address for `.bin` files (defaults to `0x0000`).
-    *   `--map <map_file>` / `--ctl <ctl_file>`: Loads labels from `.map` or `.ctl` files to enrich the disassembly.
-    *   `--run-ticks <ticks_dec>`: Runs the Z80 emulation for a specified number of T-states before performing the analysis.
-    *   `--run-steps <steps_dec>`: Runs the Z80 emulation for a specified number of instructions (steps) before performing the analysis.
+    *   `-mem <address> <bytes_dec>`: Dumps a specified region of memory. The address can be hex or decimal, and the byte count is decimal.
+    *   `-dasm <address> <lines_dec> [mode]`: Disassembles a specified number of lines.
+        *   **`mode`**: Specifies the analysis mode: `r` (raw), `h` (heuristic), or `e` (exec). Defaults to `e`.
+        *   `r` (raw): Performs a linear disassembly from the start address.
+        *   `h` (heuristic): Attempts to distinguish between code and data to avoid disassembling data bytes.
+        *   `e` (exec): Simulates execution flow, following jumps and calls to discover code paths.
+    *   The tool automatically loads a symbol map file (e.g., `my_program.map`) if it exists in the same directory as the input file, enriching the disassembly output with labels.
 *   **Usage Examples:**
     ```bash
-    # Display registers from a .sna snapshot
-    Z80Dump my_snapshot.sna --reg-dump
+    # Dump 256 bytes of memory starting at address 0x4000 from a binary file
+    Z80Dump my_program.bin -mem 0x4000 256
 
-    # Load a binary file at address 8000h, then dump and disassemble it
-    Z80Dump my_program.bin --load-addr 8000h --mem-dump 8000h 100 --disassemble 8000h 20
-
-    # Load a .hex file and disassemble 50 lines from the PC, using a symbol map
-    Z80Dump my_file.hex --disassemble PC 50 --map my_labels.map
-
-    # Run a game for one million T-states, then disassemble the code at the current PC
-    Z80Dump game.z80 --run-ticks 1000000 --disassemble PC 30
+    # Disassemble 50 lines of code from address 0x8000 in a snapshot file using heuristic mode
+    Z80Dump my_snapshot.z80 -dasm 0x8000 50 h
     ```
 
 ### How to Build

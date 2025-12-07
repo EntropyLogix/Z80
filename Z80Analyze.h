@@ -102,10 +102,10 @@ public:
     };
     Z80Analyzer(TMemory* memory, ILabels* labels = nullptr) : m_memory(memory), m_labels(labels) {}
 
-    enum class DisassemblyMode { RAW, HEURISTIC, EXEC };
-    std::vector<CodeLine> disassemble(uint16_t& start_address, size_t instruction_limit, DisassemblyMode mode) {
+    enum class AnalysisMode { RAW, HEURISTIC, EXEC };
+    std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruction_limit, AnalysisMode mode) {
         switch (mode) {
-            case DisassemblyMode::RAW: {
+            case AnalysisMode::RAW: {
                 std::vector<CodeLine> result;
                 uint16_t pc = start_address;
                 for (size_t i = 0; i < instruction_limit; ++i) {
@@ -116,7 +116,7 @@ public:
                 start_address = pc;
                 return result;
             }
-            case DisassemblyMode::HEURISTIC: {
+            case AnalysisMode::HEURISTIC: {
                 enum class Tag { UNKNOWN, CODE_START, CODE_INTERIOR };
                 std::vector<Tag> tag_map(0x10000, Tag::UNKNOWN);
                 std::vector<uint16_t> work_list;
@@ -190,7 +190,7 @@ public:
                 start_address = static_cast<uint16_t>(pc);
                 return result;
             }
-            case DisassemblyMode::EXEC: {
+            case AnalysisMode::EXEC: {
                 CodeMapProfiler profiler;
                 profiler.set_labels(m_labels);
                 Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler> cpu(&profiler, nullptr, &profiler);

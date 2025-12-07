@@ -1709,6 +1709,8 @@ class Strings {
         virtual void on_macro_line() = 0;
         virtual void on_unknown_operand(const std::string& operand) = 0;
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
+        virtual void on_source_line_begin() = 0;
+        virtual void on_source_line_end() = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
     class BasePolicy : public IPhasePolicy {
@@ -2017,6 +2019,8 @@ class Strings {
             m_context.source.control_stack.pop_back();
             m_context.source.conditional_stack.pop_back();
         }
+        virtual void on_source_line_begin() override {}
+        virtual void on_source_line_end() override {}
         virtual void on_assemble(std::vector<uint8_t> bytes) override {}
         virtual bool on_repeat_recording(const std::string& line) override {
             if (!m_context.repeat.stack.empty()) {
@@ -2558,14 +2562,24 @@ class Strings {
             BasePolicy::on_align_directive(boundary, true);
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
-            if (this->m_context.source.source_location)
-                this->m_context.results.listing.push_back({*this->m_context.source.source_location, this->m_context.address.current_logical, bytes});
             for (auto& byte : bytes)
                 this->m_context.memory->poke(this->m_context.address.current_physical++, byte);
             this->m_context.address.current_logical += bytes.size();
             if (this->m_blocks.empty())
                 this->m_context.assembler.report_error("Invalid code block.");
             this->m_blocks.back().second += bytes.size();
+        }
+        virtual void on_source_line_begin() override {
+            m_line_start_address = this->m_context.address.current_logical;
+        }
+        virtual void on_source_line_end() override {
+            if (this->m_context.source.source_location) {
+                uint16_t end_addr = this->m_context.address.current_logical;
+                std::vector<uint8_t> bytes;
+                for(uint16_t i = m_line_start_address; i < end_addr; ++i)
+                    bytes.push_back(this->m_context.memory->peek(i));
+                this->m_context.results.listing.push_back({*this->m_context.source.source_location, m_line_start_address, bytes});
+            }
         }
     private:
         void update_symbol_index(const std::string& label) {
@@ -2578,6 +2592,7 @@ class Strings {
             }
         };
         std::vector<std::pair<uint16_t, uint16_t>> m_blocks;
+        uint16_t m_line_start_address = 0;
     };
     class Keywords {
     public:
@@ -3737,6 +3752,7 @@ class Strings {
     public:
         Source(IPhasePolicy& policy) : m_policy(policy) {}
         bool process_line(const std::string& initial_line) {
+            m_policy.on_source_line_begin();
             m_policy.context().source.lines_stack.clear();
             m_policy.context().source.lines_stack.push_back(initial_line);
             while (!m_policy.context().source.lines_stack.empty() || m_policy.context().macros.in_expansion) {
@@ -3768,6 +3784,7 @@ class Strings {
                     process_instruction();
                 }
             }
+            m_policy.on_source_line_end();
             return true;
         }
         bool is_in_active_block() const { return m_policy.context().source.conditional_stack.empty() || m_policy.context().source.conditional_stack.back().is_active; }
