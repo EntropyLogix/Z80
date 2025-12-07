@@ -48,7 +48,7 @@ public:
             if (e.code() == std::errc::no_such_file_or_directory) {
                 throw std::runtime_error("File not found: " + identifier);
             }
-            throw; // Re-throw other filesystem errors
+            throw;
         }
 
         m_current_path_stack.push_back(file_path);
@@ -132,34 +132,24 @@ std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
 
 void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler<Z80DefaultBus>::ListingLine>& listing) {
     std::ofstream file(file_path);
-    if (!file) {
+    if (!file)
         throw std::runtime_error("Cannot open listing file for writing: " + file_path);
-    }
-    
-    // Add header
     file << std::left << std::setw(7) << "Line" << std::setw(7) << "Addr" << std::setw(18) << "Hex Code" << "Source Code\n";
     file << std::string(80, '-') << '\n';
-    
     for (const auto& line : listing) {
         file << std::setw(5) << std::left << line.source_line.line_number << "  ";
-
         bool is_label_only = line.bytes.empty() && !line.source_line.content.empty() && std::all_of(line.source_line.content.begin(), line.source_line.content.end(), [](char c){ return isspace(c) || c == ':'; });
         bool has_address = !line.bytes.empty() || is_label_only || (line.source_line.content.find("PROC") != std::string::npos);
-
         if (has_address) {
             std::stringstream addr_ss;
             addr_ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << line.address;
             file << std::setw(7) << std::left << addr_ss.str();
-        } else {
+        } else
             file << std::setw(7) << " ";
-        }
-
-        if (!line.bytes.empty()) {
+        if (!line.bytes.empty())
             file << std::setw(18) << std::left << format_bytes_str(line.bytes, true);
-        } else {
+        else
             file << std::setw(18) << " ";
-        }
-
         file << line.source_line.content << '\n';
     }
 }
@@ -177,12 +167,10 @@ int main(int argc, char* argv[]) {
         print_usage();
         return 1;
     }
-
     std::filesystem::path input_path(input_file);
     std::string output_bin_file = input_path.replace_extension(".bin").string();
     std::string output_map_file = input_path.replace_extension(".map").string();
     std::string output_lst_file = input_path.replace_extension(".lst").string();
-
     Z80<> cpu;
     Z80DefaultBus bus;
     FileSystemSourceProvider source_provider;
