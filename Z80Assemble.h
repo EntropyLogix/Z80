@@ -118,6 +118,7 @@
 //   HIGH(val)                      | Returns the high byte of a 16-bit value.
 //   LOW(val)                       | Returns the low byte of a 16-bit value.
 //   MEM(addr)                      | Reads a byte from memory at the specified address during the final assembly pass.
+//   FILESIZE("file")               | Returns the size of a file in bytes. Reports an error if the file does not exist.
 //
 //   Mathematical Functions:
 //   Function                       | Description
@@ -203,6 +204,7 @@
 //   IF        | IF <expression>         | Starts a conditional block if the expression is non-zero.
 //   ELSE      | ELSE                    | Executes code if the IF condition was false.
 //   ENDIF     | ENDIF                   | Ends a conditional block.
+//   IFEXIST   | IFEXIST <filename>      | Executes code if the specified file exists.
 //   IFDEF     | IFDEF <symbol>          | Executes code if the symbol is defined.
 //   IFNDEF    | IFNDEF <symbol>         | Executes code if the symbol is not defined.
 //   IFNB      | IFNB <argument>         | Executes code if a macro argument is not blank.
@@ -1216,6 +1218,14 @@ class Strings {
                     uint16_t addr = (uint16_t)((int32_t)args[0].n_val);
                     return Value{Value::Type::NUMBER, (double)context.memory->peek(addr)};
                 }}},
+                {"FILESIZE", {1, [](Context& context, const std::vector<Value>& args) {
+                    if (args[0].type != Value::Type::STRING)
+                        context.assembler.report_error("Argument to FILESIZE must be a string.");
+                    const std::string& filename = args[0].s_val;
+                    if (!context.source_provider->exists(filename))
+                        context.assembler.report_error("File not found for FILESIZE: " + filename);
+                    return Value{Value::Type::NUMBER, (double)context.source_provider->file_size(filename)};
+                }}},
                 {"HIGH", {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)(((int32_t)args[0].n_val >> 8) & 0xFF)}; }}},
                 {"LOW",  {1, [](Context&, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val & 0xFF)}; }}},
                 {"MIN",  {-2, [](Context&, const std::vector<Value>& args) {
@@ -1686,6 +1696,7 @@ class Strings {
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
         virtual void on_if_directive(const std::string& expression) = 0;
         virtual void on_ifdef_directive(const std::string& symbol) = 0;
+        virtual void on_ifexist_directive(const std::string& filename) = 0;
         virtual void on_ifndef_directive(const std::string& symbol) = 0;
         virtual void on_ifnb_directive(const std::string& arg) = 0;
         virtual void on_ifidn_directive(const std::string& arg1, const std::string& arg2) = 0;
@@ -1833,6 +1844,13 @@ class Strings {
             is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
             bool is_defined_in_defines = m_context.defines.map.count(symbol) > 0;
             bool condition_result = parent_active && (is_defined_in_symbols || is_defined_in_defines);
+            m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
+            m_context.source.conditional_stack.push_back({condition_result, false});
+        }
+        virtual void on_ifexist_directive(const std::string& filename) override {
+            bool parent_active = this->m_context.source.parser->is_in_active_block();
+            bool file_exists = m_context.source_provider->exists(filename);
+            bool condition_result = parent_active && file_exists;
             m_context.source.control_stack.push_back(Context::Source::ControlType::CONDITIONAL);
             m_context.source.conditional_stack.push_back({condition_result, false});
         }
@@ -4002,6 +4020,14 @@ class Strings {
                     m_policy.context().assembler.report_error("IFDEF requires a single symbol.");
                 m_policy.on_ifdef_directive(m_tokens[1].original());
                 return true;
+            } else if (directive == "IFEXIST") {
+                if (m_tokens.count() != 2)
+                    m_policy.context().assembler.report_error("IFEXIST requires a single filename argument.");
+                std::string filename = m_tokens[1].original();
+                if (filename.length() > 1 && filename.front() == '"' && filename.back() == '"')
+                    filename = filename.substr(1, filename.length() - 2);
+                m_policy.on_ifexist_directive(filename);
+                return true;
             } else if (directive == "IFNDEF") {
                 if (m_tokens.count() != 2)
                     m_policy.context().assembler.report_error("IFNDEF requires a single symbol.");
@@ -4035,7 +4061,7 @@ class Strings {
         bool process_constant_directives() {
             const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
             if (!const_opts.enabled || m_tokens.count() < 2)
-                return false;            
+                return false;
             if (const_opts.allow_undefine && m_tokens[0].upper() == "UNDEFINE") {
                 m_policy.on_undefine_directive(m_tokens[1].original());
                 return true;
