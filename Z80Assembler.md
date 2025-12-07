@@ -182,9 +182,9 @@ DataTableSize EQU TableEnd - DataTable
 LD A, DataTableSize ; Load the size of the table into A
 
 ; --- Bitwise and Logical Operations ---
-Bitmask EQU %11110000
+Bitmask EQU 0b11110000
 LD A, Bitmask AND $F0
-LD B, (1 << 7) | (1 << 1) ; B = %10000010 (130)
+LD B, (1 << 7) | (1 << 1) ; B = 0b10000010 (130)
 
 ; --- Conditional Expressions and Functions ---
 DEBUG_MODE EQU 1
@@ -286,7 +286,7 @@ WRITE_BYTES 10, 20, 30 ; Generates: DB 10, DB 20, DB 30
 ```
 
 **Example 2: Named Arguments and Local Labels**
-```z80
+```asm
 ; Macro to add a 16-bit value to HL
 ADD_HL MACRO {value}
     LOCAL .add_value
@@ -315,7 +315,7 @@ ADD_HL 1000 ; Generates LD DE, <addr>; ADD HL, DE; DW 1000
 Inside a `REPT` loop, the special symbol `\@` represents the current iteration (starting from 1).
 
 **`REPT` Example:**
-```z80
+```asm
 ; Generate a table of squares
 SquaresTable:
 REPT 8
