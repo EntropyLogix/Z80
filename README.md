@@ -401,8 +401,6 @@ In your `main.cpp` file, you can now include the library like this:
 
 If you prefer CMake to automatically download the library from its GitHub repository, you can use the `FetchContent` module.
 
-Your `CMakeLists.txt` file could look like this:
-
 ```cmake
 # Required minimum version of CMake
 cmake_minimum_required(VERSION 3.15)
@@ -533,6 +531,49 @@ int main() {
     return 0;
 }
 ```
+#### **Core Features**
+The assembler supports a wide range of standard assembly features.
+
+*   **Two-Pass Assembly:** Automatically resolves forward references (using a label before it is defined) by performing multiple passes until all symbols are stable.
+*   **Symbol Management:** Supports labels (e.g., `START:`) and constants defined with the `EQU` directive (e.g., `PORT EQU 0x10`).
+*   **Expression Evaluation:** Operands can be complex expressions that are evaluated at assembly time. It supports arithmetic (`+`, `-`, `*`, `/`, `%`), bitwise (`&`, `|`, `^`, `<<`, `>>`), and logical (`&&`, `||`, `!`, `==`, `!=`, `<`, `>`) operators, as well as `HIGH()` and `LOW()` functions.
+*   **Directives:**
+    *   `ORG`: Sets the origin address for the generated code.
+    *   `DB` / `DEFB`: Defines data bytes.
+    *   `DW` / `DEFW`: Defines data words (16-bit).
+    *   `DS` / `DEFS`: Defines a block of memory filled with a specified value (defaults to zero).
+    *   `ALIGN`: Aligns the current address to a specified boundary.
+    *   `INCLUDE`: Includes the content of another source file.
+*   **Comment Handling:** Supports single-line (starting with `;`) and block (`/* ... */`) comments.
+
+#### **Retrieving Assembly Results**
+After a successful compilation, you can retrieve information about the generated code and symbols.
+
+| Method | Description |
+| :--- | :--- |
+| `get_symbols() const` | Returns a map (`std::map<std::string, Symbol>`) of all defined symbols (labels and `EQU` constants) and their calculated values. The `Symbol` struct contains the value and other metadata. |
+| `get_blocks() const` | Returns a vector of pairs (`std::vector<std::pair<uint16_t, uint16_t>>`), where each pair represents a block of generated code as `{start_address, size_in_bytes}`. |
+
+**Example of Retrieving Results:**
+
+```cpp
+if (assembler.compile("main.asm")) {
+    // Display symbols
+    std::cout << "--- Symbols ---" << std::endl;
+    const auto& symbols = assembler.get_symbols();
+    for (const auto& sym : symbols) {
+        std::cout << sym.first << " = 0x" << std::hex << sym.second.value << std::endl; // Note: sym.second is a struct
+    }
+
+    // Display code blocks
+    std::cout << "\n--- Code Blocks ---" << std::endl;
+    const auto& blocks = assembler.get_blocks();
+    for (const auto& block : blocks) {
+        std::cout << "Block @ 0x" << std::hex << block.first
+                  << " (Size: " << std::dec << block.second << " bytes)" << std::endl;
+    }
+}
+```
 ### **Analyzer (`Z80Analyzer`)**
 
 The `Z80Analyzer` class provides a powerful toolkit for disassembling Z80 machine code. It is designed to work with any object that provides a memory-peeking interface (`peek()`) and can integrate with a label provider (`ILabels`) to produce more readable, symbolic disassembly output.
@@ -591,50 +632,6 @@ int main() {
 
     return 0;
 }
-
-#### **Core Features**
-The assembler supports a wide range of standard assembly features.
-
-*   **Two-Pass Assembly:** Automatically resolves forward references (using a label before it is defined) by performing multiple passes until all symbols are stable.
-*   **Symbol Management:** Supports labels (e.g., `START:`) and constants defined with the `EQU` directive (e.g., `PORT EQU 0x10`).
-*   **Expression Evaluation:** Operands can be complex expressions that are evaluated at assembly time. It supports arithmetic (`+`, `-`, `*`, `/`, `%`), bitwise (`&`, `|`, `^`, `<<`, `>>`), and logical (`&&`, `||`, `!`, `==`, `!=`, `<`, `>`) operators, as well as `HIGH()` and `LOW()` functions.
-*   **Directives:**
-    *   `ORG`: Sets the origin address for the generated code.
-    *   `DB` / `DEFB`: Defines data bytes.
-    *   `DW` / `DEFW`: Defines data words (16-bit).
-    *   `DS` / `DEFS`: Defines a block of memory filled with a specified value (defaults to zero).
-    *   `ALIGN`: Aligns the current address to a specified boundary.
-    *   `INCLUDE`: Includes the content of another source file.
-*   **Comment Handling:** Supports single-line (starting with `;`) and block (`/* ... */`) comments.
-
-#### **Retrieving Assembly Results**
-After a successful compilation, you can retrieve information about the generated code and symbols.
-
-| Method | Description |
-| :--- | :--- |
-| `get_symbols() const` | Returns a map (`std::map<std::string, Symbol>`) of all defined symbols (labels and `EQU` constants) and their calculated values. The `Symbol` struct contains the value and other metadata. |
-| `get_blocks() const` | Returns a vector of pairs (`std::vector<std::pair<uint16_t, uint16_t>>`), where each pair represents a block of generated code as `{start_address, size_in_bytes}`. |
-
-**Example of Retrieving Results:**
-
-```cpp
-if (assembler.compile("main.asm")) {
-    // Display symbols
-    std::cout << "--- Symbols ---" << std::endl;
-    const auto& symbols = assembler.get_symbols();
-    for (const auto& sym : symbols) {
-        std::cout << sym.first << " = 0x" << std::hex << sym.second.value << std::endl; // Note: sym.second is a struct
-    }
-
-    // Display code blocks
-    std::cout << "\n--- Code Blocks ---" << std::endl;
-    const auto& blocks = assembler.get_blocks();
-    for (const auto& block : blocks) {
-        std::cout << "Block @ 0x" << std::hex << block.first
-                  << " (Size: " << std::dec << block.second << " bytes)" << std::endl;
-    }
-}
-```
 
 ## 🛠️ Command-Line Tools
 
