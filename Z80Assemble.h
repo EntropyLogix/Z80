@@ -373,6 +373,11 @@ public:
         size_t line_number;
         std::string content;
     };
+    struct ListingLine {
+        SourceLine source_line;
+        uint16_t address;
+        std::vector<uint8_t> bytes;
+    };
     bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
         Preprocessor preprocessor(m_context);
         std::vector<SourceLine> source_lines;
@@ -398,9 +403,9 @@ public:
                 phase->on_pass_begin();
                 Source source(*phase);
                 m_context.source.parser = &source;
-                for (size_t i = 0; i < source_lines.size(); ++i) {
-                    m_context.source.source_location = &source_lines[i];
-                    if (!source.process_line(source_lines[i].content))
+                for (const auto& line : source_lines) {
+                    m_context.source.source_location = &line;
+                    if (!source.process_line(line.content))
                         break;
                 }
                 if (phase->on_pass_end())
@@ -417,6 +422,7 @@ public:
     }
     const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
     const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
+    const std::vector<ListingLine>& get_listing() const { return m_context.results.listing; }
 private:
     [[noreturn]]void report_error(const std::string& message) const {
         std::stringstream error_stream;
@@ -658,6 +664,7 @@ class Strings {
         struct Results {
             std::map<std::string, SymbolInfo> symbols_table;
             std::vector<BlockInfo> blocks_table;
+            std::vector<ListingLine> listing;
         } results;
         struct Macros {
             struct Macro {
@@ -2462,6 +2469,7 @@ class Strings {
 
         virtual void on_initialize() override {
             this->reset_symbols_index();
+            this->m_context.results.listing.clear();
         }
         virtual void on_finalize() override {
             this->clear_symbols();
@@ -2550,6 +2558,8 @@ class Strings {
             BasePolicy::on_align_directive(boundary, true);
         }
         virtual void on_assemble(std::vector<uint8_t> bytes) override {
+            if (this->m_context.source.source_location)
+                this->m_context.results.listing.push_back({*this->m_context.source.source_location, this->m_context.address.current_logical, bytes});
             for (auto& byte : bytes)
                 this->m_context.memory->poke(this->m_context.address.current_physical++, byte);
             this->m_context.address.current_logical += bytes.size();
@@ -2692,44 +2702,62 @@ class Strings {
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
                 return false;
             if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM") {
+                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (op.type == OperandType::STRING_LITERAL) {
                         for (char c : op.str_val)
-                            assemble({(uint8_t)c});
+                            bytes.push_back((uint8_t)c);
                     } else if (match_imm8(op)) 
-                        assemble({(uint8_t)op.num_val});
+                        bytes.push_back((uint8_t)op.num_val);
                     else
                         m_policy.context().assembler.report_error("Unsupported or out-of-range operand for DB: " + op.str_val);
                 }
+                if (!bytes.empty())
+                    assemble(bytes);
                 return true;
             } else if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
+                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (match_imm16(op) || match_char(op)) {
-                        assemble({(uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8)});
+                        bytes.push_back((uint8_t)(op.num_val & 0xFF));
+                        bytes.push_back((uint8_t)(op.num_val >> 8));
                     } else
                         m_policy.context().assembler.report_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
+                if (!bytes.empty())
+                    assemble(bytes);
                 return true;
             } else if (mnemonic == "DWORD" || mnemonic == "DD") {
+                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (match(op, OperandType::IMMEDIATE)) {
-                        assemble({(uint8_t)(op.num_val & 0xFF), (uint8_t)((op.num_val >> 8) & 0xFF), (uint8_t)((op.num_val >> 16) & 0xFF), (uint8_t)((op.num_val >> 24) & 0xFF)});
+                        bytes.push_back((uint8_t)(op.num_val & 0xFF));
+                        bytes.push_back((uint8_t)((op.num_val >> 8) & 0xFF));
+                        bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
+                        bytes.push_back((uint8_t)((op.num_val >> 24) & 0xFF));
                     } else
                         m_policy.context().assembler.report_error("Unsupported operand for DWORD/DD: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
+                if (!bytes.empty())
+                    assemble(bytes);
                 return true;
             } else if (mnemonic == "DQ") {
+                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (match(op, OperandType::IMMEDIATE)) {
                         uint64_t val = static_cast<uint64_t>(op.num_val);
-                        assemble({(uint8_t)(val & 0xFF), (uint8_t)((val >> 8) & 0xFF), (uint8_t)((val >> 16) & 0xFF), (uint8_t)((val >> 24) & 0xFF), (uint8_t)((val >> 32) & 0xFF), (uint8_t)((val >> 40) & 0xFF), (uint8_t)((val >> 48) & 0xFF), (uint8_t)((val >> 56) & 0xFF)});
+                        for(int i=0; i<8; ++i)
+                            bytes.push_back((uint8_t)((val >> (i*8)) & 0xFF));
                     } else
                         m_policy.context().assembler.report_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
+                if (!bytes.empty())
+                    assemble(bytes);
                 return true;
             } else if (mnemonic == "DH" || mnemonic == "HEX" || mnemonic == "DEFH") {
                 if (ops.empty())
                     m_policy.context().assembler.report_error(mnemonic + " requires at least one string argument.");
+                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (!match_string(op))
                         m_policy.context().assembler.report_error(mnemonic + " arguments must be string literals. Found: '" + op.str_val + "'");
@@ -2747,23 +2775,26 @@ class Strings {
                         auto result = std::from_chars(byte_str.data(), byte_str.data() + byte_str.size(), byte_val, 16);
                         if (result.ec != std::errc())
                             m_policy.context().assembler.report_error("Invalid hex character in " + mnemonic + ": \"" + byte_str + "\"");
-                        assemble({ byte_val });
+                        bytes.push_back(byte_val);
                     }
                 }
+                if (!bytes.empty()) assemble(bytes);
                 return true;
             } else if (mnemonic == "DZ" || mnemonic == "ASCIZ") {
                 if (ops.empty())
                     m_policy.context().assembler.report_error(mnemonic + " requires at least one argument.");
+                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (match_string(op)) {
                         for (char c : op.str_val)
-                            assemble({(uint8_t)c});
+                            bytes.push_back((uint8_t)c);
                     } else if (match_imm8(op))
-                        assemble({(uint8_t)op.num_val});
+                        bytes.push_back((uint8_t)op.num_val);
                     else
                         m_policy.context().assembler.report_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
                 }
-                assemble({0x00});
+                bytes.push_back(0x00);
+                assemble(bytes);
                 return true;
             } else if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
                 if (ops.empty() || ops.size() > 2)
@@ -2772,10 +2803,11 @@ class Strings {
                     m_policy.context().assembler.report_error(mnemonic + " size must be a number.");
                 size_t count = ops[0].num_val;
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
-                for (size_t i = 0; i < count; ++i)
-                    assemble({fill_value});
+                std::vector<uint8_t> bytes(count, fill_value);
+                assemble(bytes);
                 return true;
             } else if (mnemonic == "DG" || mnemonic == "DEFG") {
+                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (!match_string(op))
                         m_policy.context().assembler.report_error("DG directive requires a string literal operand.");
@@ -2792,9 +2824,11 @@ class Strings {
                         m_policy.context().assembler.report_error("Bit stream data for DG must be in multiples of 8. Total bits: " + std::to_string(all_bits.length()));
                     for (size_t i = 0; i < all_bits.length(); i += 8) {
                         std::string byte_str = all_bits.substr(i, 8);
-                        assemble({(uint8_t)std::stoul(byte_str, nullptr, 2)});
+                        bytes.push_back((uint8_t)std::stoul(byte_str, nullptr, 2));
                     }
                 }
+                if (!bytes.empty())
+                    assemble(bytes);
                 return true;
             }
             return false;
