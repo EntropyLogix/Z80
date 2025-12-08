@@ -546,6 +546,92 @@ The assembler supports a wide range of standard assembly features.
     *   `INCLUDE`: Includes the content of another source file.
 *   **Comment Handling:** Supports single-line (starting with `;`) and block (`/* ... */`) comments.
 
+#### **Extending the Assembler (Directives, Functions, Operators)**
+The assembler can be extended with custom directives, functions, and operators by passing them in the `Options` structure to the `Z80Assembler` constructor. This allows you to add your own logic and syntax to the assembly process.
+
+**Example of Initialization with Custom Elements:**
+```cpp
+#include "Z80Assemble.h"
+#include <cmath> // For std::pow
+
+int main() {
+    Z80DefaultBus bus;
+    MemorySourceProvider source_provider;
+    
+    // In Z80Assemble.h, custom elements are added via methods, not directly to an Options struct.
+    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+
+    // Add a custom directive
+    assembler.add_custom_directive("MY_DIRECTIVE", 
+        [](Z80Assembler<Z80DefaultBus>::IPhasePolicy& policy, const std::vector<typename Z80Assembler<Z80DefaultBus>::Strings::Tokens::Token>& args) {
+            // Directive logic here
+            // For example, print the arguments
+            for(const auto& arg : args) {
+                // std::cout << "MY_DIRECTIVE arg: " << arg.original() << std::endl;
+            }
+        });
+
+    // Add a custom function
+    assembler.add_custom_function("MY_FUNC", {
+        1, // Number of arguments
+        [](Z80Assembler<Z80DefaultBus>::Context&, const std::vector<typename Z80Assembler<Z80DefaultBus>::Expressions::Value>& args) {
+            if (args.size() != 1 || args.type != Z80Assembler<Z80DefaultBus>::Expressions::Value::Type::NUMBER) {
+                // Error handling can be done by throwing an exception
+                return typename Z80Assembler<Z80DefaultBus>::Expressions::Value{Z80Assembler<Z80DefaultBus>::Expressions::Value::Type::NUMBER, 0.0};
+            }
+            // Double the argument
+            return typename Z80Assembler<Z80DefaultBus>::Expressions::Value{Z80Assembler<Z80DefaultBus>::Expressions::Value::Type::NUMBER, args.n_val * 2};
+        }
+    });
+
+    // Add a custom operator (e.g., exponentiation)
+    assembler.add_custom_operator("**", {
+        95,  // Precedence (higher than multiply)
+        false, // is_unary
+        false, // left_assoc (right-associative for exponentiation)
+        [](Z80Assembler<Z80DefaultBus>::Context&, const std::vector<typename Z80Assembler<Z80DefaultBus>::Expressions::Value>& args) {
+            return typename Z80Assembler<Z80DefaultBus>::Expressions::Value{
+                Z80Assembler<Z80DefaultBus>::Expressions::Value::Type::NUMBER,
+                std::pow(args.n_val, args.n_val)
+            };
+        }
+    });
+
+    // ... rest of your assembly logic
+    return 0;
+}
+```
+
+##### **Custom Directives (`add_custom_directive`)**
+You can define new directives that will be processed during assembly.
+
+*   **Signature:** `void add_custom_directive(const std::string& name, std::function<void(IPhasePolicy&, const std::vector<Token>&)> func)`
+*   **Description:** The function receives a reference to the current phase policy (`IPhasePolicy`) and a vector of tokens representing the directive's parameters.
+*   **Example Usage in Assembly Code:**
+    ```asm
+    MY_DIRECTIVE "some parameter", 123
+    ```
+
+##### **Custom Functions (`add_custom_function`)**
+You can add new functions for use in expressions.
+
+*   **Signature:** `void add_custom_function(const std::string& name, const Expressions::FunctionInfo& func_info)`
+*   **Description:** The `FunctionInfo` struct contains the number of arguments and a lambda that receives a vector of `Value` arguments (already evaluated) and should return a `Value` result.
+*   **Example Usage in Assembly Code:**
+    ```asm
+    LD A, MY_FUNC(10) ; A will be loaded with the value 20
+    ```
+
+##### **Custom Operators (`add_custom_operator`)**
+You can define new binary operators for use in expressions.
+
+*   **Signature:** `void add_custom_operator(const std::string& op_string, const Expressions::OperatorInfo& op_info)`
+*   **Description:** The `OperatorInfo` struct contains the operator's precedence, associativity, and a lambda that performs the operation on two `Value` arguments.
+*   **Example Usage in Assembly Code:**
+    ```asm
+    LD A, 2 ** 4 ; A will be loaded with the value 16 (2 to the power of 4)
+    ```
+
 #### **Retrieving Assembly Results**
 After a successful compilation, you can retrieve information about the generated code and symbols.
 
