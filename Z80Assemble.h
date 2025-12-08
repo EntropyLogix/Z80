@@ -1335,10 +1335,13 @@ protected:
             std::string symbol_str = expr.substr(i, j - i);
             std::string upper_symbol = symbol_str;
             Strings::to_upper(upper_symbol);
-            auto const_it = get_constant_map().find(upper_symbol);
-            if (const_it != get_constant_map().end())
-                tokens.push_back({Token::Type::NUMBER, "", const_it->second});
-            else if (get_function_map().count(upper_symbol)) {
+            auto builtin_const_it = get_constant_map().find(upper_symbol);
+            auto custom_const_it = m_policy.context().assembler.custom_constants.find(upper_symbol);
+            if (builtin_const_it != get_constant_map().end())
+                tokens.push_back({Token::Type::NUMBER, "", builtin_const_it->second});
+            else if (custom_const_it != m_policy.context().assembler.custom_constants.end())
+                tokens.push_back({Token::Type::NUMBER, "", custom_const_it->second});
+            else if (get_function_map().count(upper_symbol) || m_policy.context().assembler.custom_functions.count(upper_symbol)) {
                 size_t next_char_idx = j;
                 while (next_char_idx < expr.length() && isspace(expr[next_char_idx]))
                     next_char_idx++;
@@ -1583,10 +1586,18 @@ protected:
                         return false;
                     val_stack.push_back({Value::Type::NUMBER, (double)sum_val});
                 } else if (token.type == Token::Type::FUNCTION) {
-                    auto it = get_function_map().find(token.s_val);
-                    if (it == get_function_map().end())
+                    const FunctionInfo* func_info_ptr = nullptr;
+                    auto builtin_it = get_function_map().find(token.s_val);
+                    if (builtin_it != get_function_map().end())
+                        func_info_ptr = &builtin_it->second;
+                    else {
+                        auto custom_it = m_policy.context().assembler.custom_functions.find(token.s_val);
+                        if (custom_it != m_policy.context().assembler.custom_functions.end())
+                            func_info_ptr = &custom_it->second;
+                    }
+                    if (!func_info_ptr)
                         m_policy.context().assembler.report_error("Unknown function in RPN evaluation: " + token.s_val);
-                    const auto& func_info = it->second;
+                    const auto& func_info = *func_info_ptr;
                     int num_args_provided = token.n_val > 0 ? (int)(token.n_val) : 0;
                     if (func_info.num_args >= 0) {
                         if (num_args_provided != func_info.num_args)
@@ -1606,7 +1617,7 @@ protected:
                             val_stack.pop_back();
                         }
                     }
-                    val_stack.push_back(it->second.apply(m_policy.context(), args));
+                    val_stack.push_back(func_info.apply(m_policy.context(), args));
                 } else if (token.type == Token::Type::OPERATOR) {
                     if (token.s_val == "{}") {
                         if (val_stack.empty())
@@ -1683,6 +1694,20 @@ protected:
         custom_operators[op_string] = op_info;
         if (op_string.length() > max_operator_len)
             max_operator_len = op_string.length();
+    }
+    void add_custom_function(const std::string& func_name, const typename Expressions::FunctionInfo& func_info) {
+        std::string upper_name = func_name;
+        Strings::to_upper(upper_name);
+        if (Expressions::get_function_map().count(upper_name))
+            m_context.assembler.report_error("Cannot override built-in function: " + func_name);
+        custom_functions[upper_name] = func_info;
+    }
+    void add_custom_constant(const std::string& const_name, double value) {
+        std::string upper_name = const_name;
+        Strings::to_upper(upper_name);
+        if (Expressions::get_constant_map().count(upper_name))
+            m_context.assembler.report_error("Cannot override built-in constant: " + const_name);
+        custom_constants[upper_name] = value;
     }
     class IPhasePolicy {
     public:
@@ -4236,7 +4261,9 @@ protected:
         typename Strings::Tokens m_tokens;
         bool m_end_of_source = false;
     };
+    std::map<std::string, typename Expressions::FunctionInfo> custom_functions;
     std::map<std::string, typename Expressions::OperatorInfo> custom_operators;
+    std::map<std::string, double> custom_constants;
     size_t max_operator_len = 0;
     const Options m_options;
     Context m_context;

@@ -3443,10 +3443,19 @@ public:
 
     using OperatorInfo = typename Z80Assembler<Z80DefaultBus>::Expressions::OperatorInfo;
     using Value = typename Z80Assembler<Z80DefaultBus>::Expressions::Value;
+    using FunctionInfo = typename Z80Assembler<Z80DefaultBus>::Expressions::FunctionInfo;
     using Context = typename Z80Assembler<Z80DefaultBus>::Context;
 
     void public_add_custom_operator(const std::string& op_string, const OperatorInfo& op_info) {
         add_custom_operator(op_string, op_info);
+    }
+
+    void public_add_custom_function(const std::string& func_name, const FunctionInfo& func_info) {
+        add_custom_function(func_name, func_info);
+    }
+
+    void public_add_custom_constant(const std::string& const_name, double value) {
+        add_custom_constant(const_name, value);
     }
 };
 
@@ -3481,6 +3490,94 @@ TEST_CASE(CustomOperators) {
             return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, args[0].n_val * args[0].n_val};
         }});
         ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB SQR 9", {81});
+    }
+}
+
+TEST_CASE(CustomFunctionsAndConstants) {
+    // Test 1: Add a custom constant
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+
+        assembler.public_add_custom_constant("MY_CONST", 123.0);
+
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB MY_CONST", {123});
+    }
+
+    // Test 2: Add a custom function 'DOUBLE'
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+
+        TestAssembler::FunctionInfo double_func_info = {
+            1, // Number of arguments
+            [](TestAssembler::Context&, const std::vector<TestAssembler::Value>& args) {
+                return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, args[0].n_val * 2};
+            }
+        };
+        assembler.public_add_custom_function("DOUBLE", double_func_info);
+
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB DOUBLE(21)", {42});
+    }
+
+    // Test 3: Attempt to override a built-in constant (should fail)
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+        ASSERT_COMPILE_FAILS_WITH_OPTS("assembler.add_custom_constant(\"TRUE\", 99)", {});
+    }
+
+    // Test 4: Add a custom function with no arguments
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+
+        TestAssembler::FunctionInfo get_seven_func = {
+            0, // No arguments
+            [](TestAssembler::Context&, const std::vector<TestAssembler::Value>& args) {
+                return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, 7.0};
+            }
+        };
+        assembler.public_add_custom_function("GET_SEVEN", get_seven_func);
+
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB GET_SEVEN()", {7});
+    }
+
+    // Test 5: Add a variadic custom function 'SUM'
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+
+        TestAssembler::FunctionInfo sum_func = {
+            -1, // Variadic, at least 1 argument
+            [](TestAssembler::Context&, const std::vector<TestAssembler::Value>& args) {
+                double sum = 0;
+                for(const auto& arg : args) {
+                    sum += arg.n_val;
+                }
+                return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, sum};
+            }
+        };
+        assembler.public_add_custom_function("SUM", sum_func);
+
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB SUM(1, 2, 3, 4)", {10});
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB SUM(10)", {10});
+    }
+
+    // Test 6: Attempt to override a built-in function (should fail)
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+        TestAssembler::FunctionInfo dummy_func = {0, nullptr};
+        // This should throw an exception during add_custom_function, which the test framework doesn't catch well.
+        // We expect the compile to fail because the error is reported.
+        ASSERT_COMPILE_FAILS_WITH_OPTS("assembler.add_custom_function(\"SIN\", dummy_func)", {});
     }
 }
 
