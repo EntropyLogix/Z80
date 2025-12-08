@@ -149,7 +149,7 @@ Responsible for all communication with memory and I/O ports.
 | `void connect(Z80<...>* cpu)` | Called by the Z80 constructor to pass a pointer to the CPU instance. This allows the bus to have backward access to the processor, e.g., to trigger an interrupt. |
 | `uint8_t read(uint16_t address)` | Reads a single byte from the 16-bit memory address space. This can have side effects (e.g., handling memory-mapped I/O). |
 | `void write(uint16_t address, uint8_t value)` | Writes a single byte to the 16-bit memory address space. |
-| `uint8_t peek(uint16_t address) const` | Reads a single byte from memory without any side effects. This is primarily used by tools like the disassembler. |
+| `uint8_t peek(uint16_t address) const` | Reads a single byte from memory without any side effects. This is primarily used by tools like the disassembler (`Z80Analyzer`). |
 | `uint8_t in(uint16_t port)` | Reads a single byte from the 16-bit I/O port address space. |
 | `void out(uint16_t port, uint8_t value)` | Writes a single byte to the 16-bit I/O port address space. |
 | `void reset()` | Resets the bus state (e.g., clears RAM, resets connected devices). |
@@ -175,8 +175,9 @@ Provides hooks that allow an external tool to be attached to monitor and trace c
 
 | Method | Description |
 | :--- | :--- |
-| `void connect(const Z80<...>* cpu)` | Called by the Z80 constructor. It passes a constant pointer to the CPU to allow the debugger to inspect registers and processor state. |
-| `void before_step()` / `after_step(...)` | Hooks called before and after each instruction is executed. The signature of `after_step` depends on the `Z80_DEBUGGER_OPCODES` macro.<br>• **Without macro:** `void after_step()`<br>• **With macro:** `void after_step(const std::vector<uint8_t>& opcodes)`<br>The `opcodes` vector contains the full byte sequence of the instruction (opcode + operands). |
+| `void connect(const Z80<...>* cpu)` | Called by the Z80 constructor, passing a constant pointer to the CPU instance to allow the debugger to inspect registers and processor state. |
+| `void before_step()` | Hook called just before each instruction is executed. |
+| `void after_step(...)` | Hook called after each instruction is executed. If `Z80_DEBUGGER_OPCODES` is defined, this method receives the instruction's byte sequence as an argument (`void after_step(const std::vector<uint8_t>& opcodes)`). Otherwise, it is parameterless (`void after_step()`). |
 | `void before_IRQ()` / `void after_IRQ()` | Hooks called just before and after handling a maskable interrupt (IRQ). |
 | `void before_NMI()` / `void after_NMI()` | Hooks called just before and after handling a non-maskable interrupt (NMI). |
 | `void reset()` | Resets the internal state of the debugger. |
@@ -547,57 +548,70 @@ The assembler supports a wide range of standard assembly features.
 *   **Comment Handling:** Supports single-line (starting with `;`) and block (`/* ... */`) comments.
 
 #### **Extending the Assembler (Directives, Functions, Operators)**
-The assembler can be extended with custom directives, functions, and operators by passing them in the `Options` structure to the `Z80Assembler` constructor. This allows you to add your own logic and syntax to the assembly process.
+The assembler can be extended with custom directives, functions, and operators. Since the methods for adding these elements (`add_custom_directive`, `add_custom_function`, `add_custom_operator`) are `protected`, the correct way to extend the assembler is by creating a derived class.
 
-**Example of Initialization with Custom Elements:**
+This approach allows you to encapsulate your custom logic and create a reusable, specialized assembler.
+
+**Example of a Custom Assembler Class:**
 ```cpp
 #include "Z80Assemble.h"
 #include <cmath> // For std::pow
 
-int main() {
-    Z80DefaultBus bus;
-    MemorySourceProvider source_provider;
-    
-    // In Z80Assemble.h, custom elements are added via methods, not directly to an Options struct.
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+// 1. Create a class that inherits from Z80Assembler
+template <typename TMemory>
+class MyCustomAssembler : public Z80Assembler<TMemory> {
+public:
+    // The constructor calls the base constructor and then adds custom elements
+    MyCustomAssembler(TMemory* memory, IFileProvider* source_provider)
+        : Z80Assembler<TMemory>(memory, source_provider) {
+        
+        // Add a custom directive
+        this->add_custom_directive("MY_DIRECTIVE", 
+            [](typename Z80Assembler<TMemory>::IPhasePolicy& policy, const std::vector<typename Z80Assembler<TMemory>::Strings::Tokens::Token>& args) {
+                // Directive logic here. For example, emit a NOP for each argument.
+                for(const auto& arg : args) {
+                    policy.on_assemble({0x00}); // NOP
+                }
+            });
 
-    // Add a custom directive
-    assembler.add_custom_directive("MY_DIRECTIVE", 
-        [](Z80Assembler<Z80DefaultBus>::IPhasePolicy& policy, const std::vector<typename Z80Assembler<Z80DefaultBus>::Strings::Tokens::Token>& args) {
-            // Directive logic here
-            // For example, print the arguments
-            for(const auto& arg : args) {
-                // std::cout << "MY_DIRECTIVE arg: " << arg.original() << std::endl;
+        // Add a custom function
+        this->add_custom_function("MY_FUNC", {
+            1, // Number of arguments
+            [](typename Z80Assembler<TMemory>::Context&, const std::vector<typename Z80Assembler<TMemory>::Expressions::Value>& args) {
+                if (args.size() != 1 || args.type != Z80Assembler<TMemory>::Expressions::Value::Type::NUMBER) {
+                    // Error handling can be done by throwing an exception
+                    throw std::runtime_error("MY_FUNC expects one numeric argument.");
+                }
+                // Double the argument
+                return typename Z80Assembler<TMemory>::Expressions::Value{Z80Assembler<TMemory>::Expressions::Value::Type::NUMBER, args.n_val * 2};
             }
         });
 
-    // Add a custom function
-    assembler.add_custom_function("MY_FUNC", {
-        1, // Number of arguments
-        [](Z80Assembler<Z80DefaultBus>::Context&, const std::vector<typename Z80Assembler<Z80DefaultBus>::Expressions::Value>& args) {
-            if (args.size() != 1 || args.type != Z80Assembler<Z80DefaultBus>::Expressions::Value::Type::NUMBER) {
-                // Error handling can be done by throwing an exception
-                return typename Z80Assembler<Z80DefaultBus>::Expressions::Value{Z80Assembler<Z80DefaultBus>::Expressions::Value::Type::NUMBER, 0.0};
+        // Add a custom operator (e.g., exponentiation)
+        this->add_custom_operator("**", {
+            95,    // Precedence (higher than multiply)
+            false, // is_unary
+            false, // left_assoc (right-associative for exponentiation)
+            [](typename Z80Assembler<TMemory>::Context&, const std::vector<typename Z80Assembler<TMemory>::Expressions::Value>& args) -> typename Z80Assembler<TMemory>::Expressions::Value {
+                return typename Z80Assembler<TMemory>::Expressions::Value{
+                    Z80Assembler<TMemory>::Expressions::Value::Type::NUMBER,
+                    std::pow(args[0].n_val, args[1].n_val)
+                };
             }
-            // Double the argument
-            return typename Z80Assembler<Z80DefaultBus>::Expressions::Value{Z80Assembler<Z80DefaultBus>::Expressions::Value::Type::NUMBER, args.n_val * 2};
-        }
-    });
+        });
+    }
+};
 
-    // Add a custom operator (e.g., exponentiation)
-    assembler.add_custom_operator("**", {
-        95,  // Precedence (higher than multiply)
-        false, // is_unary
-        false, // left_assoc (right-associative for exponentiation)
-        [](Z80Assembler<Z80DefaultBus>::Context&, const std::vector<typename Z80Assembler<Z80DefaultBus>::Expressions::Value>& args) {
-            return typename Z80Assembler<Z80DefaultBus>::Expressions::Value{
-                Z80Assembler<Z80DefaultBus>::Expressions::Value::Type::NUMBER,
-                std::pow(args.n_val, args.n_val)
-            };
-        }
-    });
+int main() {
+    Z80DefaultBus bus;
+    MemorySourceProvider source_provider;
 
-    // ... rest of your assembly logic
+    // 2. Instantiate your custom assembler class
+    MyCustomAssembler<Z80DefaultBus> assembler(&bus, &source_provider);
+
+    // 3. Use the assembler as usual
+    // assembler.compile("source.asm");
+
     return 0;
 }
 ```
@@ -605,7 +619,7 @@ int main() {
 ##### **Custom Directives (`add_custom_directive`)**
 You can define new directives that will be processed during assembly.
 
-*   **Signature:** `void add_custom_directive(const std::string& name, std::function<void(IPhasePolicy&, const std::vector<Token>&)> func)`
+*   **Signature:** `void add_custom_directive(const std::string& name, std::function<void(typename IPhasePolicy&, const std::vector<typename Strings::Tokens::Token>&)> func)`
 *   **Description:** The function receives a reference to the current phase policy (`IPhasePolicy`) and a vector of tokens representing the directive's parameters.
 *   **Example Usage in Assembly Code:**
     ```asm
@@ -615,7 +629,7 @@ You can define new directives that will be processed during assembly.
 ##### **Custom Functions (`add_custom_function`)**
 You can add new functions for use in expressions.
 
-*   **Signature:** `void add_custom_function(const std::string& name, const Expressions::FunctionInfo& func_info)`
+*   **Signature:** `void add_custom_function(const std::string& name, const typename Expressions::FunctionInfo& func_info)`
 *   **Description:** The `FunctionInfo` struct contains the number of arguments and a lambda that receives a vector of `Value` arguments (already evaluated) and should return a `Value` result.
 *   **Example Usage in Assembly Code:**
     ```asm
@@ -637,8 +651,8 @@ After a successful compilation, you can retrieve information about the generated
 
 | Method | Description |
 | :--- | :--- |
-| `get_symbols() const` | Returns a map (`std::map<std::string, Symbol>`) of all defined symbols (labels and `EQU` constants) and their calculated values. The `Symbol` struct contains the value and other metadata. |
-| `get_blocks() const` | Returns a vector of pairs (`std::vector<std::pair<uint16_t, uint16_t>>`), where each pair represents a block of generated code as `{start_address, size_in_bytes}`. |
+| `get_symbols() const` | Returns a map (`std::map<std::string, SymbolInfo>`) of all defined symbols (labels and `EQU` constants) and their calculated values. The `SymbolInfo` struct contains the value and other metadata. |
+| `get_blocks() const` | Returns a vector (`std::vector<BlockInfo>`), where each `BlockInfo` struct represents a block of generated code as `{start_address, size}`. |
 
 **Example of Retrieving Results:**
 
@@ -648,15 +662,15 @@ if (assembler.compile("main.asm")) {
     std::cout << "--- Symbols ---" << std::endl;
     const auto& symbols = assembler.get_symbols();
     for (const auto& sym : symbols) {
-        std::cout << sym.first << " = 0x" << std::hex << sym.second.value << std::endl; // Note: sym.second is a struct
+        std::cout << sym.first << " = 0x" << std::hex << sym.second.value << std::endl;
     }
 
     // Display code blocks
     std::cout << "\n--- Code Blocks ---" << std::endl;
     const auto& blocks = assembler.get_blocks();
     for (const auto& block : blocks) {
-        std::cout << "Block @ 0x" << std::hex << block.first
-                  << " (Size: " << std::dec << block.second << " bytes)" << std::endl;
+        std::cout << "Block @ 0x" << std::hex << block.start_address
+                  << " (Size: " << std::dec << block.size << " bytes)" << std::endl;
     }
 }
 ```
@@ -709,8 +723,18 @@ int main() {
         std::cout << line.mnemonic;
         bool first_op = true;
         for (const auto& op : line.operands) {
-            if (!first_op) std::cout << ",";
-            std::cout << " " << op.s_val;
+             if (!first_op) std::cout << ", ";
+ 
+             if (!op.s_val.empty()) {
+                 std::cout << op.s_val;
+             } else {
+                 if (op.type == Z80Analyzer<Z80DefaultBus>::CodeLine::Operand::Type::MEM_IMM16) {
+                     std::cout << "(0x" << std::hex << op.num_val << ")";
+                 } else {
+                     std::cout << "0x" << std::hex << op.num_val;
+                 }
+             }
+ 
             first_op = false;
         }
         std::cout << std::endl;
