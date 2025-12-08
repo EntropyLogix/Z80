@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Verson: 1.1.1
+// Verson: 1.1.1a
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -379,6 +379,12 @@ public:
     Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = get_default_options()) : m_options(options), m_context(*this) {
         m_context.memory = memory;
         m_context.source_provider = source_provider;
+        const auto& op_map = Expressions::get_operator_map();
+        max_operator_len = 0;
+        for (const auto& pair : op_map) {
+            if (pair.first.length() > max_operator_len)
+                max_operator_len = pair.first.length();
+        }
     }
     virtual ~Z80Assembler() {}
     virtual bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
@@ -441,6 +447,7 @@ protected:
         throw std::runtime_error(error_stream.str());
     }
     class IPhasePolicy;
+    class Expressions;
     class Strings {
     public:
         static void trim_whitespace(std::string& s) {
@@ -966,17 +973,7 @@ protected:
             double n_val = 0.0;
             std::string s_val;
         };
-        enum class OperatorType {
-            UNARY_MINUS, UNARY_PLUS, LOGICAL_NOT, BITWISE_NOT,
-            ADD, SUB, MUL, DIV, MOD,
-            BITWISE_AND, BITWISE_OR, BITWISE_XOR,
-            SHL, SHR, DEFINED,
-            GT, LT, GTE, LTE, EQ, NE,
-            LOGICAL_AND, LOGICAL_OR,
-            TERNARY_IF, TERNARY_ELSE
-        };
         struct OperatorInfo {
-            OperatorType type;
             int precedence;
             bool is_unary;
             bool left_assoc;
@@ -1019,13 +1016,12 @@ protected:
             auto rpn = shunting_yard(tokens);
             return evaluate_rpn(rpn, out_value);
         }
-    private:
         static const std::map<std::string, OperatorInfo>& get_operator_map() {
             static const std::map<std::string, OperatorInfo> op_map = {
                 // unary
-                {"_",  {OperatorType::UNARY_MINUS, 10, true, false, [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING) ctx.assembler.report_error("Unary minus not supported for strings."); return Value{Value::Type::NUMBER, -args[0].n_val}; }}},
-                {"~",  {OperatorType::BITWISE_NOT, 10, true, false, [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING) ctx.assembler.report_error("Bitwise NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(~(int32_t)args[0].n_val)}; }}},
-                {"DEFINED", {OperatorType::DEFINED, 10, true, false, [](Context& ctx, const std::vector<Value>& args) {
+                {"_",  {100, true, false, [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING) ctx.assembler.report_error("Unary minus not supported for strings."); return Value{Value::Type::NUMBER, -args[0].n_val}; }}},
+                {"~",  {100, true, false, [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING) ctx.assembler.report_error("Bitwise NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(~(int32_t)args[0].n_val)}; }}},
+                {"DEFINED", {100, true, false, [](Context& ctx, const std::vector<Value>& args) {
                     if (args[0].type != Value::Type::STRING)
                         ctx.assembler.report_error("Argument to DEFINED must be a symbol name.");
                     const std::string& symbol_name = args[0].s_val;
@@ -1034,14 +1030,14 @@ protected:
                         return Value{Value::Type::NUMBER, 1.0};
                     return Value{Value::Type::NUMBER, 0.0};
                 }}},
-                {"!",  {OperatorType::LOGICAL_NOT, 10, true, false, [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING) ctx.assembler.report_error("Logical NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(!args[0].n_val)}; }}},
-                {"NOT", {OperatorType::BITWISE_NOT, 10, true, false, [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING) ctx.assembler.report_error("Bitwise NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(~(int32_t)args[0].n_val)}; }}},
+                {"!",  {100, true, false, [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING) ctx.assembler.report_error("Logical NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(!args[0].n_val)}; }}},
+                {"NOT", {100, true, false, [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING) ctx.assembler.report_error("Bitwise NOT not supported for strings."); return Value{Value::Type::NUMBER, (double)(~(int32_t)args[0].n_val)}; }}},
                 // binary
-                {"*",  {OperatorType::MUL,         9, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator * not supported for strings."); if (args[1].n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, args[0].n_val * args[1].n_val}; }}},
-                {"/",  {OperatorType::DIV,         9, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator / not supported for strings."); if (args[1].n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, args[0].n_val / args[1].n_val}; }}},
-                {"%",  {OperatorType::MOD,         9, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator % not supported for strings."); if ((int32_t)args[1].n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val % (int32_t)args[1].n_val)}; }}},
-                {"MOD",{OperatorType::MOD,         9, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator MOD not supported for strings."); if ((int32_t)args[1].n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val % (int32_t)args[1].n_val)}; }}},
-                {"+",  {OperatorType::ADD,         8, false, true,  [](Context& ctx, const std::vector<Value>& args) {
+                {"*",  {90, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator * not supported for strings."); if (args[1].n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, args[0].n_val * args[1].n_val}; }}},
+                {"/",  {90, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator / not supported for strings."); if (args[1].n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, args[0].n_val / args[1].n_val}; }}},
+                {"%",  {90, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator % not supported for strings."); if ((int32_t)args[1].n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val % (int32_t)args[1].n_val)}; }}},
+                {"MOD",{90, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator MOD not supported for strings."); if ((int32_t)args[1].n_val==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val % (int32_t)args[1].n_val)}; }}},
+                {"+",  {80, false, true,  [](Context& ctx, const std::vector<Value>& args) {
                     if (args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) {
                         std::string s1 = (args[0].type == Value::Type::STRING) ? args[0].s_val : std::to_string((int32_t)args[0].n_val);
                         std::string s2 = (args[1].type == Value::Type::STRING) ? args[1].s_val : std::to_string((int32_t)args[1].n_val);
@@ -1049,55 +1045,55 @@ protected:
                     }
                     return Value{Value::Type::NUMBER, args[0].n_val + args[1].n_val};
                 }}},
-                {"-",  {OperatorType::SUB,         8, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator - not supported for strings."); return Value{Value::Type::NUMBER, args[0].n_val - args[1].n_val}; }}},
-                {"<<", {OperatorType::SHL,         7, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator << not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val << (int32_t)args[1].n_val)}; }}},
-                {">>", {OperatorType::SHR,         7, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator >> not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val >> (int32_t)args[1].n_val)}; }}},
-                {"SHL",{OperatorType::SHL,         7, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator SHL not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val << (int32_t)args[1].n_val)}; }}},
-                {"SHR",{OperatorType::SHR,         7, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator SHR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val >> (int32_t)args[1].n_val)}; }}},
-                {">",  {OperatorType::GT,          6, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator > not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val > args[1].n_val)}; }}},
-                {"GT", {OperatorType::GT,          6, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator GT not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val > args[1].n_val)}; }}},
-                {"<",  {OperatorType::LT,          6, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator < not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val < args[1].n_val)}; }}},
-                {"LT", {OperatorType::LT,          6, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator LT not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val < args[1].n_val)}; }}},
-                {">=", {OperatorType::GTE,         6, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator >= not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val >= args[1].n_val)}; }}},
-                {"GE", {OperatorType::GTE,         6, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator GE not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val >= args[1].n_val)}; }}},
-                {"<=", {OperatorType::LTE,         6, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator <= not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val <= args[1].n_val)}; }}},
-                {"LE", {OperatorType::LTE,         6, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator LE not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val <= args[1].n_val)}; }}},
-                {"==", {OperatorType::EQ,          5, false, true,  [](Context& ctx, const std::vector<Value>& args) {
+                {"-",  {80, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator - not supported for strings."); return Value{Value::Type::NUMBER, args[0].n_val - args[1].n_val}; }}},
+                {"<<", {70, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator << not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val << (int32_t)args[1].n_val)}; }}},
+                {">>", {70, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator >> not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val >> (int32_t)args[1].n_val)}; }}},
+                {"SHL",{70, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator SHL not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val << (int32_t)args[1].n_val)}; }}},
+                {"SHR",{70, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator SHR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val >> (int32_t)args[1].n_val)}; }}},
+                {">",  {60, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator > not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val > args[1].n_val)}; }}},
+                {"GT", {60, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator GT not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val > args[1].n_val)}; }}},
+                {"<",  {60, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator < not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val < args[1].n_val)}; }}},
+                {"LT", {60, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator LT not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val < args[1].n_val)}; }}},
+                {">=", {60, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator >= not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val >= args[1].n_val)}; }}},
+                {"GE", {60, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator GE not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val >= args[1].n_val)}; }}},
+                {"<=", {60, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator <= not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val <= args[1].n_val)}; }}},
+                {"LE", {60, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator LE not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val <= args[1].n_val)}; }}},
+                {"==", {50, false, true,  [](Context& ctx, const std::vector<Value>& args) {
                     if (args[0].type != args[1].type) return Value{Value::Type::NUMBER, 0.0}; // false
                     if (args[0].type == Value::Type::STRING) return Value{Value::Type::NUMBER, (double)(args[0].s_val == args[1].s_val)};
                     return Value{Value::Type::NUMBER, (double)(args[0].n_val == args[1].n_val)};
                 }}},
-                {"EQ", {OperatorType::EQ,          5, false, true,  [](Context& ctx, const std::vector<Value>& args) {
+                {"EQ", {50, false, true,  [](Context& ctx, const std::vector<Value>& args) {
                     if (args[0].type != args[1].type) return Value{Value::Type::NUMBER, 0.0}; // false
                     if (args[0].type == Value::Type::STRING) return Value{Value::Type::NUMBER, (double)(args[0].s_val == args[1].s_val)};
                     return Value{Value::Type::NUMBER, (double)(args[0].n_val == args[1].n_val)};
                 }}},
-                {"!=", {OperatorType::NE,          5, false, true,  [](Context& ctx, const std::vector<Value>& args) {
+                {"!=", {50, false, true,  [](Context& ctx, const std::vector<Value>& args) {
                     if (args[0].type != args[1].type) return Value{Value::Type::NUMBER, 1.0}; // true
                     if (args[0].type == Value::Type::STRING) return Value{Value::Type::NUMBER, (double)(args[0].s_val != args[1].s_val)};
                     return Value{Value::Type::NUMBER, (double)(args[0].n_val != args[1].n_val)};
                 }}},
-                {"NE", {OperatorType::NE,          5, false, true,  [](Context& ctx, const std::vector<Value>& args) {
+                {"NE", {50, false, true,  [](Context& ctx, const std::vector<Value>& args) {
                     if (args[0].type != args[1].type) return Value{Value::Type::NUMBER, 1.0}; // true
                     if (args[0].type == Value::Type::STRING) return Value{Value::Type::NUMBER, (double)(args[0].s_val != args[1].s_val)};
                     return Value{Value::Type::NUMBER, (double)(args[0].n_val != args[1].n_val)};
                 }}},
-                {"&",  {OperatorType::BITWISE_AND, 4, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator & not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val & (int32_t)args[1].n_val)}; }}},
-                {"AND",{OperatorType::BITWISE_AND, 4, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator AND not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val & (int32_t)args[1].n_val)}; }}},
-                {"^",  {OperatorType::BITWISE_XOR, 3, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator ^ not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val ^ (int32_t)args[1].n_val)}; }}},
-                {"XOR",{OperatorType::BITWISE_XOR, 3, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator XOR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val ^ (int32_t)args[1].n_val)}; }}},
-                {"|",  {OperatorType::BITWISE_OR,  2, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator | not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val | (int32_t)args[1].n_val)}; }}},
-                {"OR", {OperatorType::BITWISE_OR,  2, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator OR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val | (int32_t)args[1].n_val)}; }}},
-                {"&&", {OperatorType::LOGICAL_AND, 1, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator && not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val && args[1].n_val)}; }}},
-                {"||", {OperatorType::LOGICAL_OR,  0, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator || not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val || args[1].n_val)}; }}},
-                {"?",  {OperatorType::TERNARY_IF, -1, false, false, [](Context& ctx, const std::vector<Value>& args) {
+                {"&",  {40, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator & not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val & (int32_t)args[1].n_val)}; }}},
+                {"AND",{40, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator AND not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val & (int32_t)args[1].n_val)}; }}},
+                {"^",  {30, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator ^ not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val ^ (int32_t)args[1].n_val)}; }}},
+                {"XOR",{30, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator XOR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val ^ (int32_t)args[1].n_val)}; }}},
+                {"|",  {20, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator | not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val | (int32_t)args[1].n_val)}; }}},
+                {"OR", {20, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator OR not supported for strings."); return Value{Value::Type::NUMBER, (double)((int32_t)args[0].n_val | (int32_t)args[1].n_val)}; }}},
+                {"&&", {10, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator && not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val && args[1].n_val)}; }}},
+                {"||", {0, false, true,  [](Context& ctx, const std::vector<Value>& args) { if(args[0].type == Value::Type::STRING || args[1].type == Value::Type::STRING) ctx.assembler.report_error("Operator || not supported for strings."); return Value{Value::Type::NUMBER, (double)(args[0].n_val || args[1].n_val)}; }}},
+                {"?",  {-10, false, false, [](Context& ctx, const std::vector<Value>& args) {
                     if (args[0].type != Value::Type::NUMBER)
                         ctx.assembler.report_error("Ternary condition must be a number.");
                     if (args[0].n_val != 0)
                         return args[1];
                     return Value{Value::Type::TERNARY_SKIP};
                 }}},
-                {":",  {OperatorType::TERNARY_ELSE, -2, false, false, [](Context& ctx, const std::vector<Value>& args) { return (args[0].type == Value::Type::TERNARY_SKIP) ? args[1] : args[0]; }}}
+                {":",  {-20, false, false, [](Context& ctx, const std::vector<Value>& args) { return (args[0].type == Value::Type::TERNARY_SKIP) ? args[1] : args[0]; }}}
             };
             return op_map;
         }
@@ -1306,6 +1302,7 @@ protected:
             };
             return const_map;
         }
+    private:
         bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
                 tokens.push_back({Token::Type::CHAR_LITERAL, "", (double)(expr[i+1])});
@@ -1350,9 +1347,9 @@ protected:
                 else
                     tokens.push_back({Token::Type::SYMBOL, symbol_str});
             } else {
-                auto op_it = get_operator_map().find(upper_symbol);
-                if (op_it != get_operator_map().end())
-                    tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
+                const OperatorInfo* op_info = find_operator(upper_symbol);
+                if (op_info)
+                    tokens.push_back({Token::Type::OPERATOR, upper_symbol, 0, op_info->precedence, op_info->left_assoc, op_info});
                 else
                     tokens.push_back({Token::Type::SYMBOL, symbol_str});
             }
@@ -1410,12 +1407,16 @@ protected:
         }
         bool parse_operator(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             std::string op_str;
-            if (i + 1 < expr.length()) {
-                op_str = expr.substr(i, 2);
-                if (get_operator_map().find(op_str) == get_operator_map().end())
-                    op_str = expr.substr(i, 1);
-            } else 
-                op_str = expr.substr(i, 1);
+            for (size_t len = m_policy.context().assembler.max_operator_len; len > 0; --len) {
+                if (i + len <= expr.length()) {
+                    std::string potential_op = expr.substr(i, len);
+                    if (find_operator(potential_op)) {
+                        op_str = potential_op;
+                        break;
+                    }
+                }
+            }
+            if (op_str.empty()) return false; // No operator found
             bool is_unary = (tokens.empty() || tokens.back().type == Token::Type::OPERATOR || tokens.back().type == Token::Type::LPAREN);
             std::string op_key = op_str;
             if (is_unary && (op_str == "-" || op_str == "~" || op_str == "!"))
@@ -1424,10 +1425,10 @@ protected:
                 i += op_str.length() - 1;
                 return true;
             }
-            auto op_it = get_operator_map().find(op_key);
-            if (op_it == get_operator_map().end())
+            const OperatorInfo* op_info = find_operator(op_key);
+            if (!op_info)
                 return false;
-            tokens.push_back({Token::Type::OPERATOR, op_key, 0.0, op_it->second.precedence, op_it->second.left_assoc, &op_it->second});
+            tokens.push_back({Token::Type::OPERATOR, op_key, 0.0, op_info->precedence, op_info->left_assoc, op_info});
             i += op_str.length() - 1;
             return true;
         }
@@ -1615,10 +1616,10 @@ protected:
                         val_stack.push_back({Value::Type::NUMBER, (double)m_policy.context().memory->peek((uint16_t)addr_val.n_val)});
                         continue;
                     }
-                    auto it = get_operator_map().find(token.s_val);
-                    if (it == get_operator_map().end())
+                    const OperatorInfo* op_info_ptr = find_operator(token.s_val);
+                    if (!op_info_ptr)
                         m_policy.context().assembler.report_error("Unknown operator in RPN evaluation: " + token.s_val);
-                    const auto& op_info = it->second;
+                    const auto& op_info = *op_info_ptr;
                     if (op_info.is_unary) {
                         if (val_stack.size() < 1)
                             m_policy.context().assembler.report_error("Invalid expression syntax for unary operator.");
@@ -1664,8 +1665,25 @@ protected:
             out_value = (int32_t)result_val.n_val;
             return true;
         }
+        const OperatorInfo* find_operator(const std::string& op_str) const {
+            auto it = get_operator_map().find(op_str);
+            if (it != get_operator_map().end()) {
+                return &it->second;
+            }
+            auto custom_it = m_policy.context().assembler.custom_operators.find(op_str);
+            if (custom_it != m_policy.context().assembler.custom_operators.end()) {
+                return &custom_it->second;
+            }
+            return nullptr;
+        }
         IPhasePolicy& m_policy;
     };
+    void add_custom_operator(const std::string& op_string, const typename Expressions::OperatorInfo& op_info) {
+        m_context.assembler.custom_operators[op_string] = op_info;
+        custom_operators[op_string] = op_info;
+        if (op_string.length() > max_operator_len)
+            max_operator_len = op_string.length();
+    }
     class IPhasePolicy {
     public:
         using Operand = typename Operands::Operand;
@@ -4218,6 +4236,8 @@ protected:
         typename Strings::Tokens m_tokens;
         bool m_end_of_source = false;
     };
+    std::map<std::string, typename Expressions::OperatorInfo> custom_operators;
+    size_t max_operator_len = 0;
     const Options m_options;
     Context m_context;
 };

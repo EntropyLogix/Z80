@@ -142,6 +142,40 @@ void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_
     }
 }
 
+void ASSERT_CODE_WITH_ASSEMBLER(Z80DefaultBus& bus, Z80Assembler<Z80DefaultBus>& assembler, MockFileProvider& file_provider, const std::string& asm_code, const std::vector<uint8_t>& expected_bytes) {
+    file_provider.add_source("main.asm", asm_code);
+    bool success = true;
+    try {
+        assembler.compile("main.asm", 0x0000);
+    } catch (const std::runtime_error& e) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
+        std::cerr << "Assertion failed: Compilation failed with an exception for '" << asm_code << "': " << e.what() << "\n";
+        tests_failed++;
+        return;
+    }
+
+    auto blocks = assembler.get_blocks();
+    size_t compiled_size = blocks.empty() ? 0 : blocks[0].size;
+
+    if (compiled_size != expected_bytes.size()) {
+        std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
+        std::cerr << "Assertion failed: Incorrect compiled size for '" << asm_code << "'.\n";
+        std::cerr << "  Expected size: " << expected_bytes.size() << ", Got: " << compiled_size << "\n";
+        tests_failed++;
+        return;
+    }
+
+    uint16_t start_address = blocks.empty() ? 0x0000 : blocks[0].start_address;
+    for (size_t i = 0; i < expected_bytes.size(); ++i) {
+        if (bus.peek(start_address + i) != expected_bytes[i]) {
+            // ... (error reporting logic from ASSERT_CODE)
+            tests_failed++;
+            return;
+        }
+    }
+    tests_passed++;
+}
+
 void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes) {
     Z80Assembler<Z80DefaultBus>::Options options;
     ASSERT_CODE_WITH_OPTS(asm_code, expected_bytes, options);
@@ -3401,6 +3435,53 @@ TEST_CASE(PhaseVariable) {
         ENDIF
         MY_VAL EQU 1
     )", {2});
+}
+
+class TestAssembler : public Z80Assembler<Z80DefaultBus> {
+public:
+    using Z80Assembler<Z80DefaultBus>::Z80Assembler;
+
+    using OperatorInfo = typename Z80Assembler<Z80DefaultBus>::Expressions::OperatorInfo;
+    using Value = typename Z80Assembler<Z80DefaultBus>::Expressions::Value;
+    using Context = typename Z80Assembler<Z80DefaultBus>::Context;
+
+    void public_add_custom_operator(const std::string& op_string, const OperatorInfo& op_info) {
+        add_custom_operator(op_string, op_info);
+    }
+};
+
+TEST_CASE(CustomOperators) {
+    // Test 1: Add a binary power operator '**'
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+
+        TestAssembler::OperatorInfo power_op_info = {
+            95,  // Precedence (higher than *, /)
+            false, // is_unary
+            true, // right_assoc for power operator
+            [](TestAssembler::Context& ctx, const std::vector<TestAssembler::Value>& args) {
+                return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, pow(args[0].n_val, args[1].n_val)};
+            }
+        };
+        assembler.public_add_custom_operator("**", power_op_info);
+
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB 2 ** 0", {1});
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB 2 ** 7", {128});
+    }
+
+    // Test 2: Add a unary 'SQR' operator
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+
+        assembler.public_add_custom_operator("SQR", {100, true, false, [](TestAssembler::Context&, const std::vector<TestAssembler::Value>& args) {
+            return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, args[0].n_val * args[0].n_val};
+        }});
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB SQR 9", {81});
+    }
 }
 
 int main() {
