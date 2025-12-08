@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Verson: 1.1.1a
+// Verson: 1.1.1c
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -376,7 +376,7 @@ public:
         uint16_t address;
         std::vector<uint8_t> bytes;
     };
-    Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = get_default_options()) : m_options(options), m_context(*this) {
+    Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = get_default_options()) : m_options(options), m_context(*this), m_keywords(m_context) {
         m_context.memory = memory;
         m_context.source_provider = source_provider;
         const auto& op_map = Expressions::get_operator_map();
@@ -820,7 +820,7 @@ protected:
                     if (!m_context.assembler.m_options.directives.allow_macros)
                         continue;
                     current_macro_name = tokens[0].original();
-                    if (!Keywords::is_valid_label_name(current_macro_name))
+                    if (!m_context.assembler.m_keywords.is_valid_label_name(current_macro_name))
                         m_context.assembler.report_error("Invalid macro name: '" + current_macro_name + "'");
                     in_macro_def = true;
                     current_macro = {};
@@ -1767,6 +1767,13 @@ protected:
         virtual void on_source_line_end() = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
     };
+    void add_custom_directive(const std::string& name, std::function<void(IPhasePolicy&, const std::vector<typename Strings::Tokens::Token>&)> func) {
+        std::string upper_name = name;
+        Strings::to_upper(upper_name);
+        if (m_keywords.is_directive(upper_name))
+            m_context.assembler.report_error("Cannot override built-in directive: " + name);
+        custom_directives[upper_name] = func;
+    }
     class BasePolicy : public IPhasePolicy {
     public:
         using Operand = typename IPhasePolicy::Operand;
@@ -1873,7 +1880,7 @@ protected:
                 m_context.assembler.report_error("LOCAL directive used outside of a PROC block.");
             auto& current_scope = m_context.symbols.scope_stack.back();
             for (const auto& symbol : symbols) {
-                if (!Keywords::is_valid_label_name(symbol) || symbol.find('.') != std::string::npos)
+            if (!m_context.assembler.m_keywords.is_valid_label_name(symbol) || symbol.find('.') != std::string::npos)
                     m_context.assembler.report_error("Invalid symbol name in LOCAL directive: '" + symbol + "'");
                 current_scope.local_symbols.insert(symbol);
             }
@@ -2657,11 +2664,12 @@ protected:
     };
     class Keywords {
     public:
-        static bool is_mnemonic(const std::string& s) { return is_in_set(s, mnemonics()); }
-        static bool is_directive(const std::string& s) { return is_in_set(s, directives()); }
-        static bool is_register(const std::string& s) { return is_in_set(s, registers()); }
-        static bool is_reserved(const std::string& s) { return is_mnemonic(s) || is_directive(s) || is_register(s); }
-        static bool is_valid_label_name(const std::string& s) {
+        Keywords(Context& context) : m_context(context) {}
+        bool is_mnemonic(const std::string& s) const { return is_in_set(s, mnemonics()); }
+        bool is_directive(const std::string& s) const { return is_in_set(s, directives()) || m_context.assembler.custom_directives.count(s); }
+        bool is_register(const std::string& s) const { return is_in_set(s, registers()); }
+        bool is_reserved(const std::string& s) const { return is_mnemonic(s) || is_directive(s) || is_register(s); }
+        bool is_valid_label_name(const std::string& s) const {
             if (s.empty() || is_reserved(s))
                 return false;
             if (!std::isalpha(s[0]) && s[0] != '_' && s[0] != '.' && s[0] != '@' && s[0] != '?')
@@ -2673,9 +2681,8 @@ protected:
             return true;
         }
     private:
-        static bool is_in_set(const std::string& s, const std::set<std::string>& set) {
-            return set.count(s);
-        }
+        Context& m_context;
+        static bool is_in_set(const std::string& s, const std::set<std::string>& set) { return set.count(s); }
         static const std::set<std::string>& mnemonics() {
             static const std::set<std::string> mnemonics = {
                 "ADC", "ADD", "AND", "BIT", "CALL", "CCF", "CP", "CPD", "CPDR", "CPI", "CPIR", "CPL", "DAA", "DEC", "DI",
@@ -2705,11 +2712,11 @@ protected:
     class Instructions{
     public:
         Instructions(IPhasePolicy& policy) : m_policy(policy) {}
-        bool encode(const std::string& mnemonic, const std::vector<typename Operands::Operand>& operands) {
-            if (Keywords::is_directive(mnemonic)) {
+        bool encode(const std::string& mnemonic, const std::vector<typename Operands::Operand>& operands) {            
+            if (m_policy.context().assembler.m_keywords.is_directive(mnemonic)) {
                 if (encode_data_block(mnemonic, operands))
                     return true;
-            } else if (!Keywords::is_mnemonic(mnemonic))
+            } else if (!m_policy.context().assembler.m_keywords.is_mnemonic(mnemonic))
                 m_policy.context().assembler.report_error("Unknown mnemonic: " + mnemonic);
             switch (operands.size()) {
             case 0:
@@ -3886,14 +3893,14 @@ protected:
             const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
             if (const_opts.enabled && const_opts.allow_define && m_tokens.count() >= 2) {
                 size_t define_idx = 0;
-                if (m_tokens.count() > 1 && Keywords::is_valid_label_name(m_tokens[0].original()) && !Keywords::is_reserved(m_tokens[0].upper())) {
+                if (m_tokens.count() > 1 && m_policy.context().assembler.m_keywords.is_valid_label_name(m_tokens[0].original()) && !m_policy.context().assembler.m_keywords.is_reserved(m_tokens[0].upper())) {
                     define_idx = 1;
                 }
                 if (m_tokens.count() > define_idx && m_tokens[define_idx].upper() == "DEFINE") {
                     if (m_tokens.count() < define_idx + 2)
                         m_policy.context().assembler.report_error("DEFINE directive requires a key.");
                     const std::string& key = m_tokens[define_idx + 1].original();
-                    if (!Keywords::is_valid_label_name(key))
+                    if (!m_policy.context().assembler.m_keywords.is_valid_label_name(key))
                         m_policy.context().assembler.report_error("Invalid key name for DEFINE directive: '" + key + "'");
                     std::string value;
                     if (m_tokens.count() > define_idx + 2) {
@@ -3987,6 +3994,8 @@ protected:
                 return false;
             if (process_constant_directives())
                 return true;
+            if (process_custom_directives())
+                return true;
             if (process_procedures())
                 return true;
             if (process_memory_directives())
@@ -4003,7 +4012,7 @@ protected:
             const auto& label_options = m_policy.context().assembler.m_options.labels;
             const auto& first_token = m_tokens[0];
             std::string label_str = first_token.original();
-            bool is_label = false;
+            bool is_label = false;            
             if (label_options.allow_colon) {
                 if (label_str.length() > 1 && label_str.back() == ':') {
                     label_str.pop_back();
@@ -4011,7 +4020,7 @@ protected:
                 }
             }
             if (!is_label && label_options.allow_no_colon) {
-                if (!Keywords::is_reserved(first_token.upper())) {
+                if (!m_policy.context().assembler.m_keywords.is_reserved(first_token.upper())) {
                     if (m_tokens.count() > 1) {
                         const std::string& next_token_upper = m_tokens[1].upper();
                         if (next_token_upper != "EQU" && next_token_upper != "SET" && next_token_upper != "DEFL" && next_token_upper != "=" && next_token_upper != "PROC")
@@ -4021,7 +4030,7 @@ protected:
                 }
             }
             if (is_label) {
-                if (!Keywords::is_valid_label_name(label_str))
+                if (!m_policy.context().assembler.m_keywords.is_valid_label_name(label_str))
                     m_policy.context().assembler.report_error("Invalid label name: '" + label_str + "'");
                 m_policy.on_label_definition(label_str);
                 m_tokens.remove(0);
@@ -4112,7 +4121,7 @@ protected:
             }
             if (m_tokens.count() >= 3 && m_tokens[1].original() == "=") {
                 const std::string& label = m_tokens[0].original();
-                if (Keywords::is_valid_label_name(label) && !Keywords::is_reserved(m_tokens[0].upper())) {
+                if (m_policy.context().assembler.m_keywords.is_valid_label_name(label)) {
                     m_tokens.merge(2, m_tokens.count() - 1);
                     const std::string& value = m_tokens[2].original();
                     if (!const_opts.assignments_as_set && const_opts.allow_equ)
@@ -4126,7 +4135,7 @@ protected:
                 const std::string& directive = m_tokens[1].upper();
                 if (directive == "EQU" || directive == "SET" || directive == "DEFL") {
                     const std::string& label = m_tokens[0].original();
-                    if (!Keywords::is_valid_label_name(label))
+                    if (!m_policy.context().assembler.m_keywords.is_valid_label_name(label))
                         m_policy.context().assembler.report_error("Invalid label name for directive: '" + label + "'");
                     m_tokens.merge(2, m_tokens.count() - 1);
                     const std::string& value = m_tokens[2].original();
@@ -4141,11 +4150,27 @@ protected:
             }
             return false;
         }
+        bool process_custom_directives() {
+            if (m_tokens.count() == 0)
+                return false;
+            const std::string& directive_upper = m_tokens[0].upper();
+            auto it = m_policy.context().assembler.custom_directives.find(directive_upper);
+            if (it != m_policy.context().assembler.custom_directives.end()) {
+                std::vector<typename Strings::Tokens::Token> args;
+                if (m_tokens.count() > 1) {
+                    m_tokens.merge(1, m_tokens.count() - 1);
+                    args = m_tokens[1].to_arguments();
+                }
+                it->second(m_policy, args);
+                return true;
+            }
+            return false;
+        }
         bool process_procedures() {
             if (m_policy.context().assembler.m_options.directives.allow_proc) {
                 if (m_tokens.count() == 2 && m_tokens[1].upper() == "PROC") {
                     const std::string& proc_name = m_tokens[0].original();
-                    if (Keywords::is_valid_label_name(proc_name)) {
+                    if (m_policy.context().assembler.m_keywords.is_valid_label_name(proc_name)) {
                         m_policy.on_proc_begin(proc_name);
                         m_policy.context().source.control_stack.push_back(Context::Source::ControlType::PROCEDURE);
                         return true;
@@ -4264,6 +4289,8 @@ protected:
     std::map<std::string, typename Expressions::FunctionInfo> custom_functions;
     std::map<std::string, typename Expressions::OperatorInfo> custom_operators;
     std::map<std::string, double> custom_constants;
+    std::map<std::string, std::function<void(IPhasePolicy&, const std::vector<typename Strings::Tokens::Token>&)>> custom_directives;
+    Keywords m_keywords;
     size_t max_operator_len = 0;
     const Options m_options;
     Context m_context;

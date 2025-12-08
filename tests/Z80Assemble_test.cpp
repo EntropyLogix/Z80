@@ -3440,11 +3440,21 @@ TEST_CASE(PhaseVariable) {
 class TestAssembler : public Z80Assembler<Z80DefaultBus> {
 public:
     using Z80Assembler<Z80DefaultBus>::Z80Assembler;
+    using BasePolicy = typename Z80Assembler<Z80DefaultBus>::BasePolicy;
 
     using OperatorInfo = typename Z80Assembler<Z80DefaultBus>::Expressions::OperatorInfo;
     using Value = typename Z80Assembler<Z80DefaultBus>::Expressions::Value;
     using FunctionInfo = typename Z80Assembler<Z80DefaultBus>::Expressions::FunctionInfo;
+    using IPhasePolicy = typename Z80Assembler<Z80DefaultBus>::IPhasePolicy;
+    using Strings = typename Z80Assembler<Z80DefaultBus>::Strings;
+    using Expressions = typename Z80Assembler<Z80DefaultBus>::Expressions;
+
     using Context = typename Z80Assembler<Z80DefaultBus>::Context;
+
+    // Expose report_error for testing purposes
+    void report_error(const std::string& message) const override {
+        Z80Assembler<Z80DefaultBus>::report_error(message);
+    }
 
     void public_add_custom_operator(const std::string& op_string, const OperatorInfo& op_info) {
         add_custom_operator(op_string, op_info);
@@ -3456,6 +3466,30 @@ public:
 
     void public_add_custom_constant(const std::string& const_name, double value) {
         add_custom_constant(const_name, value);
+    }
+
+    void public_add_custom_directive(const std::string& name, std::function<void(IPhasePolicy&, const std::vector<typename Strings::Tokens::Token>&)> func) {
+        add_custom_directive(name, func);
+    }
+
+    static void fourty_two_handler(IPhasePolicy& policy, const std::vector<typename Strings::Tokens::Token>& args) {
+        if (!args.empty()) {
+            static_cast<TestAssembler&>(policy.context().assembler).report_error("FOURTY_TWO does not take arguments");
+        }
+        policy.on_assemble({42});
+    }
+
+    static void fill_handler(IPhasePolicy& policy, const std::vector<typename Strings::Tokens::Token>& args) {
+        if (args.size() != 2) {
+            static_cast<TestAssembler&>(policy.context().assembler).report_error("FILL requires 2 arguments: count and value");
+        }
+        Expressions expr_eval(policy);
+        int32_t count, value;
+        if (!expr_eval.evaluate(args[0].original(), count) || !expr_eval.evaluate(args[1].original(), value)) {
+            static_cast<TestAssembler&>(policy.context().assembler).report_error("Invalid arguments for FILL");
+        }
+        std::vector<uint8_t> bytes(count, (uint8_t)value);
+        policy.on_assemble(bytes);
     }
 };
 
@@ -3578,6 +3612,39 @@ TEST_CASE(CustomFunctionsAndConstants) {
         // This should throw an exception during add_custom_function, which the test framework doesn't catch well.
         // We expect the compile to fail because the error is reported.
         ASSERT_COMPILE_FAILS_WITH_OPTS("assembler.add_custom_function(\"SIN\", dummy_func)", {});
+    }
+}
+
+TEST_CASE(CustomDirectives) {
+    // Test 1: Add a simple directive without arguments
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+
+        assembler.public_add_custom_directive("FOURTY_TWO", &TestAssembler::fourty_two_handler);
+
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "FOURTY_TWO", {42});
+    }
+
+    // Test 2: Add a directive with arguments
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+
+        assembler.public_add_custom_directive("FILL", &TestAssembler::fill_handler);
+
+        ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "FILL 3, 0xAA", {0xAA, 0xAA, 0xAA});
+    }
+
+    // Test 3: Attempt to override a built-in directive (should fail)
+    {
+        Z80DefaultBus bus;
+        MockFileProvider file_provider;
+        TestAssembler assembler(&bus, &file_provider);
+        
+        ASSERT_COMPILE_FAILS("assembler.public_add_custom_directive(\"DB\", nullptr)");
     }
 }
 
