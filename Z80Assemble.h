@@ -366,10 +366,6 @@ public:
         uint16_t start_address;
         uint16_t size;
     };
-    Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = get_default_options()) : m_options(options), m_context(*this) {
-        m_context.memory = memory;
-        m_context.source_provider = source_provider;
-    }
     struct SourceLine {
         std::string file_path;
         size_t line_number;
@@ -380,7 +376,12 @@ public:
         uint16_t address;
         std::vector<uint8_t> bytes;
     };
-    bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
+    Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = get_default_options()) : m_options(options), m_context(*this) {
+        m_context.memory = memory;
+        m_context.source_provider = source_provider;
+    }
+    virtual ~Z80Assembler() {}
+    virtual bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
         Preprocessor preprocessor(m_context);
         std::vector<SourceLine> source_lines;
         try {
@@ -422,11 +423,11 @@ public:
         }
         return true;
     }
-    const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
-    const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
-    const std::vector<ListingLine>& get_listing() const { return m_context.results.listing; }
-private:
-    [[noreturn]]void report_error(const std::string& message) const {
+    virtual const std::map<std::string, SymbolInfo>& get_symbols() const { return m_context.results.symbols_table; }
+    virtual const std::vector<BlockInfo>& get_blocks() const { return m_context.results.blocks_table; }
+    virtual const std::vector<ListingLine>& get_listing() const { return m_context.results.listing; }
+protected:
+    [[noreturn]] virtual void report_error(const std::string& message) const {
         std::stringstream error_stream;
         if (m_context.source.source_location)
             error_stream << m_context.source.source_location->file_path << ":" << m_context.source.source_location->line_number << ": ";
@@ -439,9 +440,8 @@ private:
              error_stream << "\n    " << m_context.source.source_location->content;
         throw std::runtime_error(error_stream.str());
     }
-    const Options m_options;
     class IPhasePolicy;
-class Strings {
+    class Strings {
     public:
         static void trim_whitespace(std::string& s) {
             const char* whitespace = " \t";
@@ -2683,6 +2683,7 @@ class Strings {
                 break;
             }
             m_policy.context().assembler.report_error("Invalid instruction or operands for mnemonic: " + mnemonic);
+            return false;
         }
     private:
         static const std::map<std::string, uint8_t>& reg8_map() {
@@ -4217,6 +4218,7 @@ class Strings {
         typename Strings::Tokens m_tokens;
         bool m_end_of_source = false;
     };
+    const Options m_options;
     Context m_context;
 };
 
