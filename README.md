@@ -31,9 +31,9 @@ The `Z80` class is a template that can be configured with up to three external i
 
 ```cpp
 template <
-    typename TBus = Z80DefaultBus, 
-    typename TEvents = Z80DefaultEvents, 
-    typename TDebugger = Z80DefaultDebugger
+    typename TBus = Z80StandardBus, 
+    typename TEvents = Z80StandardEvents, 
+    typename TDebugger = Z80StandardDebugger
 >
 class Z80 {
 public:
@@ -154,7 +154,7 @@ Responsible for all communication with memory and I/O ports.
 | `void out(uint16_t port, uint8_t value)` | Writes a single byte to the 16-bit I/O port address space. |
 | `void reset()` | Resets the bus state (e.g., clears RAM, resets connected devices). |
 
-**Default Implementation (`Z80DefaultBus`):**
+**Default Implementation (`Z80StandardBus`):**
 Provides a simple 64KB RAM space (`std::vector<uint8_t>`). `read`/`write` operations access this internal RAM, `in` operations always return `0xFF`, and `out` operations do nothing. This is useful for basic testing.
 
 #### `TEvents` Interface
@@ -167,7 +167,7 @@ Manages cycle-dependent events, which are crucial for precise, hardware-accurate
 | `void handle_event(long long tick)` | A callback function invoked by the CPU when its cycle counter reaches the value returned by `get_event_limit()`. Used to handle timing-based events (e.g., video frame interrupts). |
 | `void reset()` | Resets the state of the event system. |
 
-**Default Implementation (`Z80DefaultEvents`):**
+**Default Implementation (`Z80StandardEvents`):**
 A minimal event handler that effectively disables the event system for maximum performance. The next event is scheduled for the maximum possible cycle count (`LLONG_MAX`), so `handle_event` is never called.
 
 #### `TDebugger` Interface
@@ -182,7 +182,7 @@ Provides hooks that allow an external tool to be attached to monitor and trace c
 | `void before_NMI()` / `void after_NMI()` | Hooks called just before and after handling a non-maskable interrupt (NMI). |
 | `void reset()` | Resets the internal state of the debugger. |
 
-**Default Implementation (`Z80DefaultDebugger`):**
+**Default Implementation (`Z80StandardDebugger`):**
 A stub implementation with empty methods. All debugger hooks are no-ops and will be optimized out by the compiler, ensuring zero performance overhead when debugging is not needed.
 
 ### **Example Implementation Snippets**
@@ -190,7 +190,7 @@ A stub implementation with empty methods. All debugger hooks are no-ops and will
 The following snippets demonstrate how to initialize and use the Z80 core in various configurations.
 
 #### 1. Using Default Implementations
-The simplest way to get the CPU running, perfect for basic tests. It uses `Z80DefaultBus` (with 64KB RAM), `Z80DefaultEvents` (no events), and `Z80DefaultDebugger` (no debugging).
+The simplest way to get the CPU running, perfect for basic tests. It uses `Z80StandardBus` (with 64KB RAM), `Z80StandardEvents` (no events), and `Z80StandardDebugger` (no debugging).
 
 ```cpp
 #include "Z80.h"
@@ -251,7 +251,7 @@ Ideal when you need precise timing, such as for synchronizing with a video chip 
 class CustomEvents {
     // ... implement get_event_limit, handle_event, reset, connect ...
 public:
-    void connect(const Z80<Z80DefaultBus, CustomEvents>* cpu) { /* ... */ }
+    void connect(const Z80<Z80StandardBus, CustomEvents>* cpu) { /* ... */ }
     void reset() { /* ... */ }
     long long get_event_limit() const { return 20000; } // Trigger event every 20000 ticks
     void handle_event(long long tick) {
@@ -263,7 +263,7 @@ public:
 int main() {
     CustomEvents my_events;
     // Use the default bus (nullptr) and a custom event system
-    Z80<Z80DefaultBus, CustomEvents> cpu(nullptr, &my_events);
+    Z80<Z80StandardBus, CustomEvents> cpu(nullptr, &my_events);
     cpu.run(100000);
     return 0;
 }
@@ -420,7 +420,7 @@ include(FetchContent)
 FetchContent_Declare(
   Z80
   GIT_REPOSITORY https://github.com/EntropyLogix/Z80
-  GIT_TAG        v1.1.2 # You can use a tag, branch, or a specific commit
+  GIT_TAG        v1.1.5 # You can use a tag, branch, or a specific commit
 )
 
 # Download and make the library available
@@ -502,7 +502,7 @@ private:
 #include <iostream>
 
 int main() {
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
     MemorySourceProvider source_provider;
 
     // Add source code to the provider
@@ -517,11 +517,11 @@ int main() {
     source_provider.add_source("main.asm", code);
 
     // Create an assembler instance
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &source_provider);
 
     try {
         // Compile the code
-        if (assembler.compile("main.asm")) {
+        if (assembler.compile("main.asm", 0x0000)) {
             std::cout << "Assembly successful!" << std::endl;
             // You can now inspect the bus memory
         }
@@ -603,11 +603,11 @@ public:
 };
 
 int main() {
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
     MemorySourceProvider source_provider;
 
     // 2. Instantiate your custom assembler class
-    MyCustomAssembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    MyCustomAssembler<Z80StandardBus> assembler(&bus, &source_provider);
 
     // 3. Use the assembler as usual
     // assembler.compile("source.asm");
@@ -693,7 +693,7 @@ To use the analyzer, you need to instantiate it by passing a pointer to a memory
 #include <iomanip>
 
 int main() {
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
 
     // Load some machine code into the bus
     // ORG 0x8000
@@ -711,12 +711,12 @@ int main() {
     bus.poke(0x8007, 0x80);
 
     // Create an analyzer instance
-    Z80Analyzer<Z80DefaultBus> analyzer(&bus);
+    Z80Analyzer<Z80StandardBus> analyzer(&bus);
 
     // Disassemble 5 lines of code starting at 0x8000
     std::cout << "--- Disassembly ---" << std::endl;
     uint16_t pc = 0x8000;
-    auto code_lines = analyzer.parse_code(pc, 5, Z80Analyzer<Z80DefaultBus>::AnalysisMode::RAW);
+    auto code_lines = analyzer.parse_code(pc, 5, nullptr, false, false);
 
     for (const auto& line : code_lines) {
         std::cout << "0x" << std::hex << std::setw(4) << std::setfill('0') << line.address << ": ";
@@ -728,7 +728,7 @@ int main() {
              if (!op.s_val.empty()) {
                  std::cout << op.s_val;
              } else {
-                 if (op.type == Z80Analyzer<Z80DefaultBus>::CodeLine::Operand::Type::MEM_IMM16) {
+                 if (op.type == Z80Analyzer<Z80StandardBus>::CodeLine::Operand::Type::MEM_IMM16) {
                      std::cout << "(0x" << std::hex << op.num_val << ")";
                  } else {
                      std::cout << "0x" << std::hex << op.num_val;

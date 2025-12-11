@@ -80,7 +80,7 @@ private:
     std::vector<std::filesystem::path> m_current_path_stack;
 };
 
-void write_map_file(const std::string& file_path, const std::map<std::string, Z80Assembler<Z80DefaultBus>::SymbolInfo>& symbols) {
+void write_map_file(const std::string& file_path, const std::map<std::string, Z80Assembler<Z80StandardBus>::SymbolInfo>& symbols) {
     std::ofstream file(file_path);
     if (!file)
         throw std::runtime_error("Cannot open map file for writing: " + file_path);
@@ -95,7 +95,7 @@ void write_map_file(const std::string& file_path, const std::map<std::string, Z8
     }
 }
 
-void write_bin_file(const std::string& file_path, const Z80DefaultBus& bus, const std::vector<Z80Assembler<Z80DefaultBus>::BlockInfo>& blocks) {
+void write_bin_file(const std::string& file_path, const Z80StandardBus& bus, const std::vector<Z80Assembler<Z80StandardBus>::BlockInfo>& blocks) {
     if (blocks.empty())
         return;
     uint16_t min_addr = blocks[0].start_address;
@@ -130,7 +130,7 @@ std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
     return ss.str();
 }
 
-void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler<Z80DefaultBus>::ListingLine>& listing) {
+void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler<Z80StandardBus>::ListingLine>& listing) {
     std::ofstream file(file_path);
     if (!file)
         throw std::runtime_error("Cannot open listing file for writing: " + file_path);
@@ -172,9 +172,9 @@ int main(int argc, char* argv[]) {
     std::string output_map_file = input_path.replace_extension(".map").string();
     std::string output_lst_file = input_path.replace_extension(".lst").string();
     Z80<> cpu;
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
     FileSystemSourceProvider source_provider;
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &source_provider);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &source_provider);
     try {
         std::cout << "Assembling source code from: " << input_file << std::endl;
         if (assembler.compile(input_file, 0x0000)) {

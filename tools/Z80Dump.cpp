@@ -65,7 +65,7 @@ std::vector<uint8_t> read_file(const std::string& path) {
     return buffer;
 }
 
-bool load_bin_file(Z80DefaultBus& bus, const std::vector<uint8_t>& data, uint16_t load_addr) {
+bool load_bin_file(Z80StandardBus& bus, const std::vector<uint8_t>& data, uint16_t load_addr) {
     for (size_t i = 0; i < data.size(); ++i) {
         if (load_addr + i > 0xFFFF) {
             std::cerr << "Warning: Binary file too large, truncated at 0xFFFF." << std::endl;
@@ -233,7 +233,7 @@ private:
     std::map<uint16_t, std::string> m_labels;
 };
 
-using Analyzer = Z80Analyzer<Z80DefaultBus>;
+using Analyzer = Z80Analyzer<Z80StandardBus>;
 
 std::string format_operands(const std::vector<Analyzer::CodeLine::Operand>& operands) {
     if (operands.empty())
@@ -392,7 +392,9 @@ int main(int argc, char* argv[]) {
         uint16_t disasm_addr = resolve_address(disasm_addr_str, cpu);
         std::cout << "--- Disassembly from " << format_hex(disasm_addr, 4) << " (" << std::dec << disasm_lines << " lines) ---\n";
         uint16_t pc = disasm_addr;
-        auto listing = analyzer.parse_code(pc, disasm_lines, disassembly_mode); 
+        bool use_execution = (disassembly_mode == Analyzer::AnalysisMode::EXEC);
+        bool use_heuristic = (disassembly_mode == Analyzer::AnalysisMode::HEURISTIC);
+        auto listing = analyzer.parse_code(pc, disasm_lines, nullptr, use_execution, use_heuristic); 
         std::cout << std::setfill(' ');
         for (const auto& line_info : listing) {
             uint16_t start_pc = line_info.address;

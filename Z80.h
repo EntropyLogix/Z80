@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
-// Verson: 1.1.2
+// Verson: 1.1.5
 //
 // This file defines the core Z80 processor emulation class,
 // including register definitions, state management, and instruction execution logic.
@@ -30,11 +30,11 @@
     #define Z80_LIKELY(expr) (expr)
 #endif
 
-class Z80DefaultBus;
-class Z80DefaultEvents;
-class Z80DefaultDebugger;
+class Z80StandardBus;
+class Z80StandardEvents;
+class Z80StandardDebugger;
 
-template <typename TBus = Z80DefaultBus, typename TEvents = Z80DefaultEvents, typename TDebugger = Z80DefaultDebugger>
+template <typename TBus = Z80StandardBus, typename TEvents = Z80StandardEvents, typename TDebugger = Z80StandardDebugger>
 class Z80 {
 public:
     union Register {
@@ -315,7 +315,7 @@ public:
         m_ticks = value;
     }
     void add_tick() {
-        if constexpr (std::is_same_v<TEvents, Z80DefaultEvents>) {
+        if constexpr (std::is_same_v<TEvents, Z80StandardEvents>) {
             ++m_ticks;
         } else {
             if (Z80_LIKELY(++m_ticks != m_events->get_event_limit()))
@@ -324,7 +324,7 @@ public:
         }
     }
     void add_ticks(long long delta) {
-        if constexpr (std::is_same_v<TEvents, Z80DefaultEvents>) {
+        if constexpr (std::is_same_v<TEvents, Z80StandardEvents>) {
             m_ticks += delta;
         } else {
             long long target_ticks = m_ticks + delta;
@@ -750,7 +750,7 @@ private:
         uint8_t opcode = m_bus->read(current_pc);
         m_data_bus = opcode;
 #ifdef Z80_DEBUGGER_OPCODES
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+        if constexpr (!std::is_same_v<TDebugger, Z80StandardDebugger>)
             m_opcodes.push_back(opcode);
 #endif // Z80_DEBUGGER_OPCODES
         uint8_t r_val = get_R();
@@ -764,7 +764,7 @@ private:
         uint16_t current_pc = get_PC();
         uint8_t byte_val = read_byte(current_pc);
 #ifdef Z80_DEBUGGER_OPCODES
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+        if constexpr (!std::is_same_v<TDebugger, Z80StandardDebugger>)
             m_opcodes.push_back(byte_val);
 #endif // Z80_DEBUGGER_OPCODES
         set_PC(current_pc + 1);
@@ -1214,7 +1214,7 @@ private:
     }
     // Interrupt handling
     void handle_NMI() {
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+        if constexpr (!std::is_same_v<TDebugger, Z80StandardDebugger>)
             m_debugger->before_NMI();
         set_halted(false);
         set_IFF2(get_IFF1());
@@ -1224,11 +1224,11 @@ private:
         set_PC(0x0066);
         set_NMI_pending(false);
         add_ticks(4);
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+        if constexpr (!std::is_same_v<TDebugger, Z80StandardDebugger>)
             m_debugger->after_NMI();
     }
     void handle_IRQ() {
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+        if constexpr (!std::is_same_v<TDebugger, Z80StandardDebugger>)
             m_debugger->before_IRQ();
         set_halted(false);
         add_ticks(2); // Two wait states during interrupt acknowledge cycle
@@ -1291,7 +1291,7 @@ private:
         }
         }
         set_IRQ_request(false);
-        if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+        if constexpr (!std::is_same_v<TDebugger, Z80StandardDebugger>)
             m_debugger->after_IRQ();
     }
 
@@ -3133,7 +3133,7 @@ private:
                 else
                     add_ticks(ticks_limit - get_ticks());
             } else {
-                if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>) {
+                if constexpr (!std::is_same_v<TDebugger, Z80StandardDebugger>) {
 #ifdef Z80_DEBUGGER_OPCODES
                     m_opcodes.clear();
 #endif // Z80_DEBUGGER_OPCODES
@@ -4161,7 +4161,7 @@ private:
                 else
                     set_Q(0);
             }
-            if constexpr (!std::is_same_v<TDebugger, Z80DefaultDebugger>)
+            if constexpr (!std::is_same_v<TDebugger, Z80StandardDebugger>)
 #ifdef Z80_DEBUGGER_OPCODES
                 m_debugger->after_step(m_opcodes);
 #else
@@ -7655,12 +7655,12 @@ public:
     }
 #endif
 };
-class Z80DefaultBus {
+class Z80StandardBus {
 public:
-    Z80DefaultBus() {
+    Z80StandardBus() {
         m_ram.resize(0x10000, 0);
     }
-    template <typename TEvents, typename TDebugger> void connect(Z80<Z80DefaultBus, TEvents, TDebugger>* cpu) {
+    template <typename TEvents, typename TDebugger> void connect(Z80<Z80StandardBus, TEvents, TDebugger>* cpu) {
     }
     void reset() {
         std::fill(m_ram.begin(), m_ram.end(), 0);
@@ -7686,10 +7686,10 @@ public:
 private:
     std::vector<uint8_t> m_ram;
 };
-class Z80DefaultEvents {
+class Z80StandardEvents {
 public:
     static constexpr long long CYCLES_PER_EVENT = LLONG_MAX;
-    template <typename TBus, typename TDebugger> void connect(const Z80<TBus, Z80DefaultEvents, TDebugger>* cpu) {
+    template <typename TBus, typename TDebugger> void connect(const Z80<TBus, Z80StandardEvents, TDebugger>* cpu) {
     }
     void reset() {
     }
@@ -7699,9 +7699,9 @@ public:
     void handle_event(long long tick) {
     }
 };
-class Z80DefaultDebugger {
+class Z80StandardDebugger {
 public:
-    template <typename TBus, typename TEvents> void connect(const Z80<TBus, TEvents, Z80DefaultDebugger>* cpu) {
+    template <typename TBus, typename TEvents> void connect(const Z80<TBus, TEvents, Z80StandardDebugger>* cpu) {
     }
     void reset() {
     }
@@ -7718,5 +7718,10 @@ public:
     void after_NMI() {
     }
 };
+
+// Compatibility aliases for older code
+using Z80DefaultBus = Z80StandardBus;
+using Z80DefaultEvents = Z80StandardEvents;
+using Z80DefaultDebugger = Z80StandardDebugger;
 
 #endif //__Z80_H__
