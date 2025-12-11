@@ -110,7 +110,10 @@ public:
         std::vector<uint8_t> bytes;
     };
     Z80Analyzer(TMemory* memory, ILabels* labels = nullptr) : m_memory(memory), m_labels(labels) {}
-   class CodeMapProfiler {
+    virtual ~Z80Analyzer() = default;
+
+    enum class AnalysisMode { RAW, HEURISTIC, EXEC };
+    class CodeMapProfiler {
     public:
         CodeMapProfiler(CodeMap& map, TMemory* mem) 
             : m_code_map(map), m_memory(mem), m_cpu(nullptr), m_labels(nullptr) {}
@@ -161,8 +164,9 @@ public:
                             is_ret = true; // RETN / RETI
                    }
                    if (!is_ret && m_labels->get_label(pc_after).empty()) {
+                        bool is_call = (opcode == 0xCD) || ((opcode & 0xC7) == 0xC4) || ((opcode & 0xC7) == 0xC7);
                         std::stringstream ss;
-                        ss << "L_" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << pc_after;
+                        ss << (is_call ? "SUB_" : "L_") << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << pc_after;
                         m_labels->add_label(pc_after, ss.str());
                    }
                }
@@ -180,123 +184,24 @@ public:
         bool m_inside_instruction = false;
         uint8_t m_instruction_byte_count = 0;
     };
-    enum class AnalysisMode { RAW, HEURISTIC, EXEC };
-    std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruction_limit, CodeMap* external_code_map = nullptr, bool use_execution = false, bool use_heuristic = false) {
-        // Map preparation.
+virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruction_limit, CodeMap* external_code_map = nullptr, bool use_execution = false, bool use_heuristic = false) {
         CodeMap local_map;
-        CodeMap* pMap = external_code_map;
+        CodeMap* pMap = external_code_map; 
         if (!pMap) {
             local_map.resize(0x10000, FLAG_NONE);
             pMap = &local_map;
         } else if (pMap->size() < 0x10000)
             pMap->resize(0x10000, FLAG_NONE);
-        bool has_map_info = external_code_map != nullptr;
-        // Execution Phase (Dynamic Analysis)
+        bool has_map_info = (external_code_map != nullptr);
         if (use_execution) {
-            CodeMapProfiler profiler(*pMap, m_memory);
-            profiler.set_labels(m_labels);
-            Z80<CodeMapProfiler, Z80StandardEvents, CodeMapProfiler> cpu(&profiler, nullptr, &profiler);
-            profiler.connect(&cpu);
-            cpu.set_PC(start_address);
-            std::set<uint16_t> executed_pcs;
-            for (size_t i = 0; i < EXECUTION_TRACE_LIMIT; ++i) {
-                uint16_t pc = cpu.get_PC();
-                executed_pcs.insert(pc);
-                cpu.step();
-                if (cpu.is_halted())
-                    break;
-            }
-            has_map_info = true;
+            run_execution_phase(*pMap, start_address);
+            has_map_info = true; 
         }
-        // Heuristic Phase (Static Analysis - Recursive Descent)
         if (use_heuristic) {
-            std::vector<uint16_t> work_list;
-            bool found_existing_code = false;
-            for(size_t i=0; i<pMap->size(); ++i) {
-                if ((*pMap)[i] & FLAG_CODE_START) {
-                    work_list.push_back(static_cast<uint16_t>(i));
-                    found_existing_code = true;
-                }
-            }
-            if (!found_existing_code || work_list.empty())
-                work_list.push_back(start_address);
-
-            while (!work_list.empty()) {
-                uint16_t current_addr = work_list.back();
-                work_list.pop_back();
-                if ((*pMap)[current_addr] & FLAG_VISITED)
-                    continue;
-                while (true) {
-                    if ((*pMap)[current_addr] & FLAG_VISITED)
-                        break;
-                    CodeLine line = parse_instruction(current_addr);
-                    uint16_t instr_start = line.address;
-                    (*pMap)[instr_start] |= (FLAG_CODE_START | FLAG_VISITED);
-                    for (size_t k = 1; k < line.bytes.size(); ++k) {
-                        if (instr_start + k < 0x10000)
-                             (*pMap)[instr_start + k] |= (FLAG_CODE_INTERIOR | FLAG_VISITED);
-                    }
-                    if (line.type == CodeLine::Type::JUMP || line.type == CodeLine::Type::CALL) {
-                        const auto& last_op = line.operands.back();
-                        if (last_op.type == CodeLine::Operand::Type::IMM16) {
-                            work_list.push_back(static_cast<uint16_t>(last_op.num_val));
-                            if (m_labels && m_labels->get_label(static_cast<uint16_t>(last_op.num_val)).empty()) {
-                                uint16_t target_addr = static_cast<uint16_t>(last_op.num_val);
-                                std::stringstream ss;
-                                ss << "L_" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << target_addr;
-                                m_labels->add_label(target_addr, ss.str());
-                            }
-                        }
-                    }
-                    bool stop = false;
-                    if (line.mnemonic == "RET" || line.mnemonic == "RETI" || line.mnemonic == "RETN" || line.mnemonic == "HALT") 
-                        stop = true;
-                    else if (line.mnemonic == "JP" || line.mnemonic == "JR") {
-                         bool is_conditional = !line.operands.empty() && line.operands[0].type == CodeLine::Operand::Type::CONDITION;
-                         if (!is_conditional)
-                            stop = true;
-                    }
-                    if (stop)
-                        break;
-                }
-            }
+            run_heuristic_phase(*pMap, start_address);
             has_map_info = true;
         }
-        // Generation Phase (Generation / Linear Sweep)
-        std::vector<CodeLine> result;
-        uint32_t pc = start_address;
-        while (pc < 0x10000 && result.size() < instruction_limit) {
-            uint16_t current_pc = static_cast<uint16_t>(pc);
-            bool is_code = false;
-            if (has_map_info) {
-                if ((*pMap)[current_pc] & FLAG_CODE_START) {
-                    is_code = true;
-                } else if ((*pMap)[current_pc] & FLAG_CODE_INTERIOR) {
-                    pc++; 
-                    continue; 
-                }
-            } else
-                is_code = true; 
-            if (is_code) {
-                uint16_t temp_pc = current_pc;
-                CodeLine line = parse_instruction(temp_pc);
-                if (line.bytes.empty()) {
-                    result.push_back(parse_db(current_pc, 1));
-                    pc++;
-                } else {
-                    result.push_back(line);
-                    pc = temp_pc;
-                }
-            } else {
-                group_data_blocks(pc, result, instruction_limit, [&](uint32_t addr) { 
-                    if (addr >= 0x10000)
-                        return false;
-                    return !((*pMap)[addr] & (FLAG_CODE_START | FLAG_CODE_INTERIOR));
-                });
-            }
-        }
-        start_address = static_cast<uint16_t>(pc);
-        return result;
+        return generate_listing(*pMap, start_address, instruction_limit, has_map_info);
     }
     CodeLine parse_db(uint16_t& address, size_t count = 1) {
         CodeLine line_info;
@@ -2403,7 +2308,7 @@ public:
             return to_db(line_info);
         return line_info;
     }
-private:
+protected:
     static constexpr size_t EXECUTION_TRACE_LIMIT = 1000000;
     enum class IndexMode { HL, IX, IY };
     struct ParseContext {
@@ -2428,7 +2333,6 @@ private:
         std::vector<uint8_t>& bytes;
         TMemory* memory;
     };
-
     void group_data_blocks(uint32_t& pc, std::vector<CodeLine>& result, size_t instruction_limit, std::function<bool(uint32_t)> is_data) {
         while (pc < 0x10000 && is_data(pc)) {
             if (result.size() >= instruction_limit)
@@ -2516,6 +2420,108 @@ private:
         int8_t offset = static_cast<int8_t>(*byte_opt);
         std::string base_reg = (get_index_mode() == IndexMode::IX) ? "IX" : "IY"; 
         return typename CodeLine::Operand(CodeLine::Operand::MEM_INDEXED, "", offset, base_reg);
+    }
+void run_execution_phase(CodeMap& map, uint16_t start_addr) {
+        CodeMapProfiler profiler(map, m_memory);
+        profiler.set_labels(m_labels);
+        Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler> cpu(&profiler, nullptr, &profiler);
+        profiler.connect(&cpu);
+        cpu.set_PC(start_addr);
+        std::set<uint16_t> executed_pcs;
+        for (size_t i = 0; i < EXECUTION_TRACE_LIMIT; ++i) {
+            uint16_t pc = cpu.get_PC();
+            if (executed_pcs.count(pc)) { /* Loop detected */ }
+            executed_pcs.insert(pc);
+            cpu.step();
+            if (cpu.is_halted()) break;
+        }
+    }
+
+    void run_heuristic_phase(CodeMap& map, uint16_t start_addr) {
+        std::vector<uint16_t> work_list;
+        bool found_existing_code = false;
+        for(size_t i=0; i<map.size(); ++i) {
+            if (map[i] & FLAG_CODE_START) {
+                if (!(map[i] & FLAG_VISITED)) work_list.push_back(static_cast<uint16_t>(i));
+                found_existing_code = true;
+            }
+        }
+        if (!found_existing_code || work_list.empty())
+            work_list.push_back(start_addr);
+        while (!work_list.empty()) {
+            uint16_t current_addr = work_list.back();
+            work_list.pop_back();
+            if (map[current_addr] & FLAG_VISITED)
+                continue;
+            while (true) {
+                if (map[current_addr] & FLAG_VISITED) break;
+                uint16_t temp_pc = current_addr;
+                CodeLine line = parse_instruction(temp_pc);
+                uint16_t len = temp_pc - current_addr;
+                map[current_addr] |= (FLAG_CODE_START | FLAG_VISITED);
+                for(size_t k=1; k<len && (current_addr+k < 0x10000); ++k)
+                    map[current_addr+k] |= (FLAG_CODE_INTERIOR | FLAG_VISITED);
+                if (line.type == CodeLine::Type::JUMP || line.type == CodeLine::Type::CALL) {
+                    if (!line.operands.empty()) {
+                        const auto& last_op = line.operands.back();
+                        if (last_op.type == CodeLine::Operand::Type::IMM16) {
+                            uint16_t target = static_cast<uint16_t>(last_op.num_val);
+                            work_list.push_back(target);
+                            if (m_labels && m_labels->get_label(target).empty()) {
+                                std::stringstream ss;
+                                ss << (line.type == CodeLine::Type::CALL ? "SUB_" : "L_");
+                                ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << target;
+                                m_labels->add_label(target, ss.str());
+                            }
+                        }
+                    }
+                }
+                bool stop = false;
+                if (line.mnemonic == "RET" || line.mnemonic == "RETI" || line.mnemonic == "RETN" || line.mnemonic == "HALT") 
+                    stop = true;
+                else if (line.mnemonic == "JP" || line.mnemonic == "JR") {
+                     bool is_conditional = !line.operands.empty() && line.operands[0].type == CodeLine::Operand::Type::CONDITION;
+                     if (!is_conditional) stop = true;
+                }
+                
+                current_addr = temp_pc;
+                if (stop) break;
+            }
+        }
+    }
+    virtual std::vector<CodeLine> generate_listing(CodeMap& map, uint16_t& start_address, size_t instruction_limit, bool use_map) {
+        std::vector<CodeLine> result;
+        uint32_t pc = start_address;
+        while (pc < 0x10000 && result.size() < instruction_limit) {
+            uint16_t current_pc = static_cast<uint16_t>(pc);
+            bool is_code = false;
+            
+            if (use_map) {
+                if (map[current_pc] & FLAG_CODE_START) is_code = true;
+                else if (map[current_pc] & FLAG_CODE_INTERIOR) { pc++; continue; }
+            } else {
+                is_code = true; // Raw mode default
+            }
+
+            if (is_code) {
+                uint16_t temp_pc = current_pc;
+                CodeLine line = parse_instruction(temp_pc);
+                if (line.bytes.empty()) {
+                    result.push_back(parse_db(current_pc, 1));
+                    pc++;
+                } else {
+                    result.push_back(line);
+                    pc = temp_pc;
+                }
+            } else {
+                group_data_blocks(pc, result, instruction_limit, [&](uint32_t addr) { 
+                     if (addr >= 0x10000) return false;
+                     return !(map[addr] & (FLAG_CODE_START | FLAG_CODE_INTERIOR));
+                });
+            }
+        }
+        start_address = static_cast<uint16_t>(pc);
+        return result;
     }
 
     TMemory* m_memory;

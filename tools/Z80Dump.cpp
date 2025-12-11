@@ -276,6 +276,12 @@ std::string format_operands(const std::vector<Analyzer::CodeLine::Operand>& oper
     return ss.str();
 }
 
+enum class AnalysisMode {
+    RAW,
+    EXEC,
+    HEURISTIC
+};
+
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         print_usage();
@@ -284,7 +290,7 @@ int main(int argc, char* argv[]) {
     std::string file_path = argv[1];
     std::string mem_dump_addr_str, disasm_addr_str;
     size_t mem_dump_size = 0, disasm_lines = 0;
-    Analyzer::AnalysisMode disassembly_mode = Analyzer::AnalysisMode::EXEC;
+    AnalysisMode disassembly_mode = AnalysisMode::EXEC;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-mem" && i + 2 < argc) {
@@ -301,11 +307,11 @@ int main(int argc, char* argv[]) {
                 std::string mode_str = argv[++i];
                 std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
                 if (mode_str == "h")
-                    disassembly_mode = Analyzer::AnalysisMode::HEURISTIC;
+                    disassembly_mode = AnalysisMode::HEURISTIC;
                 else if (mode_str == "r")
-                    disassembly_mode = Analyzer::AnalysisMode::RAW;
+                    disassembly_mode = AnalysisMode::RAW;
                 else if (mode_str == "e")
-                    disassembly_mode = Analyzer::AnalysisMode::EXEC;
+                    disassembly_mode = AnalysisMode::EXEC;
                 else {
                     std::cerr << "Error: Invalid disassembly mode '" << mode_str << "'. Use 'r', 'h', or 'e'." << std::endl;
                     return 1;
@@ -392,8 +398,8 @@ int main(int argc, char* argv[]) {
         uint16_t disasm_addr = resolve_address(disasm_addr_str, cpu);
         std::cout << "--- Disassembly from " << format_hex(disasm_addr, 4) << " (" << std::dec << disasm_lines << " lines) ---\n";
         uint16_t pc = disasm_addr;
-        bool use_execution = (disassembly_mode == Analyzer::AnalysisMode::EXEC);
-        bool use_heuristic = (disassembly_mode == Analyzer::AnalysisMode::HEURISTIC);
+        bool use_execution = (disassembly_mode == AnalysisMode::EXEC);
+        bool use_heuristic = (disassembly_mode == AnalysisMode::HEURISTIC);
         auto listing = analyzer.parse_code(pc, disasm_lines, nullptr, use_execution, use_heuristic); 
         std::cout << std::setfill(' ');
         for (const auto& line_info : listing) {
