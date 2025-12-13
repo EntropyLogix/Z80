@@ -2829,8 +2829,8 @@ protected:
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (match(op, OperandType::IMMEDIATE)) {
-                        uint64_t val = static_cast<uint64_t>(op.num_val);
-                        for(int i=0; i<8; ++i)
+                        uint64_t val = (uint64_t)(op.num_val);
+                        for (int i = 0; i < 8; ++i)
                             bytes.push_back((uint8_t)((val >> (i*8)) & 0xFF));
                     } else
                         m_policy.context().assembler.report_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));

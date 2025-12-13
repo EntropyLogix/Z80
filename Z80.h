@@ -105,7 +105,7 @@ public:
             return *this;
         }
         Flags& update(uint8_t mask, bool state) {
-            m_value = (m_value & ~mask) | (-static_cast<int8_t>(state) & mask);
+            m_value = (m_value & ~mask) | (-(int8_t)state & mask);
             return *this;
         }
         bool is_set(uint8_t mask) const {
@@ -714,7 +714,7 @@ private:
     uint16_t read_word(uint16_t address) {
         uint8_t low_byte = read_byte(address);
         uint8_t high_byte = read_byte(address + 1);
-        return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
+        return ((uint16_t)(high_byte) << 8) | low_byte;
     }
     void write_byte(uint16_t address, uint8_t value) {
         m_address_bus = address;
@@ -740,7 +740,7 @@ private:
         set_SP(get_SP() + 1);
         uint8_t high_byte = read_byte(get_SP());
         set_SP(get_SP() + 1);
-        return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
+        return ((uint16_t)high_byte << 8) | low_byte;
     }
     uint8_t fetch_next_opcode() {
         uint16_t current_pc = get_PC();
@@ -773,7 +773,7 @@ private:
     uint16_t fetch_next_word() {
         uint8_t low_byte = fetch_next_byte();
         uint8_t high_byte = fetch_next_byte();
-        return (static_cast<uint16_t>(high_byte) << 8) | low_byte;
+        return ((uint16_t)high_byte << 8) | low_byte;
     }
     // I/O operations
     uint8_t io_read(uint16_t port) {
@@ -859,7 +859,7 @@ private:
         if (Z80_LIKELY(m_index_mode == IndexMode::HL))
             return get_HL();
         else {
-            int8_t offset = static_cast<int8_t>(fetch_next_byte());
+            int8_t offset = (int8_t)fetch_next_byte();
             uint16_t address = get_indexed_HL() + offset;
             set_WZ(address);
             add_ticks(5);
@@ -1202,14 +1202,14 @@ private:
         uint8_t b = get_B();
         if (flags.is_set(Flags::C)) {
             if ((get_data_bus() & 0x80) != 0) {
-                flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even(static_cast<uint8_t>(b - 1) & 7) ^ 1))
+                flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even((uint8_t)(b - 1) & 7) ^ 1))
                     .update(Flags::H, (b & 0x0F) == 0);
             } else {
-                flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even(static_cast<uint8_t>(b + 1) & 7) ^ 1))
+                flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even((uint8_t)(b + 1) & 7) ^ 1))
                     .update(Flags::H, (b & 0x0F) == 0x0F);
             }
         } else
-            flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even(static_cast<uint8_t>(b & 7)) ^ 1));
+            flags.update(Flags::PV, flags.is_set(Flags::PV) ^ (is_parity_even((uint8_t)(b & 7)) ^ 1));
         set_F(flags);
     }
     // Interrupt handling
@@ -1282,7 +1282,7 @@ private:
             break;
         }
         case 2: {
-            uint16_t vector_address = (static_cast<uint16_t>(get_I()) << 8) | get_IRQ_data();
+            uint16_t vector_address = ((uint16_t)get_I() << 8) | get_IRQ_data();
             uint16_t handler_address = read_word(vector_address);
             add_ticks(4); // Internal operations
             set_WZ(handler_address);
@@ -1489,7 +1489,7 @@ private:
     void handle_opcode_0x02_LD_BC_ptr_A() {
         uint16_t address = get_BC();
         write_byte(address, get_A());
-        set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((address + 1) & 0xFF));
+        set_WZ(((uint16_t)get_A() << 8) | ((address + 1) & 0xFF));
     }
     void handle_opcode_0x03_INC_BC() {
         set_BC(get_BC() + 1);
@@ -1558,7 +1558,7 @@ private:
         set_F(flags);
     }
     void handle_opcode_0x10_DJNZ_d() {
-        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        int8_t offset = (int8_t)fetch_next_byte();
         uint16_t address = get_PC() + offset;
         uint8_t new_b_value = get_B() - 1;
         set_B(new_b_value);
@@ -1575,7 +1575,7 @@ private:
     void handle_opcode_0x12_LD_DE_ptr_A() {
         uint16_t address = get_DE();
         write_byte(address, get_A());
-        set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((address + 1) & 0xFF));
+        set_WZ(((uint16_t)get_A() << 8) | ((address + 1) & 0xFF));
     }
     void handle_opcode_0x13_INC_DE() {
         set_DE(get_DE() + 1);
@@ -1604,7 +1604,7 @@ private:
         set_F(flags);
     }
     void handle_opcode_0x18_JR_d() {
-        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        int8_t offset = (int8_t)fetch_next_byte();
         uint16_t address = get_PC() + offset;
         set_WZ(address);
         set_PC(address);
@@ -1648,7 +1648,7 @@ private:
         set_F(flags);
     }
     void handle_opcode_0x20_JR_NZ_d() {
-        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        int8_t offset = (int8_t)fetch_next_byte();
         uint16_t address = get_PC() + offset;
         if (!get_F().is_set(Flags::Z)) {
             set_PC(address);
@@ -1710,7 +1710,7 @@ private:
         set_F(flags);
     }
     void handle_opcode_0x28_JR_Z_d() {
-        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        int8_t offset = (int8_t)fetch_next_byte();
         uint16_t address = get_PC() + offset;
         if (get_F().is_set(Flags::Z)) {
             set_PC(address);
@@ -1752,7 +1752,7 @@ private:
         set_F(flags);
     }
     void handle_opcode_0x30_JR_NC_d() {
-        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        int8_t offset = (int8_t)fetch_next_byte();
         uint16_t address = get_PC() + offset;
         if (!get_F().is_set(Flags::C)) {
             set_PC(address);
@@ -1766,7 +1766,7 @@ private:
     void handle_opcode_0x32_LD_nn_ptr_A() {
         uint16_t address = fetch_next_word();
         write_byte(address, get_A());
-        set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((address + 1) & 0xFF));
+        set_WZ(((uint16_t)get_A() << 8) | ((address + 1) & 0xFF));
     }
     void handle_opcode_0x33_INC_SP() {
         set_SP(get_SP() + 1);
@@ -1789,7 +1789,7 @@ private:
             uint8_t value = fetch_next_byte();
             write_byte(get_HL(), value);
         } else {
-            int8_t offset = static_cast<int8_t>(fetch_next_byte());
+            int8_t offset = (int8_t)fetch_next_byte();
             uint16_t address = (get_index_mode() == IndexMode::IX ? get_IX() : get_IY()) + offset;
             set_WZ(address);
             add_ticks(2);
@@ -1809,7 +1809,7 @@ private:
         set_F(flags);
     }
     void handle_opcode_0x38_JR_C_d() {
-        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+        int8_t offset = (int8_t)fetch_next_byte();
         uint16_t address = get_PC() + offset;
         if (get_F().is_set(Flags::C)) {
             set_PC(address);
@@ -2333,7 +2333,7 @@ private:
         uint8_t port_lo = fetch_next_byte();
         uint16_t port = (get_A() << 8) | port_lo;
         io_write(port, get_A());
-        set_WZ((static_cast<uint16_t>(get_A()) << 8) | ((port_lo + 1) & 0xFF));
+        set_WZ(((uint16_t)get_A() << 8) | ((port_lo + 1) & 0xFF));
     }
     void handle_opcode_0xD4_CALL_NC_nn() {
         uint16_t address = fetch_next_word();
@@ -2919,7 +2919,7 @@ private:
         write_byte(get_HL(), port_val);
         set_HL(get_HL() + 1);
 
-        uint16_t temp = port_val + static_cast<uint8_t>(get_C() + 1);
+        uint16_t temp = port_val + (uint8_t)(get_C() + 1);
         Flags flags(0);
         flags.zero()
             .update(Flags::S, (new_b & 0x80) != 0)
@@ -2940,13 +2940,13 @@ private:
         set_B(new_b);
         io_write(get_BC(), mem_val);
         set_WZ(get_BC() + 1);
-        uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
+        uint16_t temp = (uint16_t)get_L() + mem_val;
         Flags flags(0);
         flags.update(Flags::S, (new_b & 0x80) != 0)
             .update(Flags::Z, new_b == 0)
             .update(Flags::C, temp > 0xFF)
             .update(Flags::H, temp > 0xFF)
-            .update(Flags::PV, is_parity_even((static_cast<uint8_t>(temp) & 0x07) ^ new_b))
+            .update(Flags::PV, is_parity_even(((uint8_t)temp & 0x07) ^ new_b))
             .update(Flags::N, (mem_val & 0x80) != 0)
             .update(Flags::X, (new_b & Flags::X) != 0)
             .update(Flags::Y, (new_b & Flags::Y) != 0);
@@ -2994,13 +2994,13 @@ private:
         set_B(new_b);
         write_byte(get_HL(), port_val);
         set_HL(get_HL() - 1);
-        uint16_t temp = port_val + static_cast<uint8_t>(get_C() - 1);
+        uint16_t temp = port_val + (uint8_t)(get_C() - 1);
         Flags flags(0);
         flags.update(Flags::S, (new_b & 0x80) != 0)
             .update(Flags::Z, new_b == 0)
             .update(Flags::C, temp > 0xFF)
             .update(Flags::H, temp > 0xFF)
-            .update(Flags::PV, is_parity_even((static_cast<uint8_t>(temp) & 0x07) ^ new_b))
+            .update(Flags::PV, is_parity_even(((uint8_t)temp & 0x07) ^ new_b))
             .update(Flags::N, (port_val & 0x80) != 0)
             .update(Flags::X, (new_b & Flags::X) != 0)
             .update(Flags::Y, (new_b & Flags::Y) != 0);
@@ -3014,7 +3014,7 @@ private:
         set_WZ(get_BC() - 1);
         set_HL(get_HL() - 1);
         add_tick();
-        uint16_t temp = static_cast<uint16_t>(get_L()) + mem_val;
+        uint16_t temp = (uint16_t)get_L() + mem_val;
         bool carry = temp > 0xFF;
         Flags flags(0);
         flags.update(Flags::S, (new_b & 0x80) != 0)
@@ -3762,7 +3762,7 @@ private:
                         handle_CB_opcodes(cb_opcode);
                     } else { // DDCB d xx or FDCB d xx
                         uint16_t index_reg = (get_index_mode() == IndexMode::IX) ? get_IX() : get_IY();
-                        int8_t offset = static_cast<int8_t>(fetch_next_byte());
+                        int8_t offset = (int8_t)fetch_next_byte();
                         uint8_t cb_opcode = fetch_next_byte();
                         handle_CB_indexed_opcodes(index_reg, offset, cb_opcode);
                     }

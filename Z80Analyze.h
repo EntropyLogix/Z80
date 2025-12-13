@@ -184,7 +184,7 @@ public:
         bool m_inside_instruction = false;
         uint8_t m_instruction_byte_count = 0;
     };
-virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruction_limit, CodeMap* external_code_map = nullptr, bool use_execution = false, bool use_heuristic = false) {
+    virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruction_limit, CodeMap* external_code_map = nullptr, bool use_execution = false, bool use_heuristic = false) {
         CodeMap local_map;
         CodeMap* pMap = external_code_map; 
         if (!pMap) {
@@ -203,7 +203,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
         }
         return generate_listing(*pMap, start_address, instruction_limit, has_map_info);
     }
-    CodeLine parse_db(uint16_t& address, size_t count = 1) {
+    virtual CodeLine parse_db(uint16_t& address, size_t count = 1) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
@@ -219,7 +219,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
         }
         return line_info;
     }
-    CodeLine parse_dw(uint16_t& address, size_t count = 1) {
+    virtual CodeLine parse_dw(uint16_t& address, size_t count = 1) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
@@ -237,7 +237,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
         }
         return line_info;
     }
-    CodeLine parse_dz(uint16_t& address) {
+    virtual CodeLine parse_dz(uint16_t& address) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
@@ -250,12 +250,12 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
         uint8_t byte;
         while ((byte = m_memory->peek(address++)) != 0) {
             line_info.bytes.push_back(byte);
-            text += static_cast<char>(byte);
+            text += (char)byte;
         }
         line_info.operands.push_back(typename CodeLine::Operand(CodeLine::Operand::STRING, text));
         return line_info;
     }
-    CodeLine parse_ds(uint16_t& address, size_t count, std::optional<uint8_t> fill_byte = std::nullopt) {
+    virtual CodeLine parse_ds(uint16_t& address, size_t count, std::optional<uint8_t> fill_byte = std::nullopt) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
@@ -270,7 +270,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
         address += count;
         return line_info;
     }
-    CodeLine parse_instruction(uint16_t& address) {
+    virtual CodeLine parse_instruction(uint16_t& address) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::UNKNOWN;
@@ -400,7 +400,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
             auto byte_opt = ctx.peek_byte();
             if (!byte_opt)
                 return to_db(line_info);
-            int8_t offset = static_cast<int8_t>(*byte_opt);
+            int8_t offset = (int8_t)*byte_opt;
             uint16_t target_address = address + offset;
             line_info.mnemonic = "DJNZ";
             line_info.type = CodeLine::Type::JUMP;
@@ -465,7 +465,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
             auto byte_opt = ctx.peek_byte();
             if (!byte_opt)
                 return to_db(line_info);
-            int8_t offset = static_cast<int8_t>(*byte_opt);
+            int8_t offset = (int8_t)*byte_opt;
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR";
             line_info.type = CodeLine::Type::JUMP;
@@ -525,7 +525,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
             auto byte_opt = ctx.peek_byte();
             if (!byte_opt)
                 return to_db(line_info);
-            int8_t offset = static_cast<int8_t>(*byte_opt);
+            int8_t offset = (int8_t)*byte_opt;
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR";
             line_info.type = CodeLine::Type::JUMP;
@@ -593,7 +593,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
         case 0x28: {
             auto byte_opt = ctx.peek_byte();
             if (!byte_opt) return to_db(line_info);
-            int8_t offset = static_cast<int8_t>(*byte_opt);
+            int8_t offset = (int8_t)*byte_opt;
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR";
             line_info.type = CodeLine::Type::JUMP;
@@ -659,7 +659,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
         case 0x30: {
             auto byte_opt = ctx.peek_byte();
             if (!byte_opt) return to_db(line_info);
-            int8_t offset = static_cast<int8_t>(*byte_opt);
+            int8_t offset = (int8_t)*byte_opt;
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR";
             line_info.type = CodeLine::Type::JUMP;
@@ -728,7 +728,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
         case 0x38: {
             auto byte_opt = ctx.peek_byte();
             if (!byte_opt) return to_db(line_info);
-            int8_t offset = static_cast<int8_t>(*byte_opt);
+            int8_t offset = (int8_t)*byte_opt;
             uint16_t target_address = address + offset;
             line_info.mnemonic = "JR";
             line_info.type = CodeLine::Type::JUMP;
@@ -1682,7 +1682,7 @@ virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruc
             } else {
                 auto offset_opt = ctx.peek_byte();
                 if (!offset_opt) return to_db(line_info);
-                int8_t offset = static_cast<int8_t>(*offset_opt);
+                int8_t offset = (int8_t)*offset_opt;
                 auto cb_opcode_opt = ctx.peek_byte();
                 if (!cb_opcode_opt) return to_db(line_info);
                 uint8_t cb_opcode = *cb_opcode_opt;
@@ -2321,13 +2321,12 @@ protected:
         }
         std::optional<uint16_t> peek_word() {
             auto low_byte_opt = peek_byte();
-            if (!low_byte_opt) return std::nullopt;
-
-            auto high_byte_opt = peek_byte();
-            if (!high_byte_opt) {
+            if (!low_byte_opt)
                 return std::nullopt;
-            }
-            return (static_cast<uint16_t>(*high_byte_opt) << 8) | *low_byte_opt;
+            auto high_byte_opt = peek_byte();
+            if (!high_byte_opt)
+                return std::nullopt;
+            return ((uint16_t)*high_byte_opt << 8) | *low_byte_opt;
         }
         uint16_t& address;
         std::vector<uint8_t>& bytes;
@@ -2337,7 +2336,7 @@ protected:
         while (pc < 0x10000 && is_data(pc)) {
             if (result.size() >= instruction_limit)
                 break;
-            uint16_t scan_pc = static_cast<uint16_t>(pc);
+            uint16_t scan_pc = (uint16_t)pc;
             uint8_t fill_byte = m_memory->peek(scan_pc);
             size_t repeat_count = 0;
             while (scan_pc + repeat_count < 0x10000 && is_data(scan_pc + repeat_count) && m_memory->peek(scan_pc + repeat_count) == fill_byte)
@@ -2347,7 +2346,7 @@ protected:
                 result.push_back(parse_ds(scan_pc, repeat_count, fill_byte));
                 pc += repeat_count;
             } else {
-                uint16_t db_start_pc = static_cast<uint16_t>(pc);
+                uint16_t db_start_pc = (uint16_t)pc;
                 size_t db_count = 0;
                 while (pc < 0x10000 && is_data(pc)) {
                     uint8_t next_fill = m_memory->peek(pc);
@@ -2379,7 +2378,7 @@ protected:
             bool is_code = (flags & CodeMapProfiler::FLAG_CODE_START) || (flags & CodeMapProfiler::FLAG_CODE_INTERIOR);
             bool is_written = (flags & CodeMapProfiler::FLAG_DATA_WRITE);
             if (is_code && is_written)
-                smc_locations.push_back(static_cast<uint16_t>(i));
+                smc_locations.push_back((uint16_t)i);
         }
         return smc_locations;
     }
@@ -2408,7 +2407,7 @@ protected:
     }
     std::string format_indexed_address(const std::string& reg, int8_t offset) {
         std::stringstream ss;
-        ss << "(" << reg << (offset >= 0 ? "+" : "") << static_cast<int>(offset) << ")";
+        ss << "(" << reg << (offset >= 0 ? "+" : "") << (int)offset << ")";
         return ss.str();
     }
     typename CodeLine::Operand get_indexed_addr_operand(ParseContext& ctx) {
@@ -2417,11 +2416,11 @@ protected:
         auto byte_opt = ctx.peek_byte();
         if (!byte_opt)
              return typename CodeLine::Operand(CodeLine::Operand::UNKNOWN, 0);
-        int8_t offset = static_cast<int8_t>(*byte_opt);
+        int8_t offset = (int8_t)*byte_opt;
         std::string base_reg = (get_index_mode() == IndexMode::IX) ? "IX" : "IY"; 
         return typename CodeLine::Operand(CodeLine::Operand::MEM_INDEXED, "", offset, base_reg);
     }
-void run_execution_phase(CodeMap& map, uint16_t start_addr) {
+    void run_execution_phase(CodeMap& map, uint16_t start_addr) {
         CodeMapProfiler profiler(map, m_memory);
         profiler.set_labels(m_labels);
         Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler> cpu(&profiler, nullptr, &profiler);
@@ -2430,19 +2429,21 @@ void run_execution_phase(CodeMap& map, uint16_t start_addr) {
         std::set<uint16_t> executed_pcs;
         for (size_t i = 0; i < EXECUTION_TRACE_LIMIT; ++i) {
             uint16_t pc = cpu.get_PC();
-            if (executed_pcs.count(pc)) { /* Loop detected */ }
+            if (executed_pcs.count(pc))
+                break;
             executed_pcs.insert(pc);
             cpu.step();
-            if (cpu.is_halted()) break;
+            if (cpu.is_halted())
+                break;
         }
     }
-
     void run_heuristic_phase(CodeMap& map, uint16_t start_addr) {
         std::vector<uint16_t> work_list;
         bool found_existing_code = false;
         for(size_t i=0; i<map.size(); ++i) {
             if (map[i] & FLAG_CODE_START) {
-                if (!(map[i] & FLAG_VISITED)) work_list.push_back(static_cast<uint16_t>(i));
+                if (!(map[i] & FLAG_VISITED))
+                    work_list.push_back((uint16_t)i);
                 found_existing_code = true;
             }
         }
@@ -2465,7 +2466,7 @@ void run_execution_phase(CodeMap& map, uint16_t start_addr) {
                     if (!line.operands.empty()) {
                         const auto& last_op = line.operands.back();
                         if (last_op.type == CodeLine::Operand::Type::IMM16) {
-                            uint16_t target = static_cast<uint16_t>(last_op.num_val);
+                            uint16_t target = (uint16_t)last_op.num_val;
                             work_list.push_back(target);
                             if (m_labels && m_labels->get_label(target).empty()) {
                                 std::stringstream ss;
@@ -2481,11 +2482,12 @@ void run_execution_phase(CodeMap& map, uint16_t start_addr) {
                     stop = true;
                 else if (line.mnemonic == "JP" || line.mnemonic == "JR") {
                      bool is_conditional = !line.operands.empty() && line.operands[0].type == CodeLine::Operand::Type::CONDITION;
-                     if (!is_conditional) stop = true;
+                     if (!is_conditional)
+                        stop = true;
                 }
-                
                 current_addr = temp_pc;
-                if (stop) break;
+                if (stop)
+                    break;
             }
         }
     }
@@ -2493,16 +2495,17 @@ void run_execution_phase(CodeMap& map, uint16_t start_addr) {
         std::vector<CodeLine> result;
         uint32_t pc = start_address;
         while (pc < 0x10000 && result.size() < instruction_limit) {
-            uint16_t current_pc = static_cast<uint16_t>(pc);
+            uint16_t current_pc = (uint16_t)pc;
             bool is_code = false;
-            
             if (use_map) {
-                if (map[current_pc] & FLAG_CODE_START) is_code = true;
-                else if (map[current_pc] & FLAG_CODE_INTERIOR) { pc++; continue; }
-            } else {
-                is_code = true; // Raw mode default
-            }
-
+                if (map[current_pc] & FLAG_CODE_START)
+                    is_code = true;
+                else if (map[current_pc] & FLAG_CODE_INTERIOR) {
+                    pc++;
+                    continue;
+                }
+            } else
+                is_code = true;
             if (is_code) {
                 uint16_t temp_pc = current_pc;
                 CodeLine line = parse_instruction(temp_pc);
@@ -2515,15 +2518,15 @@ void run_execution_phase(CodeMap& map, uint16_t start_addr) {
                 }
             } else {
                 group_data_blocks(pc, result, instruction_limit, [&](uint32_t addr) { 
-                     if (addr >= 0x10000) return false;
+                     if (addr >= 0x10000)
+                        return false;
                      return !(map[addr] & (FLAG_CODE_START | FLAG_CODE_INTERIOR));
                 });
             }
         }
-        start_address = static_cast<uint16_t>(pc);
+        start_address = (uint16_t)pc;
         return result;
     }
-
     TMemory* m_memory;
     IndexMode m_index_mode;
     ILabels* m_labels = nullptr;
