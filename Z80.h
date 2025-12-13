@@ -246,19 +246,19 @@ public:
     // High-Level State Management Methods ---
     State save_state() const {
         State state;
-        state.m_AF = get_AF();
-        state.m_BC = get_BC();
-        state.m_DE = get_DE();
-        state.m_HL = get_HL();
-        state.m_IX = get_IX();
-        state.m_IY = get_IY();
-        state.m_SP = get_SP();
-        state.m_PC = get_PC();
-        state.m_AFp = get_AFp();
-        state.m_BCp = get_BCp();
-        state.m_DEp = get_DEp();
-        state.m_HLp = get_HLp();
-        state.m_WZ = get_WZ();
+        state.m_AF.w = get_AF();
+        state.m_BC.w = get_BC();
+        state.m_DE.w = get_DE();
+        state.m_HL.w = get_HL();
+        state.m_IX.w = get_IX();
+        state.m_IY.w = get_IY();
+        state.m_SP.w = get_SP();
+        state.m_PC.w = get_PC();
+        state.m_AFp.w = get_AFp();
+        state.m_BCp.w = get_BCp();
+        state.m_DEp.w = get_DEp();
+        state.m_HLp.w = get_HLp();
+        state.m_WZ.w = get_WZ();
         state.m_I = get_I();
         state.m_R = get_R();
         state.m_Q = get_Q();
