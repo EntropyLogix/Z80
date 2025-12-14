@@ -242,32 +242,38 @@ std::string format_operands(const std::vector<Analyzer::CodeLine::Operand>& oper
     for (size_t i = 0; i < operands.size(); ++i) {
         const auto& op = operands[i];
         switch (op.type) {
-            case Analyzer::CodeLine::Operand::Type::REG8:
-            case Analyzer::CodeLine::Operand::Type::REG16:
-            case Analyzer::CodeLine::Operand::Type::CONDITION:
+            case Analyzer::CodeLine::Operand::REG8:
+            case Analyzer::CodeLine::Operand::REG16:
+            case Analyzer::CodeLine::Operand::CONDITION:
                 ss << op.s_val;
                 break;
-            case Analyzer::CodeLine::Operand::Type::IMM8:
+            case Analyzer::CodeLine::Operand::IMM8:
                 ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
                 break;
-            case Analyzer::CodeLine::Operand::Type::IMM16:
-            case Analyzer::CodeLine::Operand::Type::MEM_IMM16: {
+            case Analyzer::CodeLine::Operand::IMM16:
+            case Analyzer::CodeLine::Operand::MEM_IMM16: {
                 std::string formatted_addr = op.label.empty() ? format_hex(static_cast<uint16_t>(op.num_val), 4) : op.label;
-                if (op.type == Analyzer::CodeLine::Operand::Type::MEM_IMM16) ss << "(" << formatted_addr << ")";
+                if (op.type == Analyzer::CodeLine::Operand::MEM_IMM16) ss << "(" << formatted_addr << ")";
                 else ss << formatted_addr;
                 break;
             }
-            case Analyzer::CodeLine::Operand::Type::MEM_REG16:
+            case Analyzer::CodeLine::Operand::MEM_REG16:
                 ss << "(" << op.s_val << ")";
                 break;
-            case Analyzer::CodeLine::Operand::Type::MEM_INDEXED:
+            case Analyzer::CodeLine::Operand::MEM_INDEXED:
                 ss << "(" << op.base_reg << (op.offset >= 0 ? "+" : "") << static_cast<int>(op.offset) << ")";
                 break;
-            case Analyzer::CodeLine::Operand::Type::PORT_IMM8:
+            case Analyzer::CodeLine::Operand::PORT_IMM8:
                 ss << "(" << format_hex(static_cast<uint8_t>(op.num_val), 2) << ")";
                 break;
-            case Analyzer::CodeLine::Operand::Type::STRING:
+            case Analyzer::CodeLine::Operand::STRING:
                 ss << "\"" << op.s_val << "\"";
+                break;
+            case Analyzer::CodeLine::Operand::CHAR_LITERAL:
+                ss << "'" << static_cast<char>(op.num_val) << "'";
+                break;
+            case Analyzer::CodeLine::Operand::UNKNOWN:
+                ss << "?";
                 break;
         }
         if (i < operands.size() - 1)

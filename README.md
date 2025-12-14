@@ -728,7 +728,7 @@ int main() {
              if (!op.s_val.empty()) {
                  std::cout << op.s_val;
              } else {
-                 if (op.type == Z80Analyzer<Z80StandardBus>::CodeLine::Operand::Type::MEM_IMM16) {
+                 if (op.type == Z80Analyzer<Z80StandardBus>::CodeLine::Operand::MEM_IMM16) {
                      std::cout << "(0x" << std::hex << op.num_val << ")";
                  } else {
                      std::cout << "0x" << std::hex << op.num_val;
