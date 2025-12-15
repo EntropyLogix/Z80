@@ -868,6 +868,7 @@ protected:
             Operand operand;
             operand.str_val = operand_string;
             std::string upper_operand_string = operand_string;
+            Strings::to_upper(upper_operand_string);
             if (upper_operand_string == "(C)") {
                  operand.type = Operand::Type::MEM_REG16;
                  operand.str_val = "C";
@@ -875,18 +876,22 @@ protected:
             }
             if ((mnemonic == "RET" || mnemonic == "JP" || mnemonic == "CALL" || mnemonic == "JR") && is_condition(upper_operand_string)) {
                 operand.type = Operand::Type::CONDITION;
+                operand.str_val = upper_operand_string;
                 return operand;
             }
             if (is_reg8(upper_operand_string)) {
                 operand.type = Operand::Type::REG8;
+                operand.str_val = upper_operand_string;
                 return operand;
             }
             if (is_reg16(upper_operand_string)) {
                 operand.type = Operand::Type::REG16;
+                operand.str_val = upper_operand_string;
                 return operand;
             }
             if (is_condition(upper_operand_string)) {
                 operand.type = Operand::Type::CONDITION;
+                operand.str_val = upper_operand_string;
                 return operand;
             }
             if (is_mem_ptr(operand_string)) {

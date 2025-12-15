@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.1.5a
+// Verson: 1.1.5b
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -2662,7 +2662,7 @@ protected:
     void run_execution_phase(CodeMap& map, uint16_t start_addr) {
         CodeMapProfiler profiler(map, m_memory);
         profiler.set_labels(m_labels);
-        Z80<CodeMapProfiler, Z80DefaultEvents, CodeMapProfiler> cpu(&profiler, nullptr, &profiler);
+        Z80<CodeMapProfiler, Z80StandardEvents, CodeMapProfiler> cpu(&profiler, nullptr, &profiler);
         profiler.connect(&cpu);
         cpu.set_PC(start_addr);
         std::set<uint16_t> executed_pcs;

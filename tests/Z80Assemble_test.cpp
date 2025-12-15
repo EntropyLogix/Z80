@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble_test.cpp
-// Verson: 1.1.0
+// Verson: 1.1.5b
 //
 // This file contains unit tests for the Z80Assembler class.
 //
@@ -83,11 +83,11 @@ private:
     std::map<std::string, std::vector<uint8_t>> m_sources;
 };
 
-void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes, const Z80Assembler<Z80DefaultBus>::Options& options) {
-    Z80DefaultBus bus;
+void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes, const Z80Assembler<Z80StandardBus>::Options& options) {
+    Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider, options);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider, options);
     bool success = true;
     try {
         assembler.compile("main.asm", 0x0000);
@@ -142,7 +142,7 @@ void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_
     }
 }
 
-void ASSERT_CODE_WITH_ASSEMBLER(Z80DefaultBus& bus, Z80Assembler<Z80DefaultBus>& assembler, MockFileProvider& file_provider, const std::string& asm_code, const std::vector<uint8_t>& expected_bytes) {
+void ASSERT_CODE_WITH_ASSEMBLER(Z80StandardBus& bus, Z80Assembler<Z80StandardBus>& assembler, MockFileProvider& file_provider, const std::string& asm_code, const std::vector<uint8_t>& expected_bytes) {
     file_provider.add_source("main.asm", asm_code);
     bool success = true;
     try {
@@ -177,15 +177,15 @@ void ASSERT_CODE_WITH_ASSEMBLER(Z80DefaultBus& bus, Z80Assembler<Z80DefaultBus>&
 }
 
 void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes) {
-    Z80Assembler<Z80DefaultBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Options options;
     ASSERT_CODE_WITH_OPTS(asm_code, expected_bytes, options);
 }
 
 void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::vector<uint8_t>>& expected_blocks) {
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
     bool success = assembler.compile("main.asm", 0x0000);
     if (!success) {
         std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
@@ -234,11 +234,11 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
     tests_passed++;
 }
 
-void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assembler<Z80DefaultBus>::Options& options) {
-    Z80DefaultBus bus;
+void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assembler<Z80StandardBus>::Options& options) {
+    Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider, options);    
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider, options);    
     bool success = true;
     try {
         success = assembler.compile("main.asm", 0x0000);
@@ -255,10 +255,10 @@ void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assemb
 }
 
 void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Options options;
     // Use the unified logic from ASSERT_COMPILE_FAILS_WITH_OPTS
     ASSERT_COMPILE_FAILS_WITH_OPTS(asm_code, options);
 }
@@ -1041,10 +1041,10 @@ TEST_CASE(LabelsAndExpressions) {
         0x76              // HALT
     };
 
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
     bool success = assembler.compile("main.asm");
     assert(success && "Compilation with labels failed");
 
@@ -1119,7 +1119,7 @@ TEST_CASE(SETDirective) {
 }
 
 TEST_CASE(EqualsAsSetDirective) {
-    Z80Assembler<Z80DefaultBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Options options;
     options.directives.constants.assignments_as_set = true;
 
     // 1. Basic usage of '=' as SET
@@ -1150,7 +1150,7 @@ TEST_CASE(EqualsAsSetDirective) {
 }
 
 TEST_CASE(EqualsAsEquDirective) {
-    Z80Assembler<Z80DefaultBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Options options;
     options.directives.constants.assignments_as_set = false;
 
     // 1. Basic usage of '=' as EQU
@@ -1322,10 +1322,10 @@ TEST_CASE(RelativeJumpBoundaries) {
     // JR tests
     // Helper to test code with ORG directive
     auto assert_org_code = [](const std::string& asm_code, uint16_t org_addr, const std::vector<uint8_t>& expected_bytes) {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         file_provider.add_source("main.asm", asm_code);
-        Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+        Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
         assembler.compile("main.asm");
         bool mismatch = false;
         for (size_t i = 0; i < expected_bytes.size(); ++i) {
@@ -1551,10 +1551,10 @@ TEST_CASE(ExpressionOperators) {
 }
 
 void ASSERT_RAND_IN_RANGE(const std::string& asm_code, int min_val, int max_val) {
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
     bool success = assembler.compile("main.asm", 0x0000);
     if (!success) {
         std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
@@ -1586,10 +1586,10 @@ void reset_rand_seed() {
     // This is a bit of a hack. Since the random generator is static inside a lambda,
     // we can't easily reset it. To get a fresh sequence for tests, we compile
     // a dummy expression that re-initializes the static generator.
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", "DB RAND(0,0)");
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
     assembler.compile("main.asm");
 }
 
@@ -1701,6 +1701,34 @@ TEST_CASE(CaseSensitivity) {
     ASSERT_COMPILE_FAILS("MyLabel: NOP\nJP MYLABEL");
 }
 
+TEST_CASE(RegisterCaseInsensitivity) {
+    // 8-bit registers
+    ASSERT_CODE("LD a, 10", {0x3E, 0x0A});
+    ASSERT_CODE("ld b, 20", {0x06, 0x14});
+    ASSERT_CODE("Ld c, 30", {0x0E, 0x1E});
+
+    // 16-bit registers
+    ASSERT_CODE("ld bc, 0x1234", {0x01, 0x34, 0x12});
+    ASSERT_CODE("LD de, 0x5678", {0x11, 0x78, 0x56});
+    ASSERT_CODE("ld HL, 0x9ABC", {0x21, 0xBC, 0x9A});
+
+    // Special registers
+    ASSERT_CODE("push af", {0xF5});
+    ASSERT_CODE("pop af", {0xF1});
+    ASSERT_CODE("ld sp, 0x0000", {0x31, 0x00, 0x00});
+    ASSERT_CODE("ex af, af'", {0x08});
+
+    // Index registers
+    ASSERT_CODE("ld ix, 0x1111", {0xDD, 0x21, 0x11, 0x11});
+    ASSERT_CODE("ld iy, 0x2222", {0xFD, 0x21, 0x22, 0x22});
+    ASSERT_CODE("ld ixh, 0x33", {0xDD, 0x26, 0x33});
+    ASSERT_CODE("ld iyl, 0x44", {0xFD, 0x2E, 0x44});
+
+    // Mixed case
+    ASSERT_CODE("Ld Bc, 0x1234", {0x01, 0x34, 0x12});
+    ASSERT_CODE("lD iX, 0x1234", {0xDD, 0x21, 0x34, 0x12});
+}
+
 TEST_CASE(FloatingPointAndVariadicExpressions) {
     // Test floating point numbers in expressions
     ASSERT_CODE("LD A, 3.14 * 2", {0x3E, 6}); // 6.28 is truncated to 6
@@ -1744,10 +1772,10 @@ TEST_CASE(FloatingPointAndVariadicExpressions) {
 }
 
 TEST_CASE(CommentOptions) {
-    Z80Assembler<Z80DefaultBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Options options;
 
     // 1. Test: Comments completely disabled
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.comments.enabled = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options); // Semicolon comment should be treated as code
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options); // Block comment should be treated as code
@@ -1755,7 +1783,7 @@ TEST_CASE(CommentOptions) {
     ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, options); // Regular instruction without comments should pass
 
     // 2. Semicolon comments disabled, block comments disabled (even if comments.enabled is true)
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.comments.allow_semicolon = false;
     options.comments.allow_block = false;
     options.comments.allow_cpp_style = false;
@@ -1765,7 +1793,7 @@ TEST_CASE(CommentOptions) {
     ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, options);
 
     // 3. Test: Only semicolon comments allowed
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.comments.allow_semicolon = true;
     options.comments.allow_block = false;
     options.comments.allow_cpp_style = false;
@@ -1775,7 +1803,7 @@ TEST_CASE(CommentOptions) {
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style comment should fail
 
     // 4. Test: Only block comments allowed
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.comments.allow_semicolon = false;
     options.comments.allow_cpp_style = false;
     options.comments.allow_block = true;
@@ -1791,7 +1819,7 @@ TEST_CASE(CommentOptions) {
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style should be invalid
 
     // 5. Test: Only C++ style comments allowed
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.comments.allow_semicolon = false;
     options.comments.allow_block = false;
     options.comments.allow_cpp_style = true;
@@ -1801,7 +1829,7 @@ TEST_CASE(CommentOptions) {
     ASSERT_CODE_WITH_OPTS("// ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A}, options);
 
     // 6. Test: Default behavior (all comment types allowed)
-    options = Z80Assembler<Z80DefaultBus>::get_default_options(); // Default has all enabled
+    options = Z80Assembler<Z80StandardBus>::get_default_options(); // Default has all enabled
     ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, options);
     ASSERT_CODE_WITH_OPTS("LD A, 6 // This is a cpp comment", {0x3E, 0x06}, options);
     // This should fail as it's two instructions on one line after comment removal.
@@ -1813,17 +1841,17 @@ TEST_CASE(CommentOptions) {
     )", {0x3E, 0x01, 0x16, 0x04}, options); // Only LD A, 1 and LD D, 4 should be assembled
 
     // 7. Test: Unterminated block comment (should always fail if allow_block is true)
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.comments.allow_block = true;
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1 /* This comment is not closed", options);
 
     // 8. Test: Block comment with no content
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.comments.allow_block = true;
     ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/**/LD B, 2", options);
 
     // 9. Test: Block comment spanning multiple lines
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.comments.allow_block = true;
     ASSERT_CODE_WITH_OPTS(R"(
         LD A, 1
@@ -1869,8 +1897,8 @@ TEST_CASE(IncludeDirective_Basic) {
     file_provider.add_source("main.asm", "LD A, 5\nINCLUDE \"included.asm\"\nADD A, B");
     file_provider.add_source("included.asm", "LD B, 10\n");
 
-    Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+    Z80StandardBus bus;
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
     assembler.compile("main.asm");
 
     std::vector<uint8_t> expected = {0x3E, 0x05, 0x06, 0x0A, 0x80};
@@ -1890,8 +1918,8 @@ TEST_CASE(IncludeDirective_Nested) {
     file_provider.add_source("level1.asm", "LD A, 1\nINCLUDE \"level2.asm\"");
     file_provider.add_source("level2.asm", "LD B, 2\n");
 
-    Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+    Z80StandardBus bus;
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
     assembler.compile("main.asm");
 
     std::vector<uint8_t> expected = {0x3E, 0x01, 0x06, 0x02};
@@ -1909,8 +1937,8 @@ TEST_CASE(IncludeDirective_CircularDependency) {
     MockFileProvider file_provider;
     file_provider.add_source("a.asm", "INCLUDE \"b.asm\"");
     file_provider.add_source("b.asm", "INCLUDE \"a.asm\"");
-    Z80DefaultBus bus;
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+    Z80StandardBus bus;
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
     try {
         assembler.compile("a.asm");
         tests_failed++;
@@ -1926,8 +1954,8 @@ TEST_CASE(IncbinDirective) {
         MockFileProvider file_provider;
         file_provider.add_source("main.asm", "ORG 0x100\nINCBIN \"data.bin\"\nNOP");
         file_provider.add_binary_source("data.bin", {0xDE, 0xAD, 0xBE, 0xEF});
-        Z80DefaultBus bus;
-        Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+        Z80StandardBus bus;
+        Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
         bool success = assembler.compile("main.asm");
         assert(success);
 
@@ -1955,8 +1983,8 @@ TEST_CASE(IncbinDirective) {
             NOP
         )");
         file_provider.add_binary_source("sprite.dat", {0xFF, 0x81, 0x81, 0xFF});
-        Z80DefaultBus bus;
-        Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+        Z80StandardBus bus;
+        Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
         bool success = assembler.compile("main.asm");
         assert(success);
         auto symbols = assembler.get_symbols();
@@ -1967,7 +1995,7 @@ TEST_CASE(IncbinDirective) {
 
     // INCBIN disabled in options
     {
-        Z80Assembler<Z80DefaultBus>::Options options;
+        Z80Assembler<Z80StandardBus>::Options options;
         options.directives.allow_incbin = false;
         MockFileProvider file_provider;
         file_provider.add_binary_source("data.bin", {0x01, 0x02});
@@ -2217,7 +2245,7 @@ TEST_CASE(ReptEndrDirective) {
     )", {0x00, 0x00});
 
     // 6. REPT disabled by options
-    Z80Assembler<Z80DefaultBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Options options;
     options.directives.allow_repeat = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("REPT 2\nNOP\nENDR", options);
 
@@ -2251,10 +2279,10 @@ TEST_CASE(ReptEndrDirective) {
 }
 
 TEST_CASE(DirectiveOptions) {
-    Z80Assembler<Z80DefaultBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Options options;
 
     // 1. Test directives.enabled = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.enabled = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("ORG 0x100", options);
@@ -2263,49 +2291,49 @@ TEST_CASE(DirectiveOptions) {
     ASSERT_COMPILE_FAILS_WITH_OPTS("ALIGN 4", options);
 
     // 2. Test directives.constants.enabled = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.constants.enabled = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 10", options);
     ASSERT_CODE_WITH_OPTS("ORG 0x100\nNOP", {0x00}, options); // Other directives should work
 
     // 3. Test directives.constants.allow_equ = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.constants.allow_equ = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", options);
     ASSERT_CODE_WITH_OPTS("VALUE SET 10\nLD A, VALUE", {0x3E, 10}, options);
 
     // 4. Test directives.constants.allow_set = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.constants.allow_set = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 10", options);
     ASSERT_CODE_WITH_OPTS("VALUE EQU 10\nLD A, VALUE", {0x3E, 10}, options);
 
     // 5. Test directives.allow_org = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.allow_org = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("ORG 0x100", options);
 
     // 6. Test directives.allow_align = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.allow_align = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("ALIGN 4", options);
 
     // 7. Test directives.allow_data_definitions = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.allow_data_definitions = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("DB 1", options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("DW 1", options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("DS 1", options);
 
     // 8. Test directives.allow_includes = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.allow_includes = false;
     MockFileProvider file_provider_no_include;
     file_provider_no_include.add_source("main.asm", "INCLUDE \"other.asm\"");
     file_provider_no_include.add_source("other.asm", "NOP");
-    Z80DefaultBus bus_no_include;
-    Z80Assembler<Z80DefaultBus> assembler_no_include(&bus_no_include, &file_provider_no_include, options);
+    Z80StandardBus bus_no_include;
+    Z80Assembler<Z80StandardBus> assembler_no_include(&bus_no_include, &file_provider_no_include, options);
     try {
         assembler_no_include.compile("main.asm");
         tests_failed++;
@@ -2315,7 +2343,7 @@ TEST_CASE(DirectiveOptions) {
     }
 
     // 9. Test directives.allow_conditional_compilation = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.allow_conditionals = false;
     try {
         ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nNOP\nENDIF", options);
@@ -2326,12 +2354,12 @@ TEST_CASE(DirectiveOptions) {
     ASSERT_COMPILE_FAILS_WITH_OPTS("IFNDEF SYMBOL\nNOP\nENDIF", options);
 
     // 10. Test directives.allow_rept_endr = false (already tested in its own case, but good for completeness)
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.allow_repeat = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("REPT 2\nNOP\nENDR", options);
 
     // 10. Test that disabling conditional compilation doesn't affect other directives
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.allow_conditionals = false;
     ASSERT_CODE_WITH_OPTS(R"(
         VALUE EQU 10
@@ -2340,13 +2368,13 @@ TEST_CASE(DirectiveOptions) {
     )", {0x3E, 10, 0xFF}, options);
 
     // 11. Test directives.allow_phase = false
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.allow_phase = false;
     ASSERT_COMPILE_FAILS_WITH_OPTS("PHASE 0x8000", options);
     ASSERT_COMPILE_FAILS_WITH_OPTS("DEPHASE", options);
 
     // 12. Test directives.allow_phase = true (default)
-    options = Z80Assembler<Z80DefaultBus>::get_default_options();
+    options = Z80Assembler<Z80StandardBus>::get_default_options();
     options.directives.allow_phase = true; // Explicitly set for clarity
     ASSERT_CODE_WITH_OPTS(R"(
         PHASE 0x8000
@@ -2407,10 +2435,10 @@ COUNT           SET 10
 COUNT           SET 100
     )";
 
-    Z80DefaultBus bus;
+    Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", code);
-    Z80Assembler<Z80DefaultBus> assembler(&bus, &file_provider);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
     bool success = assembler.compile("main.asm");
     assert(success && "Complex forward reference compilation failed");
 
@@ -2623,10 +2651,10 @@ TEST_CASE(PhaseDephaseDirectives) {
         0x0E, 0x03, // LD C, 3 at 0x1004
         0x16, 0x04  // LD D, 4 at 0x1006
     };
-    Z80DefaultBus bus1;
+    Z80StandardBus bus1;
     MockFileProvider sp1;
     sp1.add_source("main.asm", code1); // Use MockFileProvider
-    Z80Assembler<Z80DefaultBus> assembler1(&bus1, &sp1);
+    Z80Assembler<Z80StandardBus> assembler1(&bus1, &sp1);
     assert(assembler1.compile("main.asm") && "Phase/Dephase test 1 compilation failed");
     auto symbols1 = assembler1.get_symbols();
     assert(symbols1["LOGICAL_START"].value == 0x8000);
@@ -3437,23 +3465,23 @@ TEST_CASE(PhaseVariable) {
     )", {2});
 }
 
-class TestAssembler : public Z80Assembler<Z80DefaultBus> {
+class TestAssembler : public Z80Assembler<Z80StandardBus> {
 public:
-    using Z80Assembler<Z80DefaultBus>::Z80Assembler;
-    using BasePolicy = typename Z80Assembler<Z80DefaultBus>::BasePolicy;
+    using Z80Assembler<Z80StandardBus>::Z80Assembler;
+    using BasePolicy = typename Z80Assembler<Z80StandardBus>::BasePolicy;
 
-    using OperatorInfo = typename Z80Assembler<Z80DefaultBus>::Expressions::OperatorInfo;
-    using Value = typename Z80Assembler<Z80DefaultBus>::Expressions::Value;
-    using FunctionInfo = typename Z80Assembler<Z80DefaultBus>::Expressions::FunctionInfo;
-    using IPhasePolicy = typename Z80Assembler<Z80DefaultBus>::IPhasePolicy;
-    using Strings = typename Z80Assembler<Z80DefaultBus>::Strings;
-    using Expressions = typename Z80Assembler<Z80DefaultBus>::Expressions;
+    using OperatorInfo = typename Z80Assembler<Z80StandardBus>::Expressions::OperatorInfo;
+    using Value = typename Z80Assembler<Z80StandardBus>::Expressions::Value;
+    using FunctionInfo = typename Z80Assembler<Z80StandardBus>::Expressions::FunctionInfo;
+    using IPhasePolicy = typename Z80Assembler<Z80StandardBus>::IPhasePolicy;
+    using Strings = typename Z80Assembler<Z80StandardBus>::Strings;
+    using Expressions = typename Z80Assembler<Z80StandardBus>::Expressions;
 
-    using Context = typename Z80Assembler<Z80DefaultBus>::Context;
+    using Context = typename Z80Assembler<Z80StandardBus>::Context;
 
     // Expose report_error for testing purposes
     void report_error(const std::string& message) const override {
-        Z80Assembler<Z80DefaultBus>::report_error(message);
+        Z80Assembler<Z80StandardBus>::report_error(message);
     }
 
     void public_add_custom_operator(const std::string& op_string, const OperatorInfo& op_info) {
@@ -3496,7 +3524,7 @@ public:
 TEST_CASE(CustomOperators) {
     // Test 1: Add a binary power operator '**'
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
 
@@ -3516,7 +3544,7 @@ TEST_CASE(CustomOperators) {
 
     // Test 2: Add a unary 'SQR' operator
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
 
@@ -3530,7 +3558,7 @@ TEST_CASE(CustomOperators) {
 TEST_CASE(CustomFunctionsAndConstants) {
     // Test 1: Add a custom constant
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
 
@@ -3541,7 +3569,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
 
     // Test 2: Add a custom function 'DOUBLE'
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
 
@@ -3558,7 +3586,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
 
     // Test 3: Attempt to override a built-in constant (should fail)
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
         ASSERT_COMPILE_FAILS_WITH_OPTS("assembler.add_custom_constant(\"TRUE\", 99)", {});
@@ -3566,7 +3594,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
 
     // Test 4: Add a custom function with no arguments
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
 
@@ -3583,7 +3611,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
 
     // Test 5: Add a variadic custom function 'SUM'
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
 
@@ -3605,7 +3633,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
 
     // Test 6: Attempt to override a built-in function (should fail)
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
         TestAssembler::FunctionInfo dummy_func = {0, nullptr};
@@ -3618,7 +3646,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
 TEST_CASE(CustomDirectives) {
     // Test 1: Add a simple directive without arguments
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
 
@@ -3629,7 +3657,7 @@ TEST_CASE(CustomDirectives) {
 
     // Test 2: Add a directive with arguments
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
 
@@ -3640,7 +3668,7 @@ TEST_CASE(CustomDirectives) {
 
     // Test 3: Attempt to override a built-in directive (should fail)
     {
-        Z80DefaultBus bus;
+        Z80StandardBus bus;
         MockFileProvider file_provider;
         TestAssembler assembler(&bus, &file_provider);
         
