@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Verson: 1.1.5
+// Verson: 1.1.5a
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -147,6 +147,7 @@
 //   ---------|------------------------------------------------------------------
 //   $, @     | Current logical address.
 //   $PASS    | The current assembly pass number (starting from 1).
+//   $PHASE   | The current phase number (1 for symbols, 2 for assembly).
 //   $$       | Current physical address (useful in PHASE/DEPHASE blocks).
 //
 // Constants:
@@ -508,6 +509,12 @@ protected:
                 base = 16;
             } else if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'b' || *(start + 1) == 'B'))) {
                 start += 2;
+                base = 2;
+            } else if ((end - start) > 1 && *start == '$') {
+                start += 1;
+                base = 16;
+            } else if ((end - start) > 1 && *start == '%') {
+                start += 1;
                 base = 2;
             } else if ((end - start) > 0) {
                 char last_char = *(end - 1);
@@ -1365,6 +1372,34 @@ protected:
             return true;
         }
         bool parse_number(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            if (expr[i] == '$') {
+                size_t j = i + 1;
+                if (j < expr.length() && isxdigit(expr[j])) {
+                    while (j < expr.length() && isxdigit(expr[j])) j++;
+                    std::string num_str = expr.substr(i + 1, j - i - 1);
+                    int32_t val;
+                    auto result = std::from_chars(num_str.data(), num_str.data() + num_str.size(), val, 16);
+                    if (result.ec == std::errc()) {
+                        tokens.push_back({Token::Type::NUMBER, "", (double)val});
+                        i = j - 1;
+                        return true;
+                    }
+                }
+            }
+            if (expr[i] == '%') {
+                size_t j = i + 1;
+                if (j < expr.length() && (expr[j] == '0' || expr[j] == '1')) {
+                    while (j < expr.length() && (expr[j] == '0' || expr[j] == '1')) j++;
+                    std::string num_str = expr.substr(i + 1, j - i - 1);
+                    int32_t val;
+                    auto result = std::from_chars(num_str.data(), num_str.data() + num_str.size(), val, 2);
+                    if (result.ec == std::errc()) {
+                        tokens.push_back({Token::Type::NUMBER, "", (double)val});
+                        i = j - 1;
+                        return true;
+                    }
+                }
+            }
             if (isdigit(expr[i]) || (expr[i] == '.' && i + 1 < expr.length() && isdigit(expr[i + 1]))) {
                 size_t j = i;
                 bool has_dot = false;

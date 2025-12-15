@@ -1365,6 +1365,30 @@ TEST_CASE(ExpressionEvaluation) {
     ASSERT_CODE(code, expected);
 }
 
+TEST_CASE(AlternativeNumberPrefixes) {
+    // Test $ for Hexadecimal (e.g. $FF)
+    ASSERT_CODE("LD A, $10", {0x3E, 0x10});
+    ASSERT_CODE("LD BC, $ABCD", {0x01, 0xCD, 0xAB});
+    ASSERT_CODE("DB $01, $02", {0x01, 0x02});
+
+    // Test % for Binary (e.g. %10101010)
+    ASSERT_CODE("LD A, %10101010", {0x3E, 0xAA});
+    ASSERT_CODE("LD B, %1100", {0x06, 0x0C});
+    ASSERT_CODE("DB %11110000", {0xF0});
+
+    // Test mixed usage in expressions
+    ASSERT_CODE("LD A, $0F + %00010000", {0x3E, 0x1F});
+    ASSERT_CODE("LD A, $A", {0x3E, 0x0A});
+    ASSERT_CODE("LD A, %1", {0x3E, 0x01});
+
+    // Verify $ as current address still works (regression test)
+    ASSERT_CODE("NOP\nDB $", {0x00, 0x01});
+
+    // Verify % as modulo operator still works (regression test)
+    // Note: % followed by space or non-binary digit is treated as operator
+    ASSERT_CODE("LD A, 10 % 3", {0x3E, 0x01});
+}
+
 TEST_CASE(ComprehensiveExpressionEvaluation) {
     // Test basic arithmetic operators
     ASSERT_CODE("VAL EQU 10 - 5\nLD A, VAL", {0x3E, 5});
@@ -3463,6 +3487,22 @@ TEST_CASE(PhaseVariable) {
         ENDIF
         MY_VAL EQU 1
     )", {2});
+}
+
+TEST_CASE(PassVariable) {
+    // In the final assembly pass (AssemblyPhase), $PASS is reset to 1.
+    ASSERT_CODE("DB $PASS", {1});
+
+    // Verify usage in conditional
+    // Note: Using $PASS to change code structure between passes can lead to phase errors,
+    // but here we just verify that $PASS is 1 during assembly.
+    ASSERT_CODE(R"(
+        IF $PASS == 1
+            DB 0xAA
+        ELSE
+            DB 0xBB
+        ENDIF
+    )", {0xAA});
 }
 
 class TestAssembler : public Z80Assembler<Z80StandardBus> {
