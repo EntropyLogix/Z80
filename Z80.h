@@ -7719,9 +7719,4 @@ public:
     }
 };
 
-// Compatibility aliases for older code
-using Z80DefaultBus = Z80StandardBus;
-using Z80DefaultEvents = Z80StandardEvents;
-using Z80DefaultDebugger = Z80StandardDebugger;
-
 #endif //__Z80_H__

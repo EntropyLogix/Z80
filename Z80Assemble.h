@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Verson: 1.1.5a
+// Verson: 1.1.5b
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -349,6 +349,13 @@ public:
         struct ExpressionOptions {
             bool enabled = true;
         } expressions;
+        struct NumberOptions {
+            bool allow_hex_prefix_0x = true;
+            bool allow_hex_prefix_dollar = true;
+            bool allow_hex_suffix_h = true;
+            bool allow_bin_suffix_b = true;
+            bool allow_bin_prefix_percent = true;
+        } numbers;
         struct CompilationOptions {
             int max_passes = 10;
             int max_while_iterations = 10000;
@@ -490,7 +497,7 @@ protected:
                 }
             }
         }
-        static bool is_number(const std::string& s, int32_t& out_value) {
+        static bool is_number(const std::string& s, int32_t& out_value, const typename Options::NumberOptions& options = get_default_options().numbers) {
             std::string str = s;
             trim_whitespace(str);
             if (str.empty())
@@ -505,23 +512,33 @@ protected:
                 start++;
             int base = 10;
             if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'x' || *(start + 1) == 'X'))) {
+                if (!options.allow_hex_prefix_0x)
+                    return false;
                 start += 2;
                 base = 16;
             } else if ((end - start) > 2 && (*start == '0' && (*(start + 1) == 'b' || *(start + 1) == 'B'))) {
                 start += 2;
                 base = 2;
             } else if ((end - start) > 1 && *start == '$') {
+                if (!options.allow_hex_prefix_dollar)
+                    return false;
                 start += 1;
                 base = 16;
             } else if ((end - start) > 1 && *start == '%') {
+                if (!options.allow_bin_prefix_percent)
+                    return false;
                 start += 1;
                 base = 2;
             } else if ((end - start) > 0) {
                 char last_char = *(end - 1);
                 if (last_char == 'H' || last_char == 'h') {
+                    if (!options.allow_hex_suffix_h)
+                        return false;
                     end -= 1;
                     base = 16;
                 } else if (last_char == 'B' || last_char == 'b') {
+                    if (!options.allow_bin_suffix_b)
+                        return false;
                     end -= 1;
                     base = 2;
                 }
@@ -554,10 +571,10 @@ protected:
                     bool matches_regex(const std::regex& re) const {
                         return std::regex_match(m_original, re);
                     }
-                    bool to_number(int32_t& out_value) const {
+                    bool to_number(int32_t& out_value, const typename Options::NumberOptions& options = get_default_options().numbers) const {
                         if (!m_number_val.has_value()) {
                             int32_t val;
-                            if (Strings::is_number(m_original, val))
+                            if (Strings::is_number(m_original, val, options))
                                 m_number_val = val;
                             else 
                                 m_number_val = std::nullopt;
@@ -922,7 +939,7 @@ protected:
                     if (base_reg_str == "IX" || base_reg_str == "IY") {
                         std::string offset_str = inner.substr(operator_pos);
                         int32_t offset_val;
-                        if (Strings::is_number(offset_str, offset_val)) {
+                        if (Strings::is_number(offset_str, offset_val, m_policy.context().assembler.m_options.numbers)) {
                             // Handle (IX/IY +/- d)
                             operand.type = Operand::Type::MEM_INDEXED;
                             operand.base_reg = base_reg_str;
@@ -1007,7 +1024,7 @@ protected:
         Expressions(IPhasePolicy& policy) : m_policy(policy){}
         bool evaluate(const std::string& s, int32_t& out_value) const {
             if (!m_policy.context().assembler.m_options.expressions.enabled) {
-                if (Strings::is_number(s, out_value))
+                if (Strings::is_number(s, out_value, m_policy.context().assembler.m_options.numbers))
                     return true;
                 return false;
             }
@@ -1018,7 +1035,7 @@ protected:
         bool evaluate(const std::string& s, Value& out_value) const {
             if (!m_policy.context().assembler.m_options.expressions.enabled) {
                 int32_t num_val;
-                if (Strings::is_number(s, num_val)) {
+                if (Strings::is_number(s, num_val, m_policy.context().assembler.m_options.numbers)) {
                     out_value = { Value::Type::NUMBER, (double)num_val };
                     return true;
                 }
@@ -1119,7 +1136,7 @@ protected:
                         return Value{Value::Type::NUMBER, 1.0};
                     if (args[0].type == Value::Type::STRING) {
                         int32_t dummy;
-                        if (Strings::is_number(args[0].s_val, dummy))
+                        if (Strings::is_number(args[0].s_val, dummy, context.assembler.m_options.numbers))
                             return Value{Value::Type::NUMBER, 1.0};
                     }
                     return Value{Value::Type::NUMBER, 0.0};
@@ -1133,7 +1150,7 @@ protected:
                     if (args[0].type != Value::Type::STRING)
                         context.assembler.report_error("Argument to VAL must be a string.");
                     int32_t num_val;
-                    if (Strings::is_number(args[0].s_val, num_val))
+                    if (Strings::is_number(args[0].s_val, num_val, context.assembler.m_options.numbers))
                         return Value{Value::Type::NUMBER, (double)num_val};
                     context.assembler.report_error("VAL argument is not a valid number: \"" + args[0].s_val + "\"");
                     return Value{Value::Type::NUMBER, 0.0};
@@ -1372,7 +1389,9 @@ protected:
             return true;
         }
         bool parse_number(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            const auto& options = m_policy.context().assembler.m_options.numbers;
             if (expr[i] == '$') {
+                if (!options.allow_hex_prefix_dollar) return false;
                 size_t j = i + 1;
                 if (j < expr.length() && isxdigit(expr[j])) {
                     while (j < expr.length() && isxdigit(expr[j])) j++;
@@ -1387,6 +1406,7 @@ protected:
                 }
             }
             if (expr[i] == '%') {
+                if (!options.allow_bin_prefix_percent) return false;
                 size_t j = i + 1;
                 if (j < expr.length() && (expr[j] == '0' || expr[j] == '1')) {
                     while (j < expr.length() && (expr[j] == '0' || expr[j] == '1')) j++;
@@ -1409,14 +1429,16 @@ protected:
                 }
                 if (!has_dot) {
                     j = i;
-                    if (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X") j += 2;
+                    if (options.allow_hex_prefix_0x && (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X")) {
+                        j += 2;
+                    }
                     while (j < expr.length() && isalnum(expr[j])) j++;
                     if (j < expr.length() && (expr[j] == 'h' || expr[j] == 'H' || expr[j] == 'b' || expr[j] == 'B')) {
                         char last_char = toupper(expr[j - 1]);
                         if (last_char != 'B' && last_char != 'H') j++;
                     }
                     int32_t val;
-                    if (Strings::is_number(expr.substr(i, j - i), val)) {
+                    if (Strings::is_number(expr.substr(i, j - i), val, options)) {
                         tokens.push_back({Token::Type::NUMBER, "", (double)(val)});
                         i = j - 1;
                         return true;
@@ -1426,11 +1448,20 @@ protected:
                         j++;
                 }
                 std::string num_str = expr.substr(i, j - i);
+                size_t processed = 0;
+                double d_val = 0.0;
+                bool stod_success = false;
                 try {
-                    tokens.push_back({Token::Type::NUMBER, "", std::stod(num_str)});
-                } catch (const std::invalid_argument&) {
-                    m_policy.context().assembler.report_error("Invalid number in expression: " + num_str);
+                    d_val = std::stod(num_str, &processed);
+                    stod_success = true;
+                } catch (...) {}
+
+                if (stod_success && processed > 0) {
+                    tokens.push_back({Token::Type::NUMBER, "", d_val});
+                    i = i + processed - 1;
+                    return true;
                 }
+                m_policy.context().assembler.report_error("Invalid number in expression: " + num_str);
                 i = j - 1;
                 return true;
             }
@@ -2471,7 +2502,7 @@ protected:
         };
         virtual void on_org_directive(const std::string& label) override {
             int32_t num_val;
-            if (Strings::is_number(label, num_val))
+            if (Strings::is_number(label, num_val, this->m_context.assembler.m_options.numbers))
                 this->m_context.address.current_logical = this->m_context.address.current_physical = num_val;
             else if (m_symbols_stable) {
                 Expressions expression(*this);
@@ -2483,7 +2514,7 @@ protected:
         };
         virtual void on_phase_directive(const std::string& label) override {
             int32_t num_val;
-            if (Strings::is_number(label, num_val)) {
+            if (Strings::is_number(label, num_val, this->m_context.assembler.m_options.numbers)) {
                 this->m_context.address.current_logical = num_val;
             }
             else if (m_symbols_stable) {
