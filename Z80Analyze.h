@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.1.5b
+// Verson: 1.1.5c
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -2545,6 +2545,65 @@ public:
         if (line_info.mnemonic.empty())
             return to_db(line_info);
         return line_info;
+    }
+    virtual uint16_t find_previous_instruction(uint16_t target_addr, CodeMap* map = nullptr, bool update_map = true) {
+        if (map) {
+            uint16_t ptr = target_addr - 1;
+            int safety = 0;
+            const int MAX_SAFETY = 32;
+            while (safety < MAX_SAFETY) {
+                uint8_t flags = (*map)[ptr];
+                if (flags & FLAG_CODE_START) {
+                    uint16_t temp = ptr;
+                    parse_instruction(temp);
+                    if (temp == target_addr)
+                        return ptr;
+                    break;
+                }
+                if (flags & FLAG_CODE_INTERIOR) {
+                    ptr--;
+                    safety++;
+                    continue;
+                }
+                break;
+            }
+        }
+        const int HEURISTIC_SEARCH_DEPTH = 24;
+        const int HEURISTIC_STEP_LIMIT = 32;
+        uint16_t start_scan = target_addr - HEURISTIC_SEARCH_DEPTH;
+        std::map<uint16_t, int> votes;
+        for (int i = 0; i <= (HEURISTIC_SEARCH_DEPTH - 4); ++i) {
+            uint16_t pc = start_scan + i;
+            uint16_t prev = pc;
+            int steps = 0;
+            while (pc != target_addr && steps < HEURISTIC_STEP_LIMIT) {
+                int16_t dist = (int16_t)(target_addr - pc);
+                if (dist < 0)
+                    break;
+                prev = pc;
+                parse_instruction(pc);
+                steps++;
+            }
+            if (pc == target_addr)
+                votes[prev]++;
+        }
+        uint16_t winner = target_addr - 1;
+        int max_votes = -1;
+        for (auto const& [addr, count] : votes) {
+            if (count > max_votes) {
+                max_votes = count;
+                winner = addr;
+            }
+        }
+        if (map && update_map) {
+            uint16_t temp_winner = winner;
+            parse_instruction(temp_winner);
+            size_t len = temp_winner - winner;   
+            (*map)[winner] |= FLAG_CODE_START;
+            for (size_t i = 1; i < len; ++i)
+                (*map)[(uint16_t)(winner + i)] |= FLAG_CODE_INTERIOR;
+        }
+        return winner;
     }
 protected:
     static constexpr size_t EXECUTION_TRACE_LIMIT = 1000000;
