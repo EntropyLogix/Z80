@@ -72,28 +72,22 @@ public:
                 this->resize(0x10000, FLAG_NONE);
             if (length == 0) 
                 return;
-            if ((uint32_t)address + length > 0x10000) 
-                length = 0x10000 - address;
             (*this)[address] |= FLAG_CODE_START;
             for (size_t i = 1; i < length; ++i)
-                (*this)[address + i] |= FLAG_CODE_INTERIOR;
+                (*this)[(uint16_t)(address + i)] |= FLAG_CODE_INTERIOR;
         }
         void mark_data(uint16_t address, size_t length, bool write) {
             if (this->size() < 0x10000)
                 this->resize(0x10000, FLAG_NONE);
-            if ((uint32_t)address + length > 0x10000)
-                length = 0x10000 - address;
             uint8_t flag = write ? FLAG_DATA_WRITE : FLAG_DATA_READ;
             for (size_t i = 0; i < length; ++i)
-                (*this)[address + i] |= flag;
+                (*this)[(uint16_t)(address + i)] |= flag;
         }
         void invalidate(uint16_t address, size_t length) {
             if (this->size() < 0x10000)
                 this->resize(0x10000, FLAG_NONE);
-            if ((uint32_t)address + length > 0x10000)
-                length = 0x10000 - address;
             for (size_t i = 0; i < length; ++i)
-                (*this)[address + i] = FLAG_NONE;
+                (*this)[(uint16_t)(address + i)] = FLAG_NONE;
         }
     };
     struct CodeLine {
@@ -181,7 +175,7 @@ public:
             m_inside_instruction = false;
             if (m_cpu && m_labels) {
                uint16_t pc_after = m_cpu->get_PC();
-               if (m_pc_before_step + m_instruction_byte_count != pc_after) {
+               if ((uint16_t)(m_pc_before_step + m_instruction_byte_count) != pc_after) {
                     bool is_ret = false;
                     uint8_t opcode = m_memory->peek(m_pc_before_step);
                     if (opcode == 0xC9 || (opcode & 0xC7) == 0xC0) {
@@ -2583,7 +2577,7 @@ public:
                 uint8_t flags = (*map)[ptr];
                 if (flags & CodeMap::FLAG_CODE_START) {
                     CodeLine line = parse_instruction(ptr);
-                    if ((uint16_t)(ptr + line.bytes.size()) == target_addr)
+                    if ((uint16_t)(ptr + (uint16_t)line.bytes.size()) == target_addr)
                         return ptr;
                     break;
                 }
@@ -2604,12 +2598,12 @@ public:
             uint16_t prev = pc;
             int steps = 0;
             while (pc != target_addr && steps < HEURISTIC_STEP_LIMIT) {
-                int16_t dist = (int16_t)(target_addr - pc);
+                int16_t dist = (int16_t)((uint16_t)(target_addr - pc));
                 if (dist < 0)
                     break;
                 prev = pc;
                 CodeLine line = parse_instruction(pc);
-                pc += line.bytes.size();
+                pc = (uint16_t)(pc + line.bytes.size());
                 steps++;
             }
             if (pc == target_addr)
@@ -2631,8 +2625,6 @@ protected:
     struct ParseContext {
         ParseContext(uint16_t& addr, std::vector<uint8_t>& b, TMemory* mem) : address(addr), bytes(b), memory(mem) {}
         std::optional<uint8_t> peek_byte() {
-            if (address > 0xFFFF)
-                return std::nullopt;
             uint8_t value = memory->peek(address++);
             bytes.push_back(value);
             return value;
@@ -2777,10 +2769,11 @@ protected:
                 uint16_t len = line.bytes.size();
                 visited[current_addr] = true;
                 map[current_addr] |= CodeMap::FLAG_CODE_START;
-                for(size_t k=1; k<len && (current_addr+k < 0x10000); ++k)
+                for(size_t k=1; k<len; ++k)
                 {
-                    visited[current_addr+k] = true;
-                    map[current_addr+k] |= CodeMap::FLAG_CODE_INTERIOR;
+                    uint16_t addr = (uint16_t)(current_addr + k);
+                    visited[addr] = true;
+                    map[addr] |= CodeMap::FLAG_CODE_INTERIOR;
                 }
                 if (line.has_flag(CodeLine::Type::JUMP) || line.has_flag(CodeLine::Type::CALL)) {
                     if (!line.operands.empty()) {
