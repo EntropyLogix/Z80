@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.1.5c
+// Verson: 1.1.5d
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -58,14 +58,43 @@ public:
 
 template <typename TMemory> class Z80Analyzer {
 public:
-    using CodeMap = std::vector<uint8_t>;
-    enum MapFlags : uint8_t {
-        FLAG_NONE = 0,
-        FLAG_CODE_START = 1 << 0,    // Start of instruction
-        FLAG_CODE_INTERIOR = 1 << 1, // Arguments/interior of instruction
-        FLAG_DATA_READ = 1 << 2,     // Data read
-        FLAG_DATA_WRITE = 1 << 3,    // Data write
-        FLAG_VISITED = 1 << 4        // For heuristic - visited
+    struct CodeMap : public std::vector<uint8_t> {
+        using std::vector<uint8_t>::vector;
+        enum MapFlags : uint8_t {
+            FLAG_NONE = 0,
+            FLAG_CODE_START = 1 << 0,    // Start of instruction
+            FLAG_CODE_INTERIOR = 1 << 1, // Arguments/interior of instruction
+            FLAG_DATA_READ = 1 << 2,     // Data read
+            FLAG_DATA_WRITE = 1 << 3     // Data write
+        };
+        void mark_code(uint16_t address, size_t length) {
+            if (this->size() < 0x10000)
+                this->resize(0x10000, FLAG_NONE);
+            if (length == 0) 
+                return;
+            if ((uint32_t)address + length > 0x10000) 
+                length = 0x10000 - address;
+            (*this)[address] |= FLAG_CODE_START;
+            for (size_t i = 1; i < length; ++i)
+                (*this)[address + i] |= FLAG_CODE_INTERIOR;
+        }
+        void mark_data(uint16_t address, size_t length, bool write) {
+            if (this->size() < 0x10000)
+                this->resize(0x10000, FLAG_NONE);
+            if ((uint32_t)address + length > 0x10000)
+                length = 0x10000 - address;
+            uint8_t flag = write ? FLAG_DATA_WRITE : FLAG_DATA_READ;
+            for (size_t i = 0; i < length; ++i)
+                (*this)[address + i] |= flag;
+        }
+        void invalidate(uint16_t address, size_t length) {
+            if (this->size() < 0x10000)
+                this->resize(0x10000, FLAG_NONE);
+            if ((uint32_t)address + length > 0x10000)
+                length = 0x10000 - address;
+            for (size_t i = 0; i < length; ++i)
+                (*this)[address + i] = FLAG_NONE;
+        }
     };
     struct CodeLine {
         enum Type : uint32_t {
@@ -85,14 +114,11 @@ public:
             DATA         = 1 << 12
         };
         struct Operand {
-            enum Type {
-                REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, PORT_IMM8, STRING, CHAR_LITERAL, UNKNOWN
-            };
+            enum Type { REG8, REG16, IMM8, IMM16, MEM_IMM16, MEM_REG16, MEM_INDEXED, CONDITION, PORT_IMM8, STRING, CHAR_LITERAL, UNKNOWN };
             Operand(Type t, int32_t n) : type(t), num_val(n), offset(0), base_reg("") {}
             Operand(Type t, const std::string& s) : type(t), s_val(s), num_val(0), offset(0), base_reg("") {}
             Operand(Type t, const std::string& s, int8_t o) : type(t), s_val(s), num_val(0), offset(o), base_reg("") {}
             Operand(Type t, const std::string& s, int8_t o, const std::string& base_r) : type(t), s_val(s), num_val(0), offset(o), base_reg(base_r) {}
-
             Type type;
             std::string s_val;
             int32_t num_val;
@@ -129,17 +155,17 @@ public:
         uint8_t read(uint16_t address) {
             if (m_inside_instruction && m_cpu && m_cpu->get_PC() == address) {
                 m_instruction_byte_count++;
-                m_code_map[address] |= (m_instruction_byte_count == 1) ? FLAG_CODE_START : FLAG_CODE_INTERIOR;
+                m_code_map[address] |= (m_instruction_byte_count == 1) ? CodeMap::FLAG_CODE_START : CodeMap::FLAG_CODE_INTERIOR;
             } else
-                m_code_map[address] |= FLAG_DATA_READ;
+                m_code_map[address] |= CodeMap::FLAG_DATA_READ;
             return m_memory->peek(address);
         }
         void write(uint16_t address, uint8_t value) {
-            m_code_map[address] |= FLAG_DATA_WRITE;
+            m_code_map[address] |= CodeMap::FLAG_DATA_WRITE;
             m_memory->poke(address, value);
         }
         void reset() {
-            std::fill(m_code_map.begin(), m_code_map.end(), FLAG_NONE);
+            std::fill(m_code_map.begin(), m_code_map.end(), CodeMap::FLAG_NONE);
             m_pc_before_step = 0;
             m_inside_instruction = false;
             m_instruction_byte_count = 0;
@@ -190,10 +216,10 @@ public:
         CodeMap local_map;
         CodeMap* pMap = external_code_map; 
         if (!pMap) {
-            local_map.resize(0x10000, FLAG_NONE);
+            local_map.resize(0x10000, CodeMap::FLAG_NONE);
             pMap = &local_map;
         } else if (pMap->size() < 0x10000)
-            pMap->resize(0x10000, FLAG_NONE);
+            pMap->resize(0x10000, CodeMap::FLAG_NONE);
         bool has_map_info = (external_code_map != nullptr);
         if (use_execution) {
             run_execution_phase(*pMap, start_address);
@@ -205,7 +231,7 @@ public:
         }
         return generate_listing(*pMap, start_address, instruction_limit, has_map_info);
     }
-    virtual CodeLine parse_db(uint16_t& address, size_t count = 1) {
+    virtual CodeLine parse_db(uint16_t address, size_t count = 1) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
@@ -221,7 +247,7 @@ public:
         }
         return line_info;
     }
-    virtual CodeLine parse_dw(uint16_t& address, size_t count = 1) {
+    virtual CodeLine parse_dw(uint16_t address, size_t count = 1) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
@@ -239,7 +265,7 @@ public:
         }
         return line_info;
     }
-    virtual CodeLine parse_dz(uint16_t& address) {
+    virtual CodeLine parse_dz(uint16_t address) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
@@ -257,7 +283,7 @@ public:
         line_info.operands.push_back(typename CodeLine::Operand(CodeLine::Operand::STRING, text));
         return line_info;
     }
-    virtual CodeLine parse_ds(uint16_t& address, size_t count, std::optional<uint8_t> fill_byte = std::nullopt) {
+    virtual CodeLine parse_ds(uint16_t address, size_t count, std::optional<uint8_t> fill_byte = std::nullopt) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::DATA;
@@ -269,10 +295,9 @@ public:
         line_info.operands.push_back(typename CodeLine::Operand(CodeLine::Operand::IMM16, count));
         if (fill_byte.has_value())
             line_info.operands.push_back(typename CodeLine::Operand(CodeLine::Operand::IMM8, *fill_byte));
-        address += count;
         return line_info;
     }
-    virtual CodeLine parse_instruction(uint16_t& address) {
+    virtual CodeLine parse_instruction(uint16_t address) {
         CodeLine line_info;
         line_info.address = address;
         line_info.type = CodeLine::Type::UNKNOWN;
@@ -286,10 +311,13 @@ public:
         if (!opcode_opt)
             return line_info;
         uint8_t opcode = *opcode_opt;
+        uint16_t prefix_start_addr = address;
         while (opcode == 0xDD || opcode == 0xFD) {
             set_index_mode((opcode == 0xDD) ? IndexMode::IX : IndexMode::IY);
             opcode_opt = ctx.peek_byte();
             if (!opcode_opt)
+                return to_db(line_info);
+            if (address == prefix_start_addr)
                 return to_db(line_info);
             opcode = *opcode_opt;
         }
@@ -2546,21 +2574,20 @@ public:
             return to_db(line_info);
         return line_info;
     }
-    virtual uint16_t find_previous_instruction(uint16_t target_addr, CodeMap* map = nullptr, bool update_map = true) {
+    virtual uint16_t parse_instruction_backwards(uint16_t target_addr, CodeMap* map = nullptr) {
         if (map) {
             uint16_t ptr = target_addr - 1;
             int safety = 0;
             const int MAX_SAFETY = 32;
             while (safety < MAX_SAFETY) {
                 uint8_t flags = (*map)[ptr];
-                if (flags & FLAG_CODE_START) {
-                    uint16_t temp = ptr;
-                    parse_instruction(temp);
-                    if (temp == target_addr)
+                if (flags & CodeMap::FLAG_CODE_START) {
+                    CodeLine line = parse_instruction(ptr);
+                    if ((uint16_t)(ptr + line.bytes.size()) == target_addr)
                         return ptr;
                     break;
                 }
-                if (flags & FLAG_CODE_INTERIOR) {
+                if (flags & CodeMap::FLAG_CODE_INTERIOR) {
                     ptr--;
                     safety++;
                     continue;
@@ -2581,7 +2608,8 @@ public:
                 if (dist < 0)
                     break;
                 prev = pc;
-                parse_instruction(pc);
+                CodeLine line = parse_instruction(pc);
+                pc += line.bytes.size();
                 steps++;
             }
             if (pc == target_addr)
@@ -2594,14 +2622,6 @@ public:
                 max_votes = count;
                 winner = addr;
             }
-        }
-        if (map && update_map) {
-            uint16_t temp_winner = winner;
-            parse_instruction(temp_winner);
-            size_t len = temp_winner - winner;   
-            (*map)[winner] |= FLAG_CODE_START;
-            for (size_t i = 1; i < len; ++i)
-                (*map)[(uint16_t)(winner + i)] |= FLAG_CODE_INTERIOR;
         }
         return winner;
     }
@@ -2673,8 +2693,8 @@ protected:
         std::vector<uint16_t> smc_locations;
         for (uint32_t i = 0; i < 0x10000; ++i) {
             uint8_t flags = profiler.m_code_map[i];
-            bool is_code = (flags & CodeMapProfiler::FLAG_CODE_START) || (flags & CodeMapProfiler::FLAG_CODE_INTERIOR);
-            bool is_written = (flags & CodeMapProfiler::FLAG_DATA_WRITE);
+            bool is_code = (flags & CodeMap::FLAG_CODE_START) || (flags & CodeMap::FLAG_CODE_INTERIOR);
+            bool is_written = (flags & CodeMap::FLAG_DATA_WRITE);
             if (is_code && is_written)
                 smc_locations.push_back((uint16_t)i);
         }
@@ -2734,12 +2754,12 @@ protected:
         }
     }
     void run_heuristic_phase(CodeMap& map, uint16_t start_addr) {
+        std::vector<bool> visited(0x10000, false);
         std::vector<uint16_t> work_list;
         bool found_existing_code = false;
         for(size_t i=0; i<map.size(); ++i) {
-            if (map[i] & FLAG_CODE_START) {
-                if (!(map[i] & FLAG_VISITED))
-                    work_list.push_back((uint16_t)i);
+            if (map[i] & CodeMap::FLAG_CODE_START) {
+                work_list.push_back((uint16_t)i);
                 found_existing_code = true;
             }
         }
@@ -2748,17 +2768,20 @@ protected:
         while (!work_list.empty()) {
             uint16_t current_addr = work_list.back();
             work_list.pop_back();
-            if (map[current_addr] & FLAG_VISITED)
+            if (visited[current_addr])
                 continue;
             while (true) {
-                if (map[current_addr] & FLAG_VISITED)
+                if (visited[current_addr])
                     break;
-                uint16_t temp_pc = current_addr;
-                CodeLine line = parse_instruction(temp_pc);
-                uint16_t len = temp_pc - current_addr;
-                map[current_addr] |= (FLAG_CODE_START | FLAG_VISITED);
+                CodeLine line = parse_instruction(current_addr);
+                uint16_t len = line.bytes.size();
+                visited[current_addr] = true;
+                map[current_addr] |= CodeMap::FLAG_CODE_START;
                 for(size_t k=1; k<len && (current_addr+k < 0x10000); ++k)
-                    map[current_addr+k] |= (FLAG_CODE_INTERIOR | FLAG_VISITED);
+                {
+                    visited[current_addr+k] = true;
+                    map[current_addr+k] |= CodeMap::FLAG_CODE_INTERIOR;
+                }
                 if (line.has_flag(CodeLine::Type::JUMP) || line.has_flag(CodeLine::Type::CALL)) {
                     if (!line.operands.empty()) {
                         const auto& last_op = line.operands.back();
@@ -2782,7 +2805,7 @@ protected:
                      if (!is_conditional)
                         stop = true;
                 }
-                current_addr = temp_pc;
+                current_addr += len;
                 if (stop)
                     break;
             }
@@ -2795,29 +2818,28 @@ protected:
             uint16_t current_pc = (uint16_t)pc;
             bool is_code = false;
             if (use_map) {
-                if (map[current_pc] & FLAG_CODE_START)
+                if (map[current_pc] & CodeMap::FLAG_CODE_START)
                     is_code = true;
-                else if (map[current_pc] & FLAG_CODE_INTERIOR) {
+                else if (map[current_pc] & CodeMap::FLAG_CODE_INTERIOR) {
                     pc++;
                     continue;
                 }
             } else
                 is_code = true;
             if (is_code) {
-                uint16_t temp_pc = current_pc;
-                CodeLine line = parse_instruction(temp_pc);
+                CodeLine line = parse_instruction(current_pc);
                 if (line.bytes.empty()) {
                     result.push_back(parse_db(current_pc, 1));
                     pc++;
                 } else {
                     result.push_back(line);
-                    pc = temp_pc;
+                    pc += line.bytes.size();
                 }
             } else {
                 group_data_blocks(pc, result, instruction_limit, [&](uint32_t addr) { 
                      if (addr >= 0x10000)
                         return false;
-                     return !(map[addr] & (FLAG_CODE_START | FLAG_CODE_INTERIOR));
+                     return !(map[addr] & (CodeMap::FLAG_CODE_START | CodeMap::FLAG_CODE_INTERIOR));
                 });
             }
         }
