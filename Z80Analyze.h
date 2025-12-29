@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.1.5d
+// Verson: 1.1.5e
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -72,9 +72,12 @@ public:
                 this->resize(0x10000, FLAG_NONE);
             if (length == 0) 
                 return;
+            for (size_t i = 0; i < length; ++i)
+                (*this)[(uint16_t)(address + i)] &= ~(FLAG_CODE_START | FLAG_CODE_INTERIOR);
             (*this)[address] |= FLAG_CODE_START;
             for (size_t i = 1; i < length; ++i)
                 (*this)[(uint16_t)(address + i)] |= FLAG_CODE_INTERIOR;
+            cleanup_orphans(address + length);
         }
         void mark_data(uint16_t address, size_t length, bool write) {
             if (this->size() < 0x10000)
@@ -88,6 +91,14 @@ public:
                 this->resize(0x10000, FLAG_NONE);
             for (size_t i = 0; i < length; ++i)
                 (*this)[(uint16_t)(address + i)] = FLAG_NONE;
+            cleanup_orphans(address + length);
+        }
+    private:
+        void cleanup_orphans(uint32_t start_index) {
+            while (start_index < 0x10000 && ((*this)[start_index] & FLAG_CODE_INTERIOR) && !((*this)[start_index] & FLAG_CODE_START)) {
+                (*this)[start_index] &= ~FLAG_CODE_INTERIOR;
+                start_index++;
+            }
         }
     };
     struct CodeLine {
