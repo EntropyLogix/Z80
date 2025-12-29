@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.1.5f
+// Verson: 1.1.5g
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -247,7 +247,7 @@ public:
         bool m_inside_instruction = false;
         uint8_t m_instruction_byte_count = 0;
     };
-    virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruction_limit, CodeMap* external_code_map = nullptr, bool use_execution = false, bool use_heuristic = false) {
+    virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruction_limit, CodeMap* external_code_map = nullptr, bool use_execution = false, bool use_heuristic = false, size_t max_data_group = 16) {
         CodeMap local_map;
         CodeMap* pMap = external_code_map; 
         if (!pMap) {
@@ -264,7 +264,7 @@ public:
             run_heuristic_phase(*pMap, start_address);
             has_map_info = true;
         }
-        return generate_listing(*pMap, start_address, instruction_limit, has_map_info);
+        return generate_listing(*pMap, start_address, instruction_limit, has_map_info, max_data_group);
     }
     virtual CodeLine parse_db(uint16_t address, size_t count = 1) {
         CodeLine line_info;
@@ -2683,7 +2683,7 @@ protected:
         std::vector<uint8_t>& bytes;
         TMemory* memory;
     };
-    void group_data_blocks(uint32_t& pc, std::vector<CodeLine>& result, size_t instruction_limit, std::function<bool(uint32_t)> is_data) {
+    void group_data_blocks(uint32_t& pc, std::vector<CodeLine>& result, size_t instruction_limit, std::function<bool(uint32_t)> is_data, size_t max_data_group = 16) {
         while (pc < 0x10000 && is_data(pc)) {
             if (result.size() >= instruction_limit)
                 break;
@@ -2700,6 +2700,8 @@ protected:
                 uint16_t db_start_pc = (uint16_t)pc;
                 size_t db_count = 0;
                 while (pc < 0x10000 && is_data(pc)) {
+                    if (max_data_group > 0 && db_count >= max_data_group)
+                        break;
                     uint8_t next_fill = m_memory->peek(pc);
                     size_t next_repeat = 0;
                     while (pc + next_repeat < 0x10000 && is_data(pc + next_repeat) && m_memory->peek(pc + next_repeat) == next_fill)
@@ -2845,7 +2847,7 @@ protected:
             }
         }
     }
-    virtual std::vector<CodeLine> generate_listing(CodeMap& map, uint16_t& start_address, size_t instruction_limit, bool use_map) {
+    virtual std::vector<CodeLine> generate_listing(CodeMap& map, uint16_t& start_address, size_t instruction_limit, bool use_map, size_t max_data_group = 16) {
         std::vector<CodeLine> result;
         uint32_t pc = start_address;
         while (pc < 0x10000 && result.size() < instruction_limit) {
@@ -2874,7 +2876,7 @@ protected:
                      if (addr >= 0x10000)
                         return false;
                      return !(map[addr] & (CodeMap::FLAG_CODE_START | CodeMap::FLAG_CODE_INTERIOR));
-                });
+                }, max_data_group);
             }
         }
         start_address = (uint16_t)pc;
