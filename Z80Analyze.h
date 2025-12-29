@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.1.5e
+// Verson: 1.1.5f
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -67,38 +67,68 @@ public:
             FLAG_DATA_READ = 1 << 2,     // Data read
             FLAG_DATA_WRITE = 1 << 3     // Data write
         };
-        void mark_code(uint16_t address, size_t length) {
-            if (this->size() < 0x10000)
-                this->resize(0x10000, FLAG_NONE);
+        size_t mark_code(uint16_t address, size_t length, bool set) {
+            if (this->empty()) return 0;
+            size_t sz = this->size();
             if (length == 0) 
-                return;
-            for (size_t i = 0; i < length; ++i)
-                (*this)[(uint16_t)(address + i)] &= ~(FLAG_CODE_START | FLAG_CODE_INTERIOR);
-            (*this)[address] |= FLAG_CODE_START;
-            for (size_t i = 1; i < length; ++i)
-                (*this)[(uint16_t)(address + i)] |= FLAG_CODE_INTERIOR;
-            cleanup_orphans(address + length);
+                return 0;
+            size_t changed = 0;
+            for (size_t i = 0; i < length; ++i) {
+                size_t idx = (address + i) % sz;
+                uint8_t old_val = (*this)[idx];
+                uint8_t val = old_val & ~(FLAG_CODE_START | FLAG_CODE_INTERIOR);
+                if (set) {
+                    if (i == 0) val |= FLAG_CODE_START;
+                    else val |= FLAG_CODE_INTERIOR;
+                }
+                if (val != old_val) {
+                    (*this)[idx] = val;
+                    changed++;
+                }
+            }
+            changed += cleanup_orphans(address + length);
+            return changed;
         }
-        void mark_data(uint16_t address, size_t length, bool write) {
-            if (this->size() < 0x10000)
-                this->resize(0x10000, FLAG_NONE);
+        size_t mark_data(uint16_t address, size_t length, bool write, bool set) {
+            if (this->empty()) return 0;
+            size_t sz = this->size();
             uint8_t flag = write ? FLAG_DATA_WRITE : FLAG_DATA_READ;
-            for (size_t i = 0; i < length; ++i)
-                (*this)[(uint16_t)(address + i)] |= flag;
-        }
-        void invalidate(uint16_t address, size_t length) {
-            if (this->size() < 0x10000)
-                this->resize(0x10000, FLAG_NONE);
-            for (size_t i = 0; i < length; ++i)
-                (*this)[(uint16_t)(address + i)] = FLAG_NONE;
-            cleanup_orphans(address + length);
+            size_t changed = 0;
+            for (size_t i = 0; i < length; ++i) {
+                size_t idx = (address + i) % sz;
+                uint8_t old_val = (*this)[idx];
+                uint8_t val = old_val;
+                if (set) val |= flag;
+                else val &= ~flag;
+                if (val != old_val) {
+                    (*this)[idx] = val;
+                    changed++;
+                }
+            }
+            return changed;
         }
     private:
-        void cleanup_orphans(uint32_t start_index) {
-            while (start_index < 0x10000 && ((*this)[start_index] & FLAG_CODE_INTERIOR) && !((*this)[start_index] & FLAG_CODE_START)) {
-                (*this)[start_index] &= ~FLAG_CODE_INTERIOR;
-                start_index++;
+        size_t cleanup_orphans(uint32_t start_index) {
+            if (this->empty()) return 0;
+            size_t sz = this->size();
+            size_t count = 0;
+            size_t changed = 0;
+            while (count < sz) {
+                size_t idx = start_index % sz;
+                uint8_t old_val = (*this)[idx];
+                if ((old_val & FLAG_CODE_INTERIOR) && !(old_val & FLAG_CODE_START)) {
+                    uint8_t val = old_val & ~FLAG_CODE_INTERIOR;
+                    if (val != old_val) {
+                        (*this)[idx] = val;
+                        changed++;
+                    }
+                    start_index++;
+                    count++;
+                } else {
+                    break;
+                }
             }
+            return changed;
         }
     };
     struct CodeLine {
