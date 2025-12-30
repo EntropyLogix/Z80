@@ -1,8 +1,16 @@
-/*
- * Z80Analyze_test.cpp
- * Tests for Z80Analyzer class.
- * Compile with: g++ Z80Analyze_test.cpp -o test_z80 -std=c++17 -I..
- */
+//  ▄▄▄▄▄▄▄▄    ▄▄▄▄      ▄▄▄▄
+//  ▀▀▀▀▀███  ▄██▀▀██▄   ██▀▀██
+//      ██▀   ██▄  ▄██  ██    ██
+//    ▄██▀     ██████   ██ ██ ██
+//   ▄██      ██▀  ▀██  ██    ██
+//  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
+//  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze_test.cpp
+// Verson: 1.1.6
+//
+// This file contains unit tests for the Z80Analyzer class.
+//
+// Copyright (c) 2025 Adam Szulc
+// MIT License
 
 #include "Z80Analyze.h"
 #include <iostream>
