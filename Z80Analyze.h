@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Verson: 1.1.5g
+// Verson: 1.1.5h
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -200,7 +200,6 @@ public:
             m_memory->poke(address, value);
         }
         void reset() {
-            std::fill(m_code_map.begin(), m_code_map.end(), CodeMap::FLAG_NONE);
             m_pc_before_step = 0;
             m_inside_instruction = false;
             m_instruction_byte_count = 0;
@@ -2061,8 +2060,9 @@ public:
                 line_info.ticks = 12;
                 break;
             case 0x42:
-                line_info.mnemonic = "SBC HL, BC";
+                line_info.mnemonic = "SBC";
                 line_info.type = CodeLine::Type::ALU;
+                line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "HL"), typename CodeLine::Operand(CodeLine::Operand::REG16, "BC")};
                 line_info.ticks = 15;
                 break;
             case 0x43: {
