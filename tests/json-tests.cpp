@@ -17,7 +17,7 @@ const std::string RESET_TEXT = "\033[0m";
 
 bool show_details = false;
 
-class TestBus : public Z80DefaultBus {
+class TestBus : public Z80StandardBus {
 public:
     uint8_t in(uint16_t port) {
         if (m_ports.count(port)) {
@@ -30,7 +30,7 @@ public:
     template <typename TEvents, typename TDebugger>
     void connect(Z80<TestBus, TEvents, TDebugger>* cpu) {}
     void reset() {
-        Z80DefaultBus::reset();
+        Z80StandardBus::reset();
         m_ports.clear();
     }
     std::map<uint16_t, uint8_t> m_ports;
