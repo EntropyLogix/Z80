@@ -5,13 +5,13 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Version: 1.1.6
+// Version: 1.1.6a
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
 // mnemonics, advanced expressions, macros, and a rich set of directives.
 //
-// Copyright (c) 2025 Adam Szulc
+// Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 //
 // Supported Z80 assembler syntax
@@ -196,7 +196,7 @@
 //   PHASE     | PHASE <address>         | Sets a logical address without changing the physical address.
 //   DEPHASE   | DEPHASE                 | Ends a PHASE block, syncing logical address back to physical.
 //   PROC      | <name> PROC             | Begins a procedure, creating a new namespace for local labels.
-//   ENDP      | ENDP                    | Ends a procedure block.
+//   ENDP      | ENDP [<name>]           | Ends a procedure block. If <name> is provided, it must match the PROC name.
 //   LOCAL     | LOCAL <sym1>, ...       | Declares symbols as local within a macro or procedure.
 //
 // Conditional Compilation:
@@ -1805,7 +1805,7 @@ protected:
         virtual void on_align_directive(const std::string& boundary) = 0;
         virtual void on_incbin_directive(const std::string& filename) = 0;
         virtual void on_proc_begin(const std::string& name) = 0;
-        virtual void on_proc_end() = 0;
+        virtual void on_proc_end(const std::string& name) = 0;
         virtual void on_local_directive(const std::vector<std::string>& symbols) = 0;
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
         virtual void on_if_directive(const std::string& expression) = 0;
@@ -1941,9 +1941,13 @@ protected:
             }
             on_label_definition(name);
         }
-        virtual void on_proc_end() override {
+        virtual void on_proc_end(const std::string& name) override {
             if (m_context.symbols.scope_stack.empty())
                 m_context.assembler.report_error("ENDP without PROC.");
+            if (!name.empty()) {
+                if (get_absolute_symbol_name(name) != get_absolute_symbol_name(m_context.symbols.scope_stack.back().full_name))
+                    m_context.assembler.report_error("ENDP name '" + name + "' does not match current procedure '" + m_context.symbols.scope_stack.back().full_name + "'.");
+            }
             m_context.symbols.scope_stack.pop_back();
         }
         virtual void on_local_directive(const std::vector<std::string>& symbols) override {
@@ -4094,7 +4098,7 @@ protected:
                 if (!m_policy.context().assembler.m_keywords.is_reserved(first_token.upper())) {
                     if (m_tokens.count() > 1) {
                         const std::string& next_token_upper = m_tokens[1].upper();
-                        if (next_token_upper != "EQU" && next_token_upper != "SET" && next_token_upper != "DEFL" && next_token_upper != "=" && next_token_upper != "PROC")
+                        if (next_token_upper != "EQU" && next_token_upper != "SET" && next_token_upper != "DEFL" && next_token_upper != "=" && next_token_upper != "PROC" && next_token_upper != "ENDP")
                             is_label = true;
                     } else
                         is_label = true;
@@ -4247,10 +4251,13 @@ protected:
                         return true;
                     }
                 }
-                if (m_tokens.count() == 1 && m_tokens[0].upper() == "ENDP") {
+                if ((m_tokens.count() == 1 && m_tokens[0].upper() == "ENDP") || (m_tokens.count() == 2 && m_tokens[1].upper() == "ENDP")) {
                     if (m_policy.context().source.control_stack.empty() || m_policy.context().source.control_stack.back() != Context::Source::ControlType::PROCEDURE)
                         m_policy.context().assembler.report_error("Mismatched ENDP.");
-                    m_policy.on_proc_end();
+                    std::string name;
+                    if (m_tokens.count() == 2)
+                        name = m_tokens[0].original();
+                    m_policy.on_proc_end(name);
                     m_policy.context().source.control_stack.pop_back();
                     return true;
                 }
