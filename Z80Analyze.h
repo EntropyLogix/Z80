@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Version: 1.1.6a
+// Version: 1.1.6b
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -65,10 +65,12 @@ public:
             FLAG_CODE_START = 1 << 0,    // Start of instruction
             FLAG_CODE_INTERIOR = 1 << 1, // Arguments/interior of instruction
             FLAG_DATA_READ = 1 << 2,     // Data read
-            FLAG_DATA_WRITE = 1 << 3     // Data write
+            FLAG_DATA_WRITE = 1 << 3,    // Data write
+            FLAG_EXECUTED = 1 << 4       // Code executed
         };
         size_t mark_code(uint16_t address, size_t length, bool set) {
-            if (this->empty()) return 0;
+            if (this->empty())
+                return 0;
             size_t sz = this->size();
             if (length == 0) 
                 return 0;
@@ -78,8 +80,10 @@ public:
                 uint8_t old_val = (*this)[idx];
                 uint8_t val = old_val & ~(FLAG_CODE_START | FLAG_CODE_INTERIOR);
                 if (set) {
-                    if (i == 0) val |= FLAG_CODE_START;
-                    else val |= FLAG_CODE_INTERIOR;
+                    if (i == 0)
+                        val |= FLAG_CODE_START;
+                    else
+                        val |= FLAG_CODE_INTERIOR;
                 }
                 if (val != old_val) {
                     (*this)[idx] = val;
@@ -90,7 +94,8 @@ public:
             return changed;
         }
         size_t mark_data(uint16_t address, size_t length, bool write, bool set) {
-            if (this->empty()) return 0;
+            if (this->empty())
+                return 0;
             size_t sz = this->size();
             uint8_t flag = write ? FLAG_DATA_WRITE : FLAG_DATA_READ;
             size_t changed = 0;
@@ -98,14 +103,33 @@ public:
                 size_t idx = (address + i) % sz;
                 uint8_t old_val = (*this)[idx];
                 uint8_t val = old_val;
-                if (set) val |= flag;
-                else val &= ~flag;
+                if (set)
+                    val |= flag;
+                else
+                    val &= ~flag;
                 if (val != old_val) {
                     (*this)[idx] = val;
                     changed++;
                 }
             }
             return changed;
+        }
+        size_t mark_executed(uint16_t address, bool set) {
+            if (this->empty())
+                return 0;
+            size_t sz = this->size();
+            size_t idx = address % sz;
+            uint8_t old_val = (*this)[idx];
+            uint8_t val = old_val;
+            if (set)
+                val |= FLAG_EXECUTED;
+            else
+                val &= ~FLAG_EXECUTED;
+            if (val != old_val) {
+                (*this)[idx] = val;
+                return 1;
+            }
+            return 0;
         }
     private:
         size_t cleanup_orphans(uint32_t start_index) {
@@ -189,17 +213,21 @@ public:
         };
         CodeMapProfiler(CodeMap& map, TMemory* mem) 
             : m_code_map(map), m_memory(mem), m_cpu(nullptr), m_labels(nullptr) {}
-
         void connect(Z80<CodeMapProfiler, Z80StandardEvents, CodeMapProfiler>* cpu) {
             m_cpu = cpu;
         }
         void set_labels(ILabels* labels) {
             m_labels = labels;
         }
+        void set_generate_labels(bool generate) {
+            m_generate_labels = generate;
+        }
         uint8_t read(uint16_t address) {
             if (m_inside_instruction && m_cpu->get_PC() == address) {
                 m_instruction_byte_count++;
-                m_code_map[address] |= (m_instruction_byte_count == 1) ? CodeMap::FLAG_CODE_START : CodeMap::FLAG_CODE_INTERIOR;
+                uint8_t flags = (m_instruction_byte_count == 1) ? CodeMap::FLAG_CODE_START : CodeMap::FLAG_CODE_INTERIOR;
+                flags |= CodeMap::FLAG_EXECUTED;
+                m_code_map[address] |= flags;
                 return m_memory->peek(address);
             }
             m_code_map[address] |= CodeMap::FLAG_DATA_READ;
@@ -223,7 +251,7 @@ public:
         }
         void after_step() {
             m_inside_instruction = false;
-            if (!m_cpu || !m_labels)
+            if (!m_cpu || !m_labels || !m_generate_labels)
                 return;
             uint16_t pc_after = m_cpu->get_PC();
             if (pc_after == m_pc_before_step)
@@ -268,6 +296,7 @@ public:
         TMemory* m_memory;
         Z80<CodeMapProfiler, Z80StandardEvents, CodeMapProfiler>* m_cpu;
         ILabels* m_labels;
+        bool m_generate_labels = true;
         uint16_t m_pc_before_step = 0;
         bool m_inside_instruction = false;
         uint8_t m_instruction_byte_count = 0;
