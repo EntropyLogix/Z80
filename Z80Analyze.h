@@ -5,12 +5,12 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Version: 1.1.6
+// Version: 1.1.6a
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
 //
-// Copyright (c) 2025 Adam Szulc
+// Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
 #ifndef __Z80ANALYZE_H__
@@ -178,6 +178,15 @@ public:
     enum class AnalysisMode { RAW, HEURISTIC, EXEC };
     class CodeMapProfiler {
     public:
+        enum Opcode : uint8_t {
+            OP_RET      = 0xC9,
+            OP_RET_CC   = 0xC0, // Mask 0xC7
+            OP_CALL     = 0xCD,
+            OP_CALL_CC  = 0xC4, // Mask 0xC7
+            OP_RST      = 0xC7, // Mask 0xC7
+            OP_PREFIX   = 0xED,
+            OP_RETN_I   = 0x45  // Mask 0xC7 inside ED
+        };
         CodeMapProfiler(CodeMap& map, TMemory* mem) 
             : m_code_map(map), m_memory(mem), m_cpu(nullptr), m_labels(nullptr) {}
 
@@ -188,11 +197,12 @@ public:
             m_labels = labels;
         }
         uint8_t read(uint16_t address) {
-            if (m_inside_instruction && m_cpu && m_cpu->get_PC() == address) {
+            if (m_inside_instruction && m_cpu->get_PC() == address) {
                 m_instruction_byte_count++;
                 m_code_map[address] |= (m_instruction_byte_count == 1) ? CodeMap::FLAG_CODE_START : CodeMap::FLAG_CODE_INTERIOR;
-            } else
-                m_code_map[address] |= CodeMap::FLAG_DATA_READ;
+                return m_memory->peek(address);
+            }
+            m_code_map[address] |= CodeMap::FLAG_DATA_READ;
             return m_memory->peek(address);
         }
         void write(uint16_t address, uint8_t value) {
@@ -205,33 +215,49 @@ public:
             m_instruction_byte_count = 0;
         }
         void before_step() {
-            m_inside_instruction = true;
             if (m_cpu) {
+                m_inside_instruction = true;
                 m_pc_before_step = m_cpu->get_PC();
                 m_instruction_byte_count = 0;
             }
         }
         void after_step() {
             m_inside_instruction = false;
-            if (m_cpu && m_labels) {
-               uint16_t pc_after = m_cpu->get_PC();
-               if ((uint16_t)(m_pc_before_step + m_instruction_byte_count) != pc_after) {
-                    bool is_ret = false;
-                    uint8_t opcode = m_memory->peek(m_pc_before_step);
-                    if (opcode == 0xC9 || (opcode & 0xC7) == 0xC0) {
-                       is_ret = true; // RET or RET cc
-                    } else if (opcode == 0xED) {
-                        uint8_t opcode2 = m_memory->peek(m_pc_before_step + 1);
-                        if ((opcode2 & 0xC7) == 0x45)
-                            is_ret = true; // RETN / RETI
-                   }
-                   if (!is_ret && m_labels->get_label(pc_after).empty()) {
-                        bool is_call = (opcode == 0xCD) || ((opcode & 0xC7) == 0xC4) || ((opcode & 0xC7) == 0xC7);
-                        std::stringstream ss;
-                        ss << (is_call ? "SUB_" : "L_") << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << pc_after;
-                        m_labels->add_label(pc_after, ss.str());
-                   }
-               }
+            if (!m_cpu || !m_labels)
+                return;
+            uint16_t pc_after = m_cpu->get_PC();
+            if (pc_after == m_pc_before_step)
+                return;
+            if ((uint16_t)(m_pc_before_step + m_instruction_byte_count) != pc_after) {
+                uint8_t opcode = m_memory->peek(m_pc_before_step);
+                if (opcode == OP_RET || (opcode & 0xC7) == OP_RET_CC)
+                    return;
+                if (opcode == OP_PREFIX) {
+                    uint8_t opcode2 = m_memory->peek(m_pc_before_step + 1);
+                    if ((opcode2 & 0xC7) == OP_RETN_I)
+                        return;
+                }
+                if (m_labels->get_label(pc_after).empty()) {
+                    bool is_call = (opcode == OP_CALL) || ((opcode & 0xC7) == OP_CALL_CC) || ((opcode & 0xC7) == OP_RST);
+                    char buffer[10];
+                    char* p = buffer;
+                    if (is_call) {
+                        *p++ = 'S';
+                        *p++ = 'U';
+                        *p++ = 'B';
+                        *p++ = '_'; }
+                    else {
+                        *p++ = 'L';
+                        *p++ = '_';
+                    }
+                    const char* hex = "0123456789ABCDEF";
+                    *p++ = hex[(pc_after >> 12) & 0xF];
+                    *p++ = hex[(pc_after >> 8) & 0xF];
+                    *p++ = hex[(pc_after >> 4) & 0xF];
+                    *p++ = hex[pc_after & 0xF];
+                    *p = '\0';
+                    m_labels->add_label(pc_after, std::string(buffer, p - buffer));
+                }
             }
         }
         uint8_t in(uint16_t port) { return 0xFF; }
