@@ -2820,6 +2820,115 @@ TEST_CASE(ProcEndpDirectives) {
     });
 }
 
+TEST_CASE(ProcEndpNameValidation) {
+    // 1. Simple matching names
+    ASSERT_CODE(R"(
+        Main PROC
+            NOP
+        Main ENDP
+    )", {0x00});
+
+    // 2. Mismatched names (Error)
+    ASSERT_COMPILE_FAILS(R"(
+        Main PROC
+            NOP
+        Other ENDP
+    )");
+
+    // 3. Nested procedures - Simple names
+    ASSERT_CODE(R"(
+        Outer PROC
+            Inner PROC
+                NOP
+            Inner ENDP
+        Outer ENDP
+    )", {0x00});
+
+    // 4. Nested procedures - Local names with dot
+    ASSERT_CODE(R"(
+        Outer PROC
+            .Inner PROC
+                NOP
+            .Inner ENDP
+        Outer ENDP
+    )", {0x00});
+
+    // 4b. Nested procedures - Local names with dot (Full name in ENDP)
+    ASSERT_CODE(R"(
+        Outer PROC
+            .Inner PROC
+                NOP
+            Outer.Inner ENDP
+        Outer ENDP
+    )", {0x00});
+
+    // 5. Nested procedures - LOCAL names
+    ASSERT_CODE(R"(
+        Outer PROC
+            LOCAL Inner
+            Inner PROC
+                NOP
+            Inner ENDP
+        Outer ENDP
+    )", {0x00});
+
+    // 5b. Nested procedures - LOCAL names (Full name in ENDP)
+    ASSERT_CODE(R"(
+        Outer PROC
+            LOCAL Inner
+            Inner PROC
+                NOP
+            Outer.Inner ENDP
+        Outer ENDP
+    )", {0x00});
+
+    // 6. Nested procedures - Global names
+    ASSERT_CODE(R"(
+        Outer PROC
+            GlobalInner PROC
+                NOP
+            GlobalInner ENDP
+        Outer ENDP
+    )", {0x00});
+
+    // 7. Mismatched nested
+    ASSERT_COMPILE_FAILS(R"(
+        Outer PROC
+            Inner PROC
+                NOP
+            Outer ENDP ; Should be Inner
+        Outer ENDP
+    )");
+}
+
+TEST_CASE(MacroEndmNameValidation) {
+    // 1. Simple matching names
+    ASSERT_CODE(R"(
+        MyMacro MACRO
+            NOP
+        MyMacro ENDM
+        MyMacro
+    )", {0x00});
+
+    // 2. Mismatched names (Error)
+    ASSERT_COMPILE_FAILS(R"(
+        MyMacro MACRO
+            NOP
+        OtherName ENDM
+    )");
+}
+
+TEST_CASE(MacroEndmWithExtraParams) {
+    // ENDM with extra parameters should be recognized as the end of the macro
+    // but report an error due to invalid syntax.
+    ASSERT_COMPILE_FAILS(R"(
+        MyMacro MACRO
+            NOP
+        ENDM extra ; This should trigger an error
+        MyMacro
+    )");
+}
+
 TEST_CASE(SimpleMacroNoParams) {
     ASSERT_CODE(R"(
         CLEAR_A MACRO

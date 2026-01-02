@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Version: 1.1.6a
+// Version: 1.1.6b
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -196,7 +196,7 @@
 //   PHASE     | PHASE <address>         | Sets a logical address without changing the physical address.
 //   DEPHASE   | DEPHASE                 | Ends a PHASE block, syncing logical address back to physical.
 //   PROC      | <name> PROC             | Begins a procedure, creating a new namespace for local labels.
-//   ENDP      | ENDP [<name>]           | Ends a procedure block. If <name> is provided, it must match the PROC name.
+//   ENDP      | [<name>] ENDP           | Ends a procedure block. If <name> is provided, it must match the PROC name.
 //   LOCAL     | LOCAL <sym1>, ...       | Declares symbols as local within a macro or procedure.
 //
 // Conditional Compilation:
@@ -213,7 +213,7 @@
 //
 // Macros:
 //   Macros allow you to define reusable code templates.
-//   - `MACRO`/`ENDM`: Defines a macro.
+//   - `MACRO`/`ENDM`: Defines a macro. You can also use `<name> ENDM` to close it.
 //   - `SHIFT`: Shifts positional parameters (\2 becomes \1, etc.).
 //   - `EXITM`: Exits the current macro expansion.
 //   - Parameters: `{name}` (named), `\1` (positional), `\0` (arg count).
@@ -237,6 +237,7 @@
 //   WHILE     |         | WHILE <expr> | Repeats a block of code as long as the expression is true.
 //   ENDW      |         | ENDW         | Ends a WHILE block.
 //   EXITR     |         | EXITR        | Exits the current REPT loop.
+//   BREAK     |         | BREAK        | Exits the current loop (REPT or WHILE).
 //
 //   Inside a REPT loop, the special symbol \@ represents the current iteration (from 1).
 //
@@ -827,7 +828,25 @@ protected:
                 typename Strings::Tokens tokens;
                 tokens.process(line);
                 if (in_macro_def) {
-                    if (tokens.count() == 1 && (tokens[0].upper() == "ENDM" || tokens[0].upper() == "MEND")) {
+                    auto is_macro_end = [](const std::string& s) { return s == "ENDM" || s == "MEND"; };
+                    bool is_end = false;
+                    size_t endm_idx = 0;
+                    if (tokens.count() > 0) {
+                        if (is_macro_end(tokens[0].upper())) {
+                            is_end = true;
+                            endm_idx = 0;
+                        } else if (tokens.count() > 1 && is_macro_end(tokens[1].upper())) {
+                            is_end = true;
+                            endm_idx = 1;
+                        }
+                    }
+                    if (is_end) {
+                        if (endm_idx == 1) {
+                            if (tokens[0].original() != current_macro_name)
+                                m_context.assembler.report_error("ENDM name '" + tokens[0].original() + "' does not match current macro '" + current_macro_name + "'.");
+                        }
+                        if (tokens.count() > endm_idx + 1)
+                             m_context.assembler.report_error("Unexpected text following ENDM directive.");
                         in_macro_def = false;
                         m_context.macros.definitions[current_macro_name] = current_macro;
                     } else {
