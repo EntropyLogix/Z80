@@ -3905,6 +3905,37 @@ TEST_CASE(StringMemoryAddressing) {
     ASSERT_COMPILE_FAILS("LD B, (\"A\")");
 }
 
+TEST_CASE(RelationalAndEqualityOperators) {
+    // Equality (==, !=)
+    ASSERT_CODE("DB 'A' == 65", {1});
+    ASSERT_CODE("DB \"A\" == \"A\"", {1});
+    ASSERT_CODE("DB \"A\" == 65", {1});
+    ASSERT_CODE("DB \"1\" == 49", {1});
+    ASSERT_CODE("DB \"1\" == 1", {0});
+    ASSERT_CODE("DB \"123\" == 123", {0});
+    ASSERT_CODE("DB \"ABC\" == \"ABC\"", {1});
+    ASSERT_CODE("DB \"ABC\" == 65", {0});
+
+    // Relational (<, >, <=, >=)
+    // Number vs Number
+    ASSERT_CODE("DB 10 > 2", {1});
+    ASSERT_CODE("DB 2 < 10", {1});
+    
+    // String vs String (Lexicographical)
+    ASSERT_CODE("DB \"A\" < \"B\"", {1});
+    ASSERT_CODE("DB \"AA\" < \"AB\"", {1});
+    ASSERT_CODE("DB \"B\" > \"A\"", {1});
+    ASSERT_CODE("DB \"10\" < \"2\"", {1});
+    
+    // Mixed (String len=1 vs Number)
+    ASSERT_CODE("DB \"A\" > 64", {1});
+    ASSERT_CODE("DB 64 < \"A\"", {1});
+    
+    // Mixed (String len>1 vs Number) -> Error
+    ASSERT_COMPILE_FAILS("DB \"10\" > 2");
+    ASSERT_COMPILE_FAILS("DB 2 < \"10\"");
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
