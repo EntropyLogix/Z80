@@ -3453,8 +3453,8 @@ TEST_CASE(TernaryOperator) {
     ASSERT_CODE("DB 1 ? \"OK\" : \"FAIL\"", {'O', 'K'});
     ASSERT_CODE("DB 0 ? \"FAIL\" : \"OK\"", {'O', 'K'});
     // Konkatenacja w gałęziach
-    ASSERT_CODE("DB 1 ? \"A\"+\"B\" : \"C\"", {'A', 'B'});
-    ASSERT_CODE("DB 0 ? \"A\" : \"B\"+\"C\"", {'B', 'C'});
+    ASSERT_CODE("DB 1 ? \"A\"##\"B\" : \"C\"", {'A', 'B'});
+    ASSERT_CODE("DB 0 ? \"A\" : \"B\"##\"C\"", {'B', 'C'});
 
     // --- Testy z referencjami w przód (forward reference) ---
     // Warunek zależny od referencji w przód
@@ -3826,6 +3826,83 @@ TEST_CASE(CustomDirectives) {
         
         ASSERT_COMPILE_FAILS("assembler.public_add_custom_directive(\"DB\", nullptr)");
     }
+}
+
+TEST_CASE(NewOperators) {
+    // Operator + (Matematyka / Suma)
+    // Number + Number
+    ASSERT_CODE("DB 65 + 1", {66});
+    // String (Len=1) + Number
+    ASSERT_CODE("DB \"A\" + 1", {66});
+    // Number + String (Len=1)
+    ASSERT_CODE("DB 1 + \"A\"", {66});
+    // String (Len>1) + Number -> BŁĄD
+    ASSERT_COMPILE_FAILS("DB \"AB\" + 1");
+
+    // Operator ## (Sklejanie / Token Pasting)
+    // String ## String
+    ASSERT_CODE("DB \"A\" ## \"B\"", {'A', 'B'});
+    // String ## Number
+    ASSERT_CODE("DB \"R\" ## 2", {'R', '2'});
+    // Number ## Number
+    ASSERT_CODE("DB 1 ## 2", {'1', '2'});
+}
+
+TEST_CASE(SingleCharStringMath) {
+    // Arithmetic operators
+    ASSERT_CODE("DB \"A\" + 1", {66});
+    ASSERT_CODE("DB 1 + \"A\"", {66});
+    ASSERT_CODE("DB \"B\" - \"A\"", {1});
+    ASSERT_CODE("DB \"A\" * 2", {130});
+    ASSERT_CODE("DB \"d\" / 2", {50}); // 'd' is 100
+    ASSERT_CODE("DB \"e\" % 10", {1}); // 'e' is 101
+
+    // Bitwise operators
+    ASSERT_CODE("DB \"A\" & 0x0F", {1}); // 65 & 15 = 1
+    ASSERT_CODE("DB \"A\" | 0x80", {0xC1}); // 65 | 128 = 193
+    ASSERT_CODE("DB \"A\" ^ \"B\"", {3}); // 65 ^ 66 = 3
+    ASSERT_CODE("DB ~\"A\"", {0xBE}); // ~65 = -66 = 0xBE
+
+    // Comparison operators
+    ASSERT_CODE("DB \"A\" < \"B\"", {1});
+    ASSERT_CODE("DB \"B\" > \"A\"", {1});
+    ASSERT_CODE("DB \"A\" == 65", {1});
+    ASSERT_CODE("DB \"A\" != \"B\"", {1});
+
+    // Functions
+    ASSERT_CODE("DB MIN(\"A\", \"B\")", {65});
+    ASSERT_CODE("DB MAX(\"A\", \"B\")", {66});
+    ASSERT_CODE("DB ABS(\"A\")", {65});
+    ASSERT_CODE("DB SGN(\"A\")", {1});
+    
+    // SQRT(64) = 8. '@' is 64.
+    ASSERT_CODE("DB SQRT(\"@\")", {8}); 
+    
+    // Logical operators
+    ASSERT_CODE("DB \"A\" && 1", {1});
+    ASSERT_CODE("DB \"A\" || 0", {1});
+    ASSERT_CODE("DB !\"A\"", {0}); // !65 is 0
+}
+
+TEST_CASE(StringMemoryAddressing) {
+    // LD A, ("A") -> LD A, (65) -> 3A 41 00
+    ASSERT_CODE("LD A, (\"A\")", {0x3A, 0x41, 0x00});
+    
+    // LD ("A"), A -> LD (65), A -> 32 41 00
+    ASSERT_CODE("LD (\"A\"), A", {0x32, 0x41, 0x00});
+    
+    // OUT ("A"), A -> OUT (65), A -> D3 41
+    ASSERT_CODE("OUT (\"A\"), A", {0xD3, 0x41});
+
+    // LD BC, ("A") -> LD BC, (65) -> ED 4B 41 00
+    ASSERT_CODE("LD BC, (\"A\")", {0xED, 0x4B, 0x41, 0x00});
+
+    // LD HL, ("A") -> LD HL, (65) -> 2A 41 00
+    ASSERT_CODE("LD HL, (\"A\")", {0x2A, 0x41, 0x00});
+
+    // LD B, ("A") -> LD B, (65) -> Invalid instruction (LD r, (nn) does not exist for B)
+    // Parentheses denote memory access, and Z80 only supports LD A, (nn) for 8-bit registers.
+    ASSERT_COMPILE_FAILS("LD B, (\"A\")");
 }
 
 int main() {
