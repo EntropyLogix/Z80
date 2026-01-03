@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Version: 1.1.6b
+// Version: 1.1.6c
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -171,14 +171,14 @@
 // Directives are commands for the assembler that control the compilation process.
 //
 // Data Definition:
-//   Directive | Aliases        | Syntax                       | Example
-//   ----------|----------------|------------------------------|-------------------------------
-//   DB        | DEFB, BYTE, DM | DB <expr>, <string>, ...     | DB 10, 0xFF, "Hello", 'A'
-//   DW        | DEFW, WORD     | DW <expr>, <label>, ...      | DW 0x1234, MyLabel
-//   DS        | DEFS, BLOCK    | DS <count> [, <fill_byte>]   | DS 10, 0xFF
-//   DZ        | ASCIZ          | DZ <string>, <expr>, ...     | DZ "Game Over"
-//   DH        | HEX, DEFH      | DH <hex_string>, ...         | DH "DEADBEEF"
-//   DG        | DEFG           | DG <bit_string>, ...         | DG "11110000", "XXXX...."
+//   Directive | Aliases              | Syntax                       | Example
+//   ----------|----------------------|------------------------------|-------------------------------
+//   DB        | DEFB, BYTE, DM, DEFM | DB <expr>, <string>, ...     | DB 10, 0xFF, "Hello", 'A'
+//   DW        | DEFW, WORD           | DW <expr>, <label>, ...      | DW 0x1234, MyLabel
+//   DS        | DEFS, BLOCK          | DS <count> [, <fill_byte>]   | DS 10, 0xFF
+//   DZ        | ASCIZ                | DZ <string>, <expr>, ...     | DZ "Game Over"
+//   DH        | HEX, DEFH            | DH <hex_string>, ...         | DH "DEADBEEF"
+//   DG        | DEFG                 | DG <bit_string>, ...         | DG "11110000", "XXXX...."
 //
 // Symbol Definition:
 //   Directive | Syntax              | Description                                                        | Example
@@ -2790,7 +2790,7 @@ protected:
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
                 "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BREAK", "BYTE", "DB", "DD", "DEFB", "DEFH",
-                "DEFINE", "DEFL", "DEFG", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM", "EXITW",
+                "DEFINE", "DEFL", "DEFG", "DEFM", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM", "EXITW",
                 "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM",
                 "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF",
                 "IFIDN", "IFNB", "IFNDEF", "INCBIN", "INCLUDE", "LOCAL", "MACRO", "ORG", "PHASE",
@@ -2879,7 +2879,7 @@ protected:
             const auto& directive_options = m_policy.context().assembler.m_options.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
                 return false;
-            if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM") {
+            if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM" || mnemonic == "DEFM") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (op.type == OperandType::STRING_LITERAL) {

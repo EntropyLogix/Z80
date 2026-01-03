@@ -967,6 +967,9 @@ TEST_CASE(Directives) {
     ASSERT_CODE("DEFW 0xABCD", {0xCD, 0xAB});
     ASSERT_CODE("DEFS 4", {0x00, 0x00, 0x00, 0x00});
     ASSERT_CODE("DM \"Test\"", {'T', 'e', 's', 't'}); // DM as alias for DB/BYTE
+    ASSERT_CODE("DEFM 1, 2, 3", {0x01, 0x02, 0x03}); // DEFM as alias for DB
+    ASSERT_CODE("DEFM \"String\"", {'S', 't', 'r', 'i', 'n', 'g'});
+    ASSERT_CODE("DEFM \"RN\",'D'+$80", {'R', 'N', 'D'+0x80});
 
     // More complex cases
     ASSERT_CODE("DB 1+2, 10-3", {0x03, 0x07});
