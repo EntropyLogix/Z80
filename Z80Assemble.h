@@ -243,11 +243,11 @@
 //
 // Optimizations
 // -------------
-// The assembler includes an optimization pass that can be controlled via the `#OPTIMIZE` directive.
+// The assembler includes an optimization pass that can be controlled via the `OPTIMIZE` directive.
 //
 //   Directive | Syntax                                   | Description
 //   ----------|------------------------------------------|------------------------------------------------------------------
-//   #OPTIMIZE | #OPTIMIZE [PUSH|POP] [+/-FLAG] [KEYWORD] | Controls optimization settings.
+//   OPTIMIZE  | OPTIMIZE [PUSH|POP] [+/-FLAG] [KEYWORD]  | Controls optimization settings.
 //
 //   Flags:
 //   - BRANCH_SHORT: Optimizes `JP` to `JR` if the target is within range (-128 to +127).
@@ -272,10 +272,10 @@
 //   - POP:          Restores the previously saved optimization state.
 //
 //   Example:
-//     #OPTIMIZE PUSH          ; Save current state
-//     #OPTIMIZE +PEEPHOLE_XOR ; Enable XOR optimization locally
+//     OPTIMIZE PUSH           ; Save current state
+//     OPTIMIZE +PEEPHOLE_XOR  ; Enable XOR optimization locally
 //     LD A, 0                 ; Optimized to XOR A
-//     #OPTIMIZE POP           ; Restore previous state
+//     OPTIMIZE POP            ; Restore previous state
 //
 // Repetition (Loops):
 //   Directive | Aliases | Syntax       | Description
@@ -2298,7 +2298,7 @@ protected:
                 std::string upper_arg = arg;
                 Strings::to_upper(upper_arg);
                 if ((upper_arg == "PUSH" || upper_arg == "POP") && args.size() > 1)
-                    ctx.assembler.report_error("#OPTIMIZE PUSH/POP cannot be mixed with other arguments.");
+                    ctx.assembler.report_error("OPTIMIZE PUSH/POP cannot be mixed with other arguments.");
             }
             for (const auto& arg : args) {
                 std::string upper_arg = arg;
@@ -2310,7 +2310,7 @@ protected:
                         ctx.optimization = ctx.optimization_stack.back();
                         ctx.optimization_stack.pop_back();
                     } else
-                        ctx.assembler.report_error("#OPTIMIZE POP without matching PUSH");
+                        ctx.assembler.report_error("OPTIMIZE POP without matching PUSH");
                 } else {
                     bool enable = true;
                     std::string flag = upper_arg;
@@ -3252,7 +3252,7 @@ protected:
                 "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BREAK", "BYTE", "DB", "DD", "DEFB", "DEFH",
                 "DEFINE", "DEFL", "DEFG", "DEFM", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM", "EXITW",
                 "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM",
-                "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF", "#OPTIMIZE",
+                "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF", "OPTIMIZE",
                 "IFIDN", "IFNB", "IFNDEF", "INCBIN", "INCLUDE", "LOCAL", "MACRO", "ORG", "PHASE",
                 "PROC", "REPT", "SET", "SHIFT", "UNDEFINE", "UNPHASE", "WEND", "WHILE", "WORD"
             };
@@ -4670,7 +4670,7 @@ protected:
                 return true;
             if (process_error_directives())
                 return true;
-            if (m_tokens.count() > 0 && m_tokens[0].upper() == "#OPTIMIZE") {
+            if (m_tokens.count() > 0 && m_tokens[0].upper() == "OPTIMIZE") {
                 if (!m_policy.context().assembler.m_options.directives.allow_optimize)
                     return false;
                 std::vector<std::string> args;
