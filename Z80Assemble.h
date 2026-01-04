@@ -1711,7 +1711,8 @@ protected:
                 if (!options.allow_hex_prefix_dollar) return false;
                 size_t j = i + 1;
                 if (j < expr.length() && isxdigit(expr[j])) {
-                    while (j < expr.length() && isxdigit(expr[j])) j++;
+                    while (j < expr.length() && isxdigit(expr[j]))
+                        j++;
                     std::string num_str = expr.substr(i + 1, j - i - 1);
                     int32_t val;
                     auto result = std::from_chars(num_str.data(), num_str.data() + num_str.size(), val, 16);
@@ -1726,7 +1727,8 @@ protected:
                 if (!options.allow_bin_prefix_percent) return false;
                 size_t j = i + 1;
                 if (j < expr.length() && (expr[j] == '0' || expr[j] == '1')) {
-                    while (j < expr.length() && (expr[j] == '0' || expr[j] == '1')) j++;
+                    while (j < expr.length() && (expr[j] == '0' || expr[j] == '1'))
+                        j++;
                     std::string num_str = expr.substr(i + 1, j - i - 1);
                     int32_t val;
                     auto result = std::from_chars(num_str.data(), num_str.data() + num_str.size(), val, 2);
@@ -1741,18 +1743,20 @@ protected:
                 size_t j = i;
                 bool has_dot = false;
                 while (j < expr.length() && (isdigit(expr[j]) || (!has_dot && expr[j] == '.'))) {
-                    if (expr[j] == '.') has_dot = true;
+                    if (expr[j] == '.')
+                        has_dot = true;
                     j++;
                 }
                 if (!has_dot) {
                     j = i;
-                    if (options.allow_hex_prefix_0x && (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X")) {
+                    if (options.allow_hex_prefix_0x && (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X"))
                         j += 2;
-                    }
-                    while (j < expr.length() && isalnum(expr[j])) j++;
+                    while (j < expr.length() && isalnum(expr[j]))
+                        j++;
                     if (j < expr.length() && (expr[j] == 'h' || expr[j] == 'H' || expr[j] == 'b' || expr[j] == 'B')) {
                         char last_char = toupper(expr[j - 1]);
-                        if (last_char != 'B' && last_char != 'H') j++;
+                        if (last_char != 'B' && last_char != 'H')
+                            j++;
                     }
                     int32_t val;
                     if (Strings::is_number(expr.substr(i, j - i), val, options)) {
@@ -1772,7 +1776,6 @@ protected:
                     d_val = std::stod(num_str, &processed);
                     stod_success = true;
                 } catch (...) {}
-
                 if (stod_success && processed > 0) {
                     tokens.push_back({Token::Type::NUMBER, "", d_val});
                     i = i + processed - 1;
@@ -3330,20 +3333,20 @@ protected:
         bool match_string(const Operand& operand) const { return match(operand, OperandType::STRING_LITERAL ); }
 
         void assemble(std::vector<uint8_t> bytes) { m_policy.on_assemble(bytes);}
-
         void optimize_jump_target(int32_t& target) {
-            if (!m_policy.context().optimization.jump_thread) return;
+            if (!m_policy.context().optimization.jump_thread || !m_policy.context().assembler.m_options.optimization.jump_thread)
+                return;
             std::set<int32_t> visited;
             visited.insert(target);
             auto& targets = m_policy.context().prev_jump_targets;
             while (targets.count(target)) {
                 int32_t next_target = targets.at(target);
-                if (visited.count(next_target)) break; 
+                if (visited.count(next_target))
+                    break; 
                 target = next_target;
                 visited.insert(target);
             }
         }
-
         bool encode_data_block(const std::string& mnemonic, const std::vector<Operand>& ops) {
             const auto& directive_options = m_policy.context().assembler.m_options.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
@@ -3676,12 +3679,11 @@ protected:
                 assemble({0x34});
                 return true;
             }
-            if (mnemonic == "SUB" && match_imm8(op) && op.num_val == 1 && m_policy.context().optimization.peephole_inc) {
-                assemble({0x3D}); // DEC A
-                return true;
-            }
             if (mnemonic == "SUB" && match_imm8(op)) {
-                assemble({0xD6, (uint8_t)op.num_val});
+                if (op.num_val == 1 && m_policy.context().optimization.peephole_inc && m_policy.context().assembler.m_options.optimization.peephole_inc)
+                    assemble({0x3D}); // DEC A
+                else
+                    assemble({0xD6, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "DEC" && match_mem_reg16(op) && op.str_val == "HL") {
@@ -3726,8 +3728,7 @@ protected:
                 int32_t target_addr = op.num_val;
                 if (op.type == OperandType::IMMEDIATE)
                     optimize_jump_target(target_addr);
-                
-                if (m_policy.context().optimization.branch_short && op.type == OperandType::IMMEDIATE) {
+                if (m_policy.context().optimization.branch_short && m_policy.context().assembler.m_options.optimization.branch_short && op.type == OperandType::IMMEDIATE) {
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset >= -128 && offset <= 127) {
@@ -3763,25 +3764,22 @@ protected:
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                 if (offset < -128 || offset > 127) {
-                    if (m_policy.context().optimization.branch_long) {
+                    if (m_policy.context().optimization.branch_long && m_policy.context().assembler.m_options.optimization.branch_long) {
                         assemble({0xC3, (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
                         return true;
-                    } else {
-                        // If optimized target is out of range, try original target (trampoline case)
-                        offset = original_target - (m_policy.context().address.current_logical + instruction_size);
-                        if (offset < -128 || offset > 127)
-                            m_policy.on_jump_out_of_range(mnemonic, offset);
                     }
+                    offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                    if (offset < -128 || offset > 127)
+                        m_policy.on_jump_out_of_range(mnemonic, offset);
                 }
                 assemble({0x18, (uint8_t)(offset)});
                 return true;
             }
-            if (mnemonic == "ADD" && match_imm8(op) && op.num_val == 1 && m_policy.context().optimization.peephole_inc) {
-                assemble({0x3C}); // INC A
-                return true;
-            }
             if (mnemonic == "ADD" && match_imm8(op)) {
-                assemble({0xC6, (uint8_t)op.num_val});
+                if (op.num_val == 1 && m_policy.context().optimization.peephole_inc && m_policy.context().assembler.m_options.optimization.peephole_inc)
+                    assemble({0x3C}); // INC A
+                else
+                    assemble({0xC6, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "ADC" && match_imm8(op)) {
@@ -3792,36 +3790,32 @@ protected:
                 assemble({0xDE, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "AND" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.peephole_logic) {
-                assemble({0xAF}); // XOR A
-                return true;
-            }
             if (mnemonic == "AND" && match_imm8(op)) {
-                assemble({0xE6, (uint8_t)op.num_val});
-                return true;
-            }
-            if (mnemonic == "XOR" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.peephole_logic) {
-                assemble({0xB7}); // OR A
+                if (op.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                    assemble({0xAF}); // XOR A
+                else
+                    assemble({0xE6, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "XOR" && match_imm8(op)) {
-                assemble({0xEE, (uint8_t)op.num_val});
-                return true;
-            }
-            if (mnemonic == "OR" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.peephole_logic) {
-                assemble({0xB7}); // OR A
+                if (op.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                    assemble({0xB7}); // OR A
+                else
+                    assemble({0xEE, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "OR" && match_imm8(op)) {
-                assemble({0xF6, (uint8_t)op.num_val});
-                return true;
-            }
-            if (mnemonic == "CP" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.peephole_or) {
-                assemble({0xB7}); // OR A
+                if (op.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                    assemble({0xB7}); // OR A
+                else
+                    assemble({0xF6, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "CP" && match_imm8(op)) {
-                assemble({0xFE, (uint8_t)op.num_val});
+                if (op.num_val == 0 && m_policy.context().optimization.peephole_or && m_policy.context().assembler.m_options.optimization.peephole_or)
+                    assemble({0xB7}); // OR A
+                else
+                    assemble({0xFE, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "DJNZ" && match_imm16(op)) {
@@ -3956,7 +3950,7 @@ protected:
                 {"SLA", 0x20}, {"SRA", 0x28}, {"SLL", 0x30}, {"SLI", 0x30}, {"SRL", 0x38}
             };
             if (rotate_shift_map.count(mnemonic)) {
-                if (mnemonic == "SLA" && op.str_val == "A" && m_policy.context().optimization.peephole_sla) {
+                if (mnemonic == "SLA" && op.str_val == "A" && m_policy.context().optimization.peephole_sla && m_policy.context().assembler.m_options.optimization.peephole_sla) {
                     assemble({0x87}); // ADD A, A
                     return true;
                 }
@@ -4055,9 +4049,8 @@ protected:
             else if (op1.base_reg == "IY" || op2.base_reg == "IY" || op1.str_val.find("IY") != std::string::npos || op2.str_val.find("IY") != std::string::npos)
                 prefix = 0xFD;
             if (mnemonic == "LD" && match_reg8(op1) && match_reg8(op2)) {
-                if (m_policy.context().optimization.dce && op1.str_val == op2.str_val) {
+                if (m_policy.context().optimization.dce && m_policy.context().assembler.m_options.optimization.dce && op1.str_val == op2.str_val)
                     return true;
-                }
                 uint8_t dest_code = reg8_map().at(op1.str_val);
                 uint8_t src_code = reg8_map().at(op2.str_val);
                 if (prefix) {
@@ -4082,12 +4075,12 @@ protected:
                 return true;    
             }
             if (mnemonic == "LD" && match_reg8(op1) && match_imm8(op2)) {
-                if (m_policy.context().optimization.peephole_xor && op1.str_val == "A" && op2.num_val == 0) {
+                if (op1.str_val == "A" && op2.num_val == 0 && m_policy.context().optimization.peephole_xor && m_policy.context().assembler.m_options.optimization.peephole_xor) {
                     assemble({0xAF}); // XOR A optimization
-                    return true;
+                } else {
+                    uint8_t dest_code = reg8_map().at(op1.str_val);
+                    assemble({(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val});
                 }
-                uint8_t dest_code = reg8_map().at(op1.str_val);
-                assemble({(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "LD" && match_reg16(op1) && match_imm16(op2)) {
@@ -4253,12 +4246,11 @@ protected:
                 assemble({prefix, (uint8_t)(0x70 | reg_code), (uint8_t)((int8_t)op1.offset)});
                 return true;
             }
-            if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 1 && m_policy.context().optimization.peephole_inc) {
-                assemble({0x3C}); // INC A
-                return true;
-            }
             if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2)) {
-                assemble({0xC6, (uint8_t)op2.num_val});
+                if (op2.num_val == 1 && m_policy.context().optimization.peephole_inc && m_policy.context().assembler.m_options.optimization.peephole_inc)
+                    assemble({0x3C}); // INC A
+                else
+                    assemble({0xC6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "ADC" && op1.str_val == "A" && match_imm8(op2)) {
@@ -4269,44 +4261,39 @@ protected:
                 assemble({0xDE, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 1 && m_policy.context().optimization.peephole_inc) {
-                assemble({0x3D}); // DEC A
-                return true;
-            }
             if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2)) {
-                assemble({0xD6, (uint8_t)op2.num_val});
-                return true;
-            }
-            if (mnemonic == "AND" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.peephole_logic) {
-                assemble({0xAF}); // XOR A
+                if (op2.num_val == 1 && m_policy.context().optimization.peephole_inc && m_policy.context().assembler.m_options.optimization.peephole_inc)
+                    assemble({0x3D}); // DEC A
+                else
+                    assemble({0xD6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "AND" && op1.str_val == "A" && match_imm8(op2)) {
-                assemble({0xE6, (uint8_t)op2.num_val});
-                return true;
-            }
-            if (mnemonic == "XOR" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.peephole_logic) {
-                assemble({0xB7}); // OR A
+                if (op2.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                    assemble({0xAF}); // XOR A
+                else
+                    assemble({0xE6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "XOR" && op1.str_val == "A" && match_imm8(op2)) {
-                assemble({0xEE, (uint8_t)op2.num_val});
-                return true;
-            }
-            if (mnemonic == "OR" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.peephole_logic) {
-                assemble({0xB7}); // OR A
+                if (op2.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                    assemble({0xB7}); // OR A
+                else
+                    assemble({0xEE, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "OR" && op1.str_val == "A" && match_imm8(op2)) {
-                assemble({0xF6, (uint8_t)op2.num_val});
-                return true;
-            }
-            if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.peephole_or) {
-                assemble({0xB7}); // OR A
+                if (op2.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                    assemble({0xB7}); // OR A
+                else
+                    assemble({0xF6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2)) {
-                assemble({0xFE, (uint8_t)op2.num_val});
+                if (op2.num_val == 0 && m_policy.context().optimization.peephole_or && m_policy.context().assembler.m_options.optimization.peephole_or)
+                    assemble({0xB7}); // OR A
+                else
+                    assemble({0xFE, (uint8_t)op2.num_val});
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
@@ -4370,7 +4357,7 @@ protected:
                 int32_t target_addr = op2.num_val;
                 if (op2.type == OperandType::IMMEDIATE)
                     optimize_jump_target(target_addr);
-                if (m_policy.context().optimization.branch_short && relative_jump_condition_map().count(op1.str_val) && op2.type == OperandType::IMMEDIATE) {
+                if (m_policy.context().optimization.branch_short && m_policy.context().assembler.m_options.optimization.branch_short && relative_jump_condition_map().count(op1.str_val) && op2.type == OperandType::IMMEDIATE) {
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset >= -128 && offset <= 127) {
@@ -4392,15 +4379,14 @@ protected:
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset < -128 || offset > 127) {
-                        if (m_policy.context().optimization.branch_long) {
+                        if (m_policy.context().optimization.branch_long && m_policy.context().assembler.m_options.optimization.branch_long) {
                             uint8_t cond_code = condition_map().at(op1.str_val);
                             assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
                             return true;
-                        } else {
-                            offset = original_target - (m_policy.context().address.current_logical + instruction_size);
-                            if (offset < -128 || offset > 127)
-                                m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
                         }
+                        offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                        if (offset < -128 || offset > 127)
+                            m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
                     }
                     assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
                     return true;
