@@ -263,7 +263,8 @@
 //   Keywords:
 //   - OFF / NONE:   Disable all optimizations.
 //   - SPEED:        Enable optimizations for speed (PEEPHOLE_*, DCE, JUMP_THREAD). Disables BRANCH_SHORT.
-//   - SIZE / ALL:   Enable all optimizations including BRANCH_SHORT.
+//   - SIZE:         Enable optimizations for size (enables all, including BRANCH_SHORT).
+//   - ALL:          Enable all optimizations.
 //   - PEEPHOLE:     Enable all PEEPHOLE_* optimizations.
 //
 //   Stack Control:
