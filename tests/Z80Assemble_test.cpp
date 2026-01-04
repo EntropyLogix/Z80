@@ -4295,6 +4295,139 @@ TEST_CASE(OptimizationKeywords) {
     ASSERT_CODE_WITH_OPTS(code_peep, {0xAF, 0x3C, 0xC3, 0x05, 0x00, 0x00}, options);
 }
 
+TEST_CASE(BranchLongOptimization) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.branch_long = true;
+    std::string prefix = "#OPTIMIZE +BRANCH_LONG\n";
+
+    auto make_expected = [](uint8_t opcode, int padding) {
+        std::vector<uint8_t> v = {opcode, (uint8_t)((3 + padding) & 0xFF), (uint8_t)((3 + padding) >> 8)};
+        v.insert(v.end(), padding, 0);
+        v.push_back(0x00);
+        return v;
+    };
+
+    // JR nn -> JP nn (Out of range)
+    std::string code_uncond = prefix + "JR target\nDS 128\ntarget: NOP";
+    ASSERT_CODE_WITH_OPTS(code_uncond, make_expected(0xC3, 128), options);
+
+    // JR cc, nn -> JP cc, nn (Out of range)
+    ASSERT_CODE_WITH_OPTS(prefix + "JR Z, target\nDS 128\ntarget: NOP", make_expected(0xCA, 128), options); // JP Z
+    ASSERT_CODE_WITH_OPTS(prefix + "JR NZ, target\nDS 128\ntarget: NOP", make_expected(0xC2, 128), options); // JP NZ
+    ASSERT_CODE_WITH_OPTS(prefix + "JR C, target\nDS 128\ntarget: NOP", make_expected(0xDA, 128), options); // JP C
+    ASSERT_CODE_WITH_OPTS(prefix + "JR NC, target\nDS 128\ntarget: NOP", make_expected(0xD2, 128), options); // JP NC
+
+    // JR cc, nn -> JR cc, e (In range) - Should remain JR
+    std::string code_in_range = prefix + "JR Z, target\nNOP\ntarget: NOP";
+    // JR Z (28), offset 1.
+    ASSERT_CODE_WITH_OPTS(code_in_range, {0x28, 0x01, 0x00, 0x00}, options);
+}
+
+TEST_CASE(PeepholeLogicAndSla) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.peephole_logic = true;
+    options.optimization.peephole_sla = true;
+    std::string prefix = "#OPTIMIZE +PEEPHOLE_LOGIC +PEEPHOLE_SLA\n";
+
+    // AND 0 -> XOR A
+    ASSERT_CODE_WITH_OPTS(prefix + "AND 0", {0xAF}, options);
+    
+    // OR 0 -> OR A
+    ASSERT_CODE_WITH_OPTS(prefix + "OR 0", {0xB7}, options);
+    
+    // XOR 0 -> OR A
+    ASSERT_CODE_WITH_OPTS(prefix + "XOR 0", {0xB7}, options);
+    
+    // SLA A -> ADD A, A
+    ASSERT_CODE_WITH_OPTS(prefix + "SLA A", {0x87}, options);
+}
+
+TEST_CASE(BranchLongWithJumpThread) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.branch_long = true;
+    options.optimization.jump_thread = true;
+    std::string prefix = "#OPTIMIZE +BRANCH_LONG +JUMP_THREAD\n";
+
+    // Scenario 1: JR -> JP (far) -> Target
+    // JR should become JP to Target because Target is far.
+    std::string code = prefix + R"(
+        JR Start        ; Should become JP Target (far)
+    Start:
+        JP Target
+        DS 200
+    Target:
+        NOP
+    )";
+    
+    // 0x0000: JP Target (0x00CE) -> C3 CE 00
+    // 0x0003: Start: JP Target (0x00CE) -> C3 CE 00
+    // 0x0006: DS 200
+    // 0x00CE: Target: NOP
+    
+    std::vector<uint8_t> expected;
+    expected.push_back(0xC3); expected.push_back(0xCE); expected.push_back(0x00);
+    expected.push_back(0xC3); expected.push_back(0xCE); expected.push_back(0x00);
+    expected.insert(expected.end(), 200, 0);
+    expected.push_back(0x00);
+
+    ASSERT_CODE_WITH_OPTS(code, expected, options);
+
+    // Scenario 2: JR cc -> JP (far) -> Target
+    std::string code_cond = prefix + R"(
+        JR Z, Start     ; Should become JP Z, Target
+    Start:
+        JP Target
+        DS 200
+    Target:
+        NOP
+    )";
+    
+    // 0x0000: JP Z, Target (0x00CE) -> CA CE 00
+    // 0x0003: Start: JP Target (0x00CE) -> C3 CE 00
+    // 0x0006: DS 200
+    // 0x00CE: Target: NOP
+    
+    std::vector<uint8_t> expected_cond;
+    expected_cond.push_back(0xCA); expected_cond.push_back(0xCE); expected_cond.push_back(0x00);
+    expected_cond.push_back(0xC3); expected_cond.push_back(0xCE); expected_cond.push_back(0x00);
+    expected_cond.insert(expected_cond.end(), 200, 0);
+    expected_cond.push_back(0x00);
+    
+    ASSERT_CODE_WITH_OPTS(code_cond, expected_cond, options);
+}
+
+TEST_CASE(BranchLongAndShortInteraction) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.branch_long = true;
+    options.optimization.branch_short = true;
+    std::string prefix = "#OPTIMIZE +BRANCH_LONG +BRANCH_SHORT\n";
+
+    // 1. JP NearTarget -> Should become JR (2 bytes) because of BRANCH_SHORT
+    // 2. JR FarTarget  -> Should become JP (3 bytes) because of BRANCH_LONG (out of range)
+    
+    std::string code = prefix + R"(
+        JP NearTarget   ; Optimized to JR (2 bytes)
+        JR FarTarget    ; Expanded to JP (3 bytes)
+    NearTarget:
+        NOP
+        DS 200
+    FarTarget:
+        NOP
+    )";
+    
+    // 0x0000: JR NearTarget (0x0005). Offset = 0x0005 - 0x0002 = 3. (18 03)
+    // 0x0002: JP FarTarget (0x00CE). (C3 CE 00)
+    // 0x0005: NOP (00)
+    // 0x0006: DS 200
+    // 0x00CE: NOP (00)
+    
+    std::vector<uint8_t> expected = {0x18, 0x03, 0xC3, 0xCE, 0x00, 0x00};
+    expected.insert(expected.end(), 200, 0);
+    expected.push_back(0x00);
+    
+    ASSERT_CODE_WITH_OPTS(code, expected, options);
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";

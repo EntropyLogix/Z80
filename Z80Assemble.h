@@ -251,11 +251,14 @@
 //
 //   Flags:
 //   - BRANCH_SHORT: Optimizes `JP` to `JR` if the target is within range (-128 to +127).
+//   - BRANCH_LONG:  Automatically converts `JR` to `JP` if target is out of range.
 //   - JUMP_THREAD:  Optimizes jump chains (e.g., `JP A` where `A` contains `JP B` becomes `JP B`).
 //   - DCE:          Dead Code Elimination (e.g., removes `LD A, A`).
 //   - PEEPHOLE_XOR: Optimizes `LD A, 0` to `XOR A`. (Unsafe: modifies flags)
 //   - PEEPHOLE_INC: Optimizes `ADD A, 1` to `INC A` and `SUB 1` to `DEC A`. (Unsafe: modifies flags)
 //   - PEEPHOLE_OR:  Optimizes `CP 0` to `OR A`. (Unsafe: modifies flags)
+//   - PEEPHOLE_LOGIC: Optimizes `OR 0`/`XOR 0` to `OR A` and `AND 0` to `XOR A`. (Unsafe: modifies flags)
+//   - PEEPHOLE_SLA: Optimizes `SLA A` to `ADD A, A`. (Unsafe: modifies flags)
 //
 //   Keywords:
 //   - OFF / NONE:   Disable all optimizations.
@@ -409,12 +412,15 @@ public:
         } compilation;
         struct OptimizationOptions {
             bool enabled = true;
-            bool branch_short = false;
-            bool peephole_xor = false;
-            bool peephole_inc = false;
-            bool peephole_or = false;
-            bool dce = false;
-            bool jump_thread = false;
+            bool branch_short = true;
+            bool peephole_xor = true;
+            bool peephole_inc = true;
+            bool peephole_or = true;
+            bool dce = true;
+            bool jump_thread = true;
+            bool branch_long = true;
+            bool peephole_logic = true;
+            bool peephole_sla = true;
         } optimization;
     };
     static const Options& get_default_options() {
@@ -822,6 +828,9 @@ protected:
             bool peephole_or = false;
             bool dce = false;
             bool jump_thread = false;
+            bool branch_long = false;
+            bool peephole_logic = false;
+            bool peephole_sla = false;
         } optimization;
         std::vector<OptimizationState> optimization_stack;
         std::map<int32_t, int32_t> jump_targets;
@@ -2325,16 +2334,22 @@ protected:
                             is_valid = true;
                         else if (flag == "PEEPHOLE_OR" && optimization_options.peephole_or)
                             is_valid = true;
+                        else if (flag == "PEEPHOLE_LOGIC" && optimization_options.peephole_logic)
+                            is_valid = true;
+                        else if (flag == "PEEPHOLE_SLA" && optimization_options.peephole_sla)
+                            is_valid = true;
+                        else if (flag == "BRANCH_LONG" && optimization_options.branch_long)
+                            is_valid = true;
                         else if (flag == "PEEPHOLE") {
-                             if (optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or)
+                             if (optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.peephole_logic || optimization_options.peephole_sla)
                                 is_valid = true;
                         }
                         else if (flag == "SPEED") {
-                             if (optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.dce || optimization_options.jump_thread)
+                             if (optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.dce || optimization_options.jump_thread || optimization_options.peephole_logic || optimization_options.peephole_sla)
                                  is_valid = true;
                         }
                         else if (flag == "SIZE" || flag == "ALL") {
-                             if (optimization_options.branch_short || optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.dce || optimization_options.jump_thread)
+                             if (optimization_options.branch_short || optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.dce || optimization_options.jump_thread || optimization_options.branch_long || optimization_options.peephole_logic || optimization_options.peephole_sla)
                                  is_valid = true;
                         }
                     }
@@ -2352,6 +2367,12 @@ protected:
                         ctx.optimization.peephole_inc = enable;
                     else if (flag == "PEEPHOLE_OR")
                         ctx.optimization.peephole_or = enable;
+                    else if (flag == "PEEPHOLE_LOGIC")
+                        ctx.optimization.peephole_logic = enable;
+                    else if (flag == "PEEPHOLE_SLA")
+                        ctx.optimization.peephole_sla = enable;
+                    else if (flag == "BRANCH_LONG")
+                        ctx.optimization.branch_long = enable;
                     else if (flag == "PEEPHOLE") {
                         if (optimization_options.peephole_xor)
                             ctx.optimization.peephole_xor = enable;
@@ -2359,6 +2380,10 @@ protected:
                             ctx.optimization.peephole_inc = enable;
                         if (optimization_options.peephole_or)
                             ctx.optimization.peephole_or = enable;
+                        if (optimization_options.peephole_logic)
+                            ctx.optimization.peephole_logic = enable;
+                        if (optimization_options.peephole_sla)
+                            ctx.optimization.peephole_sla = enable;
                     }
                     else if (flag == "SIZE" || flag == "ALL") {
                          if (optimization_options.branch_short)
@@ -2373,6 +2398,12 @@ protected:
                             ctx.optimization.dce = enable;
                          if (optimization_options.jump_thread)
                             ctx.optimization.jump_thread = enable;
+                         if (optimization_options.branch_long)
+                            ctx.optimization.branch_long = enable;
+                         if (optimization_options.peephole_logic)
+                            ctx.optimization.peephole_logic = enable;
+                         if (optimization_options.peephole_sla)
+                            ctx.optimization.peephole_sla = enable;
                     }
                     else if (flag == "SPEED") {
                          if (enable) {
@@ -2387,12 +2418,18 @@ protected:
                                 ctx.optimization.dce = true;
                              if (optimization_options.jump_thread)
                                 ctx.optimization.jump_thread = true;
+                             if (optimization_options.peephole_logic)
+                                ctx.optimization.peephole_logic = true;
+                             if (optimization_options.peephole_sla)
+                                ctx.optimization.peephole_sla = true;
                          } else {
                              ctx.optimization.peephole_xor = false;
                              ctx.optimization.peephole_inc = false;
                              ctx.optimization.peephole_or = false;
                              ctx.optimization.dce = false;
                              ctx.optimization.jump_thread = false;
+                             ctx.optimization.peephole_logic = false;
+                             ctx.optimization.peephole_sla = false;
                          }
                     }
                 }
@@ -3726,10 +3763,15 @@ protected:
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                 if (offset < -128 || offset > 127) {
-                    // If optimized target is out of range, try original target (trampoline case)
-                    offset = original_target - (m_policy.context().address.current_logical + instruction_size);
-                    if (offset < -128 || offset > 127)
-                        m_policy.on_jump_out_of_range(mnemonic, offset);
+                    if (m_policy.context().optimization.branch_long) {
+                        assemble({0xC3, (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
+                        return true;
+                    } else {
+                        // If optimized target is out of range, try original target (trampoline case)
+                        offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                        if (offset < -128 || offset > 127)
+                            m_policy.on_jump_out_of_range(mnemonic, offset);
+                    }
                 }
                 assemble({0x18, (uint8_t)(offset)});
                 return true;
@@ -3750,12 +3792,24 @@ protected:
                 assemble({0xDE, (uint8_t)op.num_val});
                 return true;
             }
+            if (mnemonic == "AND" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.peephole_logic) {
+                assemble({0xAF}); // XOR A
+                return true;
+            }
             if (mnemonic == "AND" && match_imm8(op)) {
                 assemble({0xE6, (uint8_t)op.num_val});
                 return true;
             }
+            if (mnemonic == "XOR" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.peephole_logic) {
+                assemble({0xB7}); // OR A
+                return true;
+            }
             if (mnemonic == "XOR" && match_imm8(op)) {
                 assemble({0xEE, (uint8_t)op.num_val});
+                return true;
+            }
+            if (mnemonic == "OR" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.peephole_logic) {
+                assemble({0xB7}); // OR A
                 return true;
             }
             if (mnemonic == "OR" && match_imm8(op)) {
@@ -3902,6 +3956,10 @@ protected:
                 {"SLA", 0x20}, {"SRA", 0x28}, {"SLL", 0x30}, {"SLI", 0x30}, {"SRL", 0x38}
             };
             if (rotate_shift_map.count(mnemonic)) {
+                if (mnemonic == "SLA" && op.str_val == "A" && m_policy.context().optimization.peephole_sla) {
+                    assemble({0x87}); // ADD A, A
+                    return true;
+                }
                 if (match_reg8(op) || (match_mem_reg16(op) && op.str_val == "HL")) {
                     uint8_t base_opcode = rotate_shift_map.at(mnemonic);
                     uint8_t reg_code;
@@ -4219,12 +4277,24 @@ protected:
                 assemble({0xD6, (uint8_t)op2.num_val});
                 return true;
             }
+            if (mnemonic == "AND" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.peephole_logic) {
+                assemble({0xAF}); // XOR A
+                return true;
+            }
             if (mnemonic == "AND" && op1.str_val == "A" && match_imm8(op2)) {
                 assemble({0xE6, (uint8_t)op2.num_val});
                 return true;
             }
+            if (mnemonic == "XOR" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.peephole_logic) {
+                assemble({0xB7}); // OR A
+                return true;
+            }
             if (mnemonic == "XOR" && op1.str_val == "A" && match_imm8(op2)) {
                 assemble({0xEE, (uint8_t)op2.num_val});
+                return true;
+            }
+            if (mnemonic == "OR" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.peephole_logic) {
+                assemble({0xB7}); // OR A
                 return true;
             }
             if (mnemonic == "OR" && op1.str_val == "A" && match_imm8(op2)) {
@@ -4322,9 +4392,15 @@ protected:
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset < -128 || offset > 127) {
-                        offset = original_target - (m_policy.context().address.current_logical + instruction_size);
-                        if (offset < -128 || offset > 127)
-                            m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
+                        if (m_policy.context().optimization.branch_long) {
+                            uint8_t cond_code = condition_map().at(op1.str_val);
+                            assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
+                            return true;
+                        } else {
+                            offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                            if (offset < -128 || offset > 127)
+                                m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
+                        }
                     }
                     assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
                     return true;
