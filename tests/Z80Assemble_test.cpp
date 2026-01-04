@@ -3939,43 +3939,44 @@ TEST_CASE(RelationalAndEqualityOperators) {
 TEST_CASE(OptimizationFlags) {
     Z80Assembler<Z80StandardBus>::Options options;
     
-    // Default: Disabled (LD A, 0 -> 3E 00)
+    // Default: Disabled (LD A, 0 -> 3E 00) - Optimizations require directive activation
     ASSERT_CODE_WITH_OPTS("LD A, 0", {0x3E, 0x00}, options);
 
-    // Enabled via options
+    // Enabled via options only allows the directive to work, but doesn't enable it by default
+    // (Implementation clears optimization state on pass begin)
     options.optimization.xor_a = true;
-    ASSERT_CODE_WITH_OPTS("LD A, 0", {0xAF}, options);
+    ASSERT_CODE_WITH_OPTS("LD A, 0", {0x3E, 0x00}, options);
     
     // Enabled via directive
-    options.optimization.xor_a = false;
-    ASSERT_CODE_WITH_OPTS("OPT +XOR_A\nLD A, 0", {0xAF}, options);
+    // Note: Global option must be true for directive to work
+    options.optimization.xor_a = true;
+    ASSERT_CODE_WITH_OPTS("#OPTIMIZE +PEEPHOLE_XOR\nLD A, 0", {0xAF}, options);
     
     // Disabled via directive
     options.optimization.xor_a = true;
-    ASSERT_CODE_WITH_OPTS("OPT -XOR_A\nLD A, 0", {0x3E, 0x00}, options);
-    
-    // #PRAGMA alias
-    ASSERT_CODE_WITH_OPTS("#PRAGMA OPT +XOR_A\nLD A, 0", {0xAF}, options);
+    ASSERT_CODE_WITH_OPTS("#OPTIMIZE +PEEPHOLE_XOR\n#OPTIMIZE -PEEPHOLE_XOR\nLD A, 0", {0x3E, 0x00}, options);
 }
 
 TEST_CASE(JpToJrOptimization) {
     Z80Assembler<Z80StandardBus>::Options options;
     options.optimization.jr = true;
+    
+    std::string prefix = "#OPTIMIZE +BRANCH_SHORT\n";
 
     // JP nn -> JR e (Forward, within range)
-    ASSERT_CODE_WITH_OPTS("JP target\nNOP\ntarget: NOP", {0x18, 0x01, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "JP target\nNOP\ntarget: NOP", {0x18, 0x01, 0x00, 0x00}, options);
     
     // JP nn -> JR e (Backward, within range)
-    ASSERT_CODE_WITH_OPTS("target: NOP\nJP target", {0x00, 0x18, 0xFD}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "target: NOP\nJP target", {0x00, 0x18, 0xFD}, options);
     
     // JP cc, nn -> JR cc, e
-    ASSERT_CODE_WITH_OPTS("JP Z, target\nNOP\ntarget: NOP", {0x28, 0x01, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "JP Z, target\nNOP\ntarget: NOP", {0x28, 0x01, 0x00, 0x00}, options);
     
     // JP cc, nn -> JP cc, nn (Condition not supported by JR, e.g. PO)
-    ASSERT_CODE_WITH_OPTS("JP PO, target\nNOP\ntarget: NOP", {0xE2, 0x04, 0x00, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "JP PO, target\nNOP\ntarget: NOP", {0xE2, 0x04, 0x00, 0x00, 0x00}, options);
     
     // Out of range (Forward) -> Remains JP
-    std::string code_far = "JP target\nDS 130\ntarget: NOP";
+    std::string code_far = prefix + "JP target\nDS 130\ntarget: NOP";
     std::vector<uint8_t> expected_far = {0xC3, 0x85, 0x00}; // JP 0x0085 (3 + 130 = 133 = 0x85)
     expected_far.insert(expected_far.end(), 130, 0);
     expected_far.push_back(0x00);
@@ -3987,50 +3988,55 @@ TEST_CASE(PeepholeOptimizations) {
     
     // XOR A
     options.optimization.xor_a = true;
-    ASSERT_CODE_WITH_OPTS("LD A, 0", {0xAF}, options);
-    ASSERT_CODE_WITH_OPTS("LD A, 1", {0x3E, 0x01}, options); // Not 0
+    ASSERT_CODE_WITH_OPTS("#OPTIMIZE +PEEPHOLE_XOR\nLD A, 0", {0xAF}, options);
+    ASSERT_CODE_WITH_OPTS("#OPTIMIZE +PEEPHOLE_XOR\nLD A, 1", {0x3E, 0x01}, options); // Not 0
     
     // INC/DEC
     options.optimization.inc = true;
-    ASSERT_CODE_WITH_OPTS("ADD A, 1", {0x3C}, options); // INC A
-    ASSERT_CODE_WITH_OPTS("SUB 1", {0x3D}, options);    // DEC A
-    ASSERT_CODE_WITH_OPTS("ADD A, 2", {0xC6, 0x02}, options); // Not 1
+    ASSERT_CODE_WITH_OPTS("#OPTIMIZE +PEEPHOLE_INC\nADD A, 1", {0x3C}, options); // INC A
+    ASSERT_CODE_WITH_OPTS("#OPTIMIZE +PEEPHOLE_INC\nSUB 1", {0x3D}, options);    // DEC A
+    ASSERT_CODE_WITH_OPTS("#OPTIMIZE +PEEPHOLE_INC\nADD A, 2", {0xC6, 0x02}, options); // Not 1
     
     // OR A
     options.optimization.or_a = true;
-    ASSERT_CODE_WITH_OPTS("CP 0", {0xB7}, options); // OR A
-    ASSERT_CODE_WITH_OPTS("CP 1", {0xFE, 0x01}, options); // Not 0
+    ASSERT_CODE_WITH_OPTS("#OPTIMIZE +PEEPHOLE_OR\nCP 0", {0xB7}, options); // OR A
+    ASSERT_CODE_WITH_OPTS("#OPTIMIZE +PEEPHOLE_OR\nCP 1", {0xFE, 0x01}, options); // Not 0
 }
 
 TEST_CASE(RedundantLoadsOptimization) {
     Z80Assembler<Z80StandardBus>::Options options;
     options.optimization.redundant_loads = true;
+    std::string prefix = "#OPTIMIZE +DCE\n";
     
     // LD A, A -> Removed (0 bytes)
-    ASSERT_CODE_WITH_OPTS("LD A, A", {}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "LD A, A", {}, options);
     
     // LD B, B -> Removed
-    ASSERT_CODE_WITH_OPTS("LD B, B", {}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "LD B, B", {}, options);
     
     // LD A, B -> Kept
-    ASSERT_CODE_WITH_OPTS("LD A, B", {0x78}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "LD A, B", {0x78}, options);
 }
 
 TEST_CASE(OptDirectiveScopes) {
     Z80Assembler<Z80StandardBus>::Options options;
-    // Default off
+    // Enable options globally so they can be toggled
+    options.optimization.xor_a = true;
+    options.optimization.jr = true;
     
     std::string code = R"(
         LD A, 0         ; 3E 00
-        OPT PUSH +XOR_A
+        #OPTIMIZE PUSH
+        #OPTIMIZE +PEEPHOLE_XOR
         LD A, 0         ; AF
-        OPT PUSH +JR
+        #OPTIMIZE PUSH
+        #OPTIMIZE +BRANCH_SHORT
         JP target       ; 18 00
     target:
-        OPT POP
+        #OPTIMIZE POP
         LD A, 0         ; AF (XOR_A still on)
         JP target       ; C3 05 00 (JR off)
-        OPT POP
+        #OPTIMIZE POP
         LD A, 0         ; 3E 00 (Back to default)
     )";
     
@@ -4043,10 +4049,11 @@ TEST_CASE(OptDirectiveScopes) {
 TEST_CASE(JumpChainOptimization) {
     Z80Assembler<Z80StandardBus>::Options options;
     options.optimization.jump_chain = true;
+    std::string prefix = "#OPTIMIZE +JUMP_THREAD\n";
 
     // Basic chain: JP A -> JP B -> Target
     // Should optimize JP A to JP Target
-    std::string code_basic = R"(
+    std::string code_basic = prefix + R"(
         JP LabelA       ; Should become JP Target
     LabelA:
         JP LabelB
@@ -4069,7 +4076,7 @@ TEST_CASE(JumpChainOptimization) {
 
     // Loop detection: JP A -> JP B -> JP A
     // Should not hang, should just point to next in chain or stop
-    std::string code_loop = R"(
+    std::string code_loop = prefix + R"(
     LabelA:
         JP LabelB
     LabelB:
@@ -4082,7 +4089,7 @@ TEST_CASE(JumpChainOptimization) {
     // JR A -> JP B -> Target
     // Should optimize JR A to JR Target (if in range)
     options.optimization.jr = true;
-    std::string code_jr = R"(
+    std::string code_jr = prefix + "#OPTIMIZE +BRANCH_SHORT\n" + R"(
         JR LabelA       ; Should become JR Target (0x05) -> 0x05 - 2 = 0x03
     LabelA:
         JP Target
@@ -4104,11 +4111,12 @@ TEST_CASE(JumpChainWithJr) {
     Z80Assembler<Z80StandardBus>::Options options;
     options.optimization.jump_chain = true;
     options.optimization.jr = true;
+    std::string prefix = "#OPTIMIZE +JUMP_THREAD +BRANCH_SHORT\n";
 
     // JP Start -> JP Target.
     // Start: JP Target -> JR Target.
     // If JR doesn't register target, JP Start might revert to JP Start (or JR Start) in later passes.
-    std::string code = R"(
+    std::string code = prefix + R"(
         JP Start
     Start:
         JP Target
@@ -4129,12 +4137,13 @@ TEST_CASE(JumpChainWithJr) {
 TEST_CASE(JumpChainTrampoline) {
     Z80Assembler<Z80StandardBus>::Options options;
     options.optimization.jump_chain = true;
+    std::string prefix = "#OPTIMIZE +JUMP_THREAD\n";
 
     // Scenario: JR jumps to a Trampoline, which JPs to a FarTarget.
     // FarTarget is out of JR range.
     // Optimization should NOT replace Trampoline with FarTarget for the JR instruction.
     
-    std::string code = R"(
+    std::string code = prefix + R"(
         JR Trampoline       ; Should keep jumping to Trampoline (offset 0)
     Trampoline:
         JP FarTarget
@@ -4158,11 +4167,12 @@ TEST_CASE(JumpChainLoopWithJr) {
     Z80Assembler<Z80StandardBus>::Options options;
     options.optimization.jump_chain = true;
     options.optimization.jr = true;
+    std::string prefix = "#OPTIMIZE +JUMP_THREAD +BRANCH_SHORT\n";
 
     // Loop: LabelA -> LabelB -> LabelA
     // Both are JR instructions.
     // Optimization should resolve LabelA -> LabelA (self loop) and LabelB -> LabelB (self loop).
-    std::string code = R"(
+    std::string code = prefix + R"(
     LabelA:
         JR LabelB
     LabelB:
@@ -4183,9 +4193,10 @@ TEST_CASE(JumpChainLoopWithJr) {
 TEST_CASE(JumpChainDjnz) {
     Z80Assembler<Z80StandardBus>::Options options;
     options.optimization.jump_chain = true;
+    std::string prefix = "#OPTIMIZE +JUMP_THREAD\n";
 
     // DJNZ -> JP -> Target
-    std::string code = R"(
+    std::string code = prefix + R"(
         LD B, 10
     Loop:
         DJNZ Trampoline
@@ -4210,10 +4221,11 @@ TEST_CASE(JumpChainThroughConditional) {
     Z80Assembler<Z80StandardBus>::Options options;
     options.optimization.jump_chain = true;
     options.optimization.jr = true;
+    std::string prefix = "#OPTIMIZE +JUMP_THREAD +BRANCH_SHORT\n";
 
     // JP Start -> JR Z, Target
     // Should NOT optimize JP Start to JP Target (bypassing Z check)
-    std::string code = R"(
+    std::string code = prefix + R"(
         JP Start
     Start:
         JR Z, Target
@@ -4227,6 +4239,60 @@ TEST_CASE(JumpChainThroughConditional) {
         0x00        // NOP
     };
     ASSERT_CODE_WITH_OPTS(code, expected, options);
+}
+
+TEST_CASE(OptimizationKeywords) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    // Enable all options globally so they can be toggled by keywords
+    options.optimization.jr = true;
+    options.optimization.xor_a = true;
+    options.optimization.inc = true;
+    options.optimization.or_a = true;
+    options.optimization.redundant_loads = true;
+    options.optimization.jump_chain = true;
+    
+    // SPEED: Enables peepholes, disables JR
+    std::string code_speed = R"(
+        #OPTIMIZE SPEED
+        LD A, 0         ; Optimized to XOR A (AF)
+        JP target       ; Kept as JP (C3...) because SPEED disables short branches
+    target:
+        NOP
+    )";
+    ASSERT_CODE_WITH_OPTS(code_speed, {0xAF, 0xC3, 0x04, 0x00, 0x00}, options);
+
+    // SIZE: Enables everything including JR
+    std::string code_size = R"(
+        #OPTIMIZE SIZE
+        LD A, 0         ; Optimized to XOR A (AF)
+        JP target       ; Optimized to JR (18...)
+    target:
+        NOP
+    )";
+    ASSERT_CODE_WITH_OPTS(code_size, {0xAF, 0x18, 0x00, 0x00}, options);
+
+    // OFF: Disables everything
+    std::string code_off = R"(
+        #OPTIMIZE SIZE
+        #OPTIMIZE OFF
+        LD A, 0         ; Not optimized (3E 00)
+        JP target       ; Not optimized (C3...)
+    target:
+        NOP
+    )";
+    ASSERT_CODE_WITH_OPTS(code_off, {0x3E, 0x00, 0xC3, 0x05, 0x00, 0x00}, options);
+    
+    // PEEPHOLE: Enables only peepholes (XOR A, INC/DEC, OR A)
+    std::string code_peep = R"(
+        #OPTIMIZE OFF
+        #OPTIMIZE PEEPHOLE
+        LD A, 0         ; Optimized (AF)
+        ADD A, 1        ; Optimized (3C)
+        JP target       ; Not optimized (C3...)
+    target:
+        NOP
+    )";
+    ASSERT_CODE_WITH_OPTS(code_peep, {0xAF, 0x3C, 0xC3, 0x05, 0x00, 0x00}, options);
 }
 
 int main() {

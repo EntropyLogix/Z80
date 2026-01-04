@@ -351,6 +351,7 @@ public:
             bool allow_while = true;
             bool allow_proc = true;
             bool allow_macros = true;
+            bool allow_optimize = true;
         } directives;
         struct ExpressionOptions {
             bool enabled = true;
@@ -367,6 +368,7 @@ public:
             int max_while_iterations = 10000;
         } compilation;
         struct OptimizationOptions {
+            bool enabled = true;
             bool jr = false;
             bool xor_a = false;
             bool inc = false;
@@ -2133,13 +2135,7 @@ protected:
             m_context.repeat.stack.clear();
             m_context.while_loop.stack.clear();
             m_context.defines.map.clear();
-            m_context.optimization.jr = m_context.assembler.m_options.optimization.jr;
-            m_context.optimization.xor_a = m_context.assembler.m_options.optimization.xor_a;
-            m_context.optimization.inc = m_context.assembler.m_options.optimization.inc;
-            m_context.optimization.or_a = m_context.assembler.m_options.optimization.or_a;
-            m_context.optimization.redundant_loads = m_context.assembler.m_options.optimization.redundant_loads;
-            m_context.optimization.jump_chain = m_context.assembler.m_options.optimization.jump_chain;
-            m_context.optimization.jump_chain = m_context.assembler.m_options.optimization.jump_chain;
+            m_context.optimization = {};
         }
         virtual void on_finalize() override {
             if (m_context.macros.in_expansion)
@@ -2164,13 +2160,7 @@ protected:
             m_context.source.conditional_stack.clear();
             m_context.source.control_stack.clear();
             m_context.defines.map.clear();
-            m_context.optimization.jr = m_context.assembler.m_options.optimization.jr;
-            m_context.optimization.xor_a = m_context.assembler.m_options.optimization.xor_a;
-            m_context.optimization.inc = m_context.assembler.m_options.optimization.inc;
-            m_context.optimization.or_a = m_context.assembler.m_options.optimization.or_a;
-            m_context.optimization.redundant_loads = m_context.assembler.m_options.optimization.redundant_loads;
-            m_context.optimization.jump_chain = m_context.assembler.m_options.optimization.jump_chain;
-            m_context.optimization.jump_chain = m_context.assembler.m_options.optimization.jump_chain;
+            m_context.optimization = {};
             m_context.optimization_stack.clear();
             m_context.prev_jump_targets = std::move(m_context.jump_targets);
             m_context.jump_targets.clear();
@@ -2250,43 +2240,120 @@ protected:
         }
         virtual void on_opt_directive(const std::vector<std::string>& args) override {
             auto& ctx = m_context;
+            const auto& optimization_options = ctx.assembler.m_options.optimization;
             for (const auto& arg : args) {
                 std::string upper_arg = arg;
                 Strings::to_upper(upper_arg);
-                if (upper_arg == "PUSH") {
+                if ((upper_arg == "PUSH" || upper_arg == "POP") && args.size() > 1)
+                    ctx.assembler.report_error("#OPTIMIZE PUSH/POP cannot be mixed with other arguments.");
+            }
+            for (const auto& arg : args) {
+                std::string upper_arg = arg;
+                Strings::to_upper(upper_arg);
+                if (upper_arg == "PUSH")
                     ctx.optimization_stack.push_back(ctx.optimization);
-                } else if (upper_arg == "POP") {
+                else if (upper_arg == "POP") {
                     if (!ctx.optimization_stack.empty()) {
                         ctx.optimization = ctx.optimization_stack.back();
                         ctx.optimization_stack.pop_back();
-                    } else {
-                        ctx.assembler.report_error("OPT POP without matching PUSH");
-                    }
+                    } else
+                        ctx.assembler.report_error("#OPTIMIZE POP without matching PUSH");
                 } else {
                     bool enable = true;
                     std::string flag = upper_arg;
-                    if (flag.front() == '+') {
+                    if (flag.front() == '+')
                         flag = flag.substr(1);
-                    } else if (flag.front() == '-') {
+                    else if (flag.front() == '-') {
                         enable = false;
                         flag = flag.substr(1);
                     }
-                    
-                    if (flag == "JR") ctx.optimization.jr = enable;
-                    else if (flag == "XOR_A") ctx.optimization.xor_a = enable;
-                    else if (flag == "INC") ctx.optimization.inc = enable;
-                    else if (flag == "OR_A") ctx.optimization.or_a = enable;
-                    else if (flag == "REDUNDANT_LOADS") ctx.optimization.redundant_loads = enable;
-                    else if (flag == "JUMP_CHAIN") ctx.optimization.jump_chain = enable;
-                    else if (flag == "SPEED" || flag == "SIZE") {
-                         ctx.optimization.jr = enable;
-                         ctx.optimization.xor_a = enable;
-                         ctx.optimization.inc = enable;
-                         ctx.optimization.or_a = enable;
-                         ctx.optimization.redundant_loads = enable;
-                         ctx.optimization.jump_chain = enable;
-                    } else if (flag == "OFF" || flag == "NONE") {
+                    if (flag == "OFF" || flag == "NONE") {
                          ctx.optimization = {};
+                         continue;
+                    }
+                    bool is_valid = false;
+                    if (optimization_options.enabled) {
+                        if (flag == "BRANCH_SHORT" && optimization_options.jr)
+                            is_valid = true;
+                        else if (flag == "JUMP_THREAD" && optimization_options.jump_chain)
+                            is_valid = true;
+                        else if (flag == "DCE" && optimization_options.redundant_loads)
+                            is_valid = true;
+                        else if (flag == "PEEPHOLE_XOR" && optimization_options.xor_a)
+                            is_valid = true;
+                        else if (flag == "PEEPHOLE_INC" && optimization_options.inc)
+                            is_valid = true;
+                        else if (flag == "PEEPHOLE_OR" && optimization_options.or_a)
+                            is_valid = true;
+                        else if (flag == "PEEPHOLE") {
+                             if (optimization_options.xor_a || optimization_options.inc || optimization_options.or_a)
+                                is_valid = true;
+                        }
+                        else if (flag == "SPEED") {
+                             if (optimization_options.xor_a || optimization_options.inc || optimization_options.or_a || optimization_options.redundant_loads || optimization_options.jump_chain)
+                                 is_valid = true;
+                        }
+                        else if (flag == "SIZE" || flag == "ALL") {
+                             if (optimization_options.jr || optimization_options.xor_a || optimization_options.inc || optimization_options.or_a || optimization_options.redundant_loads || optimization_options.jump_chain)
+                                 is_valid = true;
+                        }
+                    }
+                    if (!is_valid)
+                        ctx.assembler.report_error("Invalid parameter: " + arg);
+                    if (flag == "BRANCH_SHORT")
+                        ctx.optimization.jr = enable;
+                    else if (flag == "JUMP_THREAD")
+                        ctx.optimization.jump_chain = enable;
+                    else if (flag == "DCE")
+                        ctx.optimization.redundant_loads = enable;
+                    else if (flag == "PEEPHOLE_XOR")
+                        ctx.optimization.xor_a = enable;
+                    else if (flag == "PEEPHOLE_INC")
+                        ctx.optimization.inc = enable;
+                    else if (flag == "PEEPHOLE_OR")
+                        ctx.optimization.or_a = enable;
+                    else if (flag == "PEEPHOLE") {
+                        if (optimization_options.xor_a)
+                            ctx.optimization.xor_a = enable;
+                        if (optimization_options.inc)
+                            ctx.optimization.inc = enable;
+                        if (optimization_options.or_a)
+                            ctx.optimization.or_a = enable;
+                    }
+                    else if (flag == "SIZE" || flag == "ALL") {
+                         if (optimization_options.jr)
+                            ctx.optimization.jr = enable;
+                         if (optimization_options.xor_a)
+                            ctx.optimization.xor_a = enable;
+                         if (optimization_options.inc)
+                            ctx.optimization.inc = enable;
+                         if (optimization_options.or_a)
+                            ctx.optimization.or_a = enable;
+                         if (optimization_options.redundant_loads)
+                            ctx.optimization.redundant_loads = enable;
+                         if (optimization_options.jump_chain)
+                            ctx.optimization.jump_chain = enable;
+                    }
+                    else if (flag == "SPEED") {
+                         if (enable) {
+                             ctx.optimization.jr = false;
+                             if (optimization_options.xor_a)
+                                ctx.optimization.xor_a = true;
+                             if (optimization_options.inc)
+                                ctx.optimization.inc = true;
+                             if (optimization_options.or_a)
+                                ctx.optimization.or_a = true;
+                             if (optimization_options.redundant_loads)
+                                ctx.optimization.redundant_loads = true;
+                             if (optimization_options.jump_chain)
+                                ctx.optimization.jump_chain = true;
+                         } else {
+                             ctx.optimization.xor_a = false;
+                             ctx.optimization.inc = false;
+                             ctx.optimization.or_a = false;
+                             ctx.optimization.redundant_loads = false;
+                             ctx.optimization.jump_chain = false;
+                         }
                     }
                 }
             }
@@ -3104,7 +3171,7 @@ protected:
                 "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BREAK", "BYTE", "DB", "DD", "DEFB", "DEFH",
                 "DEFINE", "DEFL", "DEFG", "DEFM", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM", "EXITW",
                 "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM",
-                "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF", "OPT", "#PRAGMA",
+                "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF", "#OPTIMIZE",
                 "IFIDN", "IFNB", "IFNDEF", "INCBIN", "INCLUDE", "LOCAL", "MACRO", "ORG", "PHASE",
                 "PROC", "REPT", "SET", "SHIFT", "UNDEFINE", "UNPHASE", "WEND", "WHILE", "WORD"
             };
@@ -4500,7 +4567,9 @@ protected:
                 return true;
             if (process_error_directives())
                 return true;
-            if (m_tokens.count() > 0 && (m_tokens[0].upper() == "OPT" || m_tokens[0].upper() == "#PRAGMA")) {
+            if (m_tokens.count() > 0 && m_tokens[0].upper() == "#OPTIMIZE") {
+                if (!m_policy.context().assembler.m_options.directives.allow_optimize)
+                    return false;
                 std::vector<std::string> args;
                 for (size_t i = 1; i < m_tokens.count(); ++i)
                     args.push_back(m_tokens[i].original());
