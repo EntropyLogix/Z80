@@ -1189,7 +1189,7 @@ protected:
             return const_map;
         }
     private:
-        static double get_val(Context& ctx, const Value& v, const std::string& error_context = "") {
+        static double get_numeric_value(Context& ctx, const Value& v, const std::string& error_context = "") {
             if (v.type == Value::Type::NUMBER)
                 return v.n_val;
             if (v.type == Value::Type::STRING && v.s_val.length() == 1)
@@ -1201,11 +1201,15 @@ protected:
             ctx.assembler.report_error(msg);
             return 0.0;
         }
-
-        // Operator implementations
-        static Value op_unary_minus(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, -get_val(ctx, args[0], "unary -")}; }
-        static Value op_bitwise_not(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)(~(int32_t)get_val(ctx, args[0], "bitwise NOT"))}; }
-        static Value op_logical_not(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)(!get_val(ctx, args[0], "logical NOT"))}; }
+        static Value op_unary_minus(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, -get_numeric_value(ctx, args[0], "unary -")};
+        }
+        static Value op_bitwise_not(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)(~(int32_t)get_numeric_value(ctx, args[0], "bitwise NOT"))};
+        }
+        static Value op_logical_not(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)(!get_numeric_value(ctx, args[0], "logical NOT"))};
+        }
         static Value op_defined(Context& ctx, const std::vector<Value>& args) {
              if (args[0].type != Value::Type::STRING)
                 ctx.assembler.report_error("Argument to DEFINED must be a symbol name.");
@@ -1215,44 +1219,58 @@ protected:
                 return Value{Value::Type::NUMBER, 1.0};
             return Value{Value::Type::NUMBER, 0.0};
         }
-        
-        static Value op_mul(Context& ctx, const std::vector<Value>& args) { double v2 = get_val(ctx, args[1], "*"); if (v2==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, get_val(ctx, args[0], "*") * v2}; }
-        static Value op_div(Context& ctx, const std::vector<Value>& args) { double v2 = get_val(ctx, args[1], "/"); if (v2==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, get_val(ctx, args[0], "/") / v2}; }
-        static Value op_mod(Context& ctx, const std::vector<Value>& args) { int32_t v2 = (int32_t)get_val(ctx, args[1], "%"); if (v2==0) throw std::runtime_error("Division by zero."); return Value{Value::Type::NUMBER, (double)((int32_t)get_val(ctx, args[0], "%") % v2)}; }
-        static Value op_add(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, get_val(ctx, args[0], "+") + get_val(ctx, args[1], "+")}; }
-        static Value op_sub(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, get_val(ctx, args[0], "-") - get_val(ctx, args[1], "-")}; }
-        
+        static Value op_mul(Context& ctx, const std::vector<Value>& args) {
+            double v2 = get_numeric_value(ctx, args[1], "*");
+            return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "*") * v2};
+        }
+        static Value op_div(Context& ctx, const std::vector<Value>& args) {
+            double v2 = get_numeric_value(ctx, args[1], "/");
+            if (std::abs(v2) < 1e-12) throw std::runtime_error("Division by zero.");
+            return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "/") / v2};
+        }
+        static Value op_mod(Context& ctx, const std::vector<Value>& args) {
+            int32_t v2 = (int32_t)get_numeric_value(ctx, args[1], "%");
+            if (v2 == 0) throw std::runtime_error("Division by zero.");
+            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "%") % v2)};
+        }
+        static Value op_add(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "+") + get_numeric_value(ctx, args[1], "+")};
+        }
+        static Value op_sub(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "-") - get_numeric_value(ctx, args[1], "-")};
+        }
         static Value op_concat(Context& ctx, const std::vector<Value>& args) {
             auto to_str = [](const Value& v) {
                 return (v.type == Value::Type::STRING) ? v.s_val : std::to_string((int32_t)v.n_val);
             };
             return Value{Value::Type::STRING, 0.0, to_str(args[0]) + to_str(args[1])};
         }
-
-        static Value op_shl(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)((int32_t)get_val(ctx, args[0], "<<") << (int32_t)get_val(ctx, args[1], "<<"))}; }
-        static Value op_shr(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)((int32_t)get_val(ctx, args[0], ">>") >> (int32_t)get_val(ctx, args[1], ">>"))}; }
-        
+        static Value op_shl(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "<<") << (int32_t)get_numeric_value(ctx, args[1], "<<"))};
+        }
+        static Value op_shr(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], ">>") >> (int32_t)get_numeric_value(ctx, args[1], ">>"))};
+        }
         static Value op_gt(Context& ctx, const std::vector<Value>& args) { 
             if (args[0].type == Value::Type::STRING && args[1].type == Value::Type::STRING)
                 return Value{Value::Type::NUMBER, (double)(args[0].s_val > args[1].s_val)};
-            return Value{Value::Type::NUMBER, (double)(get_val(ctx, args[0], ">") > get_val(ctx, args[1], ">"))}; 
+            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], ">") > get_numeric_value(ctx, args[1], ">"))}; 
         }
         static Value op_lt(Context& ctx, const std::vector<Value>& args) { 
             if (args[0].type == Value::Type::STRING && args[1].type == Value::Type::STRING)
                 return Value{Value::Type::NUMBER, (double)(args[0].s_val < args[1].s_val)};
-            return Value{Value::Type::NUMBER, (double)(get_val(ctx, args[0], "<") < get_val(ctx, args[1], "<"))}; 
+            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "<") < get_numeric_value(ctx, args[1], "<"))}; 
         }
         static Value op_ge(Context& ctx, const std::vector<Value>& args) { 
             if (args[0].type == Value::Type::STRING && args[1].type == Value::Type::STRING)
                 return Value{Value::Type::NUMBER, (double)(args[0].s_val >= args[1].s_val)};
-            return Value{Value::Type::NUMBER, (double)(get_val(ctx, args[0], ">=") >= get_val(ctx, args[1], ">="))}; 
+            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], ">=") >= get_numeric_value(ctx, args[1], ">="))}; 
         }
         static Value op_le(Context& ctx, const std::vector<Value>& args) { 
             if (args[0].type == Value::Type::STRING && args[1].type == Value::Type::STRING)
                 return Value{Value::Type::NUMBER, (double)(args[0].s_val <= args[1].s_val)};
-            return Value{Value::Type::NUMBER, (double)(get_val(ctx, args[0], "<=") <= get_val(ctx, args[1], "<="))}; 
+            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "<=") <= get_numeric_value(ctx, args[1], "<="))}; 
         }
-        
         static Value op_eq(Context& ctx, const std::vector<Value>& args) {
             if (args[0].type == args[1].type) {
                 if (args[0].type == Value::Type::STRING)
@@ -1272,7 +1290,6 @@ protected:
                 return Value{Value::Type::NUMBER, (double)(*v1 == *v2)};
             return Value{Value::Type::NUMBER, 0.0};
         }
-        
         static Value op_ne(Context& ctx, const std::vector<Value>& args) {
             if (args[0].type == args[1].type) {
                 if (args[0].type == Value::Type::STRING)
@@ -1292,11 +1309,21 @@ protected:
                 return Value{Value::Type::NUMBER, (double)(*v1 != *v2)};
             return Value{Value::Type::NUMBER, 1.0};
         }
-        static Value op_and(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)((int32_t)get_val(ctx, args[0], "&") & (int32_t)get_val(ctx, args[1], "&"))}; }
-        static Value op_xor(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)((int32_t)get_val(ctx, args[0], "^") ^ (int32_t)get_val(ctx, args[1], "^"))}; }
-        static Value op_or(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)((int32_t)get_val(ctx, args[0], "|") | (int32_t)get_val(ctx, args[1], "|"))}; }
-        static Value op_land(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)(get_val(ctx, args[0], "&&") && get_val(ctx, args[1], "&&"))}; }
-        static Value op_lor(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)(get_val(ctx, args[0], "||") || get_val(ctx, args[1], "||"))}; }
+        static Value op_and(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "&") & (int32_t)get_numeric_value(ctx, args[1], "&"))};
+        }
+        static Value op_xor(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "^") ^ (int32_t)get_numeric_value(ctx, args[1], "^"))};
+        }
+        static Value op_or(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "|") | (int32_t)get_numeric_value(ctx, args[1], "|"))};
+        }
+        static Value op_land(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "&&") && get_numeric_value(ctx, args[1], "&&"))};
+        }
+        static Value op_lor(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "||") || get_numeric_value(ctx, args[1], "||"))};
+        }
         static Value op_ternary(Context& ctx, const std::vector<Value>& args) {
             if (args[0].type != Value::Type::NUMBER)
                 ctx.assembler.report_error("Ternary condition must be a number.");
@@ -1304,19 +1331,25 @@ protected:
                 return args[1];
             return Value{Value::Type::TERNARY_SKIP};
         }
-        static Value op_colon(Context& ctx, const std::vector<Value>& args) { return (args[0].type == Value::Type::TERNARY_SKIP) ? args[1] : args[0]; }
-
-        // Function implementations
-        static Value func_isstring(Context& context, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (args[0].type == Value::Type::STRING) ? 1.0 : 0.0}; }
+        static Value op_colon(Context& ctx, const std::vector<Value>& args) {
+            return (args[0].type == Value::Type::TERNARY_SKIP) ? args[1] : args[0];
+        }
+        static Value func_isstring(Context& context, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (args[0].type == Value::Type::STRING) ? 1.0 : 0.0};
+        }
         static Value func_isnumber(Context& context, const std::vector<Value>& args) {
-            if (args[0].type == Value::Type::NUMBER) return Value{Value::Type::NUMBER, 1.0};
+            if (args[0].type == Value::Type::NUMBER)
+                return Value{Value::Type::NUMBER, 1.0};
             if (args[0].type == Value::Type::STRING) {
                 int32_t dummy;
-                if (Strings::is_number(args[0].s_val, dummy, context.assembler.m_options.numbers)) return Value{Value::Type::NUMBER, 1.0};
+                if (Strings::is_number(args[0].s_val, dummy, context.assembler.m_options.numbers))
+                    return Value{Value::Type::NUMBER, 1.0};
             }
             return Value{Value::Type::NUMBER, 0.0};
         }
-        static Value func_str(Context& context, const std::vector<Value>& args) { return Value{Value::Type::STRING, 0.0, std::to_string((int32_t)get_val(context, args[0], "STR"))}; }
+        static Value func_str(Context& context, const std::vector<Value>& args) {
+            return Value{Value::Type::STRING, 0.0, std::to_string((int32_t)get_numeric_value(context, args[0], "STR"))};
+        }
         static Value func_val(Context& context, const std::vector<Value>& args) {
             if (args[0].type != Value::Type::STRING)
                 context.assembler.report_error("Argument to VAL must be a string.");
@@ -1327,7 +1360,7 @@ protected:
             return Value{Value::Type::NUMBER, 0.0};
         }
         static Value func_chr(Context& context, const std::vector<Value>& args) {
-            char c = (char)((int32_t)get_val(context, args[0], "CHR"));
+            char c = (char)((int32_t)get_numeric_value(context, args[0], "CHR"));
             return Value{Value::Type::STRING, 0.0, std::string(1, c)};
         }
         static Value func_asc(Context& context, const std::vector<Value>& args) {
@@ -1338,7 +1371,8 @@ protected:
             return Value{Value::Type::NUMBER, (double)(unsigned char)args[0].s_val[0]};
         }
         static Value func_chars(Context& context, const std::vector<Value>& args) {
-            if (args[0].type != Value::Type::STRING) context.assembler.report_error("Argument to CHARS must be a string.");
+            if (args[0].type != Value::Type::STRING)
+                context.assembler.report_error("Argument to CHARS must be a string.");
             const std::string& s = args[0].s_val;
             if (s.length() > 4)
                 context.assembler.report_error("CHARS argument string cannot be longer than 4 bytes.");
@@ -1347,7 +1381,9 @@ protected:
                 val |= ((uint32_t)(unsigned char)s[i]) << (i * 8);
             return Value{Value::Type::NUMBER, (double)val};
         }
-        static Value func_int(Context& context, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)((int32_t)get_val(context, args[0], "INT"))}; }
+        static Value func_int(Context& context, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(context, args[0], "INT"))};
+        }
         static Value func_strlen(Context& context, const std::vector<Value>& args) {
             if (args[0].type != Value::Type::STRING)
                 context.assembler.report_error("Argument to STRLEN must be a string.");
@@ -1357,8 +1393,8 @@ protected:
             if (args[0].type != Value::Type::STRING)
                 context.assembler.report_error("SUBSTR: First argument must be a string.");
             const std::string& str = args[0].s_val;
-            int32_t pos_val = (int32_t)get_val(context, args[1], "SUBSTR");
-            int32_t len_val = (int32_t)get_val(context, args[2], "SUBSTR");
+            int32_t pos_val = (int32_t)get_numeric_value(context, args[1], "SUBSTR");
+            int32_t len_val = (int32_t)get_numeric_value(context, args[2], "SUBSTR");
             if (pos_val < 0 || len_val < 0)
                 context.assembler.report_error("SUBSTR: Position and length cannot be negative.");
             size_t pos = pos_val;
@@ -1411,7 +1447,7 @@ protected:
             return Value{Value::Type::STRING, 0.0, s};
         }
         static Value func_mem(Context& context, const std::vector<Value>& args) {
-            uint16_t addr = (uint16_t)((int32_t)get_val(context, args[0], "MEM"));
+            uint16_t addr = (uint16_t)((int32_t)get_numeric_value(context, args[0], "MEM"));
             return Value{Value::Type::NUMBER, (double)context.memory->peek(addr)};
         }
         static Value func_filesize(Context& context, const std::vector<Value>& args) {
@@ -1422,49 +1458,99 @@ protected:
                 context.assembler.report_error("File not found for FILESIZE: " + filename);
             return Value{Value::Type::NUMBER, (double)context.source_provider->file_size(filename)};
         }
-        static Value func_high(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)(((int32_t)get_val(ctx, args[0], "HIGH") >> 8) & 0xFF)}; }
-        static Value func_low(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, (double)((int32_t)get_val(ctx, args[0], "LOW") & 0xFF)}; }
+        static Value func_high(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)(((int32_t)get_numeric_value(ctx, args[0], "HIGH") >> 8) & 0xFF)};
+        }
+        static Value func_low(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "LOW") & 0xFF)};
+        }
         static Value func_min(Context& ctx, const std::vector<Value>& args) {
             if (args.size() < 2)
                 throw std::runtime_error("MIN requires at least two arguments.");
-            double result = get_val(ctx, args[0], "MIN");
+            double result = get_numeric_value(ctx, args[0], "MIN");
             for (size_t i = 1; i < args.size(); ++i)
-                result = std::min(result, get_val(ctx, args[i], "MIN"));
+                result = std::min(result, get_numeric_value(ctx, args[i], "MIN"));
             return Value{Value::Type::NUMBER, result};
         }
         static Value func_max(Context& ctx, const std::vector<Value>& args) {
             if (args.size() < 2)
                 throw std::runtime_error("MAX requires at least two arguments.");
-            double result = get_val(ctx, args[0], "MAX");
+            double result = get_numeric_value(ctx, args[0], "MAX");
             for (size_t i = 1; i < args.size(); ++i)
-                result = std::max(result, get_val(ctx, args[i], "MAX"));
+                result = std::max(result, get_numeric_value(ctx, args[i], "MAX"));
             return Value{Value::Type::NUMBER, result};
         }
-        static Value func_sin(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, sin(get_val(ctx, args[0], "SIN"))}; }
-        static Value func_cos(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, cos(get_val(ctx, args[0], "COS"))}; }
-        static Value func_tan(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, tan(get_val(ctx, args[0], "TAN"))}; }
-        static Value func_asin(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, asin(get_val(ctx, args[0], "ASIN"))}; }
-        static Value func_acos(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, acos(get_val(ctx, args[0], "ACOS"))}; }
-        static Value func_atan(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, atan(get_val(ctx, args[0], "ATAN"))}; }
-        static Value func_atan2(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, atan2(get_val(ctx, args[0], "ATAN2"), get_val(ctx, args[1], "ATAN2"))}; }
-        static Value func_sinh(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, sinh(get_val(ctx, args[0], "SINH"))}; }
-        static Value func_cosh(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, cosh(get_val(ctx, args[0], "COSH"))}; }
-        static Value func_tanh(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, tanh(get_val(ctx, args[0], "TANH"))}; }
-        static Value func_asinh(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, asinh(get_val(ctx, args[0], "ASINH"))}; }
-        static Value func_acosh(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, acosh(get_val(ctx, args[0], "ACOSH"))}; }
-        static Value func_atanh(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, atanh(get_val(ctx, args[0], "ATANH"))}; }
-        static Value func_abs(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, fabs(get_val(ctx, args[0], "ABS"))}; }
-        static Value func_pow(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, pow(get_val(ctx, args[0], "POW"), get_val(ctx, args[1], "POW"))}; }
-        static Value func_hypot(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, hypot(get_val(ctx, args[0], "HYPOT"), get_val(ctx, args[1], "HYPOT"))}; }
-        static Value func_fmod(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, fmod(get_val(ctx, args[0], "FMOD"), get_val(ctx, args[1], "FMOD"))}; }
-        static Value func_sqrt(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, sqrt(get_val(ctx, args[0], "SQRT"))}; }
-        static Value func_log(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, log(get_val(ctx, args[0], "LOG"))}; }
-        static Value func_log10(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, log10(get_val(ctx, args[0], "LOG10"))}; }
-        static Value func_log2(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, log2(get_val(ctx, args[0], "LOG2"))}; }
-        static Value func_exp(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, exp(get_val(ctx, args[0], "EXP"))}; }
+        static Value func_sin(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, sin(get_numeric_value(ctx, args[0], "SIN"))};
+        }
+        static Value func_cos(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, cos(get_numeric_value(ctx, args[0], "COS"))};
+        }
+        static Value func_tan(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, tan(get_numeric_value(ctx, args[0], "TAN"))};
+        }
+        static Value func_asin(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, asin(get_numeric_value(ctx, args[0], "ASIN"))};
+        }
+        static Value func_acos(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, acos(get_numeric_value(ctx, args[0], "ACOS"))};
+        }
+        static Value func_atan(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, atan(get_numeric_value(ctx, args[0], "ATAN"))};
+        }
+        static Value func_atan2(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, atan2(get_numeric_value(ctx, args[0], "ATAN2"), get_numeric_value(ctx, args[1], "ATAN2"))};
+        }
+        static Value func_sinh(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, sinh(get_numeric_value(ctx, args[0], "SINH"))};
+        }
+        static Value func_cosh(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, cosh(get_numeric_value(ctx, args[0], "COSH"))};
+        }
+        static Value func_tanh(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, tanh(get_numeric_value(ctx, args[0], "TANH"))};
+        }
+        static Value func_asinh(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, asinh(get_numeric_value(ctx, args[0], "ASINH"))};
+        }
+        static Value func_acosh(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, acosh(get_numeric_value(ctx, args[0], "ACOSH"))};
+        }
+        static Value func_atanh(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, atanh(get_numeric_value(ctx, args[0], "ATANH"))};
+        }
+        static Value func_abs(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, fabs(get_numeric_value(ctx, args[0], "ABS"))};
+        }
+        static Value func_pow(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, pow(get_numeric_value(ctx, args[0], "POW"), get_numeric_value(ctx, args[1], "POW"))};
+        }
+        static Value func_hypot(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, hypot(get_numeric_value(ctx, args[0], "HYPOT"), get_numeric_value(ctx, args[1], "HYPOT"))};
+        }
+        static Value func_fmod(Context& ctx, const std::vector<Value>& args) {
+            double v2 = get_numeric_value(ctx, args[1], "FMOD");
+            if (std::abs(v2) < 1e-12)
+                throw std::runtime_error("FMOD by zero.");
+            return Value{Value::Type::NUMBER, fmod(get_numeric_value(ctx, args[0], "FMOD"), v2)};
+        }
+        static Value func_sqrt(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, sqrt(get_numeric_value(ctx, args[0], "SQRT"))};
+        }
+        static Value func_log(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, log(get_numeric_value(ctx, args[0], "LOG"))}; }
+        static Value func_log10(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, log10(get_numeric_value(ctx, args[0], "LOG10"))};
+        }
+        static Value func_log2(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, log2(get_numeric_value(ctx, args[0], "LOG2"))};
+        }
+        static Value func_exp(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, exp(get_numeric_value(ctx, args[0], "EXP"))};
+        }
         static Value func_rand(Context& ctx, const std::vector<Value>& args) {
             static std::mt19937 gen(0);
-            std::uniform_int_distribution<> distrib((int)get_val(ctx, args[0], "RAND"), (int)get_val(ctx, args[1], "RAND"));
+            std::uniform_int_distribution<> distrib((int)get_numeric_value(ctx, args[0], "RAND"), (int)get_numeric_value(ctx, args[1], "RAND"));
             return Value{Value::Type::NUMBER, (double)distrib(gen)};
         }
         static Value func_rnd(Context&, const std::vector<Value>& args) {
@@ -1474,18 +1560,25 @@ protected:
         }
         static Value func_rrnd(Context& ctx, const std::vector<Value>& args) {
             static std::mt19937 gen(0);
-            std::uniform_int_distribution<> distrib((int)get_val(ctx, args[0], "RRND"), (int)get_val(ctx, args[1], "RRND"));
+            std::uniform_int_distribution<> distrib((int)get_numeric_value(ctx, args[0], "RRND"), (int)get_numeric_value(ctx, args[1], "RRND"));
             return Value{Value::Type::NUMBER, (double)distrib(gen)};
         }
-        static Value func_floor(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, floor(get_val(ctx, args[0], "FLOOR"))}; }
-        static Value func_ceil(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, ceil(get_val(ctx, args[0], "CEIL"))}; }
-        static Value func_round(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, round(get_val(ctx, args[0], "ROUND"))}; }
-        static Value func_trunc(Context& ctx, const std::vector<Value>& args) { return Value{Value::Type::NUMBER, trunc(get_val(ctx, args[0], "TRUNC"))}; }
+        static Value func_floor(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, floor(get_numeric_value(ctx, args[0], "FLOOR"))};
+        }
+        static Value func_ceil(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, ceil(get_numeric_value(ctx, args[0], "CEIL"))};
+        }
+        static Value func_round(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, round(get_numeric_value(ctx, args[0], "ROUND"))};
+        }
+        static Value func_trunc(Context& ctx, const std::vector<Value>& args) {
+            return Value{Value::Type::NUMBER, trunc(get_numeric_value(ctx, args[0], "TRUNC"))};
+        }
         static Value func_sgn(Context& ctx, const std::vector<Value>& args) {
-            double val = get_val(ctx, args[0], "SGN");
+            double val = get_numeric_value(ctx, args[0], "SGN");
             return Value{Value::Type::NUMBER, (double)((val > 0) - (val < 0))};
         }
-
         bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
                 tokens.push_back({Token::Type::CHAR_LITERAL, "", (double)(expr[i+1])});
