@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Version: 1.1.6c
+// Version: 1.1.7
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -218,14 +218,21 @@
 //
 // Macros:
 //   Macros allow you to define reusable code templates.
-//   - `MACRO`/`ENDM`: Defines a macro. You can also use `<name> ENDM` to close it.
-//   - `SHIFT`: Shifts positional parameters (\2 becomes \1, etc.).
-//   - `EXITM`: Exits the current macro expansion.
-//   - Parameters: `{name}` (named), `\1` (positional), `\0` (arg count).
+//
+//   Directive | Syntax                  | Description
+//   ----------|-------------------------|------------------------------------------------------------------
+//   MACRO     | <name> MACRO [args...]  | Defines a macro.
+//   ENDM      | ENDM                    | Ends a macro definition.
+//   SHIFT     | SHIFT                   | Shifts positional parameters (\2 becomes \1, etc.).
+//   EXITM     | EXITM                   | Exits the current macro expansion.
+//   LOCAL     | LOCAL <sym1>, ...       | Declares symbols as local to the macro instance.
+//
+//   Parameters: `{name}` (named), `\1`...\`\9` (positional), `\0` (arg count).
 //
 //   Example:
 //     // A macro that defines a series of bytes from its arguments
 //     WRITE_BYTES MACRO
+//         LOCAL loop   // Declare a local label
 //         REPT \0      // Repeat for the number of arguments
 //             DB \1    // Define the CURRENT first argument
 //             SHIFT    // Shift the argument queue: \2 becomes \1, etc.
@@ -233,6 +240,38 @@
 //     ENDM
 //
 //     WRITE_BYTES 10, 20, 30 // Generates: DB 10, DB 20, DB 30
+//
+// Optimizations
+// -------------
+// The assembler includes an optimization pass that can be controlled via the `#OPTIMIZE` directive.
+//
+//   Directive | Syntax                                   | Description
+//   ----------|------------------------------------------|------------------------------------------------------------------
+//   #OPTIMIZE | #OPTIMIZE [PUSH|POP] [+/-FLAG] [KEYWORD] | Controls optimization settings.
+//
+//   Flags:
+//   - BRANCH_SHORT: Optimizes `JP` to `JR` if the target is within range (-128 to +127).
+//   - JUMP_THREAD:  Optimizes jump chains (e.g., `JP A` where `A` contains `JP B` becomes `JP B`).
+//   - DCE:          Dead Code Elimination (e.g., removes `LD A, A`).
+//   - PEEPHOLE_XOR: Optimizes `LD A, 0` to `XOR A`. (Unsafe: modifies flags)
+//   - PEEPHOLE_INC: Optimizes `ADD A, 1` to `INC A` and `SUB 1` to `DEC A`. (Unsafe: modifies flags)
+//   - PEEPHOLE_OR:  Optimizes `CP 0` to `OR A`. (Unsafe: modifies flags)
+//
+//   Keywords:
+//   - OFF / NONE:   Disable all optimizations.
+//   - SPEED:        Enable optimizations for speed (PEEPHOLE_*, DCE, JUMP_THREAD). Disables BRANCH_SHORT.
+//   - SIZE / ALL:   Enable all optimizations including BRANCH_SHORT.
+//   - PEEPHOLE:     Enable all PEEPHOLE_* optimizations.
+//
+//   Stack Control:
+//   - PUSH:         Saves the current optimization state.
+//   - POP:          Restores the previously saved optimization state.
+//
+//   Example:
+//     #OPTIMIZE PUSH          ; Save current state
+//     #OPTIMIZE +PEEPHOLE_XOR ; Enable XOR optimization locally
+//     LD A, 0                 ; Optimized to XOR A
+//     #OPTIMIZE POP           ; Restore previous state
 //
 // Repetition (Loops):
 //   Directive | Aliases | Syntax       | Description
@@ -281,6 +320,7 @@
 // - Call and Return: CALL, RET, RETI, RETN, RST
 // - Input and Output: IN, INI, INIR, IND, INDR, OUT, OUTI, OTIR, OUTD, OTDR
 // - Undocumented: SLL (alias SLI), OUT (C), etc.
+
 #ifndef __Z80ASSEMBLE_H__
 #define __Z80ASSEMBLE_H__
 
@@ -369,12 +409,12 @@ public:
         } compilation;
         struct OptimizationOptions {
             bool enabled = true;
-            bool jr = false;
-            bool xor_a = false;
-            bool inc = false;
-            bool or_a = false;
-            bool redundant_loads = false;
-            bool jump_chain = false;
+            bool branch_short = false;
+            bool peephole_xor = false;
+            bool peephole_inc = false;
+            bool peephole_or = false;
+            bool dce = false;
+            bool jump_thread = false;
         } optimization;
     };
     static const Options& get_default_options() {
@@ -776,12 +816,12 @@ protected:
             std::map<std::string, std::string> map;
         } defines;
         struct OptimizationState {
-            bool jr = false;
-            bool xor_a = false;
-            bool inc = false;
-            bool or_a = false;
-            bool redundant_loads = false;
-            bool jump_chain = false;
+            bool branch_short = false;
+            bool peephole_xor = false;
+            bool peephole_inc = false;
+            bool peephole_or = false;
+            bool dce = false;
+            bool jump_thread = false;
         } optimization;
         std::vector<OptimizationState> optimization_stack;
         std::map<int32_t, int32_t> jump_targets;
@@ -2273,86 +2313,86 @@ protected:
                     }
                     bool is_valid = false;
                     if (optimization_options.enabled) {
-                        if (flag == "BRANCH_SHORT" && optimization_options.jr)
+                        if (flag == "BRANCH_SHORT" && optimization_options.branch_short)
                             is_valid = true;
-                        else if (flag == "JUMP_THREAD" && optimization_options.jump_chain)
+                        else if (flag == "JUMP_THREAD" && optimization_options.jump_thread)
                             is_valid = true;
-                        else if (flag == "DCE" && optimization_options.redundant_loads)
+                        else if (flag == "DCE" && optimization_options.dce)
                             is_valid = true;
-                        else if (flag == "PEEPHOLE_XOR" && optimization_options.xor_a)
+                        else if (flag == "PEEPHOLE_XOR" && optimization_options.peephole_xor)
                             is_valid = true;
-                        else if (flag == "PEEPHOLE_INC" && optimization_options.inc)
+                        else if (flag == "PEEPHOLE_INC" && optimization_options.peephole_inc)
                             is_valid = true;
-                        else if (flag == "PEEPHOLE_OR" && optimization_options.or_a)
+                        else if (flag == "PEEPHOLE_OR" && optimization_options.peephole_or)
                             is_valid = true;
                         else if (flag == "PEEPHOLE") {
-                             if (optimization_options.xor_a || optimization_options.inc || optimization_options.or_a)
+                             if (optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or)
                                 is_valid = true;
                         }
                         else if (flag == "SPEED") {
-                             if (optimization_options.xor_a || optimization_options.inc || optimization_options.or_a || optimization_options.redundant_loads || optimization_options.jump_chain)
+                             if (optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.dce || optimization_options.jump_thread)
                                  is_valid = true;
                         }
                         else if (flag == "SIZE" || flag == "ALL") {
-                             if (optimization_options.jr || optimization_options.xor_a || optimization_options.inc || optimization_options.or_a || optimization_options.redundant_loads || optimization_options.jump_chain)
+                             if (optimization_options.branch_short || optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.dce || optimization_options.jump_thread)
                                  is_valid = true;
                         }
                     }
                     if (!is_valid)
                         ctx.assembler.report_error("Invalid parameter: " + arg);
                     if (flag == "BRANCH_SHORT")
-                        ctx.optimization.jr = enable;
+                        ctx.optimization.branch_short = enable;
                     else if (flag == "JUMP_THREAD")
-                        ctx.optimization.jump_chain = enable;
+                        ctx.optimization.jump_thread = enable;
                     else if (flag == "DCE")
-                        ctx.optimization.redundant_loads = enable;
+                        ctx.optimization.dce = enable;
                     else if (flag == "PEEPHOLE_XOR")
-                        ctx.optimization.xor_a = enable;
+                        ctx.optimization.peephole_xor = enable;
                     else if (flag == "PEEPHOLE_INC")
-                        ctx.optimization.inc = enable;
+                        ctx.optimization.peephole_inc = enable;
                     else if (flag == "PEEPHOLE_OR")
-                        ctx.optimization.or_a = enable;
+                        ctx.optimization.peephole_or = enable;
                     else if (flag == "PEEPHOLE") {
-                        if (optimization_options.xor_a)
-                            ctx.optimization.xor_a = enable;
-                        if (optimization_options.inc)
-                            ctx.optimization.inc = enable;
-                        if (optimization_options.or_a)
-                            ctx.optimization.or_a = enable;
+                        if (optimization_options.peephole_xor)
+                            ctx.optimization.peephole_xor = enable;
+                        if (optimization_options.peephole_inc)
+                            ctx.optimization.peephole_inc = enable;
+                        if (optimization_options.peephole_or)
+                            ctx.optimization.peephole_or = enable;
                     }
                     else if (flag == "SIZE" || flag == "ALL") {
-                         if (optimization_options.jr)
-                            ctx.optimization.jr = enable;
-                         if (optimization_options.xor_a)
-                            ctx.optimization.xor_a = enable;
-                         if (optimization_options.inc)
-                            ctx.optimization.inc = enable;
-                         if (optimization_options.or_a)
-                            ctx.optimization.or_a = enable;
-                         if (optimization_options.redundant_loads)
-                            ctx.optimization.redundant_loads = enable;
-                         if (optimization_options.jump_chain)
-                            ctx.optimization.jump_chain = enable;
+                         if (optimization_options.branch_short)
+                            ctx.optimization.branch_short = enable;
+                         if (optimization_options.peephole_xor)
+                            ctx.optimization.peephole_xor = enable;
+                         if (optimization_options.peephole_inc)
+                            ctx.optimization.peephole_inc = enable;
+                         if (optimization_options.peephole_or)
+                            ctx.optimization.peephole_or = enable;
+                         if (optimization_options.dce)
+                            ctx.optimization.dce = enable;
+                         if (optimization_options.jump_thread)
+                            ctx.optimization.jump_thread = enable;
                     }
                     else if (flag == "SPEED") {
                          if (enable) {
-                             ctx.optimization.jr = false;
-                             if (optimization_options.xor_a)
-                                ctx.optimization.xor_a = true;
-                             if (optimization_options.inc)
-                                ctx.optimization.inc = true;
-                             if (optimization_options.or_a)
-                                ctx.optimization.or_a = true;
-                             if (optimization_options.redundant_loads)
-                                ctx.optimization.redundant_loads = true;
-                             if (optimization_options.jump_chain)
-                                ctx.optimization.jump_chain = true;
+                             ctx.optimization.branch_short = false;
+                             if (optimization_options.peephole_xor)
+                                ctx.optimization.peephole_xor = true;
+                             if (optimization_options.peephole_inc)
+                                ctx.optimization.peephole_inc = true;
+                             if (optimization_options.peephole_or)
+                                ctx.optimization.peephole_or = true;
+                             if (optimization_options.dce)
+                                ctx.optimization.dce = true;
+                             if (optimization_options.jump_thread)
+                                ctx.optimization.jump_thread = true;
                          } else {
-                             ctx.optimization.xor_a = false;
-                             ctx.optimization.inc = false;
-                             ctx.optimization.or_a = false;
-                             ctx.optimization.redundant_loads = false;
-                             ctx.optimization.jump_chain = false;
+                             ctx.optimization.peephole_xor = false;
+                             ctx.optimization.peephole_inc = false;
+                             ctx.optimization.peephole_or = false;
+                             ctx.optimization.dce = false;
+                             ctx.optimization.jump_thread = false;
                          }
                     }
                 }
@@ -3255,7 +3295,7 @@ protected:
         void assemble(std::vector<uint8_t> bytes) { m_policy.on_assemble(bytes);}
 
         void optimize_jump_target(int32_t& target) {
-            if (!m_policy.context().optimization.jump_chain) return;
+            if (!m_policy.context().optimization.jump_thread) return;
             std::set<int32_t> visited;
             visited.insert(target);
             auto& targets = m_policy.context().prev_jump_targets;
@@ -3599,7 +3639,7 @@ protected:
                 assemble({0x34});
                 return true;
             }
-            if (mnemonic == "SUB" && match_imm8(op) && op.num_val == 1 && m_policy.context().optimization.inc) {
+            if (mnemonic == "SUB" && match_imm8(op) && op.num_val == 1 && m_policy.context().optimization.peephole_inc) {
                 assemble({0x3D}); // DEC A
                 return true;
             }
@@ -3650,7 +3690,7 @@ protected:
                 if (op.type == OperandType::IMMEDIATE)
                     optimize_jump_target(target_addr);
                 
-                if (m_policy.context().optimization.jr && op.type == OperandType::IMMEDIATE) {
+                if (m_policy.context().optimization.branch_short && op.type == OperandType::IMMEDIATE) {
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset >= -128 && offset <= 127) {
@@ -3694,7 +3734,7 @@ protected:
                 assemble({0x18, (uint8_t)(offset)});
                 return true;
             }
-            if (mnemonic == "ADD" && match_imm8(op) && op.num_val == 1 && m_policy.context().optimization.inc) {
+            if (mnemonic == "ADD" && match_imm8(op) && op.num_val == 1 && m_policy.context().optimization.peephole_inc) {
                 assemble({0x3C}); // INC A
                 return true;
             }
@@ -3722,7 +3762,7 @@ protected:
                 assemble({0xF6, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "CP" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.or_a) {
+            if (mnemonic == "CP" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.peephole_or) {
                 assemble({0xB7}); // OR A
                 return true;
             }
@@ -3957,7 +3997,7 @@ protected:
             else if (op1.base_reg == "IY" || op2.base_reg == "IY" || op1.str_val.find("IY") != std::string::npos || op2.str_val.find("IY") != std::string::npos)
                 prefix = 0xFD;
             if (mnemonic == "LD" && match_reg8(op1) && match_reg8(op2)) {
-                if (m_policy.context().optimization.redundant_loads && op1.str_val == op2.str_val) {
+                if (m_policy.context().optimization.dce && op1.str_val == op2.str_val) {
                     return true;
                 }
                 uint8_t dest_code = reg8_map().at(op1.str_val);
@@ -3984,7 +4024,7 @@ protected:
                 return true;    
             }
             if (mnemonic == "LD" && match_reg8(op1) && match_imm8(op2)) {
-                if (m_policy.context().optimization.xor_a && op1.str_val == "A" && op2.num_val == 0) {
+                if (m_policy.context().optimization.peephole_xor && op1.str_val == "A" && op2.num_val == 0) {
                     assemble({0xAF}); // XOR A optimization
                     return true;
                 }
@@ -4155,7 +4195,7 @@ protected:
                 assemble({prefix, (uint8_t)(0x70 | reg_code), (uint8_t)((int8_t)op1.offset)});
                 return true;
             }
-            if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 1 && m_policy.context().optimization.inc) {
+            if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 1 && m_policy.context().optimization.peephole_inc) {
                 assemble({0x3C}); // INC A
                 return true;
             }
@@ -4171,7 +4211,7 @@ protected:
                 assemble({0xDE, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 1 && m_policy.context().optimization.inc) {
+            if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 1 && m_policy.context().optimization.peephole_inc) {
                 assemble({0x3D}); // DEC A
                 return true;
             }
@@ -4191,7 +4231,7 @@ protected:
                 assemble({0xF6, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.or_a) {
+            if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.peephole_or) {
                 assemble({0xB7}); // OR A
                 return true;
             }
@@ -4260,7 +4300,7 @@ protected:
                 int32_t target_addr = op2.num_val;
                 if (op2.type == OperandType::IMMEDIATE)
                     optimize_jump_target(target_addr);
-                if (m_policy.context().optimization.jr && relative_jump_condition_map().count(op1.str_val) && op2.type == OperandType::IMMEDIATE) {
+                if (m_policy.context().optimization.branch_short && relative_jump_condition_map().count(op1.str_val) && op2.type == OperandType::IMMEDIATE) {
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset >= -128 && offset <= 127) {
