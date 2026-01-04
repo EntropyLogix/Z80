@@ -3936,6 +3936,299 @@ TEST_CASE(RelationalAndEqualityOperators) {
     ASSERT_COMPILE_FAILS("DB 2 < \"10\"");
 }
 
+TEST_CASE(OptimizationFlags) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    
+    // Default: Disabled (LD A, 0 -> 3E 00)
+    ASSERT_CODE_WITH_OPTS("LD A, 0", {0x3E, 0x00}, options);
+
+    // Enabled via options
+    options.optimization.xor_a = true;
+    ASSERT_CODE_WITH_OPTS("LD A, 0", {0xAF}, options);
+    
+    // Enabled via directive
+    options.optimization.xor_a = false;
+    ASSERT_CODE_WITH_OPTS("OPT +XOR_A\nLD A, 0", {0xAF}, options);
+    
+    // Disabled via directive
+    options.optimization.xor_a = true;
+    ASSERT_CODE_WITH_OPTS("OPT -XOR_A\nLD A, 0", {0x3E, 0x00}, options);
+    
+    // #PRAGMA alias
+    ASSERT_CODE_WITH_OPTS("#PRAGMA OPT +XOR_A\nLD A, 0", {0xAF}, options);
+}
+
+TEST_CASE(JpToJrOptimization) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.jr = true;
+
+    // JP nn -> JR e (Forward, within range)
+    ASSERT_CODE_WITH_OPTS("JP target\nNOP\ntarget: NOP", {0x18, 0x01, 0x00, 0x00}, options);
+    
+    // JP nn -> JR e (Backward, within range)
+    ASSERT_CODE_WITH_OPTS("target: NOP\nJP target", {0x00, 0x18, 0xFD}, options);
+    
+    // JP cc, nn -> JR cc, e
+    ASSERT_CODE_WITH_OPTS("JP Z, target\nNOP\ntarget: NOP", {0x28, 0x01, 0x00, 0x00}, options);
+    
+    // JP cc, nn -> JP cc, nn (Condition not supported by JR, e.g. PO)
+    ASSERT_CODE_WITH_OPTS("JP PO, target\nNOP\ntarget: NOP", {0xE2, 0x04, 0x00, 0x00, 0x00}, options);
+    
+    // Out of range (Forward) -> Remains JP
+    std::string code_far = "JP target\nDS 130\ntarget: NOP";
+    std::vector<uint8_t> expected_far = {0xC3, 0x85, 0x00}; // JP 0x0085 (3 + 130 = 133 = 0x85)
+    expected_far.insert(expected_far.end(), 130, 0);
+    expected_far.push_back(0x00);
+    ASSERT_CODE_WITH_OPTS(code_far, expected_far, options);
+}
+
+TEST_CASE(PeepholeOptimizations) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    
+    // XOR A
+    options.optimization.xor_a = true;
+    ASSERT_CODE_WITH_OPTS("LD A, 0", {0xAF}, options);
+    ASSERT_CODE_WITH_OPTS("LD A, 1", {0x3E, 0x01}, options); // Not 0
+    
+    // INC/DEC
+    options.optimization.inc = true;
+    ASSERT_CODE_WITH_OPTS("ADD A, 1", {0x3C}, options); // INC A
+    ASSERT_CODE_WITH_OPTS("SUB 1", {0x3D}, options);    // DEC A
+    ASSERT_CODE_WITH_OPTS("ADD A, 2", {0xC6, 0x02}, options); // Not 1
+    
+    // OR A
+    options.optimization.or_a = true;
+    ASSERT_CODE_WITH_OPTS("CP 0", {0xB7}, options); // OR A
+    ASSERT_CODE_WITH_OPTS("CP 1", {0xFE, 0x01}, options); // Not 0
+}
+
+TEST_CASE(RedundantLoadsOptimization) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.redundant_loads = true;
+    
+    // LD A, A -> Removed (0 bytes)
+    ASSERT_CODE_WITH_OPTS("LD A, A", {}, options);
+    
+    // LD B, B -> Removed
+    ASSERT_CODE_WITH_OPTS("LD B, B", {}, options);
+    
+    // LD A, B -> Kept
+    ASSERT_CODE_WITH_OPTS("LD A, B", {0x78}, options);
+}
+
+TEST_CASE(OptDirectiveScopes) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    // Default off
+    
+    std::string code = R"(
+        LD A, 0         ; 3E 00
+        OPT PUSH +XOR_A
+        LD A, 0         ; AF
+        OPT PUSH +JR
+        JP target       ; 18 00
+    target:
+        OPT POP
+        LD A, 0         ; AF (XOR_A still on)
+        JP target       ; C3 05 00 (JR off)
+        OPT POP
+        LD A, 0         ; 3E 00 (Back to default)
+    )";
+    
+    std::vector<uint8_t> expected = {
+        0x3E, 0x00, 0xAF, 0x18, 0x00, 0xAF, 0xC3, 0x05, 0x00, 0x3E, 0x00
+    };
+    ASSERT_CODE_WITH_OPTS(code, expected, options);
+}
+
+TEST_CASE(JumpChainOptimization) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.jump_chain = true;
+
+    // Basic chain: JP A -> JP B -> Target
+    // Should optimize JP A to JP Target
+    std::string code_basic = R"(
+        JP LabelA       ; Should become JP Target
+    LabelA:
+        JP LabelB
+    LabelB:
+        JP Target
+    Target:
+        NOP
+    )";
+    // JP Target (0x0009) -> C3 09 00
+    // LabelA (0x0003): JP LabelB (0x0006) -> C3 06 00
+    // LabelB (0x0006): JP Target (0x0009) -> C3 09 00
+    // Target (0x0009): NOP -> 00
+    std::vector<uint8_t> expected_basic = {
+        0xC3, 0x09, 0x00, 
+        0xC3, 0x09, 0x00, 
+        0xC3, 0x09, 0x00, 
+        0x00
+    };
+    ASSERT_CODE_WITH_OPTS(code_basic, expected_basic, options);
+
+    // Loop detection: JP A -> JP B -> JP A
+    // Should not hang, should just point to next in chain or stop
+    std::string code_loop = R"(
+    LabelA:
+        JP LabelB
+    LabelB:
+        JP LabelA
+    )";
+    // Should compile successfully
+    ASSERT_CODE_WITH_OPTS(code_loop, {0xC3, 0x00, 0x00, 0xC3, 0x03, 0x00}, options);
+
+    // Interaction with JR
+    // JR A -> JP B -> Target
+    // Should optimize JR A to JR Target (if in range)
+    options.optimization.jr = true;
+    std::string code_jr = R"(
+        JR LabelA       ; Should become JR Target (0x05) -> 0x05 - 2 = 0x03
+    LabelA:
+        JP Target
+    Target:
+        NOP
+    )";
+    // JR Target (0x05) -> 18 03
+    // LabelA (0x02): JP Target (0x05) -> C3 05 00
+    // Target (0x05): NOP -> 00
+    std::vector<uint8_t> expected_jr = {
+        0x18, 0x02, // JR LabelA (0x02) -> Optimized to Target (0x04). 0x04 - (0+2) = 2
+        0x18, 0x00, // JP Target (0x05) -> JR Target (0x04). 0x04 - (0x02+2) = 0x00
+        0x00
+    };
+    ASSERT_CODE_WITH_OPTS(code_jr, expected_jr, options);
+}
+
+TEST_CASE(JumpChainWithJr) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.jump_chain = true;
+    options.optimization.jr = true;
+
+    // JP Start -> JP Target.
+    // Start: JP Target -> JR Target.
+    // If JR doesn't register target, JP Start might revert to JP Start (or JR Start) in later passes.
+    std::string code = R"(
+        JP Start
+    Start:
+        JP Target
+        NOP
+    Target:
+        NOP
+    )";
+    
+    std::vector<uint8_t> expected = {
+        0x18, 0x03, // JR Target (0x0005). Offset = 0x05 - 0x02 = 3
+        0x18, 0x01, // JR Target (0x0005). Offset = 0x05 - 0x04 = 1
+        0x00,       // NOP
+        0x00        // NOP
+    };
+    ASSERT_CODE_WITH_OPTS(code, expected, options);
+}
+
+TEST_CASE(JumpChainTrampoline) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.jump_chain = true;
+
+    // Scenario: JR jumps to a Trampoline, which JPs to a FarTarget.
+    // FarTarget is out of JR range.
+    // Optimization should NOT replace Trampoline with FarTarget for the JR instruction.
+    
+    std::string code = R"(
+        JR Trampoline       ; Should keep jumping to Trampoline (offset 0)
+    Trampoline:
+        JP FarTarget
+        DS 200              ; Make FarTarget far away
+    FarTarget:
+        NOP
+    )";
+
+    std::vector<uint8_t> expected = {
+        0x18, 0x00,         // JR Trampoline (offset 0)
+        0xC3, 0xCD, 0x00    // JP FarTarget (0x00CD = 2 + 3 + 200)
+    };
+    // Fill DS with zeros
+    expected.insert(expected.end(), 200, 0);
+    expected.push_back(0x00); // NOP at FarTarget
+
+    ASSERT_CODE_WITH_OPTS(code, expected, options);
+}
+
+TEST_CASE(JumpChainLoopWithJr) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.jump_chain = true;
+    options.optimization.jr = true;
+
+    // Loop: LabelA -> LabelB -> LabelA
+    // Both are JR instructions.
+    // Optimization should resolve LabelA -> LabelA (self loop) and LabelB -> LabelB (self loop).
+    std::string code = R"(
+    LabelA:
+        JR LabelB
+    LabelB:
+        JR LabelA
+    )";
+    
+    // LabelA at 0x0000. LabelB at 0x0002.
+    // Optimized:
+    // LabelA: JR LabelA (offset -2 -> FE)
+    // LabelB: JR LabelB (offset -2 -> FE)
+    std::vector<uint8_t> expected = {
+        0x18, 0xFE, // JR LabelA
+        0x18, 0xFE  // JR LabelB
+    };
+    ASSERT_CODE_WITH_OPTS(code, expected, options);
+}
+
+TEST_CASE(JumpChainDjnz) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.jump_chain = true;
+
+    // DJNZ -> JP -> Target
+    std::string code = R"(
+        LD B, 10
+    Loop:
+        DJNZ Trampoline
+        RET
+    Trampoline:
+        JP Target
+    Target:
+        XOR A
+    )";
+    
+    std::vector<uint8_t> expected = {
+        0x06, 0x0A,       // LD B, 10
+        0x10, 0x04,       // DJNZ Target (0x0008). Offset = 08 - (02+2) = 4.
+        0xC9,             // RET
+        0xC3, 0x08, 0x00, // JP Target
+        0xAF              // XOR A
+    };
+    ASSERT_CODE_WITH_OPTS(code, expected, options);
+}
+
+TEST_CASE(JumpChainThroughConditional) {
+    Z80Assembler<Z80StandardBus>::Options options;
+    options.optimization.jump_chain = true;
+    options.optimization.jr = true;
+
+    // JP Start -> JR Z, Target
+    // Should NOT optimize JP Start to JP Target (bypassing Z check)
+    std::string code = R"(
+        JP Start
+    Start:
+        JR Z, Target
+    Target:
+        NOP
+    )";
+    
+    std::vector<uint8_t> expected = {
+        0x18, 0x00, // JP Start -> JR Start (offset 0). Correctly jumps to Start.
+        0x28, 0x00, // JR Z, Target (offset 0)
+        0x00        // NOP
+    };
+    ASSERT_CODE_WITH_OPTS(code, expected, options);
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";

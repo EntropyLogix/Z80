@@ -366,6 +366,14 @@ public:
             int max_passes = 10;
             int max_while_iterations = 10000;
         } compilation;
+        struct OptimizationOptions {
+            bool jr = false;
+            bool xor_a = false;
+            bool inc = false;
+            bool or_a = false;
+            bool redundant_loads = false;
+            bool jump_chain = false;
+        } optimization;
     };
     static const Options& get_default_options() {
         static const Options default_options;
@@ -765,6 +773,17 @@ protected:
         struct Defines {
             std::map<std::string, std::string> map;
         } defines;
+        struct OptimizationState {
+            bool jr = false;
+            bool xor_a = false;
+            bool inc = false;
+            bool or_a = false;
+            bool redundant_loads = false;
+            bool jump_chain = false;
+        } optimization;
+        std::vector<OptimizationState> optimization_stack;
+        std::map<int32_t, int32_t> jump_targets;
+        std::map<int32_t, int32_t> prev_jump_targets;
     };
     class Preprocessor {
     public:
@@ -2058,6 +2077,7 @@ protected:
         virtual void on_proc_begin(const std::string& name) = 0;
         virtual void on_proc_end(const std::string& name) = 0;
         virtual void on_local_directive(const std::vector<std::string>& symbols) = 0;
+        virtual void on_opt_directive(const std::vector<std::string>& args) = 0;
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
         virtual void on_if_directive(const std::string& expression) = 0;
         virtual void on_ifdef_directive(const std::string& symbol) = 0;
@@ -2113,6 +2133,13 @@ protected:
             m_context.repeat.stack.clear();
             m_context.while_loop.stack.clear();
             m_context.defines.map.clear();
+            m_context.optimization.jr = m_context.assembler.m_options.optimization.jr;
+            m_context.optimization.xor_a = m_context.assembler.m_options.optimization.xor_a;
+            m_context.optimization.inc = m_context.assembler.m_options.optimization.inc;
+            m_context.optimization.or_a = m_context.assembler.m_options.optimization.or_a;
+            m_context.optimization.redundant_loads = m_context.assembler.m_options.optimization.redundant_loads;
+            m_context.optimization.jump_chain = m_context.assembler.m_options.optimization.jump_chain;
+            m_context.optimization.jump_chain = m_context.assembler.m_options.optimization.jump_chain;
         }
         virtual void on_finalize() override {
             if (m_context.macros.in_expansion)
@@ -2137,6 +2164,16 @@ protected:
             m_context.source.conditional_stack.clear();
             m_context.source.control_stack.clear();
             m_context.defines.map.clear();
+            m_context.optimization.jr = m_context.assembler.m_options.optimization.jr;
+            m_context.optimization.xor_a = m_context.assembler.m_options.optimization.xor_a;
+            m_context.optimization.inc = m_context.assembler.m_options.optimization.inc;
+            m_context.optimization.or_a = m_context.assembler.m_options.optimization.or_a;
+            m_context.optimization.redundant_loads = m_context.assembler.m_options.optimization.redundant_loads;
+            m_context.optimization.jump_chain = m_context.assembler.m_options.optimization.jump_chain;
+            m_context.optimization.jump_chain = m_context.assembler.m_options.optimization.jump_chain;
+            m_context.optimization_stack.clear();
+            m_context.prev_jump_targets = std::move(m_context.jump_targets);
+            m_context.jump_targets.clear();
         }
         virtual bool on_pass_end() override { return true; }
         virtual void on_pass_next() override {}
@@ -2209,6 +2246,49 @@ protected:
             if (!m_context.assembler.m_keywords.is_valid_label_name(symbol) || symbol.find('.') != std::string::npos)
                     m_context.assembler.report_error("Invalid symbol name in LOCAL directive: '" + symbol + "'");
                 current_scope.local_symbols.insert(symbol);
+            }
+        }
+        virtual void on_opt_directive(const std::vector<std::string>& args) override {
+            auto& ctx = m_context;
+            for (const auto& arg : args) {
+                std::string upper_arg = arg;
+                Strings::to_upper(upper_arg);
+                if (upper_arg == "PUSH") {
+                    ctx.optimization_stack.push_back(ctx.optimization);
+                } else if (upper_arg == "POP") {
+                    if (!ctx.optimization_stack.empty()) {
+                        ctx.optimization = ctx.optimization_stack.back();
+                        ctx.optimization_stack.pop_back();
+                    } else {
+                        ctx.assembler.report_error("OPT POP without matching PUSH");
+                    }
+                } else {
+                    bool enable = true;
+                    std::string flag = upper_arg;
+                    if (flag.front() == '+') {
+                        flag = flag.substr(1);
+                    } else if (flag.front() == '-') {
+                        enable = false;
+                        flag = flag.substr(1);
+                    }
+                    
+                    if (flag == "JR") ctx.optimization.jr = enable;
+                    else if (flag == "XOR_A") ctx.optimization.xor_a = enable;
+                    else if (flag == "INC") ctx.optimization.inc = enable;
+                    else if (flag == "OR_A") ctx.optimization.or_a = enable;
+                    else if (flag == "REDUNDANT_LOADS") ctx.optimization.redundant_loads = enable;
+                    else if (flag == "JUMP_CHAIN") ctx.optimization.jump_chain = enable;
+                    else if (flag == "SPEED" || flag == "SIZE") {
+                         ctx.optimization.jr = enable;
+                         ctx.optimization.xor_a = enable;
+                         ctx.optimization.inc = enable;
+                         ctx.optimization.or_a = enable;
+                         ctx.optimization.redundant_loads = enable;
+                         ctx.optimization.jump_chain = enable;
+                    } else if (flag == "OFF" || flag == "NONE") {
+                         ctx.optimization = {};
+                    }
+                }
             }
         }
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
@@ -3024,7 +3104,7 @@ protected:
                 "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BREAK", "BYTE", "DB", "DD", "DEFB", "DEFH",
                 "DEFINE", "DEFL", "DEFG", "DEFM", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM", "EXITW",
                 "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM",
-                "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF",
+                "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF", "OPT", "#PRAGMA",
                 "IFIDN", "IFNB", "IFNDEF", "INCBIN", "INCLUDE", "LOCAL", "MACRO", "ORG", "PHASE",
                 "PROC", "REPT", "SET", "SHIFT", "UNDEFINE", "UNPHASE", "WEND", "WHILE", "WORD"
             };
@@ -3106,6 +3186,19 @@ protected:
         bool match_string(const Operand& operand) const { return match(operand, OperandType::STRING_LITERAL ); }
 
         void assemble(std::vector<uint8_t> bytes) { m_policy.on_assemble(bytes);}
+
+        void optimize_jump_target(int32_t& target) {
+            if (!m_policy.context().optimization.jump_chain) return;
+            std::set<int32_t> visited;
+            visited.insert(target);
+            auto& targets = m_policy.context().prev_jump_targets;
+            while (targets.count(target)) {
+                int32_t next_target = targets.at(target);
+                if (visited.count(next_target)) break; 
+                target = next_target;
+                visited.insert(target);
+            }
+        }
 
         bool encode_data_block(const std::string& mnemonic, const std::vector<Operand>& ops) {
             const auto& directive_options = m_policy.context().assembler.m_options.directives;
@@ -3439,6 +3532,10 @@ protected:
                 assemble({0x34});
                 return true;
             }
+            if (mnemonic == "SUB" && match_imm8(op) && op.num_val == 1 && m_policy.context().optimization.inc) {
+                assemble({0x3D}); // DEC A
+                return true;
+            }
             if (mnemonic == "SUB" && match_imm8(op)) {
                 assemble({0xD6, (uint8_t)op.num_val});
                 return true;
@@ -3480,7 +3577,21 @@ protected:
                 return true;
             }
             if (mnemonic == "JP" && match_imm16(op)) {
-                assemble({0xC3, (uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8)});
+                if (op.type == OperandType::IMMEDIATE)
+                    m_policy.context().jump_targets[m_policy.context().address.current_logical] = op.num_val;
+                int32_t target_addr = op.num_val;
+                if (op.type == OperandType::IMMEDIATE)
+                    optimize_jump_target(target_addr);
+                
+                if (m_policy.context().optimization.jr && op.type == OperandType::IMMEDIATE) {
+                    uint16_t instruction_size = 2;
+                    int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
+                    if (offset >= -128 && offset <= 127) {
+                        assemble({0x18, (uint8_t)(offset)});
+                        return true;
+                    }
+                }
+                assemble({0xC3, (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
                 return true;
             }
             if (mnemonic == "JP" && match(op, OperandType::MEM_REG16)) {
@@ -3498,12 +3609,26 @@ protected:
                 }
             }
             if (mnemonic == "JR" && match_imm16(op)) {
+                if (op.type == OperandType::IMMEDIATE)
+                    m_policy.context().jump_targets[m_policy.context().address.current_logical] = op.num_val;
                 int32_t target_addr = op.num_val;
+                int32_t original_target = target_addr;
+                if (op.type == OperandType::IMMEDIATE) {
+                    optimize_jump_target(target_addr);
+                }
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
-                if (offset < -128 || offset > 127)
-                    m_policy.on_jump_out_of_range(mnemonic, offset);
+                if (offset < -128 || offset > 127) {
+                    // If optimized target is out of range, try original target (trampoline case)
+                    offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                    if (offset < -128 || offset > 127)
+                        m_policy.on_jump_out_of_range(mnemonic, offset);
+                }
                 assemble({0x18, (uint8_t)(offset)});
+                return true;
+            }
+            if (mnemonic == "ADD" && match_imm8(op) && op.num_val == 1 && m_policy.context().optimization.inc) {
+                assemble({0x3C}); // INC A
                 return true;
             }
             if (mnemonic == "ADD" && match_imm8(op)) {
@@ -3530,16 +3655,26 @@ protected:
                 assemble({0xF6, (uint8_t)op.num_val});
                 return true;
             }
+            if (mnemonic == "CP" && match_imm8(op) && op.num_val == 0 && m_policy.context().optimization.or_a) {
+                assemble({0xB7}); // OR A
+                return true;
+            }
             if (mnemonic == "CP" && match_imm8(op)) {
                 assemble({0xFE, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "DJNZ" && match_imm16(op)) {
                 int32_t target_addr = op.num_val;
+                int32_t original_target = target_addr;
+                if (op.type == OperandType::IMMEDIATE)
+                    optimize_jump_target(target_addr);
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
-                if (offset < -128 || offset > 127)
-                    m_policy.on_jump_out_of_range(mnemonic, offset);
+                if (offset < -128 || offset > 127) {
+                    offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                    if (offset < -128 || offset > 127)
+                        m_policy.on_jump_out_of_range(mnemonic, offset);
+                }
                 assemble({0x10, (uint8_t)(offset)});
                 return true;
             }
@@ -3755,6 +3890,9 @@ protected:
             else if (op1.base_reg == "IY" || op2.base_reg == "IY" || op1.str_val.find("IY") != std::string::npos || op2.str_val.find("IY") != std::string::npos)
                 prefix = 0xFD;
             if (mnemonic == "LD" && match_reg8(op1) && match_reg8(op2)) {
+                if (m_policy.context().optimization.redundant_loads && op1.str_val == op2.str_val) {
+                    return true;
+                }
                 uint8_t dest_code = reg8_map().at(op1.str_val);
                 uint8_t src_code = reg8_map().at(op2.str_val);
                 if (prefix) {
@@ -3779,6 +3917,10 @@ protected:
                 return true;    
             }
             if (mnemonic == "LD" && match_reg8(op1) && match_imm8(op2)) {
+                if (m_policy.context().optimization.xor_a && op1.str_val == "A" && op2.num_val == 0) {
+                    assemble({0xAF}); // XOR A optimization
+                    return true;
+                }
                 uint8_t dest_code = reg8_map().at(op1.str_val);
                 assemble({(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val});
                 return true;
@@ -3946,6 +4088,10 @@ protected:
                 assemble({prefix, (uint8_t)(0x70 | reg_code), (uint8_t)((int8_t)op1.offset)});
                 return true;
             }
+            if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 1 && m_policy.context().optimization.inc) {
+                assemble({0x3C}); // INC A
+                return true;
+            }
             if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2)) {
                 assemble({0xC6, (uint8_t)op2.num_val});
                 return true;
@@ -3956,6 +4102,10 @@ protected:
             }
             if (mnemonic == "SBC" && op1.str_val == "A" && match_imm8(op2)) {
                 assemble({0xDE, (uint8_t)op2.num_val});
+                return true;
+            }
+            if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 1 && m_policy.context().optimization.inc) {
+                assemble({0x3D}); // DEC A
                 return true;
             }
             if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2)) {
@@ -3972,6 +4122,10 @@ protected:
             }
             if (mnemonic == "OR" && op1.str_val == "A" && match_imm8(op2)) {
                 assemble({0xF6, (uint8_t)op2.num_val});
+                return true;
+            }
+            if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2) && op2.num_val == 0 && m_policy.context().optimization.or_a) {
+                assemble({0xB7}); // OR A
                 return true;
             }
             if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2)) {
@@ -4036,17 +4190,35 @@ protected:
                 return true;
             }
             if (mnemonic == "JP" && match_condition(op1) && match_imm16(op2)) {
+                int32_t target_addr = op2.num_val;
+                if (op2.type == OperandType::IMMEDIATE)
+                    optimize_jump_target(target_addr);
+                if (m_policy.context().optimization.jr && relative_jump_condition_map().count(op1.str_val) && op2.type == OperandType::IMMEDIATE) {
+                    uint16_t instruction_size = 2;
+                    int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
+                    if (offset >= -128 && offset <= 127) {
+                        assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
+                        return true;
+                    }
+                }
                 uint8_t cond_code = condition_map().at(op1.str_val);
-                assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
                 return true;
             }
             if (mnemonic == "JR" && match_condition(op1) && match_imm16(op2)) {
                 if (relative_jump_condition_map().count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
+                    int32_t original_target = target_addr;
+                    if (op2.type == OperandType::IMMEDIATE) {
+                        optimize_jump_target(target_addr);
+                    }
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
-                    if (offset < -128 || offset > 127)
-                        m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
+                    if (offset < -128 || offset > 127) {
+                        offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                        if (offset < -128 || offset > 127)
+                            m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
+                    }
                     assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
                     return true;
                 }
@@ -4328,6 +4500,13 @@ protected:
                 return true;
             if (process_error_directives())
                 return true;
+            if (m_tokens.count() > 0 && (m_tokens[0].upper() == "OPT" || m_tokens[0].upper() == "#PRAGMA")) {
+                std::vector<std::string> args;
+                for (size_t i = 1; i < m_tokens.count(); ++i)
+                    args.push_back(m_tokens[i].original());
+                m_policy.on_opt_directive(args);
+                return true;
+            }
             return false;
         }
         bool process_label() {
