@@ -3944,17 +3944,17 @@ TEST_CASE(OptimizationFlags) {
 
     // Enabled via options only allows the directive to work, but doesn't enable it by default
     // (Implementation clears optimization state on pass begin)
-    options.optimization.peephole_xor = true;
+    options.optimization.ops_xor = true;
     ASSERT_CODE_WITH_OPTS("LD A, 0", {0x3E, 0x00}, options);
     
     // Enabled via directive
     // Note: Global option must be true for directive to work
-    options.optimization.peephole_xor = true;
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +PEEPHOLE_XOR\nLD A, 0", {0xAF}, options);
+    options.optimization.ops_xor = true;
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 0", {0xAF}, options);
     
     // Disabled via directive
-    options.optimization.peephole_xor = true;
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +PEEPHOLE_XOR\nOPTIMIZE -PEEPHOLE_XOR\nLD A, 0", {0x3E, 0x00}, options);
+    options.optimization.ops_xor = true;
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nOPTIMIZE -OPS_XOR\nLD A, 0", {0x3E, 0x00}, options);
 }
 
 TEST_CASE(JpToJrOptimization) {
@@ -3987,20 +3987,24 @@ TEST_CASE(PeepholeOptimizations) {
     Z80Assembler<Z80StandardBus>::Options options;
     
     // XOR A
-    options.optimization.peephole_xor = true;
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +PEEPHOLE_XOR\nLD A, 0", {0xAF}, options);
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +PEEPHOLE_XOR\nLD A, 1", {0x3E, 0x01}, options); // Not 0
+    options.optimization.ops_xor = true;
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 0", {0xAF}, options);
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 1", {0x3E, 0x01}, options); // Not 0
     
     // INC/DEC
-    options.optimization.peephole_inc = true;
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +PEEPHOLE_INC\nADD A, 1", {0x3C}, options); // INC A
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +PEEPHOLE_INC\nSUB 1", {0x3D}, options);    // DEC A
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +PEEPHOLE_INC\nADD A, 2", {0xC6, 0x02}, options); // Not 1
+    options.optimization.ops_inc = true;
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, 1", {0x3C}, options); // INC A
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nSUB 1", {0x3D}, options);    // DEC A
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, 2", {0xC6, 0x02}, options); // Not 1
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, 255", {0x3D}, options); // DEC A (A + 255 == A - 1)
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, -1", {0x3D}, options);  // DEC A
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nSUB 255", {0x3C}, options);    // INC A (A - 255 == A + 1)
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nSUB -1", {0x3C}, options);     // INC A
     
     // OR A
-    options.optimization.peephole_or = true;
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +PEEPHOLE_OR\nCP 0", {0xB7}, options); // OR A
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +PEEPHOLE_OR\nCP 1", {0xFE, 0x01}, options); // Not 0
+    options.optimization.ops_or = true;
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_OR\nCP 0", {0xB7}, options); // OR A
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_OR\nCP 1", {0xFE, 0x01}, options); // Not 0
 }
 
 TEST_CASE(RedundantLoadsOptimization) {
@@ -4021,13 +4025,13 @@ TEST_CASE(RedundantLoadsOptimization) {
 TEST_CASE(OptDirectiveScopes) {
     Z80Assembler<Z80StandardBus>::Options options;
     // Enable options globally so they can be toggled
-    options.optimization.peephole_xor = true;
+    options.optimization.ops_xor = true;
     options.optimization.branch_short = true;
     
     std::string code = R"(
         LD A, 0         ; 3E 00
         OPTIMIZE PUSH
-        OPTIMIZE +PEEPHOLE_XOR
+        OPTIMIZE +OPS_XOR
         LD A, 0         ; AF
         OPTIMIZE PUSH
         OPTIMIZE +BRANCH_SHORT
@@ -4245,13 +4249,13 @@ TEST_CASE(OptimizationKeywords) {
     Z80Assembler<Z80StandardBus>::Options options;
     // Enable all options globally so they can be toggled by keywords
     options.optimization.branch_short = true;
-    options.optimization.peephole_xor = true;
-    options.optimization.peephole_inc = true;
-    options.optimization.peephole_or = true;
+    options.optimization.ops_xor = true;
+    options.optimization.ops_inc = true;
+    options.optimization.ops_or = true;
     options.optimization.dce = true;
     options.optimization.jump_thread = true;
     
-    // SPEED: Enables peepholes, disables JR
+    // SPEED: Enables opss, disables JR
     std::string code_speed = R"(
         OPTIMIZE SPEED
         LD A, 0         ; Optimized to XOR A (AF)
@@ -4274,7 +4278,7 @@ TEST_CASE(OptimizationKeywords) {
     // OFF: Disables everything
     std::string code_off = R"(
         OPTIMIZE SIZE
-        OPTIMIZE OFF
+        OPTIMIZE NONE
         LD A, 0         ; Not optimized (3E 00)
         JP target       ; Not optimized (C3...)
     target:
@@ -4282,10 +4286,10 @@ TEST_CASE(OptimizationKeywords) {
     )";
     ASSERT_CODE_WITH_OPTS(code_off, {0x3E, 0x00, 0xC3, 0x05, 0x00, 0x00}, options);
     
-    // PEEPHOLE: Enables only peepholes (XOR A, INC/DEC, OR A)
+    // OPS: Enables only opss (XOR A, INC/DEC, OR A)
     std::string code_peep = R"(
-        OPTIMIZE OFF
-        OPTIMIZE PEEPHOLE
+        OPTIMIZE NONE
+        OPTIMIZE OPS
         LD A, 0         ; Optimized (AF)
         ADD A, 1        ; Optimized (3C)
         JP target       ; Not optimized (C3...)
@@ -4325,9 +4329,9 @@ TEST_CASE(BranchLongOptimization) {
 
 TEST_CASE(PeepholeLogicAndSla) {
     Z80Assembler<Z80StandardBus>::Options options;
-    options.optimization.peephole_logic = true;
-    options.optimization.peephole_sla = true;
-    std::string prefix = "OPTIMIZE +PEEPHOLE_LOGIC +PEEPHOLE_SLA\n";
+    options.optimization.ops_logic = true;
+    options.optimization.ops_sla = true;
+    std::string prefix = "OPTIMIZE +OPS_LOGIC +OPS_SLA\n";
 
     // AND 0 -> XOR A
     ASSERT_CODE_WITH_OPTS(prefix + "AND 0", {0xAF}, options);

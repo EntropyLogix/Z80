@@ -254,18 +254,23 @@
 //   - BRANCH_LONG:  Automatically converts `JR` to `JP` if target is out of range.
 //   - JUMP_THREAD:  Optimizes jump chains (e.g., `JP A` where `A` contains `JP B` becomes `JP B`).
 //   - DCE:          Dead Code Elimination (e.g., removes `LD A, A`).
-//   - PEEPHOLE_XOR: Optimizes `LD A, 0` to `XOR A`. (Unsafe: modifies flags)
-//   - PEEPHOLE_INC: Optimizes `ADD A, 1` to `INC A` and `SUB 1` to `DEC A`. (Unsafe: modifies flags)
-//   - PEEPHOLE_OR:  Optimizes `CP 0` to `OR A`. (Unsafe: modifies flags)
-//   - PEEPHOLE_LOGIC: Optimizes `OR 0`/`XOR 0` to `OR A` and `AND 0` to `XOR A`. (Unsafe: modifies flags)
-//   - PEEPHOLE_SLA: Optimizes `SLA A` to `ADD A, A`. (Unsafe: modifies flags)
+//   - OPS_RST:      Optimizes `CALL n` to `RST n` if n is a restart vector. (Safe)
+//   Unsafe:
+//   - OPS_XOR:      Optimizes `LD A, 0` to `XOR A`. (Unsafe: modifies flags)
+//   - OPS_INC:      Optimizes `ADD A, 1` to `INC A`, `SUB 1` to `DEC A`, `ADD A, -1` to `DEC A`, `SUB -1` to `INC A`. (Unsafe: modifies flags)
+//   - OPS_OR:       Optimizes `CP 0` to `OR A`. (Unsafe: modifies flags)
+//   - OPS_LOGIC:    Optimizes `OR 0`/`XOR 0` to `OR A` and `AND 0` to `XOR A`. (Unsafe: modifies flags)
+//   - OPS_SLA:      Optimizes `SLA A` to `ADD A, A`. (Unsafe: modifies flags)
+//   - OPS_ROT:      Optimizes `RLC A` (etc.) to `RLCA` (etc.). (Unsafe: modifies flags)
+//   - OPS_ADD0:     Optimizes `ADD A, 0` to `OR A`. (Unsafe: modifies P/V flag behavior)
 //
 //   Keywords:
-//   - OFF / NONE:   Disable all optimizations.
-//   - SPEED:        Enable optimizations for speed (PEEPHOLE_*, DCE, JUMP_THREAD). Disables BRANCH_SHORT.
+//   - NONE:         Disable all optimizations.
+//   - SPEED:        Enable optimizations for speed (OPS_*, DCE, JUMP_THREAD). Disables BRANCH_SHORT.
 //   - SIZE:         Enable optimizations for size (enables all, including BRANCH_SHORT).
 //   - ALL:          Enable all optimizations.
-//   - PEEPHOLE:     Enable all PEEPHOLE_* optimizations.
+//   - OPS:          Enable all OPS_* optimizations.
+//   - UNSAFE:       Enable all unsafe optimizations.
 //
 //   Stack Control:
 //   - PUSH:         Saves the current optimization state.
@@ -273,7 +278,7 @@
 //
 //   Example:
 //     OPTIMIZE PUSH           ; Save current state
-//     OPTIMIZE +PEEPHOLE_XOR  ; Enable XOR optimization locally
+//     OPTIMIZE +OPS_XOR  ; Enable XOR optimization locally
 //     LD A, 0                 ; Optimized to XOR A
 //     OPTIMIZE POP            ; Restore previous state
 //
@@ -414,14 +419,17 @@ public:
         struct OptimizationOptions {
             bool enabled = true;
             bool branch_short = true;
-            bool peephole_xor = true;
-            bool peephole_inc = true;
-            bool peephole_or = true;
+            bool ops_xor = true;
+            bool ops_inc = true;
+            bool ops_or = true;
             bool dce = true;
             bool jump_thread = true;
             bool branch_long = true;
-            bool peephole_logic = true;
-            bool peephole_sla = true;
+            bool ops_logic = true;
+            bool ops_sla = true;
+            bool ops_rot = true;
+            bool ops_rst = true;
+            bool ops_add0 = true;
         } optimization;
     };
     static const Options& get_default_options() {
@@ -824,14 +832,17 @@ protected:
         } defines;
         struct OptimizationState {
             bool branch_short = false;
-            bool peephole_xor = false;
-            bool peephole_inc = false;
-            bool peephole_or = false;
+            bool ops_xor = false;
+            bool ops_inc = false;
+            bool ops_or = false;
             bool dce = false;
             bool jump_thread = false;
             bool branch_long = false;
-            bool peephole_logic = false;
-            bool peephole_sla = false;
+            bool ops_logic = false;
+            bool ops_sla = false;
+            bool ops_rot = false;
+            bool ops_rst = false;
+            bool ops_add0 = false;
         } optimization;
         std::vector<OptimizationState> optimization_stack;
         std::map<int32_t, int32_t> jump_targets;
@@ -2320,7 +2331,7 @@ protected:
                         enable = false;
                         flag = flag.substr(1);
                     }
-                    if (flag == "OFF" || flag == "NONE") {
+                    if (flag == "NONE") {
                          ctx.optimization = {};
                          continue;
                     }
@@ -2332,28 +2343,40 @@ protected:
                             is_valid = true;
                         else if (flag == "DCE" && optimization_options.dce)
                             is_valid = true;
-                        else if (flag == "PEEPHOLE_XOR" && optimization_options.peephole_xor)
+                        else if (flag == "OPS_XOR" && optimization_options.ops_xor)
                             is_valid = true;
-                        else if (flag == "PEEPHOLE_INC" && optimization_options.peephole_inc)
+                        else if (flag == "OPS_INC" && optimization_options.ops_inc)
                             is_valid = true;
-                        else if (flag == "PEEPHOLE_OR" && optimization_options.peephole_or)
+                        else if (flag == "OPS_OR" && optimization_options.ops_or)
                             is_valid = true;
-                        else if (flag == "PEEPHOLE_LOGIC" && optimization_options.peephole_logic)
+                        else if (flag == "OPS_LOGIC" && optimization_options.ops_logic)
                             is_valid = true;
-                        else if (flag == "PEEPHOLE_SLA" && optimization_options.peephole_sla)
+                        else if (flag == "OPS_SLA" && optimization_options.ops_sla)
                             is_valid = true;
+                        else if (flag == "OPS_ROT" && optimization_options.ops_rot)
+                            is_valid = true;
+                    else if (flag == "OPS_ROT" && optimization_options.ops_rot)
+                        is_valid = true;
+                    else if (flag == "OPS_RST" && optimization_options.ops_rst)
+                        is_valid = true;
+                    else if (flag == "OPS_ADD0" && optimization_options.ops_add0)
+                        is_valid = true;
                         else if (flag == "BRANCH_LONG" && optimization_options.branch_long)
                             is_valid = true;
-                        else if (flag == "PEEPHOLE") {
-                             if (optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.peephole_logic || optimization_options.peephole_sla)
+                        else if (flag == "OPS") {
+                             if (optimization_options.ops_xor || optimization_options.ops_inc || optimization_options.ops_or || optimization_options.ops_logic || optimization_options.ops_sla || optimization_options.ops_rot || optimization_options.ops_rst || optimization_options.ops_add0)
+                                is_valid = true;
+                        }
+                        else if (flag == "UNSAFE") {
+                             if (optimization_options.ops_xor || optimization_options.ops_inc || optimization_options.ops_or || optimization_options.ops_logic || optimization_options.ops_sla || optimization_options.ops_rot || optimization_options.ops_add0)
                                 is_valid = true;
                         }
                         else if (flag == "SPEED") {
-                             if (optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.dce || optimization_options.jump_thread || optimization_options.peephole_logic || optimization_options.peephole_sla)
+                             if (optimization_options.ops_xor || optimization_options.ops_inc || optimization_options.ops_or || optimization_options.dce || optimization_options.jump_thread || optimization_options.ops_logic || optimization_options.ops_sla || optimization_options.ops_rot || optimization_options.ops_rst || optimization_options.ops_add0)
                                  is_valid = true;
                         }
                         else if (flag == "SIZE" || flag == "ALL") {
-                             if (optimization_options.branch_short || optimization_options.peephole_xor || optimization_options.peephole_inc || optimization_options.peephole_or || optimization_options.dce || optimization_options.jump_thread || optimization_options.branch_long || optimization_options.peephole_logic || optimization_options.peephole_sla)
+                             if (optimization_options.branch_short || optimization_options.ops_xor || optimization_options.ops_inc || optimization_options.ops_or || optimization_options.dce || optimization_options.jump_thread || optimization_options.branch_long || optimization_options.ops_logic || optimization_options.ops_sla || optimization_options.ops_rot || optimization_options.ops_rst || optimization_options.ops_add0)
                                  is_valid = true;
                         }
                     }
@@ -2365,75 +2388,127 @@ protected:
                         ctx.optimization.jump_thread = enable;
                     else if (flag == "DCE")
                         ctx.optimization.dce = enable;
-                    else if (flag == "PEEPHOLE_XOR")
-                        ctx.optimization.peephole_xor = enable;
-                    else if (flag == "PEEPHOLE_INC")
-                        ctx.optimization.peephole_inc = enable;
-                    else if (flag == "PEEPHOLE_OR")
-                        ctx.optimization.peephole_or = enable;
-                    else if (flag == "PEEPHOLE_LOGIC")
-                        ctx.optimization.peephole_logic = enable;
-                    else if (flag == "PEEPHOLE_SLA")
-                        ctx.optimization.peephole_sla = enable;
+                    else if (flag == "OPS_XOR")
+                        ctx.optimization.ops_xor = enable;
+                    else if (flag == "OPS_INC")
+                        ctx.optimization.ops_inc = enable;
+                    else if (flag == "OPS_OR")
+                        ctx.optimization.ops_or = enable;
+                    else if (flag == "OPS_LOGIC")
+                        ctx.optimization.ops_logic = enable;
+                    else if (flag == "OPS_SLA")
+                        ctx.optimization.ops_sla = enable;
+                    else if (flag == "OPS_ROT")
+                        ctx.optimization.ops_rot = enable;
+                    else if (flag == "OPS_ROT")
+                        ctx.optimization.ops_rot = enable;
+                    else if (flag == "OPS_RST")
+                        ctx.optimization.ops_rst = enable;
+                    else if (flag == "OPS_ADD0")
+                        ctx.optimization.ops_add0 = enable;
                     else if (flag == "BRANCH_LONG")
                         ctx.optimization.branch_long = enable;
-                    else if (flag == "PEEPHOLE") {
-                        if (optimization_options.peephole_xor)
-                            ctx.optimization.peephole_xor = enable;
-                        if (optimization_options.peephole_inc)
-                            ctx.optimization.peephole_inc = enable;
-                        if (optimization_options.peephole_or)
-                            ctx.optimization.peephole_or = enable;
-                        if (optimization_options.peephole_logic)
-                            ctx.optimization.peephole_logic = enable;
-                        if (optimization_options.peephole_sla)
-                            ctx.optimization.peephole_sla = enable;
+                    else if (flag == "OPS") {
+                        if (optimization_options.ops_xor)
+                            ctx.optimization.ops_xor = enable;
+                        if (optimization_options.ops_inc)
+                            ctx.optimization.ops_inc = enable;
+                        if (optimization_options.ops_or)
+                            ctx.optimization.ops_or = enable;
+                        if (optimization_options.ops_logic)
+                            ctx.optimization.ops_logic = enable;
+                        if (optimization_options.ops_sla)
+                            ctx.optimization.ops_sla = enable;
+                        if (optimization_options.ops_rot)
+                            ctx.optimization.ops_rot = enable;
+                        if (optimization_options.ops_rot)
+                            ctx.optimization.ops_rot = enable;
+                        if (optimization_options.ops_rst)
+                            ctx.optimization.ops_rst = enable;
+                        if (optimization_options.ops_add0)
+                            ctx.optimization.ops_add0 = enable;
+                    }
+                    else if (flag == "UNSAFE") {
+                        if (optimization_options.ops_xor)
+                            ctx.optimization.ops_xor = enable;
+                        if (optimization_options.ops_inc)
+                            ctx.optimization.ops_inc = enable;
+                        if (optimization_options.ops_or)
+                            ctx.optimization.ops_or = enable;
+                        if (optimization_options.ops_logic)
+                            ctx.optimization.ops_logic = enable;
+                        if (optimization_options.ops_sla)
+                            ctx.optimization.ops_sla = enable;
+                        if (optimization_options.ops_rot)
+                            ctx.optimization.ops_rot = enable;
+                        if (optimization_options.ops_add0)
+                            ctx.optimization.ops_add0 = enable;
                     }
                     else if (flag == "SIZE" || flag == "ALL") {
                          if (optimization_options.branch_short)
                             ctx.optimization.branch_short = enable;
-                         if (optimization_options.peephole_xor)
-                            ctx.optimization.peephole_xor = enable;
-                         if (optimization_options.peephole_inc)
-                            ctx.optimization.peephole_inc = enable;
-                         if (optimization_options.peephole_or)
-                            ctx.optimization.peephole_or = enable;
+                         if (optimization_options.ops_xor)
+                            ctx.optimization.ops_xor = enable;
+                         if (optimization_options.ops_inc)
+                            ctx.optimization.ops_inc = enable;
+                         if (optimization_options.ops_or)
+                            ctx.optimization.ops_or = enable;
                          if (optimization_options.dce)
                             ctx.optimization.dce = enable;
                          if (optimization_options.jump_thread)
                             ctx.optimization.jump_thread = enable;
                          if (optimization_options.branch_long)
                             ctx.optimization.branch_long = enable;
-                         if (optimization_options.peephole_logic)
-                            ctx.optimization.peephole_logic = enable;
-                         if (optimization_options.peephole_sla)
-                            ctx.optimization.peephole_sla = enable;
+                         if (optimization_options.ops_logic)
+                            ctx.optimization.ops_logic = enable;
+                         if (optimization_options.ops_sla)
+                            ctx.optimization.ops_sla = enable;
+                         if (optimization_options.ops_rot)
+                            ctx.optimization.ops_rot = enable;
+                         if (optimization_options.ops_rot)
+                            ctx.optimization.ops_rot = enable;
+                         if (optimization_options.ops_rst)
+                            ctx.optimization.ops_rst = enable;
+                         if (optimization_options.ops_add0)
+                            ctx.optimization.ops_add0 = enable;
                     }
                     else if (flag == "SPEED") {
                          if (enable) {
                              ctx.optimization.branch_short = false;
-                             if (optimization_options.peephole_xor)
-                                ctx.optimization.peephole_xor = true;
-                             if (optimization_options.peephole_inc)
-                                ctx.optimization.peephole_inc = true;
-                             if (optimization_options.peephole_or)
-                                ctx.optimization.peephole_or = true;
+                             if (optimization_options.ops_xor)
+                                ctx.optimization.ops_xor = true;
+                             if (optimization_options.ops_inc)
+                                ctx.optimization.ops_inc = true;
+                             if (optimization_options.ops_or)
+                                ctx.optimization.ops_or = true;
                              if (optimization_options.dce)
                                 ctx.optimization.dce = true;
                              if (optimization_options.jump_thread)
                                 ctx.optimization.jump_thread = true;
-                             if (optimization_options.peephole_logic)
-                                ctx.optimization.peephole_logic = true;
-                             if (optimization_options.peephole_sla)
-                                ctx.optimization.peephole_sla = true;
+                             if (optimization_options.ops_logic)
+                                ctx.optimization.ops_logic = true;
+                             if (optimization_options.ops_sla)
+                                ctx.optimization.ops_sla = true;
+                             if (optimization_options.ops_rot)
+                                ctx.optimization.ops_rot = true;
+                             if (optimization_options.ops_rot)
+                                ctx.optimization.ops_rot = true;
+                             if (optimization_options.ops_rst)
+                                ctx.optimization.ops_rst = true;
+                             if (optimization_options.ops_add0)
+                                ctx.optimization.ops_add0 = true;
                          } else {
-                             ctx.optimization.peephole_xor = false;
-                             ctx.optimization.peephole_inc = false;
-                             ctx.optimization.peephole_or = false;
+                             ctx.optimization.ops_xor = false;
+                             ctx.optimization.ops_inc = false;
+                             ctx.optimization.ops_or = false;
                              ctx.optimization.dce = false;
                              ctx.optimization.jump_thread = false;
-                             ctx.optimization.peephole_logic = false;
-                             ctx.optimization.peephole_sla = false;
+                             ctx.optimization.ops_logic = false;
+                             ctx.optimization.ops_sla = false;
+                             ctx.optimization.ops_rot = false;
+                             ctx.optimization.ops_rot = false;
+                             ctx.optimization.ops_rst = false;
+                             ctx.optimization.ops_add0 = false;
                          }
                     }
                 }
@@ -3681,8 +3756,10 @@ protected:
                 return true;
             }
             if (mnemonic == "SUB" && match_imm8(op)) {
-                if (op.num_val == 1 && m_policy.context().optimization.peephole_inc && m_policy.context().assembler.m_options.optimization.peephole_inc)
+                if (op.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
                     assemble({0x3D}); // DEC A
+                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
+                    assemble({0x3C}); // INC A
                 else
                     assemble({0xD6, (uint8_t)op.num_val});
                 return true;
@@ -3773,12 +3850,20 @@ protected:
                     if (offset < -128 || offset > 127)
                         m_policy.on_jump_out_of_range(mnemonic, offset);
                 }
+                if (offset == 0 && m_policy.context().optimization.dce && m_policy.context().assembler.m_options.optimization.dce) {
+                    // JR 0 / JR cc, 0 is effectively a NOP (or conditional NOP) that takes time but does nothing.
+                    return true;
+                }
                 assemble({0x18, (uint8_t)(offset)});
                 return true;
             }
             if (mnemonic == "ADD" && match_imm8(op)) {
-                if (op.num_val == 1 && m_policy.context().optimization.peephole_inc && m_policy.context().assembler.m_options.optimization.peephole_inc)
+                if (op.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
                     assemble({0x3C}); // INC A
+                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
+                    assemble({0x3D}); // DEC A
+                else if (op.num_val == 0 && m_policy.context().optimization.ops_add0 && m_policy.context().assembler.m_options.optimization.ops_add0)
+                    assemble({0xB7}); // OR A
                 else
                     assemble({0xC6, (uint8_t)op.num_val});
                 return true;
@@ -3792,28 +3877,32 @@ protected:
                 return true;
             }
             if (mnemonic == "AND" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.optimization.ops_logic)
                     assemble({0xAF}); // XOR A
+                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
+                    assemble({0x3D}); // DEC A
                 else
                     assemble({0xE6, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "XOR" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.optimization.ops_logic)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xEE, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "OR" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.optimization.ops_logic)
                     assemble({0xB7}); // OR A
+                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
+                    assemble({0x3C}); // INC A
                 else
                     assemble({0xF6, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "CP" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.peephole_or && m_policy.context().assembler.m_options.optimization.peephole_or)
+                if (op.num_val == 0 && m_policy.context().optimization.ops_or && m_policy.context().assembler.m_options.optimization.ops_or)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xFE, (uint8_t)op.num_val});
@@ -3860,6 +3949,17 @@ protected:
                 return true;
             }
             if (mnemonic == "CALL" && match_imm16(op)) {
+                if (m_policy.context().optimization.ops_rst && m_policy.context().assembler.m_options.optimization.ops_rst) {
+                    uint32_t addr = op.num_val;
+                    if (addr <= 0x38 && (addr % 8 == 0)) {
+                        // RST 00, 08, 10, 18, 20, 28, 30, 38
+                        // RST 00 -> C7, RST 08 -> CF ...
+                        // Base C7. 00->0, 08->1, 10->2 ...
+                        // Opcode = 0xC7 + (addr / 8) * 8 = 0xC7 + addr
+                        assemble({(uint8_t)(0xC7 + addr)});
+                        return true;
+                    }
+                }
                 assemble({0xCD, (uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8)});
                 return true;
             }
@@ -3951,9 +4051,15 @@ protected:
                 {"SLA", 0x20}, {"SRA", 0x28}, {"SLL", 0x30}, {"SLI", 0x30}, {"SRL", 0x38}
             };
             if (rotate_shift_map.count(mnemonic)) {
-                if (mnemonic == "SLA" && op.str_val == "A" && m_policy.context().optimization.peephole_sla && m_policy.context().assembler.m_options.optimization.peephole_sla) {
+                if (mnemonic == "SLA" && op.str_val == "A" && m_policy.context().optimization.ops_sla && m_policy.context().assembler.m_options.optimization.ops_sla) {
                     assemble({0x87}); // ADD A, A
                     return true;
+                }
+                if (op.str_val == "A" && m_policy.context().optimization.ops_rot && m_policy.context().assembler.m_options.optimization.ops_rot) {
+                    if (mnemonic == "RLC") { assemble({0x07}); return true; } // RLCA
+                    if (mnemonic == "RRC") { assemble({0x0F}); return true; } // RRCA
+                    if (mnemonic == "RL")  { assemble({0x17}); return true; } // RLA
+                    if (mnemonic == "RR")  { assemble({0x1F}); return true; } // RRA
                 }
                 if (match_reg8(op) || (match_mem_reg16(op) && op.str_val == "HL")) {
                     uint8_t base_opcode = rotate_shift_map.at(mnemonic);
@@ -4076,7 +4182,7 @@ protected:
                 return true;    
             }
             if (mnemonic == "LD" && match_reg8(op1) && match_imm8(op2)) {
-                if (op1.str_val == "A" && op2.num_val == 0 && m_policy.context().optimization.peephole_xor && m_policy.context().assembler.m_options.optimization.peephole_xor) {
+                if (op1.str_val == "A" && op2.num_val == 0 && m_policy.context().optimization.ops_xor && m_policy.context().assembler.m_options.optimization.ops_xor) {
                     assemble({0xAF}); // XOR A optimization
                 } else {
                     uint8_t dest_code = reg8_map().at(op1.str_val);
@@ -4248,8 +4354,12 @@ protected:
                 return true;
             }
             if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 1 && m_policy.context().optimization.peephole_inc && m_policy.context().assembler.m_options.optimization.peephole_inc)
+                if (op2.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
                     assemble({0x3C}); // INC A
+                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
+                    assemble({0x3D}); // DEC A
+                else if (op2.num_val == 0 && m_policy.context().optimization.ops_add0 && m_policy.context().assembler.m_options.optimization.ops_add0)
+                    assemble({0xB7}); // OR A
                 else
                     assemble({0xC6, (uint8_t)op2.num_val});
                 return true;
@@ -4263,35 +4373,41 @@ protected:
                 return true;
             }
             if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 1 && m_policy.context().optimization.peephole_inc && m_policy.context().assembler.m_options.optimization.peephole_inc)
+                if (op2.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
                     assemble({0x3D}); // DEC A
+                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
+                    assemble({0x3C}); // INC A
                 else
                     assemble({0xD6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "AND" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.optimization.ops_logic)
                     assemble({0xAF}); // XOR A
+                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
+                    assemble({0x3D}); // DEC A
                 else
                     assemble({0xE6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "XOR" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.optimization.ops_logic)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xEE, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "OR" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.peephole_logic && m_policy.context().assembler.m_options.optimization.peephole_logic)
+                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.optimization.ops_logic)
                     assemble({0xB7}); // OR A
+                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.optimization.ops_inc)
+                    assemble({0x3C}); // INC A
                 else
                     assemble({0xF6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.peephole_or && m_policy.context().assembler.m_options.optimization.peephole_or)
+                if (op2.num_val == 0 && m_policy.context().optimization.ops_or && m_policy.context().assembler.m_options.optimization.ops_or)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xFE, (uint8_t)op2.num_val});
