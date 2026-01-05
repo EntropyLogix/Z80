@@ -4398,6 +4398,195 @@ TEST_CASE(BranchLongAndShortInteraction) {
     ASSERT_CODE_WITH_OPTS(code, expected, config);
 }
 
+TEST_CASE(OptimizationStats) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_optimization = true;
+
+    auto check_stats = [&](const std::string& code, int expected_bytes, int expected_cycles) {
+        Z80StandardBus bus;
+        MockFileProvider file_provider;
+        file_provider.add_source("main.asm", code);
+        Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider, config);
+        if (!assembler.compile("main.asm")) {
+            std::cerr << "FAIL: Compilation failed for stats test code:\n" << code << "\n";
+            tests_failed++;
+            return;
+        }
+        auto stats = assembler.get_optimization_stats();
+        if (stats.bytes_saved != expected_bytes || stats.cycles_saved != expected_cycles) {
+            std::cerr << "FAIL: Stats mismatch for code:\n" << code << "\n";
+            std::cerr << "      Expected bytes saved: " << expected_bytes << ", Got: " << stats.bytes_saved << "\n";
+            std::cerr << "      Expected cycles saved: " << expected_cycles << ", Got: " << stats.cycles_saved << "\n";
+            tests_failed++;
+        } else {
+            tests_passed++;
+        }
+    };
+
+    // 1. LD A, 0 -> XOR A
+    // Saved: 1 byte, 3 cycles
+    check_stats("OPTIMIZE +OPS_XOR\nLD A, 0", 1, 3);
+
+    // 2. ADD A, 1 -> INC A
+    // Saved: 1 byte, 3 cycles
+    check_stats("OPTIMIZE +OPS_INC\nADD A, 1", 1, 3);
+
+    // 3. JP to JR (Short branch)
+    // Saved: 1 byte, -2 cycles
+    check_stats("OPTIMIZE +BRANCH_SHORT\nJP target\ntarget: NOP", 1, -2);
+
+    // 4. CALL to RST (e.g. CALL 0)
+    // CALL nn (3 bytes, 17 cycles) -> RST 0 (1 byte, 11 cycles)
+    // Saved: 2 bytes, 6 cycles
+    check_stats("OPTIMIZE +OPS_RST\nCALL 0", 2, 6);
+
+    // 5. SLA A -> ADD A, A
+    // SLA A (2 bytes, 8 cycles) -> ADD A, A (1 byte, 4 cycles)
+    // Saved: 1 byte, 4 cycles
+    check_stats("OPTIMIZE +OPS_SLA\nSLA A", 1, 4);
+
+    // 6. Combined
+    // LD A, 0 (XOR A) -> 1b, 3c
+    // ADD A, 1 (INC A) -> 1b, 3c
+    // Total: 2b, 6c
+    check_stats("OPTIMIZE +OPS_XOR +OPS_INC\nLD A, 0\nADD A, 1", 2, 6);
+    
+    // 7. No optimization
+    check_stats("OPTIMIZE NONE\nLD A, 0", 0, 0);
+}
+
+TEST_CASE(MoreOptimizationStats) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_optimization = true;
+
+    auto check_stats = [&](const std::string& code, int expected_bytes, int expected_cycles) {
+        Z80StandardBus bus;
+        MockFileProvider file_provider;
+        file_provider.add_source("main.asm", code);
+        Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider, config);
+        if (!assembler.compile("main.asm")) {
+            std::cerr << "FAIL: Compilation failed for stats test code:\n" << code << "\n";
+            tests_failed++;
+            return;
+        }
+        auto stats = assembler.get_optimization_stats();
+        if (stats.bytes_saved != expected_bytes || stats.cycles_saved != expected_cycles) {
+            std::cerr << "FAIL: Stats mismatch for code:\n" << code << "\n";
+            std::cerr << "      Expected bytes saved: " << expected_bytes << ", Got: " << stats.bytes_saved << "\n";
+            std::cerr << "      Expected cycles saved: " << expected_cycles << ", Got: " << stats.cycles_saved << "\n";
+            tests_failed++;
+        } else {
+            tests_passed++;
+        }
+    };
+
+    // 1. BRANCH_LONG: JR -> JP
+    // JR (2 bytes, 12 cycles) -> JP (3 bytes, 10 cycles)
+    // Saved: -1 byte, +2 cycles
+    check_stats("OPTIMIZE +BRANCH_LONG\nJR Target\nDS 130\nTarget: NOP", -1, 2);
+
+    // 2. DCE: JR $+2
+    // JR $+2 (2 bytes, 12 cycles) -> Removed
+    // Saved: 2 bytes, 12 cycles
+    check_stats("OPTIMIZE +DCE\nJR $+2", 2, 12);
+
+    // 3. DCE: LD B, B
+    // LD B, B (1 byte, 4 cycles) -> Removed
+    // Saved: 1 byte, 4 cycles
+    check_stats("OPTIMIZE +DCE\nLD B, B", 1, 4);
+
+    // 4. OPS_ROT: RLC A -> RLCA
+    // RLC A (2 bytes, 8 cycles) -> RLCA (1 byte, 4 cycles)
+    // Saved: 1 byte, 4 cycles
+    check_stats("OPTIMIZE +OPS_ROT\nRLC A", 1, 4);
+
+    // 5. OPS_OR: CP 0 -> OR A
+    // CP 0 (2 bytes, 7 cycles) -> OR A (1 byte, 4 cycles)
+    // Saved: 1 byte, 3 cycles
+    check_stats("OPTIMIZE +OPS_OR\nCP 0", 1, 3);
+
+    // 6. OPS_ADD0: ADD A, 0 -> OR A
+    // ADD A, 0 (2 bytes, 7 cycles) -> OR A (1 byte, 4 cycles)
+    // Saved: 1 byte, 3 cycles
+    check_stats("OPTIMIZE +OPS_ADD0\nADD A, 0", 1, 3);
+
+    // 7. OPS_INC: SUB 255 -> INC A
+    // SUB 255 (2 bytes, 7 cycles) -> INC A (1 byte, 4 cycles)
+    // Saved: 1 byte, 3 cycles
+    check_stats("OPTIMIZE +OPS_INC\nSUB 255", 1, 3);
+}
+
+TEST_CASE(ExtendedOptimizationStats) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_optimization = true;
+
+    auto check_stats = [&](const std::string& code, int expected_bytes, int expected_cycles) {
+        Z80StandardBus bus;
+        MockFileProvider file_provider;
+        file_provider.add_source("main.asm", code);
+        Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider, config);
+        if (!assembler.compile("main.asm")) {
+            std::cerr << "FAIL: Compilation failed for stats test code:\n" << code << "\n";
+            tests_failed++;
+            return;
+        }
+        auto stats = assembler.get_optimization_stats();
+        if (stats.bytes_saved != expected_bytes || stats.cycles_saved != expected_cycles) {
+            std::cerr << "FAIL: Stats mismatch for code:\n" << code << "\n";
+            std::cerr << "      Expected bytes saved: " << expected_bytes << ", Got: " << stats.bytes_saved << "\n";
+            std::cerr << "      Expected cycles saved: " << expected_cycles << ", Got: " << stats.cycles_saved << "\n";
+            tests_failed++;
+        } else {
+            tests_passed++;
+        }
+    };
+
+    // 1. OPS_LOGIC: AND 0 -> XOR A
+    // AND 0 (2 bytes, 7 cycles) -> XOR A (1 byte, 4 cycles)
+    // Saved: 1 byte, 3 cycles
+    check_stats("OPTIMIZE +OPS_LOGIC\nAND 0", 1, 3);
+
+    // 2. OPS_LOGIC: OR 0 -> OR A
+    // OR 0 (2 bytes, 7 cycles) -> OR A (1 byte, 4 cycles)
+    // Saved: 1 byte, 3 cycles
+    check_stats("OPTIMIZE +OPS_LOGIC\nOR 0", 1, 3);
+
+    // 3. OPS_LOGIC: XOR 0 -> OR A
+    // XOR 0 (2 bytes, 7 cycles) -> OR A (1 byte, 4 cycles)
+    // Saved: 1 byte, 3 cycles
+    check_stats("OPTIMIZE +OPS_LOGIC\nXOR 0", 1, 3);
+
+    // 4. OPS_ROT: RRC A -> RRCA
+    // RRC A (2 bytes, 8 cycles) -> RRCA (1 byte, 4 cycles)
+    // Saved: 1 byte, 4 cycles
+    check_stats("OPTIMIZE +OPS_ROT\nRRC A", 1, 4);
+
+    // 5. OPS_ROT: RL A -> RLA
+    // RL A (2 bytes, 8 cycles) -> RLA (1 byte, 4 cycles)
+    // Saved: 1 byte, 4 cycles
+    check_stats("OPTIMIZE +OPS_ROT\nRL A", 1, 4);
+
+    // 6. OPS_ROT: RR A -> RRA
+    // RR A (2 bytes, 8 cycles) -> RRA (1 byte, 4 cycles)
+    // Saved: 1 byte, 4 cycles
+    check_stats("OPTIMIZE +OPS_ROT\nRR A", 1, 4);
+
+    // 7. OPS_RST: CALL 0x0008 -> RST 08H
+    // CALL (3 bytes, 17 cycles) -> RST (1 byte, 11 cycles)
+    // Saved: 2 bytes, 6 cycles
+    check_stats("OPTIMIZE +OPS_RST\nCALL 0x0008", 2, 6);
+
+    // 8. OPS_INC: ADD A, 255 -> DEC A
+    // ADD A, 255 (2 bytes, 7 cycles) -> DEC A (1 byte, 4 cycles)
+    // Saved: 1 byte, 3 cycles
+    check_stats("OPTIMIZE +OPS_INC\nADD A, 255", 1, 3);
+
+    // 9. DCE: LD C, C
+    // LD C, C (1 byte, 4 cycles) -> Removed
+    // Saved: 1 byte, 4 cycles
+    check_stats("OPTIMIZE +DCE\nLD C, C", 1, 4);
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
