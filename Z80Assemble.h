@@ -367,7 +367,7 @@ public:
 };
 template <typename TMemory> class Z80Assembler {
 public:
-    struct Options {
+    struct Config {
         struct LabelOptions {
             bool enabled = true;
             bool allow_colon = true;
@@ -418,9 +418,9 @@ public:
             bool enable_optimization = true;
         } compilation;
     };
-    static const Options& get_default_options() {
-        static const Options default_options;
-        return default_options;
+    static const Config& get_default_config() {
+        static const Config default_config;
+        return default_config;
     };
     struct SymbolInfo {
         std::string name;
@@ -441,7 +441,7 @@ public:
         uint16_t address;
         std::vector<uint8_t> bytes;
     };
-    Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Options& options = get_default_options()) : m_options(options), m_context(*this), m_keywords(m_context) {
+    Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Config& config = get_default_config()) : m_config(config), m_context(*this), m_keywords(m_context) {
         m_context.memory = memory;
         m_context.source_provider = source_provider;
         const auto& op_map = Expressions::get_operator_map();
@@ -461,7 +461,7 @@ public:
         } catch (const std::runtime_error& e) {
             throw std::runtime_error(e.what());
         }
-        SymbolsPhase symbols_building(m_context, m_options.compilation.max_passes);
+        SymbolsPhase symbols_building(m_context, m_config.compilation.max_passes);
         m_context.address.start = start_addr;
         AssemblyPhase code_generation(m_context);
         std::vector<IPhasePolicy*> phases = {&symbols_building, &code_generation};
@@ -554,7 +554,7 @@ protected:
                 }
             }
         }
-        static bool is_number(const std::string& s, int32_t& out_value, const typename Options::NumberOptions& options = get_default_options().numbers) {
+        static bool is_number(const std::string& s, int32_t& out_value, const typename Config::NumberOptions& options = get_default_config().numbers) {
             std::string str = s;
             trim_whitespace(str);
             if (str.empty())
@@ -628,7 +628,7 @@ protected:
                     bool matches_regex(const std::regex& re) const {
                         return std::regex_match(m_original, re);
                     }
-                    bool to_number(int32_t& out_value, const typename Options::NumberOptions& options = get_default_options().numbers) const {
+                    bool to_number(int32_t& out_value, const typename Config::NumberOptions& options = get_default_config().numbers) const {
                         if (!m_number_val.has_value()) {
                             int32_t val;
                             if (Strings::is_number(m_original, val, options))
@@ -843,7 +843,7 @@ protected:
         }
     private:
         std::string remove_comments(const std::string& line, bool& in_block_comment) { 
-            const auto& comment_options = m_context.assembler.m_options.comments;
+            const auto& comment_options = m_context.assembler.m_config.comments;
             std::string processed_line;
             bool in_string = false;
             bool in_char = false;
@@ -896,7 +896,7 @@ protected:
             while (std::getline(source_stream, line)) {
                 m_context.source.source_location = new SourceLine{identifier, line_number, ""};
                 line_number++;
-                if (m_context.assembler.m_options.comments.enabled)
+                if (m_context.assembler.m_config.comments.enabled)
                     line = remove_comments(line, in_block_comment);
                 typename Strings::Tokens tokens;
                 tokens.process(line);
@@ -933,7 +933,7 @@ protected:
                     continue;
                 }
                 if (tokens.count() >= 2 && tokens[1].upper() == "MACRO") {
-                    if (!m_context.assembler.m_options.directives.allow_macros)
+                    if (!m_context.assembler.m_config.directives.allow_macros)
                         continue;
                     current_macro_name = tokens[0].original();
                     if (!m_context.assembler.m_keywords.is_valid_label_name(current_macro_name))
@@ -948,7 +948,7 @@ protected:
                     }
                     continue;
                 }
-                if (m_context.assembler.m_options.directives.allow_includes) {
+                if (m_context.assembler.m_config.directives.allow_includes) {
                     if (tokens.count() == 2 && tokens[0].upper() == "INCLUDE") {
                         const auto& filename_token = tokens[1];
                         if (filename_token.original().length() > 1 && filename_token.original().front() == '"' && filename_token.original().back() == '"') {
@@ -962,7 +962,7 @@ protected:
                 output_source.push_back({identifier, line_number, line});
             }
             if (in_block_comment) {
-                if (m_context.assembler.m_options.comments.allow_block)
+                if (m_context.assembler.m_config.comments.allow_block)
                     m_context.assembler.report_error("Unterminated block comment");
             }
             return true;
@@ -1031,7 +1031,7 @@ protected:
                     if (base_reg_str == "IX" || base_reg_str == "IY") {
                         std::string offset_str = inner.substr(operator_pos);
                         int32_t offset_val;
-                        if (Strings::is_number(offset_str, offset_val, m_policy.context().assembler.m_options.numbers)) {
+                        if (Strings::is_number(offset_str, offset_val, m_policy.context().assembler.m_config.numbers)) {
                             // Handle (IX/IY +/- d)
                             operand.type = Operand::Type::MEM_INDEXED;
                             operand.base_reg = base_reg_str;
@@ -1117,8 +1117,8 @@ protected:
         };
         Expressions(IPhasePolicy& policy) : m_policy(policy){}
         bool evaluate(const std::string& s, int32_t& out_value) const {
-            if (!m_policy.context().assembler.m_options.expressions.enabled) {
-                if (Strings::is_number(s, out_value, m_policy.context().assembler.m_options.numbers))
+            if (!m_policy.context().assembler.m_config.expressions.enabled) {
+                if (Strings::is_number(s, out_value, m_policy.context().assembler.m_config.numbers))
                     return true;
                 return false;
             }
@@ -1127,9 +1127,9 @@ protected:
             return evaluate_rpn(rpn, out_value);
         }
         bool evaluate(const std::string& s, Value& out_value) const {
-            if (!m_policy.context().assembler.m_options.expressions.enabled) {
+            if (!m_policy.context().assembler.m_config.expressions.enabled) {
                 int32_t num_val;
-                if (Strings::is_number(s, num_val, m_policy.context().assembler.m_options.numbers)) {
+                if (Strings::is_number(s, num_val, m_policy.context().assembler.m_config.numbers)) {
                     out_value = { Value::Type::NUMBER, (double)num_val };
                     return true;
                 }
@@ -1410,7 +1410,7 @@ protected:
                 return Value{Value::Type::NUMBER, 1.0};
             if (args[0].type == Value::Type::STRING) {
                 int32_t dummy;
-                if (Strings::is_number(args[0].s_val, dummy, context.assembler.m_options.numbers))
+                if (Strings::is_number(args[0].s_val, dummy, context.assembler.m_config.numbers))
                     return Value{Value::Type::NUMBER, 1.0};
             }
             return Value{Value::Type::NUMBER, 0.0};
@@ -1422,7 +1422,7 @@ protected:
             if (args[0].type != Value::Type::STRING)
                 context.assembler.report_error("Argument to VAL must be a string.");
             int32_t num_val;
-            if (Strings::is_number(args[0].s_val, num_val, context.assembler.m_options.numbers))
+            if (Strings::is_number(args[0].s_val, num_val, context.assembler.m_config.numbers))
                 return Value{Value::Type::NUMBER, (double)num_val};
             context.assembler.report_error("VAL argument is not a valid number: \"" + args[0].s_val + "\"");
             return Value{Value::Type::NUMBER, 0.0};
@@ -1704,7 +1704,7 @@ protected:
             return true;
         }
         bool parse_number(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
-            const auto& options = m_policy.context().assembler.m_options.numbers;
+            const auto& options = m_policy.context().assembler.m_config.numbers;
             if (expr[i] == '$') {
                 if (!options.allow_hex_prefix_dollar) return false;
                 size_t j = i + 1;
@@ -2248,7 +2248,7 @@ protected:
         virtual void on_phase_directive(const std::string& address_str) override {}
         virtual void on_dephase_directive() override {}
         virtual void on_incbin_directive(const std::string& filename) override {
-            if (!this->m_context.assembler.m_options.directives.allow_incbin) return;
+            if (!this->m_context.assembler.m_config.directives.allow_incbin) return;
             std::vector<uint8_t> data;
             if (this->m_context.source_provider->read_file(filename, data))
                 on_assemble(data);
@@ -2290,7 +2290,6 @@ protected:
         }
         virtual void on_optimize_directive(const std::vector<std::string>& args) override {
             auto& ctx = m_context;
-            bool enable_opt = ctx.assembler.m_options.compilation.enable_optimization;
             for (const auto& arg : args) {
                 std::string upper_arg = arg;
                 Strings::to_upper(upper_arg);
@@ -2322,43 +2321,41 @@ protected:
                          continue;
                     }
                     bool is_valid = false;
-                    if (enable_opt) {
-                        if (flag == "BRANCH_SHORT")
-                            is_valid = true;
-                        else if (flag == "JUMP_THREAD")
-                            is_valid = true;
-                        else if (flag == "DCE")
-                            is_valid = true;
-                        else if (flag == "OPS_XOR")
-                            is_valid = true;
-                        else if (flag == "OPS_INC")
-                            is_valid = true;
-                        else if (flag == "OPS_OR")
-                            is_valid = true;
-                        else if (flag == "OPS_LOGIC")
-                            is_valid = true;
-                        else if (flag == "OPS_SLA")
-                            is_valid = true;
-                        else if (flag == "OPS_ROT")
-                            is_valid = true;
-                        else if (flag == "OPS_RST")
+                    if (flag == "BRANCH_SHORT")
                         is_valid = true;
-                        else if (flag == "OPS_ADD0")
+                    else if (flag == "JUMP_THREAD")
                         is_valid = true;
-                        else if (flag == "BRANCH_LONG")
-                            is_valid = true;
-                        else if (flag == "OPS") {
-                            is_valid = true;
-                        }
-                        else if (flag == "UNSAFE") {
-                            is_valid = true;
-                        }
-                        else if (flag == "SPEED") {
-                            is_valid = true;
-                        }
-                        else if (flag == "SIZE" || flag == "ALL") {
-                            is_valid = true;
-                        }
+                    else if (flag == "DCE")
+                        is_valid = true;
+                    else if (flag == "OPS_XOR")
+                        is_valid = true;
+                    else if (flag == "OPS_INC")
+                        is_valid = true;
+                    else if (flag == "OPS_OR")
+                        is_valid = true;
+                    else if (flag == "OPS_LOGIC")
+                        is_valid = true;
+                    else if (flag == "OPS_SLA")
+                        is_valid = true;
+                    else if (flag == "OPS_ROT")
+                        is_valid = true;
+                    else if (flag == "OPS_RST")
+                        is_valid = true;
+                    else if (flag == "OPS_ADD0")
+                        is_valid = true;
+                    else if (flag == "BRANCH_LONG")
+                        is_valid = true;
+                    else if (flag == "OPS") {
+                        is_valid = true;
+                    }
+                    else if (flag == "UNSAFE") {
+                        is_valid = true;
+                    }
+                    else if (flag == "SPEED") {
+                        is_valid = true;
+                    }
+                    else if (flag == "SIZE" || flag == "ALL") {
+                        is_valid = true;
                     }
                     if (!is_valid)
                         ctx.assembler.report_error("Invalid parameter: " + arg);
@@ -2879,14 +2876,14 @@ protected:
             m_context.source.control_stack.push_back(Context::Source::ControlType::WHILE);
             if (this->m_context.source.parser->is_in_active_block() && !m_context.while_loop.iteration_counters.empty()) {
                 m_context.while_loop.iteration_counters.back()++;
-                if (m_context.while_loop.iteration_counters.back() > m_context.assembler.m_options.compilation.max_while_iterations) {
-                    m_context.assembler.report_error("WHILE loop exceeded max iterations (" + std::to_string(m_context.assembler.m_options.compilation.max_while_iterations) + "). Possible infinite loop.");
+                if (m_context.while_loop.iteration_counters.back() > m_context.assembler.m_config.compilation.max_while_iterations) {
+                    m_context.assembler.report_error("WHILE loop exceeded max iterations (" + std::to_string(m_context.assembler.m_config.compilation.max_while_iterations) + "). Possible infinite loop.");
                 }
             }
             m_context.while_loop.stack.push_back({expression, {}, condition_result, 0, false});
         }
         void on_align_directive(const std::string& boundary, bool stop_on_evaluate_error) {
-            if (!this->m_context.assembler.m_options.directives.allow_align)
+            if (!this->m_context.assembler.m_config.directives.allow_align)
                 return;
             Expressions expression(*this);
             int32_t align_val;
@@ -2997,7 +2994,7 @@ protected:
         };
         virtual void on_org_directive(const std::string& label) override {
             int32_t num_val;
-            if (Strings::is_number(label, num_val, this->m_context.assembler.m_options.numbers))
+            if (Strings::is_number(label, num_val, this->m_context.assembler.m_config.numbers))
                 this->m_context.address.current_logical = this->m_context.address.current_physical = num_val;
             else if (m_symbols_stable) {
                 Expressions expression(*this);
@@ -3009,7 +3006,7 @@ protected:
         };
         virtual void on_phase_directive(const std::string& label) override {
             int32_t num_val;
-            if (Strings::is_number(label, num_val, this->m_context.assembler.m_options.numbers)) {
+            if (Strings::is_number(label, num_val, this->m_context.assembler.m_config.numbers)) {
                 this->m_context.address.current_logical = num_val;
             }
             else if (m_symbols_stable) {
@@ -3347,7 +3344,7 @@ protected:
 
         void assemble(std::vector<uint8_t> bytes) { m_policy.on_assemble(bytes);}
         void optimize_jump_target(int32_t& target) {
-            if (!m_policy.context().optimization.jump_thread || !m_policy.context().assembler.m_options.compilation.enable_optimization)
+            if (!m_policy.context().optimization.jump_thread || !m_policy.context().assembler.m_config.compilation.enable_optimization)
                 return;
             std::set<int32_t> visited;
             visited.insert(target);
@@ -3361,7 +3358,7 @@ protected:
             }
         }
         bool encode_data_block(const std::string& mnemonic, const std::vector<Operand>& ops) {
-            const auto& directive_options = m_policy.context().assembler.m_options.directives;
+            const auto& directive_options = m_policy.context().assembler.m_config.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
                 return false;
             if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM" || mnemonic == "DEFM") {
@@ -3693,9 +3690,9 @@ protected:
                 return true;
             }
             if (mnemonic == "SUB" && match_imm8(op)) {
-                if (op.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3D}); // DEC A
-                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3C}); // INC A
                 else
                     assemble({0xD6, (uint8_t)op.num_val});
@@ -3743,7 +3740,7 @@ protected:
                 int32_t target_addr = op.num_val;
                 if (op.type == OperandType::IMMEDIATE)
                     optimize_jump_target(target_addr);
-                if (m_policy.context().optimization.branch_short && m_policy.context().assembler.m_options.compilation.enable_optimization && op.type == OperandType::IMMEDIATE) {
+                if (m_policy.context().optimization.branch_short && m_policy.context().assembler.m_config.compilation.enable_optimization && op.type == OperandType::IMMEDIATE) {
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset >= -128 && offset <= 127) {
@@ -3779,7 +3776,7 @@ protected:
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                 if (offset < -128 || offset > 127) {
-                    if (m_policy.context().optimization.branch_long && m_policy.context().assembler.m_options.compilation.enable_optimization) {
+                    if (m_policy.context().optimization.branch_long && m_policy.context().assembler.m_config.compilation.enable_optimization) {
                         assemble({0xC3, (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
                         return true;
                     }
@@ -3787,7 +3784,7 @@ protected:
                     if (offset < -128 || offset > 127)
                         m_policy.on_jump_out_of_range(mnemonic, offset);
                 }
-                if (offset == 0 && m_policy.context().optimization.dce && m_policy.context().assembler.m_options.compilation.enable_optimization) {
+                if (offset == 0 && m_policy.context().optimization.dce && m_policy.context().assembler.m_config.compilation.enable_optimization) {
                     // JR 0 / JR cc, 0 is effectively a NOP (or conditional NOP) that takes time but does nothing.
                     return true;
                 }
@@ -3795,11 +3792,11 @@ protected:
                 return true;
             }
             if (mnemonic == "ADD" && match_imm8(op)) {
-                if (op.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3C}); // INC A
-                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3D}); // DEC A
-                else if (op.num_val == 0 && m_policy.context().optimization.ops_add0 && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if (op.num_val == 0 && m_policy.context().optimization.ops_add0 && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xC6, (uint8_t)op.num_val});
@@ -3814,32 +3811,32 @@ protected:
                 return true;
             }
             if (mnemonic == "AND" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xAF}); // XOR A
-                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3D}); // DEC A
                 else
                     assemble({0xE6, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "XOR" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xEE, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "OR" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xB7}); // OR A
-                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3C}); // INC A
                 else
                     assemble({0xF6, (uint8_t)op.num_val});
                 return true;
             }
             if (mnemonic == "CP" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.ops_or && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op.num_val == 0 && m_policy.context().optimization.ops_or && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xFE, (uint8_t)op.num_val});
@@ -3886,7 +3883,7 @@ protected:
                 return true;
             }
             if (mnemonic == "CALL" && match_imm16(op)) {
-                if (m_policy.context().optimization.ops_rst && m_policy.context().assembler.m_options.compilation.enable_optimization) {
+                if (m_policy.context().optimization.ops_rst && m_policy.context().assembler.m_config.compilation.enable_optimization) {
                     uint32_t addr = op.num_val;
                     if (addr <= 0x38 && (addr % 8 == 0)) {
                         // RST 00, 08, 10, 18, 20, 28, 30, 38
@@ -3988,11 +3985,11 @@ protected:
                 {"SLA", 0x20}, {"SRA", 0x28}, {"SLL", 0x30}, {"SLI", 0x30}, {"SRL", 0x38}
             };
             if (rotate_shift_map.count(mnemonic)) {
-                if (mnemonic == "SLA" && op.str_val == "A" && m_policy.context().optimization.ops_sla && m_policy.context().assembler.m_options.compilation.enable_optimization) {
+                if (mnemonic == "SLA" && op.str_val == "A" && m_policy.context().optimization.ops_sla && m_policy.context().assembler.m_config.compilation.enable_optimization) {
                     assemble({0x87}); // ADD A, A
                     return true;
                 }
-                if (op.str_val == "A" && m_policy.context().optimization.ops_rot && m_policy.context().assembler.m_options.compilation.enable_optimization) {
+                if (op.str_val == "A" && m_policy.context().optimization.ops_rot && m_policy.context().assembler.m_config.compilation.enable_optimization) {
                     if (mnemonic == "RLC") { assemble({0x07}); return true; } // RLCA
                     if (mnemonic == "RRC") { assemble({0x0F}); return true; } // RRCA
                     if (mnemonic == "RL")  { assemble({0x17}); return true; } // RLA
@@ -4093,7 +4090,7 @@ protected:
             else if (op1.base_reg == "IY" || op2.base_reg == "IY" || op1.str_val.find("IY") != std::string::npos || op2.str_val.find("IY") != std::string::npos)
                 prefix = 0xFD;
             if (mnemonic == "LD" && match_reg8(op1) && match_reg8(op2)) {
-                if (m_policy.context().optimization.dce && m_policy.context().assembler.m_options.compilation.enable_optimization && op1.str_val == op2.str_val)
+                if (m_policy.context().optimization.dce && m_policy.context().assembler.m_config.compilation.enable_optimization && op1.str_val == op2.str_val)
                     return true;
                 uint8_t dest_code = reg8_map().at(op1.str_val);
                 uint8_t src_code = reg8_map().at(op2.str_val);
@@ -4119,7 +4116,7 @@ protected:
                 return true;    
             }
             if (mnemonic == "LD" && match_reg8(op1) && match_imm8(op2)) {
-                if (op1.str_val == "A" && op2.num_val == 0 && m_policy.context().optimization.ops_xor && m_policy.context().assembler.m_options.compilation.enable_optimization) {
+                if (op1.str_val == "A" && op2.num_val == 0 && m_policy.context().optimization.ops_xor && m_policy.context().assembler.m_config.compilation.enable_optimization) {
                     assemble({0xAF}); // XOR A optimization
                 } else {
                     uint8_t dest_code = reg8_map().at(op1.str_val);
@@ -4291,11 +4288,11 @@ protected:
                 return true;
             }
             if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op2.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3C}); // INC A
-                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3D}); // DEC A
-                else if (op2.num_val == 0 && m_policy.context().optimization.ops_add0 && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if (op2.num_val == 0 && m_policy.context().optimization.ops_add0 && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xC6, (uint8_t)op2.num_val});
@@ -4310,41 +4307,41 @@ protected:
                 return true;
             }
             if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op2.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3D}); // DEC A
-                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3C}); // INC A
                 else
                     assemble({0xD6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "AND" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xAF}); // XOR A
-                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3D}); // DEC A
                 else
                     assemble({0xE6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "XOR" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xEE, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "OR" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xB7}); // OR A
-                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0x3C}); // INC A
                 else
                     assemble({0xF6, (uint8_t)op2.num_val});
                 return true;
             }
             if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.ops_or && m_policy.context().assembler.m_options.compilation.enable_optimization)
+                if (op2.num_val == 0 && m_policy.context().optimization.ops_or && m_policy.context().assembler.m_config.compilation.enable_optimization)
                     assemble({0xB7}); // OR A
                 else
                     assemble({0xFE, (uint8_t)op2.num_val});
@@ -4411,7 +4408,7 @@ protected:
                 int32_t target_addr = op2.num_val;
                 if (op2.type == OperandType::IMMEDIATE)
                     optimize_jump_target(target_addr);
-                if (m_policy.context().optimization.branch_short && m_policy.context().assembler.m_options.compilation.enable_optimization && relative_jump_condition_map().count(op1.str_val) && op2.type == OperandType::IMMEDIATE) {
+                if (m_policy.context().optimization.branch_short && m_policy.context().assembler.m_config.compilation.enable_optimization && relative_jump_condition_map().count(op1.str_val) && op2.type == OperandType::IMMEDIATE) {
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset >= -128 && offset <= 127) {
@@ -4433,7 +4430,7 @@ protected:
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
                     if (offset < -128 || offset > 127) {
-                        if (m_policy.context().optimization.branch_long && m_policy.context().assembler.m_options.compilation.enable_optimization) {
+                        if (m_policy.context().optimization.branch_long && m_policy.context().assembler.m_config.compilation.enable_optimization) {
                             uint8_t cond_code = condition_map().at(op1.str_val);
                             assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
                             return true;
@@ -4611,7 +4608,7 @@ protected:
             m_tokens.process(rebuilt_line);
         }
         bool process_defines() {
-            const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
+            const auto& const_opts = m_policy.context().assembler.m_config.directives.constants;
             if (const_opts.enabled && const_opts.allow_define && m_tokens.count() >= 2) {
                 size_t define_idx = 0;
                 if (m_tokens.count() > 1 && m_policy.context().assembler.m_keywords.is_valid_label_name(m_tokens[0].original()) && !m_policy.context().assembler.m_keywords.is_reserved(m_tokens[0].upper())) {
@@ -4635,7 +4632,7 @@ protected:
             return false;
         }
         bool process_macro() {
-            if (!m_policy.context().assembler.m_options.directives.enabled || !m_policy.context().assembler.m_options.directives.allow_macros)
+            if (!m_policy.context().assembler.m_config.directives.enabled || !m_policy.context().assembler.m_config.directives.allow_macros)
                 return false;
             const auto& potential_macro_name = m_tokens[0].original();
             if (m_policy.context().macros.definitions.count(potential_macro_name)) {
@@ -4653,9 +4650,9 @@ protected:
             return false;            
         }
         bool process_loops() {
-            if (!m_policy.context().assembler.m_options.directives.enabled)
+            if (!m_policy.context().assembler.m_config.directives.enabled)
                 return false;
-            if (m_policy.context().assembler.m_options.directives.allow_while && !is_in_repeat_block()) {
+            if (m_policy.context().assembler.m_config.directives.allow_while && !is_in_repeat_block()) {
                 if (m_tokens.count() >= 2 && m_tokens[0].upper() == "WHILE") {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     const std::string& expr_str = m_tokens[1].original();
@@ -4675,7 +4672,7 @@ protected:
                     return true;
                 }
             }
-            if (m_policy.context().assembler.m_options.directives.allow_repeat) {
+            if (m_policy.context().assembler.m_config.directives.allow_repeat) {
                 if (m_tokens.count() >= 2 && (m_tokens[0].upper() == "REPT" || m_tokens[0].upper() == "DUP")) {
                     m_tokens.merge(1, m_tokens.count() - 1);
                     const std::string& expr_str = m_tokens[1].original();
@@ -4698,20 +4695,20 @@ protected:
             return false;
         }
         bool process_recordings() {
-            if (!m_policy.context().assembler.m_options.directives.enabled)
+            if (!m_policy.context().assembler.m_config.directives.enabled)
                 return false;
-            if (m_policy.context().assembler.m_options.directives.allow_while && !is_in_repeat_block()) {
+            if (m_policy.context().assembler.m_config.directives.allow_while && !is_in_repeat_block()) {
                 if (m_policy.on_while_recording(m_line))
                     return true;
             }
-            if (m_policy.context().assembler.m_options.directives.allow_repeat) {
+            if (m_policy.context().assembler.m_config.directives.allow_repeat) {
                 if (this->is_in_active_block() && m_policy.on_repeat_recording(m_line))
                     return true;
             }
             return false;
         }
         bool process_non_conditional_directives() {
-            if (!m_policy.context().assembler.m_options.directives.enabled)
+            if (!m_policy.context().assembler.m_config.directives.enabled)
                 return false;
             if (process_constant_directives())
                 return true;
@@ -4728,11 +4725,11 @@ protected:
             return false;
         }
         bool process_label() {
-            if (!m_policy.context().assembler.m_options.labels.enabled)
+            if (!m_policy.context().assembler.m_config.labels.enabled)
                 return false;
             if (m_tokens.count() == 0)
                 return false;
-            const auto& label_options = m_policy.context().assembler.m_options.labels;
+            const auto& label_options = m_policy.context().assembler.m_config.labels;
             const auto& first_token = m_tokens[0];
             std::string label_str = first_token.original();
             bool is_label = false;            
@@ -4778,9 +4775,9 @@ protected:
             return true;
         }
         bool process_conditional_directives() {
-            if (!m_policy.context().assembler.m_options.directives.enabled)
+            if (!m_policy.context().assembler.m_config.directives.enabled)
                 return false;
-            if (!m_policy.context().assembler.m_options.directives.allow_conditionals)
+            if (!m_policy.context().assembler.m_config.directives.allow_conditionals)
                 return false;
             if (m_tokens.count() == 0)
                 return false;
@@ -4835,7 +4832,7 @@ protected:
             return false;
         }
         bool process_constant_directives() {
-            const auto& const_opts = m_policy.context().assembler.m_options.directives.constants;
+            const auto& const_opts = m_policy.context().assembler.m_config.directives.constants;
             if (!const_opts.enabled || m_tokens.count() < 2)
                 return false;
             if (const_opts.allow_undefine && m_tokens[0].upper() == "UNDEFINE") {
@@ -4890,7 +4887,7 @@ protected:
             return false;
         }
         bool process_procedures() {
-            if (m_policy.context().assembler.m_options.directives.allow_proc) {
+            if (m_policy.context().assembler.m_config.directives.allow_proc) {
                 if (m_tokens.count() == 2 && m_tokens[1].upper() == "PROC") {
                     const std::string& proc_name = m_tokens[0].original();
                     if (m_policy.context().assembler.m_keywords.is_valid_label_name(proc_name)) {
@@ -4962,7 +4959,7 @@ protected:
         }
         bool process_optimize_directive() {
             if (m_tokens.count() > 0 && m_tokens[0].upper() == "OPTIMIZE") {
-                if (!m_policy.context().assembler.m_options.directives.allow_optimize)
+                if (!m_policy.context().assembler.m_config.directives.allow_optimize)
                     return false;
                 std::vector<std::string> args;
                 for (size_t i = 1; i < m_tokens.count(); ++i)
@@ -4977,21 +4974,21 @@ protected:
                 return false;
             const auto& directive_token = m_tokens[0];
             const std::string& directive_upper = directive_token.upper();
-            if (m_policy.context().assembler.m_options.directives.allow_org && directive_upper == "ORG") {
+            if (m_policy.context().assembler.m_config.directives.allow_org && directive_upper == "ORG") {
                 if (m_tokens.count() <= 1)
                     m_policy.context().assembler.report_error("ORG directive requires an address argument.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_org_directive(m_tokens[1].original());
                 return true;
             }
-            if (m_policy.context().assembler.m_options.directives.allow_align && directive_upper == "ALIGN") {
+            if (m_policy.context().assembler.m_config.directives.allow_align && directive_upper == "ALIGN") {
                 if (m_tokens.count() <= 1)
                     m_policy.context().assembler.report_error("ALIGN directive requires a boundary argument.");
                 m_tokens.merge(1, m_tokens.count() - 1);
                 m_policy.on_align_directive(m_tokens[1].original());
                 return true;
             }
-            if (m_policy.context().assembler.m_options.directives.allow_incbin && (directive_upper == "INCBIN" || directive_upper == "BINARY")) {
+            if (m_policy.context().assembler.m_config.directives.allow_incbin && (directive_upper == "INCBIN" || directive_upper == "BINARY")) {
                 if (m_tokens.count() != 2)
                     m_policy.context().assembler.report_error(directive_upper + " directive requires exactly one argument.");
                 const auto& filename_token = m_tokens[1];
@@ -5002,7 +4999,7 @@ protected:
                     m_policy.context().assembler.report_error(directive_upper + " filename must be in double quotes.");
                 return true;
             }
-            if (m_policy.context().assembler.m_options.directives.allow_phase) {
+            if (m_policy.context().assembler.m_config.directives.allow_phase) {
                 if (directive_upper == "PHASE") {
                     if (m_tokens.count() <= 1)
                         m_policy.context().assembler.report_error("PHASE directive requires an address argument.");
@@ -5030,7 +5027,7 @@ protected:
     std::map<std::string, std::function<void(IPhasePolicy&, const std::vector<typename Strings::Tokens::Token>&)>> custom_directives;
     Keywords m_keywords;
     size_t max_operator_len = 0;
-    const Options m_options;
+    const Config m_config;
     Context m_context;
 };
 

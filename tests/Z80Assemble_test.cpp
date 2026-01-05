@@ -83,11 +83,11 @@ private:
     std::map<std::string, std::vector<uint8_t>> m_sources;
 };
 
-void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes, const Z80Assembler<Z80StandardBus>::Options& options) {
+void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes, const Z80Assembler<Z80StandardBus>::Config& config) {
     Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider, options);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider, config);
     bool success = true;
     try {
         assembler.compile("main.asm", 0x0000);
@@ -177,8 +177,8 @@ void ASSERT_CODE_WITH_ASSEMBLER(Z80StandardBus& bus, Z80Assembler<Z80StandardBus
 }
 
 void ASSERT_CODE(const std::string& asm_code, const std::vector<uint8_t>& expected_bytes) {
-    Z80Assembler<Z80StandardBus>::Options options;
-    ASSERT_CODE_WITH_OPTS(asm_code, expected_bytes, options);
+    Z80Assembler<Z80StandardBus>::Config config;
+    ASSERT_CODE_WITH_OPTS(asm_code, expected_bytes, config);
 }
 
 void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::vector<uint8_t>>& expected_blocks) {
@@ -234,11 +234,11 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
     tests_passed++;
 }
 
-void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assembler<Z80StandardBus>::Options& options) {
+void ASSERT_COMPILE_FAILS_WITH_OPTS(const std::string& asm_code, const Z80Assembler<Z80StandardBus>::Config& config) {
     Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider, options);    
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider, config);    
     bool success = true;
     try {
         success = assembler.compile("main.asm", 0x0000);
@@ -258,9 +258,9 @@ void ASSERT_COMPILE_FAILS(const std::string& asm_code) {
     Z80StandardBus bus;
     MockFileProvider file_provider;
     file_provider.add_source("main.asm", asm_code);
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     // Use the unified logic from ASSERT_COMPILE_FAILS_WITH_OPTS
-    ASSERT_COMPILE_FAILS_WITH_OPTS(asm_code, options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS(asm_code, config);
 }
 
 template<typename T>
@@ -1122,21 +1122,21 @@ TEST_CASE(SETDirective) {
 }
 
 TEST_CASE(EqualsAsSetDirective) {
-    Z80Assembler<Z80StandardBus>::Options options;
-    options.directives.constants.assignments_as_set = true;
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.directives.constants.assignments_as_set = true;
 
     // 1. Basic usage of '=' as SET
     ASSERT_CODE_WITH_OPTS(R"( 
         VALUE = 15
         LD A, VALUE
-    )", {0x3E, 15}, options);
+    )", {0x3E, 15}, config);
 
     // 2. Redefinition using '='
     ASSERT_CODE_WITH_OPTS(R"(
         VALUE = 10
         VALUE = 20
         LD A, VALUE
-    )", {0x3E, 20}, options);
+    )", {0x3E, 20}, config);
 
     // 3. Mixing SET and '='
     ASSERT_CODE_WITH_OPTS(R"(
@@ -1145,32 +1145,32 @@ TEST_CASE(EqualsAsSetDirective) {
         LD A, VALUE
         VALUE SET 15 ; Redefine with SET
         LD B, VALUE
-    )", {0x3E, 10, 0x06, 15}, options);
+    )", {0x3E, 10, 0x06, 15}, config);
 
     // 4. Mixing EQU and '=' (should fail)
-    ASSERT_COMPILE_FAILS_WITH_OPTS("VAL EQU 1\nVAL = 2", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("VAL = 1\nVAL EQU 2", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VAL EQU 1\nVAL = 2", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VAL = 1\nVAL EQU 2", config);
 }
 
 TEST_CASE(EqualsAsEquDirective) {
-    Z80Assembler<Z80StandardBus>::Options options;
-    options.directives.constants.assignments_as_set = false;
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.directives.constants.assignments_as_set = false;
 
     // 1. Basic usage of '=' as EQU
     ASSERT_CODE_WITH_OPTS(R"(
         VALUE = 15
         LD A, VALUE
-    )", {0x3E, 15}, options);
+    )", {0x3E, 15}, config);
 
     // 2. Redefinition using '=' should fail
     ASSERT_COMPILE_FAILS_WITH_OPTS(R"(
         VALUE = 10
         VALUE = 20
-    )", options);
+    )", config);
 
     // 3. Mixing SET and '=' should fail on redefinition
-    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 5\nVALUE = 10", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE = 10\nVALUE SET 5", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 5\nVALUE = 10", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE = 10\nVALUE SET 5", config);
 
     // 4. Using '==' (comparison) in an IF directive (true case)
     ASSERT_CODE(R"(
@@ -1799,94 +1799,94 @@ TEST_CASE(FloatingPointAndVariadicExpressions) {
 }
 
 TEST_CASE(CommentOptions) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
 
     // 1. Test: Comments completely disabled
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.comments.enabled = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options); // Semicolon comment should be treated as code
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options); // Block comment should be treated as code
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style comment should be treated as code
-    ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, options); // Regular instruction without comments should pass
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.comments.enabled = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", config); // Semicolon comment should be treated as code
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", config); // Block comment should be treated as code
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", config); // C++ style comment should be treated as code
+    ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, config); // Regular instruction without comments should pass
 
     // 2. Semicolon comments disabled, block comments disabled (even if comments.enabled is true)
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.comments.allow_semicolon = false;
-    options.comments.allow_block = false;
-    options.comments.allow_cpp_style = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options);
-    ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.comments.allow_semicolon = false;
+    config.comments.allow_block = false;
+    config.comments.allow_cpp_style = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", config);
+    ASSERT_CODE_WITH_OPTS("LD A, 5", {0x3E, 0x05}, config);
 
     // 3. Test: Only semicolon comments allowed
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.comments.allow_semicolon = true;
-    options.comments.allow_block = false;
-    options.comments.allow_cpp_style = false;
-    ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, options); // Semicolon comment should pass
-    ASSERT_CODE_WITH_OPTS("; ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A}, options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options); // Block comment should fail
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style comment should fail
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.comments.allow_semicolon = true;
+    config.comments.allow_block = false;
+    config.comments.allow_cpp_style = false;
+    ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, config); // Semicolon comment should pass
+    ASSERT_CODE_WITH_OPTS("; ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A}, config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", config); // Block comment should fail
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", config); // C++ style comment should fail
 
     // 4. Test: Only block comments allowed
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.comments.allow_semicolon = false;
-    options.comments.allow_cpp_style = false;
-    options.comments.allow_block = true;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options); // Semicolon should be invalid
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.comments.allow_semicolon = false;
+    config.comments.allow_cpp_style = false;
+    config.comments.allow_block = true;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", config); // Semicolon should be invalid
     // Block comments should NOT allow multiple instructions on one line.
     // The parser should fail because it sees "LD A, 1 LD B, 2" after comment removal.
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/* comment */LD B, 2", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/**/LD B, 2", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/* comment */LD B, 2", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/**/LD B, 2", config);
     // However, a block comment that consumes the rest of the line is valid.
-    ASSERT_CODE_WITH_OPTS("LD A, 1 /* comment */", {0x3E, 0x01}, options);
+    ASSERT_CODE_WITH_OPTS("LD A, 1 /* comment */", {0x3E, 0x01}, config);
     // And multi-line block comments are also valid.
-    ASSERT_CODE_WITH_OPTS("LD A, 1\n/* comment */\nLD B, 2", {0x3E, 0x01, 0x06, 0x02}, options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", options); // C++ style should be invalid
+    ASSERT_CODE_WITH_OPTS("LD A, 1\n/* comment */\nLD B, 2", {0x3E, 0x01, 0x06, 0x02}, config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 // This is a cpp comment", config); // C++ style should be invalid
 
     // 5. Test: Only C++ style comments allowed
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.comments.allow_semicolon = false;
-    options.comments.allow_block = false;
-    options.comments.allow_cpp_style = true;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", options);
-    ASSERT_CODE_WITH_OPTS("LD A, 5 // This is a cpp comment", {0x3E, 0x05}, options);
-    ASSERT_CODE_WITH_OPTS("// ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A}, options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.comments.allow_semicolon = false;
+    config.comments.allow_block = false;
+    config.comments.allow_cpp_style = true;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 ; This is a comment", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 5 /* This is a block comment */", config);
+    ASSERT_CODE_WITH_OPTS("LD A, 5 // This is a cpp comment", {0x3E, 0x05}, config);
+    ASSERT_CODE_WITH_OPTS("// ENTIRE LINE COMMENT\nLD B, 10", {0x06, 0x0A}, config);
 
     // 6. Test: Default behavior (all comment types allowed)
-    options = Z80Assembler<Z80StandardBus>::get_default_options(); // Default has all enabled
-    ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, options);
-    ASSERT_CODE_WITH_OPTS("LD A, 6 // This is a cpp comment", {0x3E, 0x06}, options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config(); // Default has all enabled
+    ASSERT_CODE_WITH_OPTS("LD A, 5 ; This is a comment", {0x3E, 0x05}, config);
+    ASSERT_CODE_WITH_OPTS("LD A, 6 // This is a cpp comment", {0x3E, 0x06}, config);
     // This should fail as it's two instructions on one line after comment removal.
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/* Start comment */LD B, 2", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/* Start comment */LD B, 2", config);
     ASSERT_CODE_WITH_OPTS(R"(
         LD A, 1       /* Start comment
         LD B, 2       This is all commented out
         LD C, 3       */ LD D, 4 ; Another comment // And another one
-    )", {0x3E, 0x01, 0x16, 0x04}, options); // Only LD A, 1 and LD D, 4 should be assembled
+    )", {0x3E, 0x01, 0x16, 0x04}, config); // Only LD A, 1 and LD D, 4 should be assembled
 
     // 7. Test: Unterminated block comment (should always fail if allow_block is true)
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.comments.allow_block = true;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1 /* This comment is not closed", options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.comments.allow_block = true;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1 /* This comment is not closed", config);
 
     // 8. Test: Block comment with no content
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.comments.allow_block = true;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/**/LD B, 2", options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.comments.allow_block = true;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1/**/LD B, 2", config);
 
     // 9. Test: Block comment spanning multiple lines
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.comments.allow_block = true;
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.comments.allow_block = true;
     ASSERT_CODE_WITH_OPTS(R"(
         LD A, 1
         /*
         This is a multi-line comment.
         */
         LD B, 2
-    )", {0x3E, 0x01, 0x06, 0x02}, options);
+    )", {0x3E, 0x01, 0x06, 0x02}, config);
 }
 
 TEST_CASE(ForwardReferences) {
@@ -2022,11 +2022,11 @@ TEST_CASE(IncbinDirective) {
 
     // INCBIN disabled in options
     {
-        Z80Assembler<Z80StandardBus>::Options options;
-        options.directives.allow_incbin = false;
+        Z80Assembler<Z80StandardBus>::Config config;
+        config.directives.allow_incbin = false;
         MockFileProvider file_provider;
         file_provider.add_binary_source("data.bin", {0x01, 0x02});
-        ASSERT_COMPILE_FAILS_WITH_OPTS("INCBIN \"data.bin\"", options);
+        ASSERT_COMPILE_FAILS_WITH_OPTS("INCBIN \"data.bin\"", config);
     }
 }
 
@@ -2272,9 +2272,9 @@ TEST_CASE(ReptEndrDirective) {
     )", {0x00, 0x00});
 
     // 6. REPT disabled by options
-    Z80Assembler<Z80StandardBus>::Options options;
-    options.directives.allow_repeat = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("REPT 2\nNOP\nENDR", options);
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.directives.allow_repeat = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("REPT 2\nNOP\nENDR", config);
 
     // 7. Unterminated REPT
     ASSERT_COMPILE_FAILS("REPT 2\nNOP");
@@ -2306,61 +2306,61 @@ TEST_CASE(ReptEndrDirective) {
 }
 
 TEST_CASE(DirectiveOptions) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
 
     // 1. Test directives.enabled = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.enabled = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("ORG 0x100", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("DB 1", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nENDIF", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("ALIGN 4", options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.enabled = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ORG 0x100", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DB 1", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nENDIF", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ALIGN 4", config);
 
     // 2. Test directives.constants.enabled = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.constants.enabled = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 10", options);
-    ASSERT_CODE_WITH_OPTS("ORG 0x100\nNOP", {0x00}, options); // Other directives should work
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.constants.enabled = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 10", config);
+    ASSERT_CODE_WITH_OPTS("ORG 0x100\nNOP", {0x00}, config); // Other directives should work
 
     // 3. Test directives.constants.allow_equ = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.constants.allow_equ = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", options);
-    ASSERT_CODE_WITH_OPTS("VALUE SET 10\nLD A, VALUE", {0x3E, 10}, options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.constants.allow_equ = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE EQU 10", config);
+    ASSERT_CODE_WITH_OPTS("VALUE SET 10\nLD A, VALUE", {0x3E, 10}, config);
 
     // 4. Test directives.constants.allow_set = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.constants.allow_set = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 10", options);
-    ASSERT_CODE_WITH_OPTS("VALUE EQU 10\nLD A, VALUE", {0x3E, 10}, options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.constants.allow_set = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("VALUE SET 10", config);
+    ASSERT_CODE_WITH_OPTS("VALUE EQU 10\nLD A, VALUE", {0x3E, 10}, config);
 
     // 5. Test directives.allow_org = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.allow_org = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("ORG 0x100", options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.allow_org = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ORG 0x100", config);
 
     // 6. Test directives.allow_align = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.allow_align = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("ALIGN 4", options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.allow_align = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ALIGN 4", config);
 
     // 7. Test directives.allow_data_definitions = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.allow_data_definitions = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("DB 1", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("DW 1", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("DS 1", options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.allow_data_definitions = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DB 1", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DW 1", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DS 1", config);
 
     // 8. Test directives.allow_includes = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.allow_includes = false;
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.allow_includes = false;
     MockFileProvider file_provider_no_include;
     file_provider_no_include.add_source("main.asm", "INCLUDE \"other.asm\"");
     file_provider_no_include.add_source("other.asm", "NOP");
     Z80StandardBus bus_no_include;
-    Z80Assembler<Z80StandardBus> assembler_no_include(&bus_no_include, &file_provider_no_include, options);
+    Z80Assembler<Z80StandardBus> assembler_no_include(&bus_no_include, &file_provider_no_include, config);
     try {
         assembler_no_include.compile("main.asm");
         tests_failed++;
@@ -2370,43 +2370,43 @@ TEST_CASE(DirectiveOptions) {
     }
 
     // 9. Test directives.allow_conditional_compilation = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.allow_conditionals = false;
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.allow_conditionals = false;
     try {
-        ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nNOP\nENDIF", options);
+        ASSERT_COMPILE_FAILS_WITH_OPTS("IF 1\nNOP\nENDIF", config);
     } catch (const std::exception& e) {
         // This is expected. The test macro doesn't propagate the exception, so we catch it here.
     }
-    ASSERT_COMPILE_FAILS_WITH_OPTS("IFDEF SYMBOL\nNOP\nENDIF", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("IFNDEF SYMBOL\nNOP\nENDIF", options);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("IFDEF SYMBOL\nNOP\nENDIF", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("IFNDEF SYMBOL\nNOP\nENDIF", config);
 
     // 10. Test directives.allow_rept_endr = false (already tested in its own case, but good for completeness)
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.allow_repeat = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("REPT 2\nNOP\nENDR", options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.allow_repeat = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("REPT 2\nNOP\nENDR", config);
 
     // 10. Test that disabling conditional compilation doesn't affect other directives
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.allow_conditionals = false;
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.allow_conditionals = false;
     ASSERT_CODE_WITH_OPTS(R"(
         VALUE EQU 10
         LD A, VALUE
         DB 0xFF
-    )", {0x3E, 10, 0xFF}, options);
+    )", {0x3E, 10, 0xFF}, config);
 
     // 11. Test directives.allow_phase = false
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.allow_phase = false;
-    ASSERT_COMPILE_FAILS_WITH_OPTS("PHASE 0x8000", options);
-    ASSERT_COMPILE_FAILS_WITH_OPTS("DEPHASE", options);
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.allow_phase = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("PHASE 0x8000", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("DEPHASE", config);
 
     // 12. Test directives.allow_phase = true (default)
-    options = Z80Assembler<Z80StandardBus>::get_default_options();
-    options.directives.allow_phase = true; // Explicitly set for clarity
+    config = Z80Assembler<Z80StandardBus>::get_default_config();
+    config.directives.allow_phase = true; // Explicitly set for clarity
     ASSERT_CODE_WITH_OPTS(R"(
         PHASE 0x8000
         NOP
-    )", {0x00}, options);
+    )", {0x00}, config);
 }
 
 TEST_CASE(ConditionalCompilation_ForwardReference) {
@@ -3937,86 +3937,86 @@ TEST_CASE(RelationalAndEqualityOperators) {
 }
 
 TEST_CASE(OptimizationFlags) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     
     // Default: Disabled (LD A, 0 -> 3E 00) - Optimizations require directive activation
-    ASSERT_CODE_WITH_OPTS("LD A, 0", {0x3E, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS("LD A, 0", {0x3E, 0x00}, config);
 
     // Enabled via directive
-    ASSERT_CODE_WITH_OPTS("LD A, 0", {0x3E, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS("LD A, 0", {0x3E, 0x00}, config);
     
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 0", {0xAF}, options);
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 0", {0xAF}, config);
     
     // Disabled via directive
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nOPTIMIZE -OPS_XOR\nLD A, 0", {0x3E, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nOPTIMIZE -OPS_XOR\nLD A, 0", {0x3E, 0x00}, config);
 
     // Disabled globally
-    options.compilation.enable_optimization = false;
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 0", {0x3E, 0x00}, options);
+    config.compilation.enable_optimization = false;
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 0", {0x3E, 0x00}, config);
 }
 
 TEST_CASE(JpToJrOptimization) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     
     std::string prefix = "OPTIMIZE +BRANCH_SHORT\n";
 
     // JP nn -> JR e (Forward, within range)
-    ASSERT_CODE_WITH_OPTS(prefix + "JP target\nNOP\ntarget: NOP", {0x18, 0x01, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "JP target\nNOP\ntarget: NOP", {0x18, 0x01, 0x00, 0x00}, config);
     
     // JP nn -> JR e (Backward, within range)
-    ASSERT_CODE_WITH_OPTS(prefix + "target: NOP\nJP target", {0x00, 0x18, 0xFD}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "target: NOP\nJP target", {0x00, 0x18, 0xFD}, config);
     
     // JP cc, nn -> JR cc, e
-    ASSERT_CODE_WITH_OPTS(prefix + "JP Z, target\nNOP\ntarget: NOP", {0x28, 0x01, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "JP Z, target\nNOP\ntarget: NOP", {0x28, 0x01, 0x00, 0x00}, config);
     
     // JP cc, nn -> JP cc, nn (Condition not supported by JR, e.g. PO)
-    ASSERT_CODE_WITH_OPTS(prefix + "JP PO, target\nNOP\ntarget: NOP", {0xE2, 0x04, 0x00, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "JP PO, target\nNOP\ntarget: NOP", {0xE2, 0x04, 0x00, 0x00, 0x00}, config);
     
     // Out of range (Forward) -> Remains JP
     std::string code_far = prefix + "JP target\nDS 130\ntarget: NOP";
     std::vector<uint8_t> expected_far = {0xC3, 0x85, 0x00}; // JP 0x0085 (3 + 130 = 133 = 0x85)
     expected_far.insert(expected_far.end(), 130, 0);
     expected_far.push_back(0x00);
-    ASSERT_CODE_WITH_OPTS(code_far, expected_far, options);
+    ASSERT_CODE_WITH_OPTS(code_far, expected_far, config);
 }
 
 TEST_CASE(PeepholeOptimizations) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     
     // XOR A
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 0", {0xAF}, options);
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 1", {0x3E, 0x01}, options); // Not 0
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 0", {0xAF}, config);
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_XOR\nLD A, 1", {0x3E, 0x01}, config); // Not 0
     
     // INC/DEC
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, 1", {0x3C}, options); // INC A
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nSUB 1", {0x3D}, options);    // DEC A
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, 2", {0xC6, 0x02}, options); // Not 1
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, 255", {0x3D}, options); // DEC A (A + 255 == A - 1)
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, -1", {0x3D}, options);  // DEC A
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nSUB 255", {0x3C}, options);    // INC A (A - 255 == A + 1)
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nSUB -1", {0x3C}, options);     // INC A
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, 1", {0x3C}, config); // INC A
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nSUB 1", {0x3D}, config);    // DEC A
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, 2", {0xC6, 0x02}, config); // Not 1
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, 255", {0x3D}, config); // DEC A (A + 255 == A - 1)
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nADD A, -1", {0x3D}, config);  // DEC A
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nSUB 255", {0x3C}, config);    // INC A (A - 255 == A + 1)
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_INC\nSUB -1", {0x3C}, config);     // INC A
     
     // OR A
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_OR\nCP 0", {0xB7}, options); // OR A
-    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_OR\nCP 1", {0xFE, 0x01}, options); // Not 0
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_OR\nCP 0", {0xB7}, config); // OR A
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE +OPS_OR\nCP 1", {0xFE, 0x01}, config); // Not 0
 }
 
 TEST_CASE(RedundantLoadsOptimization) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +DCE\n";
     
     // LD A, A -> Removed (0 bytes)
-    ASSERT_CODE_WITH_OPTS(prefix + "LD A, A", {}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "LD A, A", {}, config);
     
     // LD B, B -> Removed
-    ASSERT_CODE_WITH_OPTS(prefix + "LD B, B", {}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "LD B, B", {}, config);
     
     // LD A, B -> Kept
-    ASSERT_CODE_WITH_OPTS(prefix + "LD A, B", {0x78}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "LD A, B", {0x78}, config);
 }
 
 TEST_CASE(OptDirectiveScopes) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     
     std::string code = R"(
         LD A, 0         ; 3E 00
@@ -4037,11 +4037,11 @@ TEST_CASE(OptDirectiveScopes) {
     std::vector<uint8_t> expected = {
         0x3E, 0x00, 0xAF, 0x18, 0x00, 0xAF, 0xC3, 0x05, 0x00, 0x3E, 0x00
     };
-    ASSERT_CODE_WITH_OPTS(code, expected, options);
+    ASSERT_CODE_WITH_OPTS(code, expected, config);
 }
 
 TEST_CASE(JumpChainOptimization) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +JUMP_THREAD\n";
 
     // Basic chain: JP A -> JP B -> Target
@@ -4065,7 +4065,7 @@ TEST_CASE(JumpChainOptimization) {
         0xC3, 0x09, 0x00, 
         0x00
     };
-    ASSERT_CODE_WITH_OPTS(code_basic, expected_basic, options);
+    ASSERT_CODE_WITH_OPTS(code_basic, expected_basic, config);
 
     // Loop detection: JP A -> JP B -> JP A
     // Should not hang, should just point to next in chain or stop
@@ -4076,7 +4076,7 @@ TEST_CASE(JumpChainOptimization) {
         JP LabelA
     )";
     // Should compile successfully
-    ASSERT_CODE_WITH_OPTS(code_loop, {0xC3, 0x00, 0x00, 0xC3, 0x03, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(code_loop, {0xC3, 0x00, 0x00, 0xC3, 0x03, 0x00}, config);
 
     // Interaction with JR
     // JR A -> JP B -> Target
@@ -4096,11 +4096,11 @@ TEST_CASE(JumpChainOptimization) {
         0x18, 0x00, // JP Target (0x05) -> JR Target (0x04). 0x04 - (0x02+2) = 0x00
         0x00
     };
-    ASSERT_CODE_WITH_OPTS(code_jr, expected_jr, options);
+    ASSERT_CODE_WITH_OPTS(code_jr, expected_jr, config);
 }
 
 TEST_CASE(JumpChainWithJr) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +JUMP_THREAD +BRANCH_SHORT\n";
 
     // JP Start -> JP Target.
@@ -4121,11 +4121,11 @@ TEST_CASE(JumpChainWithJr) {
         0x00,       // NOP
         0x00        // NOP
     };
-    ASSERT_CODE_WITH_OPTS(code, expected, options);
+    ASSERT_CODE_WITH_OPTS(code, expected, config);
 }
 
 TEST_CASE(JumpChainTrampoline) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +JUMP_THREAD\n";
 
     // Scenario: JR jumps to a Trampoline, which JPs to a FarTarget.
@@ -4149,11 +4149,11 @@ TEST_CASE(JumpChainTrampoline) {
     expected.insert(expected.end(), 200, 0);
     expected.push_back(0x00); // NOP at FarTarget
 
-    ASSERT_CODE_WITH_OPTS(code, expected, options);
+    ASSERT_CODE_WITH_OPTS(code, expected, config);
 }
 
 TEST_CASE(JumpChainLoopWithJr) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +JUMP_THREAD +BRANCH_SHORT\n";
 
     // Loop: LabelA -> LabelB -> LabelA
@@ -4174,11 +4174,11 @@ TEST_CASE(JumpChainLoopWithJr) {
         0x18, 0xFE, // JR LabelA
         0x18, 0xFE  // JR LabelB
     };
-    ASSERT_CODE_WITH_OPTS(code, expected, options);
+    ASSERT_CODE_WITH_OPTS(code, expected, config);
 }
 
 TEST_CASE(JumpChainDjnz) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +JUMP_THREAD\n";
 
     // DJNZ -> JP -> Target
@@ -4200,11 +4200,11 @@ TEST_CASE(JumpChainDjnz) {
         0xC3, 0x08, 0x00, // JP Target
         0xAF              // XOR A
     };
-    ASSERT_CODE_WITH_OPTS(code, expected, options);
+    ASSERT_CODE_WITH_OPTS(code, expected, config);
 }
 
 TEST_CASE(JumpChainThroughConditional) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +JUMP_THREAD +BRANCH_SHORT\n";
 
     // JP Start -> JR Z, Target
@@ -4222,11 +4222,11 @@ TEST_CASE(JumpChainThroughConditional) {
         0x28, 0x00, // JR Z, Target (offset 0)
         0x00        // NOP
     };
-    ASSERT_CODE_WITH_OPTS(code, expected, options);
+    ASSERT_CODE_WITH_OPTS(code, expected, config);
 }
 
 TEST_CASE(OptimizationKeywords) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     
     // SPEED: Enables opss, disables JR
     std::string code_speed = R"(
@@ -4236,7 +4236,7 @@ TEST_CASE(OptimizationKeywords) {
     target:
         NOP
     )";
-    ASSERT_CODE_WITH_OPTS(code_speed, {0xAF, 0xC3, 0x04, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(code_speed, {0xAF, 0xC3, 0x04, 0x00, 0x00}, config);
 
     // SIZE: Enables everything including JR
     std::string code_size = R"(
@@ -4246,7 +4246,7 @@ TEST_CASE(OptimizationKeywords) {
     target:
         NOP
     )";
-    ASSERT_CODE_WITH_OPTS(code_size, {0xAF, 0x18, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(code_size, {0xAF, 0x18, 0x00, 0x00}, config);
 
     // OFF: Disables everything
     std::string code_off = R"(
@@ -4257,7 +4257,7 @@ TEST_CASE(OptimizationKeywords) {
     target:
         NOP
     )";
-    ASSERT_CODE_WITH_OPTS(code_off, {0x3E, 0x00, 0xC3, 0x05, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(code_off, {0x3E, 0x00, 0xC3, 0x05, 0x00, 0x00}, config);
     
     // OPS: Enables only opss (XOR A, INC/DEC, OR A)
     std::string code_peep = R"(
@@ -4269,11 +4269,11 @@ TEST_CASE(OptimizationKeywords) {
     target:
         NOP
     )";
-    ASSERT_CODE_WITH_OPTS(code_peep, {0xAF, 0x3C, 0xC3, 0x05, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(code_peep, {0xAF, 0x3C, 0xC3, 0x05, 0x00, 0x00}, config);
 }
 
 TEST_CASE(BranchLongOptimization) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +BRANCH_LONG\n";
 
     auto make_expected = [](uint8_t opcode, int padding) {
@@ -4285,39 +4285,39 @@ TEST_CASE(BranchLongOptimization) {
 
     // JR nn -> JP nn (Out of range)
     std::string code_uncond = prefix + "JR target\nDS 128\ntarget: NOP";
-    ASSERT_CODE_WITH_OPTS(code_uncond, make_expected(0xC3, 128), options);
+    ASSERT_CODE_WITH_OPTS(code_uncond, make_expected(0xC3, 128), config);
 
     // JR cc, nn -> JP cc, nn (Out of range)
-    ASSERT_CODE_WITH_OPTS(prefix + "JR Z, target\nDS 128\ntarget: NOP", make_expected(0xCA, 128), options); // JP Z
-    ASSERT_CODE_WITH_OPTS(prefix + "JR NZ, target\nDS 128\ntarget: NOP", make_expected(0xC2, 128), options); // JP NZ
-    ASSERT_CODE_WITH_OPTS(prefix + "JR C, target\nDS 128\ntarget: NOP", make_expected(0xDA, 128), options); // JP C
-    ASSERT_CODE_WITH_OPTS(prefix + "JR NC, target\nDS 128\ntarget: NOP", make_expected(0xD2, 128), options); // JP NC
+    ASSERT_CODE_WITH_OPTS(prefix + "JR Z, target\nDS 128\ntarget: NOP", make_expected(0xCA, 128), config); // JP Z
+    ASSERT_CODE_WITH_OPTS(prefix + "JR NZ, target\nDS 128\ntarget: NOP", make_expected(0xC2, 128), config); // JP NZ
+    ASSERT_CODE_WITH_OPTS(prefix + "JR C, target\nDS 128\ntarget: NOP", make_expected(0xDA, 128), config); // JP C
+    ASSERT_CODE_WITH_OPTS(prefix + "JR NC, target\nDS 128\ntarget: NOP", make_expected(0xD2, 128), config); // JP NC
 
     // JR cc, nn -> JR cc, e (In range) - Should remain JR
     std::string code_in_range = prefix + "JR Z, target\nNOP\ntarget: NOP";
     // JR Z (28), offset 1.
-    ASSERT_CODE_WITH_OPTS(code_in_range, {0x28, 0x01, 0x00, 0x00}, options);
+    ASSERT_CODE_WITH_OPTS(code_in_range, {0x28, 0x01, 0x00, 0x00}, config);
 }
 
 TEST_CASE(PeepholeLogicAndSla) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +OPS_LOGIC +OPS_SLA\n";
 
     // AND 0 -> XOR A
-    ASSERT_CODE_WITH_OPTS(prefix + "AND 0", {0xAF}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "AND 0", {0xAF}, config);
     
     // OR 0 -> OR A
-    ASSERT_CODE_WITH_OPTS(prefix + "OR 0", {0xB7}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "OR 0", {0xB7}, config);
     
     // XOR 0 -> OR A
-    ASSERT_CODE_WITH_OPTS(prefix + "XOR 0", {0xB7}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "XOR 0", {0xB7}, config);
     
     // SLA A -> ADD A, A
-    ASSERT_CODE_WITH_OPTS(prefix + "SLA A", {0x87}, options);
+    ASSERT_CODE_WITH_OPTS(prefix + "SLA A", {0x87}, config);
 }
 
 TEST_CASE(BranchLongWithJumpThread) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +BRANCH_LONG +JUMP_THREAD\n";
 
     // Scenario 1: JR -> JP (far) -> Target
@@ -4342,7 +4342,7 @@ TEST_CASE(BranchLongWithJumpThread) {
     expected.insert(expected.end(), 200, 0);
     expected.push_back(0x00);
 
-    ASSERT_CODE_WITH_OPTS(code, expected, options);
+    ASSERT_CODE_WITH_OPTS(code, expected, config);
 
     // Scenario 2: JR cc -> JP (far) -> Target
     std::string code_cond = prefix + R"(
@@ -4365,11 +4365,11 @@ TEST_CASE(BranchLongWithJumpThread) {
     expected_cond.insert(expected_cond.end(), 200, 0);
     expected_cond.push_back(0x00);
     
-    ASSERT_CODE_WITH_OPTS(code_cond, expected_cond, options);
+    ASSERT_CODE_WITH_OPTS(code_cond, expected_cond, config);
 }
 
 TEST_CASE(BranchLongAndShortInteraction) {
-    Z80Assembler<Z80StandardBus>::Options options;
+    Z80Assembler<Z80StandardBus>::Config config;
     std::string prefix = "OPTIMIZE +BRANCH_LONG +BRANCH_SHORT\n";
 
     // 1. JP NearTarget -> Should become JR (2 bytes) because of BRANCH_SHORT
@@ -4395,7 +4395,7 @@ TEST_CASE(BranchLongAndShortInteraction) {
     expected.insert(expected.end(), 200, 0);
     expected.push_back(0x00);
     
-    ASSERT_CODE_WITH_OPTS(code, expected, options);
+    ASSERT_CODE_WITH_OPTS(code, expected, config);
 }
 
 int main() {
