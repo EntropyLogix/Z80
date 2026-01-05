@@ -3301,30 +3301,382 @@ protected:
             return registers;
         }
     };
-    class Instructions{
+    class InstructionMatcher {
     public:
-        Instructions(IPhasePolicy& policy) : m_policy(policy) {}
+        using Operand = typename Operands::Operand;
+        using OperandType = typename Operands::Operand::Type;
+
+        InstructionMatcher(IPhasePolicy& policy) : m_policy(policy) {}
+        virtual ~InstructionMatcher() = default;
+
+    protected:
+        virtual bool match(const Operand& operand, OperandType expected) const {
+            return operand.type == expected;
+        }
+        bool match_reg8(const Operand& operand) const { return match(operand, OperandType::REG8);}
+        bool match_reg16(const Operand& operand) const { return match(operand, OperandType::REG16); }
+        bool match_imm8(const Operand& operand) const { 
+            return (match(operand, OperandType::IMMEDIATE) || match(operand, OperandType::CHAR_LITERAL)) && operand.num_val >= -128 && operand.num_val <= 255; 
+        }
+        bool match_imm16(const Operand& operand) const { 
+            return match(operand, OperandType::IMMEDIATE) && operand.num_val >= -32768 && operand.num_val <= 65535; 
+        }
+        bool match_mem_imm16(const Operand& operand) const { return match(operand, OperandType::MEM_IMMEDIATE); }
+        bool match_mem_reg16(const Operand& operand) const { return match(operand, OperandType::MEM_REG16); }
+        bool match_mem_indexed(const Operand& operand) const { return match(operand, OperandType::MEM_INDEXED); }
+        bool match_condition(const Operand& operand) const { return match(operand, OperandType::CONDITION); }
+        bool match_char(const Operand& operand) const { return match(operand, OperandType::CHAR_LITERAL ); }
+        bool match_string(const Operand& operand) const { return match(operand, OperandType::STRING_LITERAL ); }
+
+        IPhasePolicy& m_policy;
+    };
+    class Optimizer : public InstructionMatcher {
+    public:
+        Optimizer(IPhasePolicy& policy) : InstructionMatcher(policy) {}
+
+        struct Result {
+            enum class Action { NONE, REPLACE, DONE };
+            Action action = Action::NONE;
+            std::string mnemonic;
+            std::vector<typename Operands::Operand> operands;
+        };
+        Result optimize(const std::string& mnemonic, const std::vector<typename Operands::Operand>& ops) {
+            if (!this->m_policy.context().assembler.m_config.compilation.enable_optimization)
+                return {Result::Action::NONE};
+            auto& ctx = this->m_policy.context();
+            if (ops.size() == 1) {
+                if ((mnemonic == "JP" || mnemonic == "JR") && this->match_imm16(ops[0])) {
+                     if (ops[0].type == Operands::Operand::Type::IMMEDIATE)
+                          ctx.jump_targets[ctx.address.current_logical] = ops[0].num_val;
+                }
+            }
+            auto& opts = ctx.optimization;
+            auto& stats = ctx.stats;
+            if (ops.size() == 1) {
+                const auto& op = ops[0];
+                if (mnemonic == "JR" && this->match_imm16(op)) {
+                    int32_t target_addr = op.num_val;
+                    if (op.type == Operands::Operand::Type::IMMEDIATE)
+                        optimize_jump_target(target_addr);            
+                    uint16_t instruction_size = 2;
+                    int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
+                    if (opts.dce && offset == 0) {
+                        stats.bytes_saved += 2;
+                        stats.cycles_saved += 12;
+                        return {Result::Action::DONE};
+                    }
+                    if (opts.branch_long && (offset < -128 || offset > 127)) {
+                        stats.bytes_saved += -1; stats.cycles_saved += 2;
+                        typename Operands::Operand new_op = op;
+                        new_op.num_val = target_addr;
+                        return {Result::Action::REPLACE, "JP", {new_op}};
+                    }
+                    if (target_addr != op.num_val) {
+                        if (offset >= -128 && offset <= 127) {
+                            typename Operands::Operand new_op = op;
+                            new_op.num_val = target_addr;
+                            return {Result::Action::REPLACE, "JR", {new_op}};
+                        }
+                    }
+                }
+                else if (mnemonic == "JP" && this->match_imm16(op)) {
+                    int32_t target_addr = op.num_val;
+                    if (op.type == Operands::Operand::Type::IMMEDIATE)
+                        optimize_jump_target(target_addr);
+                    if (opts.branch_short && op.type == Operands::Operand::Type::IMMEDIATE) {
+                        uint16_t instruction_size = 2;
+                        int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
+                        if (offset >= -128 && offset <= 127) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += -2;
+                            typename Operands::Operand new_op = op;
+                            new_op.num_val = target_addr;
+                            return {Result::Action::REPLACE, "JR", {new_op}};
+                        }
+                    }
+                    if (target_addr != op.num_val) {
+                        typename Operands::Operand new_op = op;
+                        new_op.num_val = target_addr;
+                        return {Result::Action::REPLACE, "JP", {new_op}};
+                    }
+                }
+                else if (mnemonic == "CALL" && this->match_imm16(op)) {
+                    if (opts.ops_rst && op.num_val <= 0x38 && (op.num_val % 8 == 0)) {
+                        stats.bytes_saved += 2;
+                        stats.cycles_saved += 6;
+                        return {Result::Action::REPLACE, "RST", {op}};
+                    }
+                }
+                else if (mnemonic == "ADD" || mnemonic == "SUB" || mnemonic == "AND" || mnemonic == "OR" || mnemonic == "XOR" || mnemonic == "CP") {
+                    if (this->match_imm8(op)) {
+                        if (mnemonic == "ADD") {
+                            if (op.num_val == 1 && opts.ops_inc) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                            if ((uint8_t)op.num_val == 0xFF && opts.ops_inc) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                            if (op.num_val == 0 && opts.ops_add0) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                        } else if (mnemonic == "SUB") {
+                            if (op.num_val == 1 && opts.ops_inc) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                            if ((uint8_t)op.num_val == 0xFF && opts.ops_inc) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                        } else if (mnemonic == "AND") {
+                            if (op.num_val == 0 && opts.ops_logic) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "XOR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                            if ((uint8_t)op.num_val == 0xFF && opts.ops_inc) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                        } else if (mnemonic == "XOR") {
+                            if (op.num_val == 0 && opts.ops_logic) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                        } else if (mnemonic == "OR") {
+                            if (op.num_val == 0 && opts.ops_logic) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                            if ((uint8_t)op.num_val == 0xFF && opts.ops_inc) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                        } else if (mnemonic == "CP") {
+                            if (op.num_val == 0 && opts.ops_or) {
+                                stats.bytes_saved += 1;
+                                stats.cycles_saved += 3;
+                                return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                            }
+                        }
+                    }
+                }
+                else if (mnemonic == "SLA" && op.str_val == "A" && opts.ops_sla) {
+                    stats.bytes_saved += 1;
+                    stats.cycles_saved += 4;
+                    return {Result::Action::REPLACE, "ADD", {op, op}}; // ADD A, A
+                }
+                else if ((mnemonic == "RLC" || mnemonic == "RRC" || mnemonic == "RL" || mnemonic == "RR") && op.str_val == "A" && opts.ops_rot) {
+                    stats.bytes_saved += 1;
+                    stats.cycles_saved += 4;
+                    return {Result::Action::REPLACE, mnemonic + "A", {}}; // RLCA, RRCA, etc.
+                }
+                else if (mnemonic == "DJNZ" && this->match_imm16(op)) {
+                    int32_t target_addr = op.num_val;
+                    if (op.type == Operands::Operand::Type::IMMEDIATE) {
+                        optimize_jump_target(target_addr);
+                        if (target_addr != op.num_val) {
+                            uint16_t instruction_size = 2;
+                            int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
+                            if (offset >= -128 && offset <= 127) {
+                                typename Operands::Operand new_op = op;
+                                new_op.num_val = target_addr;
+                                return {Result::Action::REPLACE, "DJNZ", {new_op}};
+                            }
+                        }
+                    }
+                }
+            }
+            else if (ops.size() == 2) {
+                const auto& op1 = ops[0];
+                const auto& op2 = ops[1];
+                if (mnemonic == "LD" && this->match_reg8(op1) && this->match_reg8(op2)) {
+                    if (opts.dce && op1.str_val == op2.str_val) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 4;
+                        return {Result::Action::DONE};
+                    }
+                }
+                else if (mnemonic == "LD" && this->match_reg8(op1) && this->match_imm8(op2)) {
+                    if (op1.str_val == "A" && op2.num_val == 0 && opts.ops_xor) {
+                        stats.bytes_saved += 1; stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "XOR", {op1}}; // XOR A
+                    }
+                }
+                else if ((mnemonic == "ADD" || mnemonic == "SUB" || mnemonic == "AND" || mnemonic == "OR" || mnemonic == "XOR" || mnemonic == "CP") && op1.str_val == "A" && this->match_imm8(op2)) {
+                     if (mnemonic == "ADD") {
+                        if (op2.num_val == 1 && opts.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "INC", {op1}};
+                        }
+                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "DEC", {op1}};
+                        }
+                        if (op2.num_val == 0 && opts.ops_add0) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "OR", {op1}};
+                        }
+                     } else if (mnemonic == "SUB") {
+                        if (op2.num_val == 1 && opts.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "DEC", {op1}};
+                        }
+                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "INC", {op1}};
+                        }
+                     } else if (mnemonic == "AND") {
+                        if (op2.num_val == 0 && opts.ops_logic) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "XOR", {op1}};
+                        }
+                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "DEC", {op1}};
+                        }
+                     } else if (mnemonic == "XOR") {
+                        if (op2.num_val == 0 && opts.ops_logic) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "OR", {op1}};
+                        }
+                     } else if (mnemonic == "OR") {
+                        if (op2.num_val == 0 && opts.ops_logic) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "OR", {op1}};
+                        }
+                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "INC", {op1}};
+                        }
+                     } else if (mnemonic == "CP") {
+                        if (op2.num_val == 0 && opts.ops_or) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "OR", {op1}};
+                        }
+                     }
+                }
+                else if (mnemonic == "JR" && this->match_condition(op1) && this->match_imm16(op2)) {
+                    int32_t target_addr = op2.num_val;
+                    if (op2.type == Operands::Operand::Type::IMMEDIATE)
+                        optimize_jump_target(target_addr);
+                    uint16_t instruction_size = 2;
+                    int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
+                    if (opts.dce && offset == 0) {
+                        stats.bytes_saved += 2; stats.cycles_saved += 12;
+                        return {Result::Action::DONE};
+                    }
+                    if (opts.branch_long && (offset < -128 || offset > 127)) {
+                        stats.bytes_saved += -1; stats.cycles_saved += 2;
+                        typename Operands::Operand new_op = op2;
+                        new_op.num_val = target_addr;
+                        return {Result::Action::REPLACE, "JP", {op1, new_op}};
+                    }
+                    if (target_addr != op2.num_val) {
+                        if (offset >= -128 && offset <= 127) {
+                            typename Operands::Operand new_op = op2;
+                            new_op.num_val = target_addr;
+                            return {Result::Action::REPLACE, "JR", {op1, new_op}};
+                        }
+                    }
+                }
+                else if (mnemonic == "JP" && this->match_condition(op1) && this->match_imm16(op2)) {
+                    int32_t target_addr = op2.num_val;
+                    if (op2.type == Operands::Operand::Type::IMMEDIATE)
+                        optimize_jump_target(target_addr);
+                    if (opts.branch_short && op2.type == Operands::Operand::Type::IMMEDIATE) {
+                        uint16_t instruction_size = 2;
+                        int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
+                        if (offset >= -128 && offset <= 127) {
+                            std::string cond = op1.str_val;
+                            if (cond == "NZ" || cond == "Z" || cond == "NC" || cond == "C") {
+                                stats.bytes_saved += 1; stats.cycles_saved += -2;
+                                typename Operands::Operand new_op = op2;
+                                new_op.num_val = target_addr;
+                                return {Result::Action::REPLACE, "JR", {op1, new_op}};
+                            }
+                        }
+                    }
+                    if (target_addr != op2.num_val) {
+                        typename Operands::Operand new_op = op2;
+                        new_op.num_val = target_addr;
+                        return {Result::Action::REPLACE, "JP", {op1, new_op}};
+                    }
+                }
+            }
+            return {Result::Action::NONE};
+        }
+    private:
+        void optimize_jump_target(int32_t& target) {
+            if (!this->m_policy.context().optimization.jump_thread || !this->m_policy.context().assembler.m_config.compilation.enable_optimization)
+                return;
+            std::set<int32_t> visited;
+            visited.insert(target);
+            auto& targets = this->m_policy.context().prev_jump_targets;
+            while (targets.count(target)) {
+                int32_t next_target = targets.at(target);
+                if (visited.count(next_target))
+                    break; 
+                target = next_target;
+                visited.insert(target);
+            }
+        }
+    };
+    class Instructions : public InstructionMatcher {
+    public:
+        Instructions(IPhasePolicy& policy) : InstructionMatcher(policy) {}
+
         bool encode(const std::string& mnemonic, const std::vector<typename Operands::Operand>& operands) {            
-            if (m_policy.context().assembler.m_keywords.is_directive(mnemonic)) {
+            if (this->m_policy.context().assembler.m_keywords.is_directive(mnemonic)) {
                 if (encode_data_block(mnemonic, operands))
                     return true;
-            } else if (!m_policy.context().assembler.m_keywords.is_mnemonic(mnemonic))
-                m_policy.context().assembler.report_error("Unknown mnemonic: " + mnemonic);
-            switch (operands.size()) {
+            } else if (!this->m_policy.context().assembler.m_keywords.is_mnemonic(mnemonic))
+                this->m_policy.context().assembler.report_error("Unknown mnemonic: " + mnemonic);
+            Optimizer optimizer(this->m_policy);
+            using OptResult = typename Optimizer::Result;
+            OptResult opt_res = optimizer.optimize(mnemonic, operands);
+            if (opt_res.action == OptResult::Action::DONE)
+                return true;
+            const std::string& final_mnemonic = (opt_res.action == OptResult::Action::REPLACE) ? opt_res.mnemonic : mnemonic;
+            const std::vector<typename Operands::Operand>& final_operands = (opt_res.action == OptResult::Action::REPLACE) ? opt_res.operands : operands;
+            switch (final_operands.size()) {
             case 0:
-                if (encode_no_operand(mnemonic))
+                if (encode_no_operand(final_mnemonic))
                     return true;
                 break;
             case 1:
-                if (encode_one_operand(mnemonic, operands[0]))
+                if (encode_one_operand(final_mnemonic, final_operands[0]))
                     return true;
                 break;
             case 2:
-                if (encode_two_operands(mnemonic, operands[0], operands[1]))
+                if (encode_two_operands(final_mnemonic, final_operands[0], final_operands[1]))
                     return true;
                 break;
             }
-            m_policy.context().assembler.report_error("Invalid instruction or operands for mnemonic: " + mnemonic);
+            this->m_policy.context().assembler.report_error("Invalid instruction or operands for mnemonic: " + mnemonic);
             return false;
         }
     private:
@@ -3348,58 +3700,28 @@ protected:
             static const std::map<std::string, uint8_t> map = { {"NZ", 0x20}, {"Z", 0x28}, {"NC", 0x30}, {"C", 0x38}};
             return map;
         }
-        using Operand = typename Operands::Operand;
-        using OperandType = typename Operands::Operand::Type;
-        bool match(const Operand& operand, OperandType expected) const {
+        bool match(const typename Operands::Operand& operand, typename Operands::Operand::Type expected) const override {
             bool match = operand.type == expected;
             if (!match)
-                match = m_policy.on_operand_not_matching(operand, expected);
+                match = this->m_policy.on_operand_not_matching(operand, expected);
             return match;
         }
-        bool match_reg8(const Operand& operand) const { return match(operand, OperandType::REG8);}
-        bool match_reg16(const Operand& operand) const { return match(operand, OperandType::REG16); }
-        bool match_imm8(const Operand& operand) const { 
-            return (match(operand, OperandType::IMMEDIATE) || match(operand, OperandType::CHAR_LITERAL)) && operand.num_val >= -128 && operand.num_val <= 255; 
-        }
-        bool match_imm16(const Operand& operand) const { 
-            return match(operand, OperandType::IMMEDIATE) && operand.num_val >= -32768 && operand.num_val <= 65535; 
-        }
-        bool match_mem_imm16(const Operand& operand) const { return match(operand, OperandType::MEM_IMMEDIATE); }
-        bool match_mem_reg16(const Operand& operand) const { return match(operand, OperandType::MEM_REG16); }
-        bool match_mem_indexed(const Operand& operand) const { return match(operand, OperandType::MEM_INDEXED); }
-        bool match_condition(const Operand& operand) const { return match(operand, OperandType::CONDITION); }
-        bool match_char(const Operand& operand) const { return match(operand, OperandType::CHAR_LITERAL ); }
-        bool match_string(const Operand& operand) const { return match(operand, OperandType::STRING_LITERAL ); }
 
-        void assemble(std::vector<uint8_t> bytes) { m_policy.on_assemble(bytes);}
-        void optimize_jump_target(int32_t& target) {
-            if (!m_policy.context().optimization.jump_thread || !m_policy.context().assembler.m_config.compilation.enable_optimization)
-                return;
-            std::set<int32_t> visited;
-            visited.insert(target);
-            auto& targets = m_policy.context().prev_jump_targets;
-            while (targets.count(target)) {
-                int32_t next_target = targets.at(target);
-                if (visited.count(next_target))
-                    break; 
-                target = next_target;
-                visited.insert(target);
-            }
-        }
-        bool encode_data_block(const std::string& mnemonic, const std::vector<Operand>& ops) {
-            const auto& directive_options = m_policy.context().assembler.m_config.directives;
+        void assemble(std::vector<uint8_t> bytes) { this->m_policy.on_assemble(bytes);}
+        bool encode_data_block(const std::string& mnemonic, const std::vector<typename Operands::Operand>& ops) {
+            const auto& directive_options = this->m_policy.context().assembler.m_config.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
                 return false;
             if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM" || mnemonic == "DEFM") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (op.type == OperandType::STRING_LITERAL) {
+                    if (op.type == Operands::Operand::Type::STRING_LITERAL) {
                         for (char c : op.str_val)
                             bytes.push_back((uint8_t)c);
-                    } else if (match_imm8(op)) 
+                    } else if (this->match_imm8(op)) 
                         bytes.push_back((uint8_t)op.num_val);
                     else
-                        m_policy.context().assembler.report_error("Unsupported or out-of-range operand for DB: " + op.str_val);
+                        this->m_policy.context().assembler.report_error("Unsupported or out-of-range operand for DB: " + op.str_val);
                 }
                 if (!bytes.empty())
                     assemble(bytes);
@@ -3407,11 +3729,11 @@ protected:
             } else if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (match_imm16(op) || match_char(op)) {
+                    if (this->match_imm16(op) || this->match_char(op)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)(op.num_val >> 8));
                     } else
-                        m_policy.context().assembler.report_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                        this->m_policy.context().assembler.report_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 if (!bytes.empty())
                     assemble(bytes);
@@ -3419,13 +3741,13 @@ protected:
             } else if (mnemonic == "DWORD" || mnemonic == "DD") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (match(op, OperandType::IMMEDIATE)) {
+                    if (this->match(op, Operands::Operand::Type::IMMEDIATE)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 8) & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 24) & 0xFF));
                     } else
-                        m_policy.context().assembler.report_error("Unsupported operand for DWORD/DD: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                        this->m_policy.context().assembler.report_error("Unsupported operand for DWORD/DD: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 if (!bytes.empty())
                     assemble(bytes);
@@ -3433,23 +3755,23 @@ protected:
             } else if (mnemonic == "DQ") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (match(op, OperandType::IMMEDIATE)) {
+                    if (this->match(op, Operands::Operand::Type::IMMEDIATE)) {
                         uint64_t val = (uint64_t)(op.num_val);
                         for (int i = 0; i < 8; ++i)
                             bytes.push_back((uint8_t)((val >> (i*8)) & 0xFF));
                     } else
-                        m_policy.context().assembler.report_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                        this->m_policy.context().assembler.report_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 if (!bytes.empty())
                     assemble(bytes);
                 return true;
             } else if (mnemonic == "DH" || mnemonic == "HEX" || mnemonic == "DEFH") {
                 if (ops.empty())
-                    m_policy.context().assembler.report_error(mnemonic + " requires at least one string argument.");
+                    this->m_policy.context().assembler.report_error(mnemonic + " requires at least one string argument.");
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (!match_string(op))
-                        m_policy.context().assembler.report_error(mnemonic + " arguments must be string literals. Found: '" + op.str_val + "'");
+                    if (!this->match_string(op))
+                        this->m_policy.context().assembler.report_error(mnemonic + " arguments must be string literals. Found: '" + op.str_val + "'");
                     std::string hex_str = op.str_val;
                     std::string continuous_hex;
                     for (char c : hex_str) {
@@ -3457,13 +3779,13 @@ protected:
                             continuous_hex += tolower(c);
                     }
                     if (continuous_hex.length() % 2 != 0)
-                        m_policy.context().assembler.report_error("Hex string in " + mnemonic + " must have an even number of characters: \"" + hex_str + "\"");
+                        this->m_policy.context().assembler.report_error("Hex string in " + mnemonic + " must have an even number of characters: \"" + hex_str + "\"");
                     for (size_t i = 0; i < continuous_hex.length(); i += 2) {
                         std::string byte_str = continuous_hex.substr(i, 2);
                         uint8_t byte_val;
                         auto result = std::from_chars(byte_str.data(), byte_str.data() + byte_str.size(), byte_val, 16);
                         if (result.ec != std::errc())
-                            m_policy.context().assembler.report_error("Invalid hex character in " + mnemonic + ": \"" + byte_str + "\"");
+                            this->m_policy.context().assembler.report_error("Invalid hex character in " + mnemonic + ": \"" + byte_str + "\"");
                         bytes.push_back(byte_val);
                     }
                 }
@@ -3471,25 +3793,25 @@ protected:
                 return true;
             } else if (mnemonic == "DZ" || mnemonic == "ASCIZ") {
                 if (ops.empty())
-                    m_policy.context().assembler.report_error(mnemonic + " requires at least one argument.");
+                    this->m_policy.context().assembler.report_error(mnemonic + " requires at least one argument.");
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (match_string(op)) {
+                    if (this->match_string(op)) {
                         for (char c : op.str_val)
                             bytes.push_back((uint8_t)c);
-                    } else if (match_imm8(op))
+                    } else if (this->match_imm8(op))
                         bytes.push_back((uint8_t)op.num_val);
                     else
-                        m_policy.context().assembler.report_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
+                        this->m_policy.context().assembler.report_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
                 }
                 bytes.push_back(0x00);
                 assemble(bytes);
                 return true;
             } else if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
                 if (ops.empty() || ops.size() > 2)
-                    m_policy.context().assembler.report_error(mnemonic + " requires 1 or 2 operands.");
-                if (!match_imm16(ops[0]))
-                    m_policy.context().assembler.report_error(mnemonic + " size must be a number.");
+                    this->m_policy.context().assembler.report_error(mnemonic + " requires 1 or 2 operands.");
+                if (!this->match_imm16(ops[0]))
+                    this->m_policy.context().assembler.report_error(mnemonic + " size must be a number.");
                 size_t count = ops[0].num_val;
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
                 std::vector<uint8_t> bytes(count, fill_value);
@@ -3498,8 +3820,8 @@ protected:
             } else if (mnemonic == "DG" || mnemonic == "DEFG") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (!match_string(op))
-                        m_policy.context().assembler.report_error("DG directive requires a string literal operand.");
+                    if (!this->match_string(op))
+                        this->m_policy.context().assembler.report_error("DG directive requires a string literal operand.");
                     std::string content = op.str_val;
                     std::string all_bits;
                     for (char c : content) {
@@ -3510,7 +3832,7 @@ protected:
                             all_bits += '1';
                     }
                     if (all_bits.length() % 8 != 0)
-                        m_policy.context().assembler.report_error("Bit stream data for DG must be in multiples of 8. Total bits: " + std::to_string(all_bits.length()));
+                        this->m_policy.context().assembler.report_error("Bit stream data for DG must be in multiples of 8. Total bits: " + std::to_string(all_bits.length()));
                     for (size_t i = 0; i < all_bits.length(); i += 8) {
                         std::string byte_str = all_bits.substr(i, 8);
                         bytes.push_back((uint8_t)std::stoul(byte_str, nullptr, 2));
@@ -3657,8 +3979,8 @@ protected:
             }
             return false;
         }
-        bool encode_one_operand(const std::string& mnemonic, const Operand& op) {
-            if (mnemonic == "PUSH" && match_reg16(op)) {
+        bool encode_one_operand(const std::string& mnemonic, const typename Operands::Operand& op) {
+            if (mnemonic == "PUSH" && this->match_reg16(op)) {
                 if (reg16_af_map().count(op.str_val)) {
                     assemble({(uint8_t)(0xC5 | (reg16_af_map().at(op.str_val) << 4))});
                     return true;
@@ -3672,7 +3994,7 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "POP" && match_reg16(op)) {
+            if (mnemonic == "POP" && this->match_reg16(op)) {
                 if (reg16_af_map().count(op.str_val)) {
                     assemble({(uint8_t)(0xC1 | (reg16_af_map().at(op.str_val) << 4))});
                     return true;
@@ -3686,7 +4008,7 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "INC" && match_reg16(op)) {
+            if (mnemonic == "INC" && this->match_reg16(op)) {
                 if (reg16_map().count(op.str_val)) {
                     assemble({(uint8_t)(0x03 | (reg16_map().at(op.str_val) << 4))});
                     return true;
@@ -3700,7 +4022,7 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "DEC" && match_reg16(op)) {
+            if (mnemonic == "DEC" && this->match_reg16(op)) {
                 if (reg16_map().count(op.str_val)) {
                     assemble({(uint8_t)(0x0B | (reg16_map().at(op.str_val) << 4))});
                     return true;
@@ -3714,30 +4036,19 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "INC" && match_mem_reg16(op) && op.str_val == "HL") {
+            if (mnemonic == "INC" && this->match_mem_reg16(op) && op.str_val == "HL") {
                 assemble({0x34});
                 return true;
             }
-            if (mnemonic == "SUB" && match_imm8(op)) {
-                if (op.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3D}); // DEC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3C}); // INC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xD6, (uint8_t)op.num_val});
+            if (mnemonic == "SUB" && this->match_imm8(op)) {
+                assemble({0xD6, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "DEC" && match_mem_reg16(op) && op.str_val == "HL") {
+            if (mnemonic == "DEC" && this->match_mem_reg16(op) && op.str_val == "HL") {
                 assemble({0x35});
                 return true;
             }
-            if ((mnemonic == "INC" || mnemonic == "DEC") && match_mem_indexed(op)) {
+            if ((mnemonic == "INC" || mnemonic == "DEC") && this->match_mem_indexed(op)) {
                 uint8_t prefix = 0;
                 if (op.base_reg == "IX")
                     prefix = 0xDD;
@@ -3749,7 +4060,7 @@ protected:
                 assemble({prefix, opcode, (uint8_t)((int8_t)op.offset)});
                 return true;
             }
-            if (mnemonic == "INC" && match_reg8(op)) {
+            if (mnemonic == "INC" && this->match_reg8(op)) {
                 if (op.str_val.find("IX") != std::string::npos || op.str_val.find("IY") != std::string::npos) {
                     uint8_t prefix = (op.str_val.find("IX") != std::string::npos) ? 0xDD : 0xFD;
                     uint8_t opcode = (op.str_val.back() == 'H') ? 0x24 : 0x2C; // INC H or INC L
@@ -3759,7 +4070,7 @@ protected:
                 assemble({(uint8_t)(0x04 | (reg8_map().at(op.str_val) << 3))});
                 return true;
             }
-            if (mnemonic == "DEC" && match_reg8(op)) {
+            if (mnemonic == "DEC" && this->match_reg8(op)) {
                 if (op.str_val.find("IX") != std::string::npos || op.str_val.find("IY") != std::string::npos) {
                     uint8_t prefix = (op.str_val.find("IX") != std::string::npos) ? 0xDD : 0xFD;
                     uint8_t opcode = (op.str_val.back() == 'H') ? 0x25 : 0x2D; // DEC H or DEC L
@@ -3769,26 +4080,12 @@ protected:
                 assemble({(uint8_t)(0x05 | (reg8_map().at(op.str_val) << 3))});
                 return true;
             }
-            if (mnemonic == "JP" && match_imm16(op)) {
-                if (op.type == OperandType::IMMEDIATE)
-                    m_policy.context().jump_targets[m_policy.context().address.current_logical] = op.num_val;
+            if (mnemonic == "JP" && this->match_imm16(op)) {
                 int32_t target_addr = op.num_val;
-                if (op.type == OperandType::IMMEDIATE)
-                    optimize_jump_target(target_addr);
-                if (m_policy.context().optimization.branch_short && m_policy.context().assembler.m_config.compilation.enable_optimization && op.type == OperandType::IMMEDIATE) {
-                    uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
-                    if (offset >= -128 && offset <= 127) {
-                        assemble({0x18, (uint8_t)(offset)});
-                        m_policy.context().stats.bytes_saved += 1;
-                        m_policy.context().stats.cycles_saved += -2;
-                        return true;
-                    }
-                }
                 assemble({0xC3, (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
                 return true;
             }
-            if (mnemonic == "JP" && match(op, OperandType::MEM_REG16)) {
+            if (mnemonic == "JP" && this->match(op, Operands::Operand::Type::MEM_REG16)) {
                 if (op.str_val == "HL") {
                     assemble({0xE9});
                     return true;
@@ -3802,131 +4099,60 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "JR" && match_imm16(op)) {
-                if (op.type == OperandType::IMMEDIATE)
-                    m_policy.context().jump_targets[m_policy.context().address.current_logical] = op.num_val;
+            if (mnemonic == "JR" && this->match_imm16(op)) {
                 int32_t target_addr = op.num_val;
-                int32_t original_target = target_addr;
-                if (op.type == OperandType::IMMEDIATE) {
-                    optimize_jump_target(target_addr);
-                }
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
+                int32_t offset = target_addr - (this->m_policy.context().address.current_logical + instruction_size);
                 if (offset < -128 || offset > 127) {
-                    if (m_policy.context().optimization.branch_long && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                        assemble({0xC3, (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
-                        m_policy.context().stats.bytes_saved += -1;
-                        m_policy.context().stats.cycles_saved += 2;
-                        return true;
-                    }
-                    offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                    int32_t original_target = target_addr; // Assuming optimizer didn't change it if we are here, or we re-calc
                     if (offset < -128 || offset > 127)
-                        m_policy.on_jump_out_of_range(mnemonic, offset);
-                }
-                if (offset == 0 && m_policy.context().optimization.dce && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    // JR 0 / JR cc, 0 is effectively a NOP (or conditional NOP) that takes time but does nothing.
-                    m_policy.context().stats.bytes_saved += 2;
-                    m_policy.context().stats.cycles_saved += 12;
-                    return true;
+                        this->m_policy.on_jump_out_of_range(mnemonic, offset);
                 }
                 assemble({0x18, (uint8_t)(offset)});
                 return true;
             }
-            if (mnemonic == "ADD" && match_imm8(op)) {
-                if (op.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3C}); // INC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3D}); // DEC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if (op.num_val == 0 && m_policy.context().optimization.ops_add0 && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xB7}); // OR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xC6, (uint8_t)op.num_val});
+            if (mnemonic == "ADD" && this->match_imm8(op)) {
+                assemble({0xC6, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "ADC" && match_imm8(op)) {
+            if (mnemonic == "ADC" && this->match_imm8(op)) {
                 assemble({0xCE, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "SBC" && match_imm8(op)) {
+            if (mnemonic == "SBC" && this->match_imm8(op)) {
                 assemble({0xDE, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "AND" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xAF}); // XOR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3D}); // DEC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xE6, (uint8_t)op.num_val});
+            if (mnemonic == "AND" && this->match_imm8(op)) {
+                assemble({0xE6, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "XOR" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xB7}); // OR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xEE, (uint8_t)op.num_val});
+            if (mnemonic == "XOR" && this->match_imm8(op)) {
+                assemble({0xEE, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "OR" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xB7}); // OR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if ((uint8_t)op.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3C}); // INC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xF6, (uint8_t)op.num_val});
+            if (mnemonic == "OR" && this->match_imm8(op)) {
+                assemble({0xF6, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "CP" && match_imm8(op)) {
-                if (op.num_val == 0 && m_policy.context().optimization.ops_or && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xB7}); // OR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xFE, (uint8_t)op.num_val});
+            if (mnemonic == "CP" && this->match_imm8(op)) {
+                assemble({0xFE, (uint8_t)op.num_val});
                 return true;
             }
-            if (mnemonic == "DJNZ" && match_imm16(op)) {
+            if (mnemonic == "DJNZ" && this->match_imm16(op)) {
                 int32_t target_addr = op.num_val;
-                int32_t original_target = target_addr;
-                if (op.type == OperandType::IMMEDIATE)
-                    optimize_jump_target(target_addr);
                 uint16_t instruction_size = 2;
-                int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
+                int32_t offset = target_addr - (this->m_policy.context().address.current_logical + instruction_size);
                 if (offset < -128 || offset > 127) {
-                    offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                    int32_t original_target = target_addr; // Assuming optimizer didn't change it if we are here
                     if (offset < -128 || offset > 127)
-                        m_policy.on_jump_out_of_range(mnemonic, offset);
+                        this->m_policy.on_jump_out_of_range(mnemonic, offset);
                 }
                 assemble({0x10, (uint8_t)(offset)});
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
-                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && match(op, OperandType::MEM_INDEXED)) {
+                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && this->match(op, Operands::Operand::Type::MEM_INDEXED)) {
                 uint8_t base_opcode = 0;
                 if (mnemonic == "ADD")
                     base_opcode = 0x86;
@@ -3950,25 +4176,12 @@ protected:
                     assemble({0xFD, base_opcode, (uint8_t)((int8_t)op.offset)});
                 return true;
             }
-            if (mnemonic == "CALL" && match_imm16(op)) {
-                if (m_policy.context().optimization.ops_rst && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    uint32_t addr = op.num_val;
-                    if (addr <= 0x38 && (addr % 8 == 0)) {
-                        // RST 00, 08, 10, 18, 20, 28, 30, 38
-                        // RST 00 -> C7, RST 08 -> CF ...
-                        // Base C7. 00->0, 08->1, 10->2 ...
-                        // Opcode = 0xC7 + (addr / 8) * 8 = 0xC7 + addr
-                        assemble({(uint8_t)(0xC7 + addr)});
-                        m_policy.context().stats.bytes_saved += 2;
-                        m_policy.context().stats.cycles_saved += 6;
-                        return true;
-                    }
-                }
+            if (mnemonic == "CALL" && this->match_imm16(op)) {
                 assemble({0xCD, (uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8)});
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
-                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && (match_reg8(op) || (match_mem_reg16(op) && op.str_val == "HL"))) {
+                 mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && (this->match_reg8(op) || (this->match_mem_reg16(op) && op.str_val == "HL"))) {
                 uint8_t base_opcode = 0;
                 if (mnemonic == "ADD")
                     base_opcode = 0x80;
@@ -4002,14 +4215,14 @@ protected:
                     assemble({(uint8_t)(base_opcode | reg_code)});
                 return true;
             }
-            if (mnemonic == "RET" && match_condition(op)) {
+            if (mnemonic == "RET" && this->match_condition(op)) {
                 if (condition_map().count(op.str_val)) {
                     uint8_t cond_code = condition_map().at(op.str_val);
                     assemble({(uint8_t)(0xC0 | (cond_code << 3))});
                     return true;
                 }
             }
-            if (mnemonic == "IM" && match_imm8(op)) {
+            if (mnemonic == "IM" && this->match_imm8(op)) {
                 switch (op.num_val) {
                 case 0:
                     assemble({0xED, 0x46});
@@ -4022,7 +4235,7 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "RST" && match_imm8(op)) {
+            if (mnemonic == "RST" && this->match_imm8(op)) {
                 switch (op.num_val) {
                     case 0x00:
                         assemble({0xC7});
@@ -4055,42 +4268,10 @@ protected:
                 {"SLA", 0x20}, {"SRA", 0x28}, {"SLL", 0x30}, {"SLI", 0x30}, {"SRL", 0x38}
             };
             if (rotate_shift_map.count(mnemonic)) {
-                if (mnemonic == "SLA" && op.str_val == "A" && m_policy.context().optimization.ops_sla && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x87}); // ADD A, A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 4;
-                    return true;
-                }
-                if (op.str_val == "A" && m_policy.context().optimization.ops_rot && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    if (mnemonic == "RLC") {
-                        assemble({0x07});
-                        m_policy.context().stats.bytes_saved += 1;
-                        m_policy.context().stats.cycles_saved += 4;
-                        return true;
-                    } // RLCA
-                    if (mnemonic == "RRC") {
-                        assemble({0x0F});
-                        m_policy.context().stats.bytes_saved += 1;
-                        m_policy.context().stats.cycles_saved += 4;
-                        return true;
-                    } // RRCA
-                    if (mnemonic == "RL") {
-                        assemble({0x17});
-                        m_policy.context().stats.bytes_saved += 1;
-                        m_policy.context().stats.cycles_saved += 4;
-                        return true;
-                    } // RLA
-                    if (mnemonic == "RR")  {
-                        assemble({0x1F});
-                        m_policy.context().stats.bytes_saved += 1;
-                        m_policy.context().stats.cycles_saved += 4;
-                        return true;
-                    } // RRA
-                }
-                if (match_reg8(op) || (match_mem_reg16(op) && op.str_val == "HL")) {
+                if (this->match_reg8(op) || (this->match_mem_reg16(op) && op.str_val == "HL")) {
                     uint8_t base_opcode = rotate_shift_map.at(mnemonic);
                     uint8_t reg_code;
-                    if (op.type == OperandType::MEM_REG16)
+                    if (op.type == Operands::Operand::Type::MEM_REG16)
                         reg_code = reg8_map().at("(HL)");
                     else
                         reg_code = reg8_map().at(op.str_val);
@@ -4098,13 +4279,13 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "IN" && op.type == OperandType::MEM_REG16 && op.str_val == "C") {
+            if (mnemonic == "IN" && op.type == Operands::Operand::Type::MEM_REG16 && op.str_val == "C") {
                 assemble({0xED, 0x70});
                 return true;
             }
             return false;
         }
-        bool encode_two_operands(const std::string& mnemonic, const Operand& op1, const Operand& op2) {
+        bool encode_two_operands(const std::string& mnemonic, const typename Operands::Operand& op1, const typename Operands::Operand& op2) {
             if (mnemonic == "EX" && op1.str_val == "AF" && op2.str_val == "AF'") {
                 assemble({0x08});
                 return true;
@@ -4113,7 +4294,7 @@ protected:
                 assemble({0xEB});
                 return true;
             }
-            if (mnemonic == "EX" && match_mem_reg16(op1) && op1.str_val == "SP" && match_reg16(op2)) {
+            if (mnemonic == "EX" && this->match_mem_reg16(op1) && op1.str_val == "SP" && this->match_reg16(op2)) {
                 if (op2.str_val == "HL") {
                     assemble({0xE3});
                     return true;
@@ -4143,7 +4324,7 @@ protected:
                 assemble({0xED, 0x5F});
                 return true;
             }
-            if (mnemonic == "ADD" && match_reg16(op1) && match_reg16(op2)) {
+            if (mnemonic == "ADD" && this->match_reg16(op1) && this->match_reg16(op2)) {
                 uint8_t prefix = 0;
                 std::string target_reg_str = op1.str_val;
                 std::string source_reg_str = op2.str_val;
@@ -4169,7 +4350,7 @@ protected:
                     return true;
                 }
             }
-            if ((mnemonic == "ADC" || mnemonic == "SBC") && op1.str_val == "HL" && match_reg16(op2)) {
+            if ((mnemonic == "ADC" || mnemonic == "SBC") && op1.str_val == "HL" && this->match_reg16(op2)) {
                 uint8_t base_opcode = (mnemonic == "ADC") ? 0x4A : 0x42;
                 if (reg16_map().count(op2.str_val)) {
                     assemble({0xED, (uint8_t)(base_opcode | (reg16_map().at(op2.str_val) << 4))});
@@ -4181,12 +4362,7 @@ protected:
                 prefix = 0xDD;
             else if (op1.base_reg == "IY" || op2.base_reg == "IY" || op1.str_val.find("IY") != std::string::npos || op2.str_val.find("IY") != std::string::npos)
                 prefix = 0xFD;
-            if (mnemonic == "LD" && match_reg8(op1) && match_reg8(op2)) {
-                if (m_policy.context().optimization.dce && m_policy.context().assembler.m_config.compilation.enable_optimization && op1.str_val == op2.str_val) {
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 4;
-                    return true;
-                }
+            if (mnemonic == "LD" && this->match_reg8(op1) && this->match_reg8(op2)) {
                 uint8_t dest_code = reg8_map().at(op1.str_val);
                 uint8_t src_code = reg8_map().at(op2.str_val);
                 if (prefix) {
@@ -4200,7 +4376,7 @@ protected:
                 return true;
             }
             if (mnemonic == "LD" &&
-                (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && match_imm8(op2)) 
+                (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && this->match_imm8(op2)) 
             {
                 uint8_t opcode = 0;
                 if (op1.str_val == "IXH" || op1.str_val == "IYH")
@@ -4210,18 +4386,12 @@ protected:
                 assemble({prefix, opcode, (uint8_t)op2.num_val});
                 return true;    
             }
-            if (mnemonic == "LD" && match_reg8(op1) && match_imm8(op2)) {
-                if (op1.str_val == "A" && op2.num_val == 0 && m_policy.context().optimization.ops_xor && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xAF}); // XOR A optimization
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                } else {
-                    uint8_t dest_code = reg8_map().at(op1.str_val);
-                    assemble({(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val});
-                }
+            if (mnemonic == "LD" && this->match_reg8(op1) && this->match_imm8(op2)) {
+                uint8_t dest_code = reg8_map().at(op1.str_val);
+                assemble({(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "LD" && match_reg16(op1) && match_imm16(op2)) {
+            if (mnemonic == "LD" && this->match_reg16(op1) && this->match_imm16(op2)) {
                 if (reg16_map().count(op1.str_val)) {
                     assemble({(uint8_t)(0x01 | (reg16_map().at(op1.str_val) << 4)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
                     return true;
@@ -4235,7 +4405,7 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "LD" && match_reg16(op1) && match_mem_imm16(op2)) {
+            if (mnemonic == "LD" && this->match_reg16(op1) && this->match_mem_imm16(op2)) {
                 if (op1.str_val == "HL") {
                     assemble({0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
                     return true;
@@ -4261,7 +4431,7 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "LD" && match_mem_reg16(op1) && op2.str_val == "A") {
+            if (mnemonic == "LD" && this->match_mem_reg16(op1) && op2.str_val == "A") {
                 if (op1.str_val == "BC") {
                     assemble({0x02});
                     return true;
@@ -4273,21 +4443,21 @@ protected:
                 if (op1.str_val == "SP")
                     return false;
             }
-            if (mnemonic == "LD" && match_reg8(op1) && match_mem_reg16(op2) && op2.str_val == "HL") {
+            if (mnemonic == "LD" && this->match_reg8(op1) && this->match_mem_reg16(op2) && op2.str_val == "HL") {
                 uint8_t dest_code = reg8_map().at(op1.str_val);
                 assemble({(uint8_t)(0x40 | (dest_code << 3) | 6)}); // 6 is code for (HL)
                 return true;
             }
-            if (mnemonic == "LD" && match_mem_reg16(op1) && op1.str_val == "HL" && match_reg8(op2)) {
+            if (mnemonic == "LD" && this->match_mem_reg16(op1) && op1.str_val == "HL" && this->match_reg8(op2)) {
                 uint8_t src_code = reg8_map().at(op2.str_val);
                 assemble({(uint8_t)(0x70 | src_code)});
                 return true;
             }
-            if (mnemonic == "LD" && match_mem_reg16(op1) && op1.str_val == "HL" && match_imm8(op2)) {
+            if (mnemonic == "LD" && this->match_mem_reg16(op1) && op1.str_val == "HL" && this->match_imm8(op2)) {
                 assemble({0x36, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "LD" && op1.str_val == "A" && match_mem_reg16(op2)) {
+            if (mnemonic == "LD" && op1.str_val == "A" && this->match_mem_reg16(op2)) {
                 if (op2.str_val == "BC") {
                     assemble({0x0A});
                     return true;
@@ -4299,15 +4469,15 @@ protected:
                 if (op2.str_val == "SP")
                     return false;
             }
-            if (mnemonic == "LD" && match_mem_imm16(op1) && op2.str_val == "A") {
+            if (mnemonic == "LD" && this->match_mem_imm16(op1) && op2.str_val == "A") {
                 assemble({0x32, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
                 return true;
             }
-            if (mnemonic == "LD" && op1.str_val == "A" && match_mem_imm16(op2)) {
+            if (mnemonic == "LD" && op1.str_val == "A" && this->match_mem_imm16(op2)) {
                 assemble({0x3A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
                 return true;
             }
-            if (mnemonic == "LD" && match_mem_imm16(op1) && match_reg16(op2)) {
+            if (mnemonic == "LD" && this->match_mem_imm16(op1) && this->match_reg16(op2)) {
                 if (op2.str_val == "IX") {
                     assemble({0xDD, 0x22, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
                     return true;
@@ -4333,7 +4503,7 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "LD" && op1.str_val == "SP" && match_reg16(op2)) {
+            if (mnemonic == "LD" && op1.str_val == "SP" && this->match_reg16(op2)) {
                 if (op2.str_val == "HL") {
                     assemble({0xF9});
                     return true;
@@ -4347,139 +4517,78 @@ protected:
                     return true;
                 }
             }
-            if (mnemonic == "LD" && op1.str_val == "A" && match_mem_imm16(op2)) {
+            if (mnemonic == "LD" && op1.str_val == "A" && this->match_mem_imm16(op2)) {
                 assemble({0x3A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
                 return true;
             }
-            if (mnemonic == "IN" && op1.str_val == "A" && match_mem_imm16(op2)) {
+            if (mnemonic == "IN" && op1.str_val == "A" && this->match_mem_imm16(op2)) {
                 if (op2.num_val > 0xFF)
-                    m_policy.context().assembler.report_error("Port for IN instruction must be 8-bit");
+                    this->m_policy.context().assembler.report_error("Port for IN instruction must be 8-bit");
                 assemble({0xDB, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "OUT" && match_mem_imm16(op1) && op2.str_val == "A" && op1.num_val <= 0xFF) {
+            if (mnemonic == "OUT" && this->match_mem_imm16(op1) && op2.str_val == "A" && op1.num_val <= 0xFF) {
                 if (op1.num_val > 0xFF)
-                    m_policy.context().assembler.report_error("Port for OUT instruction must be 8-bit");
+                    this->m_policy.context().assembler.report_error("Port for OUT instruction must be 8-bit");
                 assemble({0xD3, (uint8_t)op1.num_val});
                 return true;
             }
-            if (mnemonic == "LD" && match_mem_reg16(op1) && match_imm8(op2)) {
+            if (mnemonic == "LD" && this->match_mem_reg16(op1) && this->match_imm8(op2)) {
                 if (op1.str_val == "HL") {
                     uint8_t reg_code = reg8_map().at("(HL)");
                     assemble({(uint8_t)(0x06 | (reg_code << 3)), (uint8_t)op2.num_val});
                     return true;
                 }
             }
-            if (mnemonic == "LD" && match_mem_indexed(op1) && match_imm8(op2)) {
+            if (mnemonic == "LD" && this->match_mem_indexed(op1) && this->match_imm8(op2)) {
                 assemble({prefix, 0x36, (uint8_t)((int8_t)op1.offset), (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "LD" && match_reg8(op1) && match_mem_indexed(op2)) {
+            if (mnemonic == "LD" && this->match_reg8(op1) && this->match_mem_indexed(op2)) {
                 uint8_t reg_code = reg8_map().at(op1.str_val);
                 assemble({prefix, (uint8_t)(0x46 | (reg_code << 3)), (uint8_t)((int8_t)op2.offset)});
                 return true;
             }
-            if (mnemonic == "LD" && match_mem_indexed(op1) && match_reg8(op2)) {
+            if (mnemonic == "LD" && this->match_mem_indexed(op1) && this->match_reg8(op2)) {
                 uint8_t reg_code = reg8_map().at(op2.str_val);
                 assemble({prefix, (uint8_t)(0x70 | reg_code), (uint8_t)((int8_t)op1.offset)});
                 return true;
             }
-            if (mnemonic == "ADD" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3C}); // INC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3D}); // DEC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if (op2.num_val == 0 && m_policy.context().optimization.ops_add0 && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xB7}); // OR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xC6, (uint8_t)op2.num_val});
+            if (mnemonic == "ADD" && op1.str_val == "A" && this->match_imm8(op2)) {
+                assemble({0xC6, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "ADC" && op1.str_val == "A" && match_imm8(op2)) {
+            if (mnemonic == "ADC" && op1.str_val == "A" && this->match_imm8(op2)) {
                 assemble({0xCE, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "SBC" && op1.str_val == "A" && match_imm8(op2)) {
+            if (mnemonic == "SBC" && op1.str_val == "A" && this->match_imm8(op2)) {
                 assemble({0xDE, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "SUB" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 1 && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3D}); // DEC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3C}); // INC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xD6, (uint8_t)op2.num_val});
+            if (mnemonic == "SUB" && op1.str_val == "A" && this->match_imm8(op2)) {
+                assemble({0xD6, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "AND" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xAF}); // XOR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3D}); // DEC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xE6, (uint8_t)op2.num_val});
+            if (mnemonic == "AND" && op1.str_val == "A" && this->match_imm8(op2)) {
+                assemble({0xE6, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "XOR" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xB7}); // OR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xEE, (uint8_t)op2.num_val});
+            if (mnemonic == "XOR" && op1.str_val == "A" && this->match_imm8(op2)) {
+                assemble({0xEE, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "OR" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.ops_logic && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xB7}); // OR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else if ((uint8_t)op2.num_val == 0xFF && m_policy.context().optimization.ops_inc && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0x3C}); // INC A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xF6, (uint8_t)op2.num_val});
+            if (mnemonic == "OR" && op1.str_val == "A" && this->match_imm8(op2)) {
+                assemble({0xF6, (uint8_t)op2.num_val});
                 return true;
             }
-            if (mnemonic == "CP" && op1.str_val == "A" && match_imm8(op2)) {
-                if (op2.num_val == 0 && m_policy.context().optimization.ops_or && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                    assemble({0xB7}); // OR A
-                    m_policy.context().stats.bytes_saved += 1;
-                    m_policy.context().stats.cycles_saved += 3;
-                }
-                else
-                    assemble({0xFE, (uint8_t)op2.num_val});
+            if (mnemonic == "CP" && op1.str_val == "A" && this->match_imm8(op2)) {
+                assemble({0xFE, (uint8_t)op2.num_val});
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
                  mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") &&
-                 op1.str_val == "A" && ((match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL")))) {
+                 op1.str_val == "A" && ((this->match_reg8(op2) || (this->match_mem_reg16(op2) && op2.str_val == "HL")))) {
                 uint8_t base_opcode = 0;
                 if (mnemonic == "ADD")
                     base_opcode = 0x80;
@@ -4510,7 +4619,7 @@ protected:
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
                  mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") &&
-                op1.str_val == "A" && match_mem_indexed(op2)) {
+                op1.str_val == "A" && this->match_mem_indexed(op2)) {
                 uint8_t base_opcode = 0;
                 if (mnemonic == "ADD")
                     base_opcode = 0x86;
@@ -4534,60 +4643,32 @@ protected:
                     assemble({0xFD, base_opcode, (uint8_t)((int8_t)op2.offset)});
                 return true;
             }
-            if (mnemonic == "JP" && match_condition(op1) && match_imm16(op2)) {
+            if (mnemonic == "JP" && this->match_condition(op1) && this->match_imm16(op2)) {
                 int32_t target_addr = op2.num_val;
-                if (op2.type == OperandType::IMMEDIATE)
-                    optimize_jump_target(target_addr);
-                if (m_policy.context().optimization.branch_short && m_policy.context().assembler.m_config.compilation.enable_optimization && relative_jump_condition_map().count(op1.str_val) && op2.type == OperandType::IMMEDIATE) {
-                    uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
-                    if (offset >= -128 && offset <= 127) {
-                        assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
-                        m_policy.context().stats.bytes_saved += 1;
-                        m_policy.context().stats.cycles_saved += -2;
-                        return true;
-                    }
-                }
                 uint8_t cond_code = condition_map().at(op1.str_val);
                 assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
                 return true;
             }
-            if (mnemonic == "JR" && match_condition(op1) && match_imm16(op2)) {
+            if (mnemonic == "JR" && this->match_condition(op1) && this->match_imm16(op2)) {
                 if (relative_jump_condition_map().count(op1.str_val)) {
                     int32_t target_addr = op2.num_val;
-                    int32_t original_target = target_addr;
-                    if (op2.type == OperandType::IMMEDIATE) {
-                        optimize_jump_target(target_addr);
-                    }
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (m_policy.context().address.current_logical + instruction_size);
-                    if (offset == 0 && m_policy.context().optimization.dce && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                        m_policy.context().stats.bytes_saved += 2;
-                        m_policy.context().stats.cycles_saved += 12;
-                        return true;
-                    }
+                    int32_t offset = target_addr - (this->m_policy.context().address.current_logical + instruction_size);
                     if (offset < -128 || offset > 127) {
-                        if (m_policy.context().optimization.branch_long && m_policy.context().assembler.m_config.compilation.enable_optimization) {
-                            uint8_t cond_code = condition_map().at(op1.str_val);
-                            assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
-                            m_policy.context().stats.bytes_saved += -1;
-                            m_policy.context().stats.cycles_saved += 2;
-                            return true;
-                        }
-                        offset = original_target - (m_policy.context().address.current_logical + instruction_size);
+                        int32_t original_target = target_addr; // Assuming optimizer didn't change it if we are here
                         if (offset < -128 || offset > 127)
-                            m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
+                            this->m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
                     }
                     assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
                     return true;
                 }
             }
-            if (mnemonic == "CALL" && match_condition(op1) && match_imm16(op2)) {
+            if (mnemonic == "CALL" && this->match_condition(op1) && this->match_imm16(op2)) {
                 uint8_t cond_code = condition_map().at(op1.str_val);
                 assemble({(uint8_t)(0xC4 | (cond_code << 3)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
                 return true;
             }
-            if (mnemonic == "IN" && match_reg8(op1) && match_mem_reg16(op2) && op2.str_val == "C") {
+            if (mnemonic == "IN" && this->match_reg8(op1) && this->match_mem_reg16(op2) && op2.str_val == "C") {
                 if (op1.str_val == "F") {
                     assemble({0xED, 0x70});
                     return true;
@@ -4596,63 +4677,63 @@ protected:
                 assemble({0xED, (uint8_t)(0x40 | (reg_code << 3))});
                 return true;
             }
-            if (mnemonic == "OUT" && match_mem_reg16(op1) && op1.str_val == "C" && (match_reg8(op2) || (op2.type == OperandType::IMMEDIATE && op2.num_val == 0))) {
-                if (op2.type == OperandType::IMMEDIATE && op2.num_val == 0) {
+            if (mnemonic == "OUT" && this->match_mem_reg16(op1) && op1.str_val == "C" && (this->match_reg8(op2) || (op2.type == Operands::Operand::Type::IMMEDIATE && op2.num_val == 0))) {
+                if (op2.type == Operands::Operand::Type::IMMEDIATE && op2.num_val == 0) {
                     assemble({0xED, 0x71});
                     return true;
                 }
                 uint8_t reg_code = reg8_map().at(op2.str_val);
                 if (op2.str_val == "(HL)")
-                    m_policy.context().assembler.report_error("OUT (C), (HL) is not a valid instruction");
+                    this->m_policy.context().assembler.report_error("OUT (C), (HL) is not a valid instruction");
                 assemble({0xED, (uint8_t)(0x41 | (reg_code << 3))});
                 return true;
             }
-            if (mnemonic == "BIT" && match_imm8(op1) && (match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL"))) {
+            if (mnemonic == "BIT" && this->match_imm8(op1) && (this->match_reg8(op2) || (this->match_mem_reg16(op2) && op2.str_val == "HL"))) {
                 if (op1.num_val > 7)
-                    m_policy.context().assembler.report_error("BIT index must be 0-7");
+                    this->m_policy.context().assembler.report_error("BIT index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code;
-                if (match_mem_reg16(op2))
+                if (this->match_mem_reg16(op2))
                     reg_code = reg8_map().at("(HL)");
                 else
                     reg_code = reg8_map().at(op2.str_val);
                 assemble({0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code)});
                 return true;
             }
-            if (mnemonic == "SET" && match_imm8(op1) && (match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL"))) {
+            if (mnemonic == "SET" && this->match_imm8(op1) && (this->match_reg8(op2) || (this->match_mem_reg16(op2) && op2.str_val == "HL"))) {
                 if (op1.num_val > 7)
-                    m_policy.context().assembler.report_error("SET index must be 0-7");
+                    this->m_policy.context().assembler.report_error("SET index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code;
-                if (match_mem_reg16(op2))
+                if (this->match_mem_reg16(op2))
                     reg_code = reg8_map().at("(HL)");
                 else
                     reg_code = reg8_map().at(op2.str_val);
                 assemble({0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code)});
                 return true;
             }
-            if (mnemonic == "RES" && match_imm8(op1) && (match_reg8(op2) || (match_mem_reg16(op2) && op2.str_val == "HL"))) {
+            if (mnemonic == "RES" && this->match_imm8(op1) && (this->match_reg8(op2) || (this->match_mem_reg16(op2) && op2.str_val == "HL"))) {
                 if (op1.num_val > 7)
-                    m_policy.context().assembler.report_error("RES index must be 0-7");
+                    this->m_policy.context().assembler.report_error("RES index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t reg_code;
-                if (match_mem_reg16(op2))
+                if (this->match_mem_reg16(op2))
                     reg_code = reg8_map().at("(HL)");
                 else
                     reg_code = reg8_map().at(op2.str_val);
                 assemble({0xCB, (uint8_t)(0x80 | (bit << 3) | reg_code)});
                 return true;
             }
-            if ((mnemonic == "SLL" || mnemonic == "SLI") && match_reg8(op1)) {
+            if ((mnemonic == "SLL" || mnemonic == "SLI") && this->match_reg8(op1)) {
                 if (op1.num_val > 7)
-                    m_policy.context().assembler.report_error("SLL bit index must be 0-7");
+                    this->m_policy.context().assembler.report_error("SLL bit index must be 0-7");
                 uint8_t reg_code = reg8_map().at(op1.str_val);
                 assemble({0xCB, (uint8_t)(0x30 | reg_code)});
                 return true;
             }
-            if ((mnemonic == "BIT" || mnemonic == "SET" || mnemonic == "RES") && match_imm8(op1) && match_mem_indexed(op2)) {
+            if ((mnemonic == "BIT" || mnemonic == "SET" || mnemonic == "RES") && this->match_imm8(op1) && this->match_mem_indexed(op2)) {
                 if (op1.num_val > 7)
-                    m_policy.context().assembler.report_error(mnemonic + " bit index must be 0-7");
+                    this->m_policy.context().assembler.report_error(mnemonic + " bit index must be 0-7");
                 uint8_t bit = op1.num_val;
                 uint8_t base_opcode = 0;
                 if (mnemonic == "BIT")
@@ -4672,7 +4753,6 @@ protected:
             }
             return false;
         }
-        IPhasePolicy& m_policy;
     };
     class Source {
     public:
