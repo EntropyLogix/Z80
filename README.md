@@ -450,7 +450,7 @@ The Z80Assembler class is a powerful, two-pass assembler that converts Z80 assem
 #### **Usage and Initialization**
 To use the assembler, you must initialize it by passing a pointer to a memory object (which implements peek() and poke()) and a pointer to a source code provider (`IFileProvider`).
  
-`Z80Assembler(TBus* bus, IFileProvider* source_provider, const Options& options = ...)`
+`Z80Assembler(TBus* bus, IFileProvider* source_provider, const Config& config = ...)`
  
 `IFileProvider` is an interface you must implement to allow the assembler to load source files. This enables loading code from the file system, memory, or any other source. It requires three methods:
 *   `read_file(identifier, data)`: Reads file content into a vector of bytes.
@@ -546,6 +546,7 @@ The assembler supports a wide range of standard assembly features.
     *   `ALIGN`: Aligns the current address to a specified boundary.
     *   `INCLUDE`: Includes the content of another source file.
 *   **Comment Handling:** Supports single-line (starting with `;`) and block (`/* ... */`) comments.
+*   **Optimizations:** Supports code optimization passes (e.g., jump threading, peephole optimizations) controlled via the `OPTIMIZE` directive.
 
 #### **Extending the Assembler (Directives, Functions, Operators)**
 The assembler can be extended with custom directives, functions, and operators. Since the methods for adding these elements (`add_custom_directive`, `add_custom_function`, `add_custom_operator`) are `protected`, the correct way to extend the assembler is by creating a derived class.

@@ -422,6 +422,80 @@ public:
         static const Config default_config;
         return default_config;
     };
+    struct OptimizationOptions {
+        bool branch_short = false;
+        bool ops_xor = false;
+        bool ops_inc = false;
+        bool ops_or = false;
+        bool dce = false;
+        bool jump_thread = false;
+        bool branch_long = false;
+        bool ops_logic = false;
+        bool ops_sla = false;
+        bool ops_rot = false;
+        bool ops_rst = false;
+        bool ops_add0 = false;
+        OptimizationOptions& none(bool enable = true) {
+            if (enable)
+                *this = {};
+            return *this;
+        }
+        OptimizationOptions& all(bool enable = true) {
+            branch_short = enable;
+            ops_xor = enable;
+            ops_inc = enable;
+            ops_or = enable;
+            dce = enable;
+            jump_thread = enable;
+            branch_long = enable;
+            ops_logic = enable;
+            ops_sla = enable;
+            ops_rot = enable;
+            ops_rst = enable;
+            ops_add0 = enable;
+            return *this;
+        }
+        OptimizationOptions& size(bool enable = true) {
+            return all(enable);
+        }
+        OptimizationOptions& speed(bool enable = true) {
+            if (enable) {
+                branch_short = false;
+                ops_xor = true;
+                ops_inc = true;
+                ops_or = true;
+                dce = true;
+                jump_thread = true;
+                ops_logic = true;
+                ops_sla = true;
+                ops_rot = true;
+                ops_rst = true;
+                ops_add0 = true;
+            } else {
+                ops_xor = false;
+                ops_inc = false;
+                ops_or = false;
+                dce = false;
+                jump_thread = false;
+                ops_logic = false;
+                ops_sla = false;
+                ops_rot = false;
+                ops_rst = false;
+                ops_add0 = false;
+            }
+            return *this;
+        }
+        OptimizationOptions& unsafe(bool enable = true) {
+            ops_xor = enable;
+            ops_inc = enable;
+            ops_or = enable;
+            ops_logic = enable;
+            ops_sla = enable;
+            ops_rot = enable;
+            ops_add0 = enable;
+            return *this;
+        }
+    };
     struct SymbolInfo {
         std::string name;
         int32_t value;
@@ -452,7 +526,8 @@ public:
         }
     }
     virtual ~Z80Assembler() {}
-    virtual bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000) {
+    virtual bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000, const OptimizationOptions& options = {}) {
+        m_context.initial_optimization = options;
         Preprocessor preprocessor(m_context);
         std::vector<SourceLine> source_lines;
         try {
@@ -816,21 +891,9 @@ protected:
         struct Defines {
             std::map<std::string, std::string> map;
         } defines;
-        struct OptimizationState {
-            bool branch_short = false;
-            bool ops_xor = false;
-            bool ops_inc = false;
-            bool ops_or = false;
-            bool dce = false;
-            bool jump_thread = false;
-            bool branch_long = false;
-            bool ops_logic = false;
-            bool ops_sla = false;
-            bool ops_rot = false;
-            bool ops_rst = false;
-            bool ops_add0 = false;
-        } optimization;
-        std::vector<OptimizationState> optimization_stack;
+        OptimizationOptions optimization;
+        OptimizationOptions initial_optimization;
+        std::vector<OptimizationOptions> optimization_stack;
         std::map<int32_t, int32_t> jump_targets;
         std::map<int32_t, int32_t> prev_jump_targets;
     };
@@ -2210,7 +2273,7 @@ protected:
             m_context.source.conditional_stack.clear();
             m_context.source.control_stack.clear();
             m_context.defines.map.clear();
-            m_context.optimization = {};
+            m_context.optimization = m_context.initial_optimization;
             m_context.optimization_stack.clear();
             m_context.prev_jump_targets = std::move(m_context.jump_targets);
             m_context.jump_targets.clear();
@@ -2317,7 +2380,7 @@ protected:
                         flag = flag.substr(1);
                     }
                     if (flag == "NONE") {
-                         ctx.optimization = {};
+                         ctx.optimization.none();
                          continue;
                     }
                     bool is_valid = false;
@@ -2396,54 +2459,13 @@ protected:
                         ctx.optimization.ops_add0 = enable;
                     }
                     else if (flag == "UNSAFE") {
-                        ctx.optimization.ops_xor = enable;
-                        ctx.optimization.ops_inc = enable;
-                        ctx.optimization.ops_or = enable;
-                        ctx.optimization.ops_logic = enable;
-                        ctx.optimization.ops_sla = enable;
-                        ctx.optimization.ops_rot = enable;
-                        ctx.optimization.ops_add0 = enable;
+                        ctx.optimization.unsafe(enable);
                     }
                     else if (flag == "SIZE" || flag == "ALL") {
-                        ctx.optimization.branch_short = enable;
-                        ctx.optimization.ops_xor = enable;
-                        ctx.optimization.ops_inc = enable;
-                        ctx.optimization.ops_or = enable;
-                        ctx.optimization.dce = enable;
-                        ctx.optimization.jump_thread = enable;
-                        ctx.optimization.branch_long = enable;
-                        ctx.optimization.ops_logic = enable;
-                        ctx.optimization.ops_sla = enable;
-                        ctx.optimization.ops_rot = enable;
-                        ctx.optimization.ops_rst = enable;
-                        ctx.optimization.ops_add0 = enable;
+                        ctx.optimization.all(enable);
                     }
                     else if (flag == "SPEED") {
-                         if (enable) {
-                             ctx.optimization.branch_short = false;
-                             ctx.optimization.ops_xor = true;
-                             ctx.optimization.ops_inc = true;
-                             ctx.optimization.ops_or = true;
-                             ctx.optimization.dce = true;
-                             ctx.optimization.jump_thread = true;
-                             ctx.optimization.ops_logic = true;
-                             ctx.optimization.ops_sla = true;
-                             ctx.optimization.ops_rot = true;
-                             ctx.optimization.ops_rst = true;
-                             ctx.optimization.ops_add0 = true;
-                         } else {
-                             ctx.optimization.ops_xor = false;
-                             ctx.optimization.ops_inc = false;
-                             ctx.optimization.ops_or = false;
-                             ctx.optimization.dce = false;
-                             ctx.optimization.jump_thread = false;
-                             ctx.optimization.ops_logic = false;
-                             ctx.optimization.ops_sla = false;
-                             ctx.optimization.ops_rot = false;
-                             ctx.optimization.ops_rot = false;
-                             ctx.optimization.ops_rst = false;
-                             ctx.optimization.ops_add0 = false;
-                         }
+                        ctx.optimization.speed(enable);
                     }
                 }
             }
