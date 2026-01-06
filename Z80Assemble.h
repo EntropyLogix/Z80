@@ -254,6 +254,8 @@
 //   - BRANCH_LONG:  Automatically converts `JR` to `JP` if target is out of range.
 //   - JUMP_THREAD:  Optimizes jump chains (e.g., `JP A` where `A` contains `JP B` becomes `JP B`).
 //   - DCE:          Dead Code Elimination (e.g., removes `LD A, A`).
+//   - DCE_JUMP:     Removes useless jumps (e.g., `JR 0`).
+//   - DCE_LOAD:     Removes redundant loads (e.g., `LD A, A`).
 //   - OPS_RST:      Optimizes `CALL n` to `RST n` if n is a restart vector. (Safe)
 //   Unsafe:
 //   - OPS_XOR:      Optimizes `LD A, 0` to `XOR A`. (Unsafe: modifies flags)
@@ -270,6 +272,7 @@
 //   - SIZE:         Enable optimizations for size (enables all, including BRANCH_SHORT).
 //   - ALL:          Enable all optimizations.
 //   - OPS:          Enable all OPS_* optimizations.
+//   - BRANCH:       Enable all branch optimizations.
 //   - UNSAFE:       Enable all unsafe optimizations.
 //
 //   Stack Control:
@@ -431,7 +434,8 @@ public:
         bool ops_xor = false;
         bool ops_inc = false;
         bool ops_or = false;
-        bool dce = false;
+        bool dce_jump = false;
+        bool dce_load = false;
         bool jump_thread = false;
         bool branch_long = false;
         bool ops_logic = false;
@@ -445,48 +449,20 @@ public:
             return *this;
         }
         OptimizationOptions& all(bool enable = true) {
-            branch_short = enable;
-            ops_xor = enable;
-            ops_inc = enable;
-            ops_or = enable;
-            dce = enable;
-            jump_thread = enable;
-            branch_long = enable;
-            ops_logic = enable;
-            ops_sla = enable;
-            ops_rot = enable;
-            ops_rst = enable;
-            ops_add0 = enable;
+            branch(enable);
+            dce(enable);
+            ops(enable);
             return *this;
         }
         OptimizationOptions& size(bool enable = true) {
             return all(enable);
         }
         OptimizationOptions& speed(bool enable = true) {
-            if (enable) {
+            jump_thread = enable;
+            dce(enable);
+            ops(enable);
+            if (enable)
                 branch_short = false;
-                ops_xor = true;
-                ops_inc = true;
-                ops_or = true;
-                dce = true;
-                jump_thread = true;
-                ops_logic = true;
-                ops_sla = true;
-                ops_rot = true;
-                ops_rst = true;
-                ops_add0 = true;
-            } else {
-                ops_xor = false;
-                ops_inc = false;
-                ops_or = false;
-                dce = false;
-                jump_thread = false;
-                ops_logic = false;
-                ops_sla = false;
-                ops_rot = false;
-                ops_rst = false;
-                ops_add0 = false;
-            }
             return *this;
         }
         OptimizationOptions& unsafe(bool enable = true) {
@@ -497,6 +473,22 @@ public:
             ops_sla = enable;
             ops_rot = enable;
             ops_add0 = enable;
+            return *this;
+        }
+        OptimizationOptions& branch(bool enable = true) {
+            branch_short = enable;
+            branch_long = enable;
+            jump_thread = enable;
+            return *this;
+        }
+        OptimizationOptions& dce(bool enable = true) {
+            dce_jump = enable;
+            dce_load = enable;
+            return *this;
+        }
+        OptimizationOptions& ops(bool enable = true) {
+            unsafe(enable);
+            ops_rst = enable;
             return *this;
         }
     };
@@ -2397,6 +2389,10 @@ protected:
                         is_valid = true;
                     else if (flag == "DCE")
                         is_valid = true;
+                    else if (flag == "DCE_JUMP")
+                        is_valid = true;
+                    else if (flag == "DCE_LOAD")
+                        is_valid = true;
                     else if (flag == "OPS_XOR")
                         is_valid = true;
                     else if (flag == "OPS_INC")
@@ -2414,6 +2410,8 @@ protected:
                     else if (flag == "OPS_ADD0")
                         is_valid = true;
                     else if (flag == "BRANCH_LONG")
+                        is_valid = true;
+                    else if (flag == "BRANCH")
                         is_valid = true;
                     else if (flag == "OPS") {
                         is_valid = true;
@@ -2434,7 +2432,11 @@ protected:
                     else if (flag == "JUMP_THREAD")
                         ctx.optimization.jump_thread = enable;
                     else if (flag == "DCE")
-                        ctx.optimization.dce = enable;
+                        ctx.optimization.dce(enable);
+                    else if (flag == "DCE_JUMP")
+                        ctx.optimization.dce_jump = enable;
+                    else if (flag == "DCE_LOAD")
+                        ctx.optimization.dce_load = enable;
                     else if (flag == "OPS_XOR")
                         ctx.optimization.ops_xor = enable;
                     else if (flag == "OPS_INC")
@@ -2455,16 +2457,10 @@ protected:
                         ctx.optimization.ops_add0 = enable;
                     else if (flag == "BRANCH_LONG")
                         ctx.optimization.branch_long = enable;
-                    else if (flag == "OPS") {
-                        ctx.optimization.ops_xor = enable;
-                        ctx.optimization.ops_inc = enable;
-                        ctx.optimization.ops_or = enable;
-                        ctx.optimization.ops_logic = enable;
-                        ctx.optimization.ops_sla = enable;
-                        ctx.optimization.ops_rot = enable;
-                        ctx.optimization.ops_rst = enable;
-                        ctx.optimization.ops_add0 = enable;
-                    }
+                    else if (flag == "BRANCH")
+                        ctx.optimization.branch(enable);
+                    else if (flag == "OPS")
+                        ctx.optimization.ops(enable);
                     else if (flag == "UNSAFE") {
                         ctx.optimization.unsafe(enable);
                     }
@@ -3344,12 +3340,15 @@ protected:
             if (!this->m_policy.context().assembler.m_config.compilation.enable_optimization)
                 return {Result::Action::NONE};
             auto& ctx = this->m_policy.context();
+            
             if (ops.size() == 1) {
                 if ((mnemonic == "JP" || mnemonic == "JR") && this->match_imm16(ops[0])) {
-                     if (ops[0].type == Operands::Operand::Type::IMMEDIATE)
+                     if (ops[0].type == Operands::Operand::Type::IMMEDIATE) {
                           ctx.jump_targets[ctx.address.current_logical] = ops[0].num_val;
+                     }
                 }
             }
+            
             auto& opts = ctx.optimization;
             auto& stats = ctx.stats;
             if (ops.size() == 1) {
@@ -3360,7 +3359,7 @@ protected:
                         optimize_jump_target(target_addr);            
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
-                    if (opts.dce && offset == 0) {
+                    if (opts.dce_jump && offset == 0) {
                         stats.bytes_saved += 2;
                         stats.cycles_saved += 12;
                         return {Result::Action::DONE};
@@ -3503,7 +3502,7 @@ protected:
                 const auto& op1 = ops[0];
                 const auto& op2 = ops[1];
                 if (mnemonic == "LD" && this->match_reg8(op1) && this->match_reg8(op2)) {
-                    if (opts.dce && op1.str_val == op2.str_val) {
+                    if (opts.dce_load && op1.str_val == op2.str_val) {
                         stats.bytes_saved += 1;
                         stats.cycles_saved += 4;
                         return {Result::Action::DONE};
@@ -3517,75 +3516,33 @@ protected:
                 }
                 else if ((mnemonic == "ADD" || mnemonic == "SUB" || mnemonic == "AND" || mnemonic == "OR" || mnemonic == "XOR" || mnemonic == "CP") && op1.str_val == "A" && this->match_imm8(op2)) {
                      if (mnemonic == "ADD") {
-                        if (op2.num_val == 1 && opts.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "INC", {op1}};
-                        }
-                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "DEC", {op1}};
-                        }
-                        if (op2.num_val == 0 && opts.ops_add0) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "OR", {op1}};
-                        }
+                        if (op2.num_val == 1 && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "INC", {op1}}; }
+                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "DEC", {op1}}; }
+                        if (op2.num_val == 0 && opts.ops_add0) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "OR", {op1}}; }
                      } else if (mnemonic == "SUB") {
-                        if (op2.num_val == 1 && opts.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "DEC", {op1}};
-                        }
-                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "INC", {op1}};
-                        }
+                        if (op2.num_val == 1 && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "DEC", {op1}}; }
+                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "INC", {op1}}; }
                      } else if (mnemonic == "AND") {
-                        if (op2.num_val == 0 && opts.ops_logic) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "XOR", {op1}};
-                        }
-                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "DEC", {op1}};
-                        }
+                        if (op2.num_val == 0 && opts.ops_logic) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "XOR", {op1}}; }
+                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "DEC", {op1}}; }
                      } else if (mnemonic == "XOR") {
-                        if (op2.num_val == 0 && opts.ops_logic) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "OR", {op1}};
-                        }
+                        if (op2.num_val == 0 && opts.ops_logic) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "OR", {op1}}; }
                      } else if (mnemonic == "OR") {
-                        if (op2.num_val == 0 && opts.ops_logic) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "OR", {op1}};
-                        }
-                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "INC", {op1}};
-                        }
+                        if (op2.num_val == 0 && opts.ops_logic) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "OR", {op1}}; }
+                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "INC", {op1}}; }
                      } else if (mnemonic == "CP") {
-                        if (op2.num_val == 0 && opts.ops_or) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "OR", {op1}};
-                        }
+                        if (op2.num_val == 0 && opts.ops_or) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "OR", {op1}}; }
                      }
                 }
                 else if (mnemonic == "JR" && this->match_condition(op1) && this->match_imm16(op2)) {
                     int32_t target_addr = op2.num_val;
                     if (op2.type == Operands::Operand::Type::IMMEDIATE)
                         optimize_jump_target(target_addr);
+                    
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
-                    if (opts.dce && offset == 0) {
+
+                    if (opts.dce_jump && offset == 0) {
                         stats.bytes_saved += 2; stats.cycles_saved += 12;
                         return {Result::Action::DONE};
                     }
@@ -3607,6 +3564,7 @@ protected:
                     int32_t target_addr = op2.num_val;
                     if (op2.type == Operands::Operand::Type::IMMEDIATE)
                         optimize_jump_target(target_addr);
+
                     if (opts.branch_short && op2.type == Operands::Operand::Type::IMMEDIATE) {
                         uint16_t instruction_size = 2;
                         int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
@@ -3629,6 +3587,7 @@ protected:
             }
             return {Result::Action::NONE};
         }
+
     private:
         void optimize_jump_target(int32_t& target) {
             if (!this->m_policy.context().optimization.jump_thread || !this->m_policy.context().assembler.m_config.compilation.enable_optimization)
@@ -3638,8 +3597,9 @@ protected:
             auto& targets = this->m_policy.context().prev_jump_targets;
             while (targets.count(target)) {
                 int32_t next_target = targets.at(target);
-                if (visited.count(next_target))
+                if (visited.count(next_target)) {
                     break; 
+                }
                 target = next_target;
                 visited.insert(target);
             }
@@ -3655,13 +3615,16 @@ protected:
                     return true;
             } else if (!this->m_policy.context().assembler.m_keywords.is_mnemonic(mnemonic))
                 this->m_policy.context().assembler.report_error("Unknown mnemonic: " + mnemonic);
+            
             Optimizer optimizer(this->m_policy);
             using OptResult = typename Optimizer::Result;
             OptResult opt_res = optimizer.optimize(mnemonic, operands);
             if (opt_res.action == OptResult::Action::DONE)
                 return true;
+            
             const std::string& final_mnemonic = (opt_res.action == OptResult::Action::REPLACE) ? opt_res.mnemonic : mnemonic;
             const std::vector<typename Operands::Operand>& final_operands = (opt_res.action == OptResult::Action::REPLACE) ? opt_res.operands : operands;
+
             switch (final_operands.size()) {
             case 0:
                 if (encode_no_operand(final_mnemonic))
