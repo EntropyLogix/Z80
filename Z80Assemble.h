@@ -3382,6 +3382,11 @@ protected:
                     int32_t target_addr = op.num_val;
                     if (op.type == Operands::Operand::Type::IMMEDIATE)
                         optimize_jump_target(target_addr);
+                    if (opts.dce_jump && (uint16_t)target_addr == (uint16_t)(ctx.address.current_logical + 3)) {
+                        stats.bytes_saved += 3;
+                        stats.cycles_saved += 10;
+                        return {Result::Action::DONE};
+                    }
                     if (opts.branch_short && op.type == Operands::Operand::Type::IMMEDIATE) {
                         uint16_t instruction_size = 2;
                         int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
@@ -3486,9 +3491,17 @@ protected:
                     int32_t target_addr = op.num_val;
                     if (op.type == Operands::Operand::Type::IMMEDIATE) {
                         optimize_jump_target(target_addr);
+
+                        uint16_t instruction_size = 2;
+                        int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
+
+                        if (offset == 0 && opts.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 9;
+                            return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "B"}}};
+                        }
+
                         if (target_addr != op.num_val) {
-                            uint16_t instruction_size = 2;
-                            int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
                             if (offset >= -128 && offset <= 127) {
                                 typename Operands::Operand new_op = op;
                                 new_op.num_val = target_addr;
@@ -3565,6 +3578,11 @@ protected:
                     if (op2.type == Operands::Operand::Type::IMMEDIATE)
                         optimize_jump_target(target_addr);
 
+                    if (opts.dce_jump && (uint16_t)target_addr == (uint16_t)(ctx.address.current_logical + 3)) {
+                        stats.bytes_saved += 3;
+                        stats.cycles_saved += 10;
+                        return {Result::Action::DONE};
+                    }
                     if (opts.branch_short && op2.type == Operands::Operand::Type::IMMEDIATE) {
                         uint16_t instruction_size = 2;
                         int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);

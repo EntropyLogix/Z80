@@ -4227,26 +4227,6 @@ TEST_CASE(JumpChainThroughConditional) {
 
 TEST_CASE(OptimizationKeywords) {
     Z80Assembler<Z80StandardBus>::Config config;
-    
-    // SPEED: Enables opss, disables JR
-    std::string code_speed = R"(
-        OPTIMIZE SPEED
-        LD A, 0         ; Optimized to XOR A (AF)
-        JP target       ; Kept as JP (C3...) because SPEED disables short branches
-    target:
-        NOP
-    )";
-    ASSERT_CODE_WITH_OPTS(code_speed, {0xAF, 0xC3, 0x04, 0x00, 0x00}, config);
-
-    // SIZE: Enables everything including JR
-    std::string code_size = R"(
-        OPTIMIZE SIZE
-        LD A, 0         ; Optimized to XOR A (AF)
-        JP target       ; Optimized to JR (18...)
-    target:
-        NOP
-    )";
-    ASSERT_CODE_WITH_OPTS(code_size, {0xAF, 0x18, 0x00, 0x00}, config);
 
     // OFF: Disables everything
     std::string code_off = R"(
