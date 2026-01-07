@@ -430,6 +430,10 @@ public:
         int bytes_saved = 0;
         int cycles_saved = 0;
     };
+    struct InstructionOptions {
+        bool enable_undocumented = true;
+        bool enable_z80n = false;
+    };
     struct OptimizationOptions {
         bool branch_short = false;
         bool branch_speed = false;
@@ -524,8 +528,17 @@ public:
         }
     }
     virtual ~Z80Assembler() {}
-    virtual bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000, const OptimizationOptions& options = {}) {
-        m_context.initial_optimization = options;
+    virtual bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000, const InstructionOptions* options = nullptr, const OptimizationOptions* optimizations = nullptr) {
+        if (options)
+            m_context.initial_instruction_options = *options;
+        else {
+            m_context.initial_instruction_options.enable_undocumented = m_config.compilation.enable_undocumented;
+            m_context.initial_instruction_options.enable_z80n = m_config.compilation.enable_z80n;
+        }
+        if (optimizations)
+            m_context.initial_optimization = *optimizations;
+        else
+            m_context.initial_optimization = {};
         Preprocessor preprocessor(m_context);
         std::vector<SourceLine> source_lines;
         try {
@@ -890,6 +903,9 @@ protected:
         struct Defines {
             std::map<std::string, std::string> map;
         } defines;
+        InstructionOptions instruction_options;
+        InstructionOptions initial_instruction_options;
+        std::vector<InstructionOptions> instruction_options_stack;
         OptimizationStats stats;
         OptimizationOptions optimization;
         OptimizationOptions initial_optimization;
@@ -2193,6 +2209,7 @@ protected:
         virtual void on_proc_end(const std::string& name) = 0;
         virtual void on_local_directive(const std::vector<std::string>& symbols) = 0;
         virtual void on_optimize_directive(const std::vector<std::string>& args) = 0;
+        virtual void on_option_directive(const std::vector<std::string>& args) = 0;
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) = 0;
         virtual void on_if_directive(const std::string& expression) = 0;
         virtual void on_ifdef_directive(const std::string& symbol) = 0;
@@ -2248,6 +2265,7 @@ protected:
             m_context.repeat.stack.clear();
             m_context.while_loop.stack.clear();
             m_context.defines.map.clear();
+            m_context.instruction_options_stack.clear();
             m_context.optimization = {};
         }
         virtual void on_finalize() override {
@@ -2273,6 +2291,8 @@ protected:
             m_context.source.conditional_stack.clear();
             m_context.source.control_stack.clear();
             m_context.defines.map.clear();
+            m_context.instruction_options = m_context.initial_instruction_options;
+            m_context.instruction_options_stack.clear();
             m_context.optimization = m_context.initial_optimization;
             m_context.stats = {};
             m_context.optimization_stack.clear();
@@ -2472,6 +2492,40 @@ protected:
                     else if (flag == "SPEED") {
                         ctx.optimization.speed(enable);
                     }
+                }
+            }
+        }
+        virtual void on_option_directive(const std::vector<std::string>& args) override {
+            auto& ctx = m_context;
+            for (const auto& arg : args) {
+                std::string upper_arg = arg;
+                Strings::to_upper(upper_arg);
+                if ((upper_arg == "PUSH" || upper_arg == "POP") && args.size() > 1)
+                    ctx.assembler.report_error("OPTION PUSH/POP cannot be mixed with other arguments.");
+            }
+            for (const auto& arg : args) {
+                std::string upper_arg = arg;
+                Strings::to_upper(upper_arg);
+                if (upper_arg == "PUSH")
+                    ctx.instruction_options_stack.push_back(ctx.instruction_options);
+                else if (upper_arg == "POP") {
+                    if (!ctx.instruction_options_stack.empty()) {
+                        ctx.instruction_options = ctx.instruction_options_stack.back();
+                        ctx.instruction_options_stack.pop_back();
+                    } else
+                        ctx.assembler.report_error("OPTION POP without matching PUSH");
+                } else {
+                    bool enable = true;
+                    std::string flag = upper_arg;
+                    if (flag.front() == '+')
+                        flag = flag.substr(1);
+                    else if (flag.front() == '-') {
+                        enable = false;
+                        flag = flag.substr(1);
+                    }
+                    if (flag == "Z80N") ctx.instruction_options.enable_z80n = enable;
+                    else if (flag == "UNDOCUMENTED" || flag == "UNDOC") ctx.instruction_options.enable_undocumented = enable;
+                    else ctx.assembler.report_error("Invalid parameter for OPTION: " + arg);
                 }
             }
         }
@@ -3258,7 +3312,13 @@ protected:
         bool is_mnemonic(const std::string& s) const {
             if (is_in_set(s, mnemonics()))
                 return true;
-            if (m_context.assembler.m_config.compilation.enable_z80n && is_in_set(s, z80n_mnemonics()))
+            if (m_context.instruction_options.enable_z80n && 
+                m_context.assembler.m_config.compilation.enable_z80n && 
+                is_in_set(s, z80n_mnemonics()))
+                return true;
+            if (m_context.instruction_options.enable_undocumented && 
+                m_context.assembler.m_config.compilation.enable_undocumented && 
+                is_in_set(s, undocumented_mnemonics()))
                 return true;
             return false;
         }
@@ -3292,8 +3352,12 @@ protected:
                 "DJNZ", "EI", "EX", "EXX", "HALT", "IM", "IN", "INC", "IND", "INDR", "INI", "INIR", "JP", "JR", "LD",
                 "LDD", "LDDR", "LDI", "LDIR", "NEG", "NOP", "OR", "OTDR", "OTIR", "OUT", "OUTD", "OUTI", "POP", "PUSH",
                 "RES", "RET", "RETI", "RETN", "RL", "RLA", "RLC", "RLCA", "RLD", "RR", "RRA", "RRC", "RRCA", "RRD",
-                "RST", "SBC", "SCF", "SET", "SLA", "SLL", "SLI", "SRA", "SRL", "SUB", "XOR"
+                "RST", "SBC", "SCF", "SET", "SLA", "SRA", "SRL", "SUB", "XOR"
             };
+            return mnemonics;
+        }
+        static const std::set<std::string>& undocumented_mnemonics() {
+            static const std::set<std::string> mnemonics = { "SLL", "SLI" };
             return mnemonics;
         }
         static const std::set<std::string>& z80n_mnemonics() {
@@ -3307,7 +3371,7 @@ protected:
             static const std::set<std::string> directives = {
                 "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BREAK", "BYTE", "DB", "DD", "DEFB", "DEFH",
                 "DEFINE", "DEFL", "DEFG", "DEFM", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM", "EXITW",
-                "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM",
+                "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM", "OPTION",
                 "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF", "OPTIMIZE",
                 "IFIDN", "IFNB", "IFNDEF", "INCBIN", "INCLUDE", "LOCAL", "MACRO", "ORG", "PHASE",
                 "PROC", "REPT", "SET", "SHIFT", "UNDEFINE", "UNPHASE", "WEND", "WHILE", "WORD"
@@ -3730,10 +3794,12 @@ protected:
         }
     private:
         bool check_undocumented() {
-            return this->m_policy.context().assembler.m_config.compilation.enable_undocumented;
+            return this->m_policy.context().instruction_options.enable_undocumented && 
+                   this->m_policy.context().assembler.m_config.compilation.enable_undocumented;
         }
         bool check_z80n() {
-            return this->m_policy.context().assembler.m_config.compilation.enable_z80n;
+            return this->m_policy.context().instruction_options.enable_z80n && 
+                   this->m_policy.context().assembler.m_config.compilation.enable_z80n;
         }
     private:
         static const std::map<std::string, uint8_t>& reg8_map() {
@@ -5018,6 +5084,8 @@ protected:
                         continue;
                     if (process_non_conditional_directives())
                         continue;
+                    if (process_option_directive())
+                        continue;
                     if (m_end_of_source)
                         return false;
                     process_instruction();
@@ -5417,6 +5485,18 @@ protected:
                 for (size_t i = 1; i < m_tokens.count(); ++i)
                     args.push_back(m_tokens[i].original());
                 m_policy.on_optimize_directive(args);
+                return true;
+            }
+            return false;
+        }
+        bool process_option_directive() {
+            if (m_tokens.count() > 0 && m_tokens[0].upper() == "OPTION") {
+                if (!m_policy.context().assembler.m_config.directives.enabled)
+                    return false;
+                std::vector<std::string> args;
+                for (size_t i = 1; i < m_tokens.count(); ++i)
+                    args.push_back(m_tokens[i].original());
+                m_policy.on_option_directive(args);
                 return true;
             }
             return false;

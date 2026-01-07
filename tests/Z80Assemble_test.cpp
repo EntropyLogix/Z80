@@ -4668,6 +4668,71 @@ TEST_CASE(ExtendedOptimizationStats) {
     check_stats("OPTIMIZE +DCE\nLD C, C", 1, 4);
 }
 
+TEST_CASE(OptionDirective) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_z80n = true;
+    config.compilation.enable_undocumented = true;
+
+    // 1. Basic Enable/Disable Z80N (Instruction with no operands)
+    // Enabled: SWAPNIB is instruction (2 bytes)
+    ASSERT_CODE_WITH_OPTS(R"(
+        SWAPNIB
+    )", {0xED, 0x23}, config);
+
+    // Disabled: SWAPNIB is label (0 bytes)
+    ASSERT_CODE_WITH_OPTS(R"(
+        OPTION -Z80N
+        SWAPNIB
+    )", {}, config);
+
+    // Re-enabled: SWAPNIB is instruction
+    ASSERT_CODE_WITH_OPTS(R"(
+        OPTION -Z80N
+        OPTION +Z80N
+        SWAPNIB
+    )", {0xED, 0x23}, config);
+
+    // 2. Basic Enable/Disable Undocumented (Instruction with operands)
+    // Enabled: SLL A is instruction
+    ASSERT_CODE_WITH_OPTS(R"(
+        SLL A
+    )", {0xCB, 0x37}, config);
+
+    // Disabled: SLL is label, A is unknown mnemonic -> Fail
+    ASSERT_COMPILE_FAILS_WITH_OPTS(R"(
+        OPTION -UNDOC
+        SLL A
+    )", config);
+
+    // Re-enabled
+    ASSERT_CODE_WITH_OPTS(R"(
+        OPTION -UNDOC
+        OPTION +UNDOC
+        SLL A
+    )", {0xCB, 0x37}, config);
+
+    // 3. PUSH/POP State
+    ASSERT_CODE_WITH_OPTS(R"(
+        OPTION -Z80N    ; Disable Z80N
+        OPTION PUSH     ; Save state (Z80N=Off)
+        OPTION +Z80N    ; Enable Z80N
+        SWAPNIB         ; OK (Instruction)
+        OPTION POP      ; Restore state (Z80N=Off)
+        SWAPNIB         ; OK (Label, 0 bytes)
+    )", {0xED, 0x23}, config); // Only one SWAPNIB generates code
+
+    // 4. Verify Config overrides OPTION (if config says no, OPTION cannot enable)
+    Z80Assembler<Z80StandardBus>::Config config_disabled;
+    config_disabled.compilation.enable_z80n = false;
+    
+    // Even with OPTION +Z80N, it should remain disabled because config is false.
+    // So SWAPNIB is a label (0 bytes).
+    ASSERT_CODE_WITH_OPTS(R"(
+        OPTION +Z80N
+        SWAPNIB
+    )", {}, config_disabled);
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
