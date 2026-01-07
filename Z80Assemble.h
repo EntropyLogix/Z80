@@ -3336,282 +3336,325 @@ protected:
             std::string mnemonic;
             std::vector<typename Operands::Operand> operands;
         };
-        Result optimize(const std::string& mnemonic, const std::vector<typename Operands::Operand>& ops) {
+        Result optimize(const std::string& mnemonic, const std::vector<typename Operands::Operand>& operands) {
             if (!this->m_policy.context().assembler.m_config.compilation.enable_optimization)
                 return {Result::Action::NONE};
-            auto& ctx = this->m_policy.context();
-            if (ops.size() == 1) {
-                if ((mnemonic == "JP" || mnemonic == "JR") && this->match_imm16(ops[0])) {
-                     if (ops[0].type == Operands::Operand::Type::IMMEDIATE) {
-                          ctx.jump_targets[ctx.address.current_logical] = ops[0].num_val;
-                     }
+            auto& context = this->m_policy.context();
+            if (operands.size() == 1) {
+                if ((mnemonic == "JP" || mnemonic == "JR") && this->match_imm16(operands[0])) {
+                     if (operands[0].type == Operands::Operand::Type::IMMEDIATE)
+                          context.jump_targets[context.address.current_logical] = operands[0].num_val;
                 }
             }
-            auto& opts = ctx.optimization;
-            auto& stats = ctx.stats;
-            if (ops.size() == 1) {
-                const auto& op = ops[0];
-                if (mnemonic == "JR" && this->match_imm16(op)) {
-                    int32_t target_addr = op.num_val;
-                    if (op.type == Operands::Operand::Type::IMMEDIATE)
-                        optimize_jump_target(target_addr);            
+            if (operands.size() == 1)
+                return optimize_one_operand(mnemonic, operands[0]);
+            else if (operands.size() == 2)
+                return optimize_two_operands(mnemonic, operands[0], operands[1]);
+            return {Result::Action::NONE};
+        }
+    private:
+        Result optimize_one_operand(const std::string& mnemonic, const typename Operands::Operand& operand) {
+            auto& context = this->m_policy.context();
+            auto& options = context.optimization;
+            auto& stats = context.stats;
+            if (mnemonic == "JR" && this->match_imm16(operand)) {
+                int32_t target_addr = operand.num_val;
+                if (operand.type == Operands::Operand::Type::IMMEDIATE)
+                    optimize_jump_target(target_addr);            
+                uint16_t instruction_size = 2;
+                int32_t offset = target_addr - (context.address.current_logical + instruction_size);
+                if (options.dce_jump && offset == 0) {
+                    stats.bytes_saved += 2;
+                    stats.cycles_saved += 12;
+                    return {Result::Action::DONE};
+                }
+                if (options.branch_speed) {
+                    stats.bytes_saved += -1;
+                    stats.cycles_saved += 2;
+                    typename Operands::Operand new_op = operand;
+                    new_op.num_val = target_addr;
+                    return {Result::Action::REPLACE, "JP", {new_op}};
+                }
+                if (options.branch_long && (offset < -128 || offset > 127)) {
+                    stats.bytes_saved += -1; stats.cycles_saved += 2;
+                    typename Operands::Operand new_op = operand;
+                    new_op.num_val = target_addr;
+                    return {Result::Action::REPLACE, "JP", {new_op}};
+                }
+                if (target_addr != operand.num_val) {
+                    if (offset >= -128 && offset <= 127) {
+                        typename Operands::Operand new_op = operand;
+                        new_op.num_val = target_addr;
+                        return {Result::Action::REPLACE, "JR", {new_op}};
+                    }
+                }
+            }
+            else if (mnemonic == "JP" && this->match_imm16(operand)) {
+                int32_t target_addr = operand.num_val;
+                if (operand.type == Operands::Operand::Type::IMMEDIATE)
+                    optimize_jump_target(target_addr);
+                if (options.dce_jump && (uint16_t)target_addr == (uint16_t)(context.address.current_logical + 3)) {
+                    stats.bytes_saved += 3;
+                    stats.cycles_saved += 10;
+                    return {Result::Action::DONE};
+                }
+                if (options.branch_short && !options.branch_speed && operand.type == Operands::Operand::Type::IMMEDIATE) {
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
-                    if (opts.dce_jump && offset == 0) {
-                        stats.bytes_saved += 2;
-                        stats.cycles_saved += 12;
-                        return {Result::Action::DONE};
-                    }
-                    if (opts.branch_speed) {
-                        stats.bytes_saved += -1;
-                        stats.cycles_saved += 2;
-                        typename Operands::Operand new_op = op;
-                        new_op.num_val = target_addr;
-                        return {Result::Action::REPLACE, "JP", {new_op}};
-                    }
-                    if (opts.branch_long && (offset < -128 || offset > 127)) {
-                        stats.bytes_saved += -1; stats.cycles_saved += 2;
-                        typename Operands::Operand new_op = op;
-                        new_op.num_val = target_addr;
-                        return {Result::Action::REPLACE, "JP", {new_op}};
-                    }
-                    if (target_addr != op.num_val) {
-                        if (offset >= -128 && offset <= 127) {
-                            typename Operands::Operand new_op = op;
-                            new_op.num_val = target_addr;
-                            return {Result::Action::REPLACE, "JR", {new_op}};
-                        }
-                    }
-                }
-                else if (mnemonic == "JP" && this->match_imm16(op)) {
-                    int32_t target_addr = op.num_val;
-                    if (op.type == Operands::Operand::Type::IMMEDIATE)
-                        optimize_jump_target(target_addr);
-                    if (opts.dce_jump && (uint16_t)target_addr == (uint16_t)(ctx.address.current_logical + 3)) {
-                        stats.bytes_saved += 3;
-                        stats.cycles_saved += 10;
-                        return {Result::Action::DONE};
-                    }
-                    if (opts.branch_short && !opts.branch_speed && op.type == Operands::Operand::Type::IMMEDIATE) {
-                        uint16_t instruction_size = 2;
-                        int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
-                        if (offset >= -128 && offset <= 127) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += -2;
-                            typename Operands::Operand new_op = op;
-                            new_op.num_val = target_addr;
-                            return {Result::Action::REPLACE, "JR", {new_op}};
-                        }
-                    }
-                    if (target_addr != op.num_val) {
-                        typename Operands::Operand new_op = op;
-                        new_op.num_val = target_addr;
-                        return {Result::Action::REPLACE, "JP", {new_op}};
-                    }
-                }
-                else if (mnemonic == "CALL" && this->match_imm16(op)) {
-                    if (opts.ops_rst && op.num_val <= 0x38 && (op.num_val % 8 == 0)) {
-                        stats.bytes_saved += 2;
-                        stats.cycles_saved += 6;
-                        return {Result::Action::REPLACE, "RST", {op}};
-                    }
-                }
-                else if (mnemonic == "ADD" || mnemonic == "SUB" || mnemonic == "AND" || mnemonic == "OR" || mnemonic == "XOR" || mnemonic == "CP") {
-                    if (this->match_imm8(op)) {
-                        if (mnemonic == "ADD") {
-                            if (op.num_val == 1 && opts.ops_inc) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                            if ((uint8_t)op.num_val == 0xFF && opts.ops_inc) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                            if (op.num_val == 0 && opts.ops_add0) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                        } else if (mnemonic == "SUB") {
-                            if (op.num_val == 1 && opts.ops_inc) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                            if ((uint8_t)op.num_val == 0xFF && opts.ops_inc) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                        } else if (mnemonic == "AND") {
-                            if (op.num_val == 0 && opts.ops_logic) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "XOR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                            if ((uint8_t)op.num_val == 0xFF && opts.ops_inc) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                        } else if (mnemonic == "XOR") {
-                            if (op.num_val == 0 && opts.ops_logic) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                        } else if (mnemonic == "OR") {
-                            if (op.num_val == 0 && opts.ops_logic) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                            if ((uint8_t)op.num_val == 0xFF && opts.ops_inc) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                        } else if (mnemonic == "CP") {
-                            if (op.num_val == 0 && opts.ops_or) {
-                                stats.bytes_saved += 1;
-                                stats.cycles_saved += 3;
-                                return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                            }
-                        }
-                    }
-                }
-                else if (mnemonic == "SLA" && op.str_val == "A" && opts.ops_sla) {
-                    stats.bytes_saved += 1;
-                    stats.cycles_saved += 4;
-                    return {Result::Action::REPLACE, "ADD", {op, op}}; // ADD A, A
-                }
-                else if ((mnemonic == "RLC" || mnemonic == "RRC" || mnemonic == "RL" || mnemonic == "RR") && op.str_val == "A" && opts.ops_rot) {
-                    stats.bytes_saved += 1;
-                    stats.cycles_saved += 4;
-                    return {Result::Action::REPLACE, mnemonic + "A", {}}; // RLCA, RRCA, etc.
-                }
-                else if (mnemonic == "DJNZ" && this->match_imm16(op)) {
-                    int32_t target_addr = op.num_val;
-                    if (op.type == Operands::Operand::Type::IMMEDIATE) {
-                        optimize_jump_target(target_addr);
-
-                        uint16_t instruction_size = 2;
-                        int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
-
-                        if (offset == 0 && opts.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 9;
-                            return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "B"}}};
-                        }
-
-                        if (target_addr != op.num_val) {
-                            if (offset >= -128 && offset <= 127) {
-                                typename Operands::Operand new_op = op;
-                                new_op.num_val = target_addr;
-                                return {Result::Action::REPLACE, "DJNZ", {new_op}};
-                            }
-                        }
-                    }
-                }
-            }
-            else if (ops.size() == 2) {
-                const auto& op1 = ops[0];
-                const auto& op2 = ops[1];
-                if (mnemonic == "LD" && this->match_reg8(op1) && this->match_reg8(op2)) {
-                    if (opts.dce_load && op1.str_val == op2.str_val) {
+                    int32_t offset = target_addr - (context.address.current_logical + instruction_size);
+                    if (offset >= -128 && offset <= 127) {
                         stats.bytes_saved += 1;
-                        stats.cycles_saved += 4;
-                        return {Result::Action::DONE};
+                        stats.cycles_saved += -2;
+                        typename Operands::Operand new_op = operand;
+                        new_op.num_val = target_addr;
+                        return {Result::Action::REPLACE, "JR", {new_op}};
                     }
                 }
-                else if (mnemonic == "LD" && this->match_reg8(op1) && this->match_imm8(op2)) {
-                    if (op1.str_val == "A" && op2.num_val == 0 && opts.ops_xor) {
-                        stats.bytes_saved += 1; stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "XOR", {op1}}; // XOR A
+                if (target_addr != operand.num_val) {
+                    typename Operands::Operand new_op = operand;
+                    new_op.num_val = target_addr;
+                    return {Result::Action::REPLACE, "JP", {new_op}};
+                }
+            }
+            else if (mnemonic == "CALL" && this->match_imm16(operand)) {
+                if (options.ops_rst && operand.num_val <= 0x38 && (operand.num_val % 8 == 0)) {
+                    stats.bytes_saved += 2;
+                    stats.cycles_saved += 6;
+                    return {Result::Action::REPLACE, "RST", {operand}};
+                }
+            }
+            else if (mnemonic == "ADD" || mnemonic == "SUB" || mnemonic == "AND" || mnemonic == "OR" || mnemonic == "XOR" || mnemonic == "CP") {
+                if (this->match_imm8(operand)) {
+                    if (mnemonic == "ADD") {
+                        if (operand.num_val == 1 && options.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                        if ((uint8_t)operand.num_val == 0xFF && options.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                        if (operand.num_val == 0 && options.ops_add0) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                    } else if (mnemonic == "SUB") {
+                        if (operand.num_val == 1 && options.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                        if ((uint8_t)operand.num_val == 0xFF && options.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                    } else if (mnemonic == "AND") {
+                        if (operand.num_val == 0 && options.ops_logic) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "XOR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                        if ((uint8_t)operand.num_val == 0xFF && options.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                    } else if (mnemonic == "XOR") {
+                        if (operand.num_val == 0 && options.ops_logic) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                    } else if (mnemonic == "OR") {
+                        if (operand.num_val == 0 && options.ops_logic) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                        if ((uint8_t)operand.num_val == 0xFF && options.ops_inc) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
+                    } else if (mnemonic == "CP") {
+                        if (operand.num_val == 0 && options.ops_or) {
+                            stats.bytes_saved += 1;
+                            stats.cycles_saved += 3;
+                            return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+                        }
                     }
                 }
-                else if ((mnemonic == "ADD" || mnemonic == "SUB" || mnemonic == "AND" || mnemonic == "OR" || mnemonic == "XOR" || mnemonic == "CP") && op1.str_val == "A" && this->match_imm8(op2)) {
-                     if (mnemonic == "ADD") {
-                        if (op2.num_val == 1 && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "INC", {op1}}; }
-                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "DEC", {op1}}; }
-                        if (op2.num_val == 0 && opts.ops_add0) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "OR", {op1}}; }
-                     } else if (mnemonic == "SUB") {
-                        if (op2.num_val == 1 && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "DEC", {op1}}; }
-                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "INC", {op1}}; }
-                     } else if (mnemonic == "AND") {
-                        if (op2.num_val == 0 && opts.ops_logic) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "XOR", {op1}}; }
-                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "DEC", {op1}}; }
-                     } else if (mnemonic == "XOR") {
-                        if (op2.num_val == 0 && opts.ops_logic) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "OR", {op1}}; }
-                     } else if (mnemonic == "OR") {
-                        if (op2.num_val == 0 && opts.ops_logic) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "OR", {op1}}; }
-                        if ((uint8_t)op2.num_val == 0xFF && opts.ops_inc) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "INC", {op1}}; }
-                     } else if (mnemonic == "CP") {
-                        if (op2.num_val == 0 && opts.ops_or) { stats.bytes_saved += 1; stats.cycles_saved += 3; return {Result::Action::REPLACE, "OR", {op1}}; }
-                     }
-                }
-                else if (mnemonic == "JR" && this->match_condition(op1) && this->match_imm16(op2)) {
-                    int32_t target_addr = op2.num_val;
-                    if (op2.type == Operands::Operand::Type::IMMEDIATE)
-                        optimize_jump_target(target_addr);
-                    
+            }
+            else if (mnemonic == "SLA" && operand.str_val == "A" && options.ops_sla) {
+                stats.bytes_saved += 1;
+                stats.cycles_saved += 4;
+                return {Result::Action::REPLACE, "ADD", {operand, operand}}; // ADD A, A
+            }
+            else if ((mnemonic == "RLC" || mnemonic == "RRC" || mnemonic == "RL" || mnemonic == "RR") && operand.str_val == "A" && options.ops_rot) {
+                stats.bytes_saved += 1;
+                stats.cycles_saved += 4;
+                return {Result::Action::REPLACE, mnemonic + "A", {}}; // RLCA, RRCA, etc.
+            }
+            else if (mnemonic == "DJNZ" && this->match_imm16(operand)) {
+                int32_t target_addr = operand.num_val;
+                if (operand.type == Operands::Operand::Type::IMMEDIATE) {
+                    optimize_jump_target(target_addr);
                     uint16_t instruction_size = 2;
-                    int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
-
-                    if (opts.dce_jump && offset == 0) {
-                        stats.bytes_saved += 2; stats.cycles_saved += 12;
-                        return {Result::Action::DONE};
+                    int32_t offset = target_addr - (context.address.current_logical + instruction_size);
+                    if (offset == 0 && options.ops_inc) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 9;
+                        return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "B"}}};
                     }
-                    if (opts.branch_long && (offset < -128 || offset > 127)) {
-                        stats.bytes_saved += -1; stats.cycles_saved += 2;
+                    if (target_addr != operand.num_val) {
+                        if (offset >= -128 && offset <= 127) {
+                            typename Operands::Operand new_op = operand;
+                            new_op.num_val = target_addr;
+                            return {Result::Action::REPLACE, "DJNZ", {new_op}};
+                        }
+                    }
+                }
+            }
+            return {Result::Action::NONE};
+        }
+        Result optimize_two_operands(const std::string& mnemonic, const typename Operands::Operand& op1, const typename Operands::Operand& op2) {
+            auto& context = this->m_policy.context();
+            auto& options = context.optimization;
+            auto& stats = context.stats;
+            if (mnemonic == "LD" && this->match_reg8(op1) && this->match_reg8(op2)) {
+                if (options.dce_load && op1.str_val == op2.str_val) {
+                    stats.bytes_saved += 1;
+                    stats.cycles_saved += 4;
+                    return {Result::Action::DONE};
+                }
+            }
+            else if (mnemonic == "LD" && this->match_reg8(op1) && this->match_imm8(op2)) {
+                if (op1.str_val == "A" && op2.num_val == 0 && options.ops_xor) {
+                    stats.bytes_saved += 1; stats.cycles_saved += 3;
+                    return {Result::Action::REPLACE, "XOR", {op1}}; // XOR A
+                }
+            }
+            else if ((mnemonic == "ADD" || mnemonic == "SUB" || mnemonic == "AND" || mnemonic == "OR" || mnemonic == "XOR" || mnemonic == "CP") && op1.str_val == "A" && this->match_imm8(op2)) {
+                if (mnemonic == "ADD") {
+                    if (op2.num_val == 1 && options.ops_inc) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "INC", {op1}};
+                    }
+                    if ((uint8_t)op2.num_val == 0xFF && options.ops_inc) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "DEC", {op1}};
+                    }
+                    if (op2.num_val == 0 && options.ops_add0) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "OR", {op1}};
+                    }
+                } else if (mnemonic == "SUB") {
+                    if (op2.num_val == 1 && options.ops_inc) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "DEC", {op1}};
+                    }
+                    if ((uint8_t)op2.num_val == 0xFF && options.ops_inc) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "INC", {op1}};
+                    }
+                } else if (mnemonic == "AND") {
+                    if (op2.num_val == 0 && options.ops_logic) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "XOR", {op1}};
+                    }
+                    if ((uint8_t)op2.num_val == 0xFF && options.ops_inc) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "DEC", {op1}};
+                    }
+                } else if (mnemonic == "XOR") {
+                    if (op2.num_val == 0 && options.ops_logic) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "OR", {op1}};
+                    }
+                } else if (mnemonic == "OR") {
+                    if (op2.num_val == 0 && options.ops_logic) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "OR", {op1}};
+                    }
+                    if ((uint8_t)op2.num_val == 0xFF && options.ops_inc) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "INC", {op1}};
+                    }
+                } else if (mnemonic == "CP") {
+                    if (op2.num_val == 0 && options.ops_or) {
+                        stats.bytes_saved += 1;
+                        stats.cycles_saved += 3;
+                        return {Result::Action::REPLACE, "OR", {op1}};
+                    }
+                }
+            }
+            else if (mnemonic == "JR" && this->match_condition(op1) && this->match_imm16(op2)) {
+                int32_t target_addr = op2.num_val;
+                if (op2.type == Operands::Operand::Type::IMMEDIATE)
+                    optimize_jump_target(target_addr);
+                uint16_t instruction_size = 2;
+                int32_t offset = target_addr - (context.address.current_logical + instruction_size);
+                if (options.dce_jump && offset == 0) {
+                    stats.bytes_saved += 2; stats.cycles_saved += 12;
+                    return {Result::Action::DONE};
+                }
+                if (options.branch_long && (offset < -128 || offset > 127)) {
+                    stats.bytes_saved += -1; stats.cycles_saved += 2;
+                    typename Operands::Operand new_op = op2;
+                    new_op.num_val = target_addr;
+                    return {Result::Action::REPLACE, "JP", {op1, new_op}};
+                }
+                if (target_addr != op2.num_val) {
+                    if (offset >= -128 && offset <= 127) {
                         typename Operands::Operand new_op = op2;
                         new_op.num_val = target_addr;
-                        return {Result::Action::REPLACE, "JP", {op1, new_op}};
+                        return {Result::Action::REPLACE, "JR", {op1, new_op}};
                     }
-                    if (target_addr != op2.num_val) {
-                        if (offset >= -128 && offset <= 127) {
+                }
+            }
+            else if (mnemonic == "JP" && this->match_condition(op1) && this->match_imm16(op2)) {
+                int32_t target_addr = op2.num_val;
+                if (op2.type == Operands::Operand::Type::IMMEDIATE)
+                    optimize_jump_target(target_addr);
+                if (options.dce_jump && (uint16_t)target_addr == (uint16_t)(context.address.current_logical + 3)) {
+                    stats.bytes_saved += 3;
+                    stats.cycles_saved += 10;
+                    return {Result::Action::DONE};
+                }
+                if (options.branch_short && !options.branch_speed && op2.type == Operands::Operand::Type::IMMEDIATE) {
+                    uint16_t instruction_size = 2;
+                    int32_t offset = target_addr - (context.address.current_logical + instruction_size);
+                    if (offset >= -128 && offset <= 127) {
+                        std::string cond = op1.str_val;
+                        if (cond == "NZ" || cond == "Z" || cond == "NC" || cond == "C") {
+                            stats.bytes_saved += 1; stats.cycles_saved += -2;
                             typename Operands::Operand new_op = op2;
                             new_op.num_val = target_addr;
                             return {Result::Action::REPLACE, "JR", {op1, new_op}};
                         }
                     }
                 }
-                else if (mnemonic == "JP" && this->match_condition(op1) && this->match_imm16(op2)) {
-                    int32_t target_addr = op2.num_val;
-                    if (op2.type == Operands::Operand::Type::IMMEDIATE)
-                        optimize_jump_target(target_addr);
-
-                    if (opts.dce_jump && (uint16_t)target_addr == (uint16_t)(ctx.address.current_logical + 3)) {
-                        stats.bytes_saved += 3;
-                        stats.cycles_saved += 10;
-                        return {Result::Action::DONE};
-                    }
-                    if (opts.branch_short && !opts.branch_speed && op2.type == Operands::Operand::Type::IMMEDIATE) {
-                        uint16_t instruction_size = 2;
-                        int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
-                        if (offset >= -128 && offset <= 127) {
-                            std::string cond = op1.str_val;
-                            if (cond == "NZ" || cond == "Z" || cond == "NC" || cond == "C") {
-                                stats.bytes_saved += 1; stats.cycles_saved += -2;
-                                typename Operands::Operand new_op = op2;
-                                new_op.num_val = target_addr;
-                                return {Result::Action::REPLACE, "JR", {op1, new_op}};
-                            }
-                        }
-                    }
-                    if (target_addr != op2.num_val) {
-                        typename Operands::Operand new_op = op2;
-                        new_op.num_val = target_addr;
-                        return {Result::Action::REPLACE, "JP", {op1, new_op}};
-                    }
+                if (target_addr != op2.num_val) {
+                    typename Operands::Operand new_op = op2;
+                    new_op.num_val = target_addr;
+                    return {Result::Action::REPLACE, "JP", {op1, new_op}};
                 }
             }
             return {Result::Action::NONE};
         }
-
-    private:
         void optimize_jump_target(int32_t& target) {
             if (!this->m_policy.context().optimization.jump_thread || !this->m_policy.context().assembler.m_config.compilation.enable_optimization)
                 return;
@@ -3620,9 +3663,8 @@ protected:
             auto& targets = this->m_policy.context().prev_jump_targets;
             while (targets.count(target)) {
                 int32_t next_target = targets.at(target);
-                if (visited.count(next_target)) {
+                if (visited.count(next_target))
                     break; 
-                }
                 target = next_target;
                 visited.insert(target);
             }
@@ -3631,23 +3673,19 @@ protected:
     class Instructions : public InstructionMatcher {
     public:
         Instructions(IPhasePolicy& policy) : InstructionMatcher(policy) {}
-
         bool encode(const std::string& mnemonic, const std::vector<typename Operands::Operand>& operands) {            
             if (this->m_policy.context().assembler.m_keywords.is_directive(mnemonic)) {
                 if (encode_data_block(mnemonic, operands))
                     return true;
             } else if (!this->m_policy.context().assembler.m_keywords.is_mnemonic(mnemonic))
                 this->m_policy.context().assembler.report_error("Unknown mnemonic: " + mnemonic);
-            
             Optimizer optimizer(this->m_policy);
             using OptResult = typename Optimizer::Result;
             OptResult opt_res = optimizer.optimize(mnemonic, operands);
             if (opt_res.action == OptResult::Action::DONE)
                 return true;
-            
             const std::string& final_mnemonic = (opt_res.action == OptResult::Action::REPLACE) ? opt_res.mnemonic : mnemonic;
             const std::vector<typename Operands::Operand>& final_operands = (opt_res.action == OptResult::Action::REPLACE) ? opt_res.operands : operands;
-
             switch (final_operands.size()) {
             case 0:
                 if (encode_no_operand(final_mnemonic))
@@ -3692,7 +3730,6 @@ protected:
                 match = this->m_policy.on_operand_not_matching(operand, expected);
             return match;
         }
-
         void assemble(std::vector<uint8_t> bytes) { this->m_policy.on_assemble(bytes);}
         bool encode_data_block(const std::string& mnemonic, const std::vector<typename Operands::Operand>& ops) {
             const auto& directive_options = this->m_policy.context().assembler.m_config.directives;
