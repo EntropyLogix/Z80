@@ -4733,6 +4733,66 @@ TEST_CASE(OptionDirective) {
     )", {}, config_disabled);
 }
 
+TEST_CASE(OptionDirectiveErrors) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_z80n = true;
+    config.compilation.enable_undocumented = true;
+
+    // 1. Invalid parameter
+    ASSERT_COMPILE_FAILS_WITH_OPTS("OPTION INVALID_PARAM", config);
+
+    // 2. POP without matching PUSH
+    ASSERT_COMPILE_FAILS_WITH_OPTS("OPTION POP", config);
+
+    // 3. PUSH mixed with other arguments
+    ASSERT_COMPILE_FAILS_WITH_OPTS("OPTION PUSH +Z80N", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("OPTION +Z80N PUSH", config);
+
+    // 4. POP mixed with other arguments
+    ASSERT_COMPILE_FAILS_WITH_OPTS("OPTION POP +Z80N", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("OPTION +Z80N POP", config);
+}
+
+TEST_CASE(OptionDirectiveMultiple) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_z80n = true;
+    config.compilation.enable_undocumented = true;
+
+    // 1. Disable multiple options in one line
+    // SLL A should fail if UNDOC is disabled (A is not a mnemonic)
+    ASSERT_COMPILE_FAILS_WITH_OPTS(R"(
+        OPTION -Z80N -UNDOC
+        SLL A
+    )", config);
+
+    // 2. Enable multiple options in one line
+    ASSERT_CODE_WITH_OPTS(R"(
+        OPTION -Z80N -UNDOC
+        OPTION +Z80N +UNDOC
+        SWAPNIB
+        SLL A
+    )", {0xED, 0x23, 0xCB, 0x37}, config);
+}
+
+TEST_CASE(OptionDirectiveNestedStack) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_z80n = true;
+
+    ASSERT_CODE_WITH_OPTS(R"(
+        OPTION -Z80N    ; Level 0: Z80N=Off
+        OPTION PUSH     ; Push Level 0
+        OPTION +Z80N    ; Level 1: Z80N=On
+        SWAPNIB         ; OK (Instruction)
+        OPTION PUSH     ; Push Level 1
+        OPTION -Z80N    ; Level 2: Z80N=Off
+        SWAPNIB: NOP    ; OK (Label 'SWAPNIB' followed by NOP)
+        OPTION POP      ; Pop Level 1 (Z80N=On)
+        SWAPNIB         ; OK (Instruction)
+        OPTION POP      ; Pop Level 0 (Z80N=Off)
+        ; SWAPNIB       ; Would be label here
+    )", {0xED, 0x23, 0x00, 0xED, 0x23}, config);
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
