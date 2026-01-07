@@ -270,7 +270,6 @@
 //   - NONE:         Disable all optimizations.
 //   - SPEED:        Enable optimizations for speed (OPS_*, DCE, JUMP_THREAD). Disables BRANCH_SHORT.
 //   - SIZE:         Enable optimizations for size (enables all, including BRANCH_SHORT).
-//   - ALL:          Enable all optimizations.
 //   - OPS:          Enable all OPS_* optimizations.
 //   - BRANCH:       Enable all branch optimizations.
 //   - UNSAFE:       Enable all unsafe optimizations.
@@ -431,6 +430,7 @@ public:
     };
     struct OptimizationOptions {
         bool branch_short = false;
+        bool branch_speed = false;
         bool ops_xor = false;
         bool ops_inc = false;
         bool ops_or = false;
@@ -448,21 +448,20 @@ public:
                 *this = {};
             return *this;
         }
-        OptimizationOptions& all(bool enable = true) {
+        OptimizationOptions& size(bool enable = true) {
             branch(enable);
+            if (enable)
+                branch_speed = false;
             dce(enable);
             ops(enable);
             return *this;
         }
-        OptimizationOptions& size(bool enable = true) {
-            return all(enable);
-        }
         OptimizationOptions& speed(bool enable = true) {
-            jump_thread = enable;
-            dce(enable);
-            ops(enable);
+            branch(enable);
             if (enable)
                 branch_short = false;
+            dce(enable);
+            ops(enable);
             return *this;
         }
         OptimizationOptions& unsafe(bool enable = true) {
@@ -479,6 +478,7 @@ public:
             branch_short = enable;
             branch_long = enable;
             jump_thread = enable;
+            branch_speed = enable;
             return *this;
         }
         OptimizationOptions& dce(bool enable = true) {
@@ -2422,7 +2422,7 @@ protected:
                     else if (flag == "SPEED") {
                         is_valid = true;
                     }
-                    else if (flag == "SIZE" || flag == "ALL") {
+                    else if (flag == "SIZE") {
                         is_valid = true;
                     }
                     if (!is_valid)
@@ -2464,8 +2464,8 @@ protected:
                     else if (flag == "UNSAFE") {
                         ctx.optimization.unsafe(enable);
                     }
-                    else if (flag == "SIZE" || flag == "ALL") {
-                        ctx.optimization.all(enable);
+                    else if (flag == "SIZE") {
+                        ctx.optimization.size(enable);
                     }
                     else if (flag == "SPEED") {
                         ctx.optimization.speed(enable);
@@ -3340,7 +3340,6 @@ protected:
             if (!this->m_policy.context().assembler.m_config.compilation.enable_optimization)
                 return {Result::Action::NONE};
             auto& ctx = this->m_policy.context();
-            
             if (ops.size() == 1) {
                 if ((mnemonic == "JP" || mnemonic == "JR") && this->match_imm16(ops[0])) {
                      if (ops[0].type == Operands::Operand::Type::IMMEDIATE) {
@@ -3348,7 +3347,6 @@ protected:
                      }
                 }
             }
-            
             auto& opts = ctx.optimization;
             auto& stats = ctx.stats;
             if (ops.size() == 1) {
@@ -3363,6 +3361,13 @@ protected:
                         stats.bytes_saved += 2;
                         stats.cycles_saved += 12;
                         return {Result::Action::DONE};
+                    }
+                    if (opts.branch_speed) {
+                        stats.bytes_saved += -1;
+                        stats.cycles_saved += 2;
+                        typename Operands::Operand new_op = op;
+                        new_op.num_val = target_addr;
+                        return {Result::Action::REPLACE, "JP", {new_op}};
                     }
                     if (opts.branch_long && (offset < -128 || offset > 127)) {
                         stats.bytes_saved += -1; stats.cycles_saved += 2;
@@ -3387,7 +3392,7 @@ protected:
                         stats.cycles_saved += 10;
                         return {Result::Action::DONE};
                     }
-                    if (opts.branch_short && op.type == Operands::Operand::Type::IMMEDIATE) {
+                    if (opts.branch_short && !opts.branch_speed && op.type == Operands::Operand::Type::IMMEDIATE) {
                         uint16_t instruction_size = 2;
                         int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
                         if (offset >= -128 && offset <= 127) {
@@ -3583,7 +3588,7 @@ protected:
                         stats.cycles_saved += 10;
                         return {Result::Action::DONE};
                     }
-                    if (opts.branch_short && op2.type == Operands::Operand::Type::IMMEDIATE) {
+                    if (opts.branch_short && !opts.branch_speed && op2.type == Operands::Operand::Type::IMMEDIATE) {
                         uint16_t instruction_size = 2;
                         int32_t offset = target_addr - (ctx.address.current_logical + instruction_size);
                         if (offset >= -128 && offset <= 127) {
