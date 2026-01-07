@@ -419,6 +419,7 @@ public:
             int max_while_iterations = 10000;
             bool enable_optimization = true;
             bool enable_undocumented = true;
+            bool enable_z80n = false;
         } compilation;
     };
     static const Config& get_default_config() {
@@ -3254,7 +3255,13 @@ protected:
     class Keywords {
     public:
         Keywords(Context& context) : m_context(context) {}
-        bool is_mnemonic(const std::string& s) const { return is_in_set(s, mnemonics()); }
+        bool is_mnemonic(const std::string& s) const {
+            if (is_in_set(s, mnemonics()))
+                return true;
+            if (m_context.assembler.m_config.compilation.enable_z80n && is_in_set(s, z80n_mnemonics()))
+                return true;
+            return false;
+        }
         bool is_directive(const std::string& s) const { return is_in_set(s, directives()) || m_context.assembler.custom_directives.count(s); }
         bool is_register(const std::string& s) const { return is_in_set(s, registers()); }
         bool is_reserved(const std::string& s) const { return is_mnemonic(s) || is_directive(s) || is_register(s); }
@@ -3273,6 +3280,9 @@ protected:
             static const std::set<std::string> undoc_regs = {"IXH", "IXL", "IYH", "IYL"};
             return undoc_regs.count(s);
         }
+        bool is_z80n_mnemonic(const std::string& s) const {
+            return is_in_set(s, z80n_mnemonics());
+        }
     private:
         Context& m_context;
         static bool is_in_set(const std::string& s, const std::set<std::string>& set) { return set.count(s); }
@@ -3283,6 +3293,13 @@ protected:
                 "LDD", "LDDR", "LDI", "LDIR", "NEG", "NOP", "OR", "OTDR", "OTIR", "OUT", "OUTD", "OUTI", "POP", "PUSH",
                 "RES", "RET", "RETI", "RETN", "RL", "RLA", "RLC", "RLCA", "RLD", "RR", "RRA", "RRC", "RRCA", "RRD",
                 "RST", "SBC", "SCF", "SET", "SLA", "SLL", "SLI", "SRA", "SRL", "SUB", "XOR"
+            };
+            return mnemonics;
+        }
+        static const std::set<std::string>& z80n_mnemonics() {
+            static const std::set<std::string> mnemonics = {
+                "NEXTREG", "PIXELAD", "PIXELDN", "SETAE", "LDIX", "LDWS", "LDIRX", "LDDX", "LDDRX", "LDPIRX", "OUTINB",
+                "SWAPNIB", "MIRROR", "BSLA", "BSRA", "BSRL", "BSRF", "BRLC", "MUL", "TEST", "LDIRSCALE"
             };
             return mnemonics;
         }
@@ -3334,7 +3351,6 @@ protected:
     class Optimizer : public InstructionMatcher {
     public:
         Optimizer(IPhasePolicy& policy) : InstructionMatcher(policy) {}
-
         struct Result {
             enum class Action { NONE, REPLACE, DONE };
             Action action = Action::NONE;
@@ -3716,6 +3732,9 @@ protected:
         bool check_undocumented() {
             return this->m_policy.context().assembler.m_config.compilation.enable_undocumented;
         }
+        bool check_z80n() {
+            return this->m_policy.context().assembler.m_config.compilation.enable_z80n;
+        }
     private:
         static const std::map<std::string, uint8_t>& reg8_map() {
             static const std::map<std::string, uint8_t> map = { {"B", 0},   {"C", 1},   {"D", 2},    {"E", 3}, {"H", 4},   {"L", 5},   {"(HL)", 6}, {"A", 7}, {"IXH", 4}, {"IXL", 5}, {"IYH", 4},  {"IYL", 5} };
@@ -4013,6 +4032,10 @@ protected:
                 assemble({0xED, 0xBB});
                 return true;
             }
+            if (check_z80n() && mnemonic == "LDIRSCALE") {
+                assemble({0xED, 0xB6});
+                return true;
+            }
             return false;
         }
         bool encode_one_operand(const std::string& mnemonic, const typename Operands::Operand& op) {
@@ -4043,6 +4066,12 @@ protected:
                     assemble({0xFD, 0xE1});
                     return true;
                 }
+            }
+            if (mnemonic == "PUSH" && this->match_imm16(op)) {
+                if (!check_z80n())
+                    return false;
+                assemble({0xED, 0x8A, (uint8_t)(op.num_val >> 8), (uint8_t)(op.num_val & 0xFF)}); //Big Endian
+                return true;
             }
             if (mnemonic == "INC" && this->match_reg16(op)) {
                 if (reg16_map().count(op.str_val)) {
@@ -4123,6 +4152,12 @@ protected:
             if (mnemonic == "JP" && this->match_imm16(op)) {
                 int32_t target_addr = op.num_val;
                 assemble({0xC3, (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
+                return true;
+            }
+            if (mnemonic == "JP" && this->match_mem_reg16(op) && op.str_val == "C") {
+                if (!check_z80n())
+                    return false;
+                assemble({0xED, 0x98});
                 return true;
             }
             if (mnemonic == "JP" && this->match(op, Operands::Operand::Type::MEM_REG16)) {
@@ -4333,6 +4368,60 @@ protected:
                 assemble({0xED, 0x70});
                 return true;
             }
+            if (check_z80n()) {
+                if (mnemonic == "SWAPNIB") {
+                    assemble({0xED, 0x23});
+                    return true;
+                }
+                if (mnemonic == "MIRROR") {
+                    assemble({0xED, 0x24});
+                    return true;
+                }
+                if (mnemonic == "OUTINB") {
+                    assemble({0xED, 0x90});
+                    return true;
+                }
+                if (mnemonic == "PIXELAD") {
+                    assemble({0xED, 0x93});
+                    return true;
+                }
+                if (mnemonic == "PIXELDN") {
+                    assemble({0xED, 0x94});
+                    return true;
+                }
+                if (mnemonic == "SETAE") {
+                    assemble({0xED, 0x95});
+                    return true;
+                }
+                if (mnemonic == "LDIX") {
+                    assemble({0xED, 0xA4});
+                    return true;
+                }
+                if (mnemonic == "LDWS") {
+                    assemble({0xED, 0xA5});
+                    return true;
+                }
+                if (mnemonic == "LDDX") {
+                    assemble({0xED, 0xAC});
+                    return true;
+                }
+                if (mnemonic == "LDIRX") {
+                    assemble({0xED, 0xB4});
+                    return true;
+                }
+                if (mnemonic == "LDPIRX") {
+                    assemble({0xED, 0xB7});
+                    return true;
+                }
+                if (mnemonic == "LDDRX") {
+                    assemble({0xED, 0xBC});
+                    return true;
+                }
+                if (mnemonic == "TEST" && this->match_imm8(op)) {
+                    assemble({0xED, 0x27, (uint8_t)op.num_val});
+                    return true;
+                }
+            }
             return false;
         }
         bool encode_two_operands(const std::string& mnemonic, const typename Operands::Operand& op1, const typename Operands::Operand& op2) {
@@ -4400,6 +4489,34 @@ protected:
                     return true;
                 }
             }
+            if (mnemonic == "ADD" && this->match_reg16(op1) && this->match_reg8(op2) && op2.str_val == "A") {
+                if (!check_z80n())
+                    return false;
+                if (op1.str_val == "HL")
+                    assemble({0xED, 0x31});
+                else if (op1.str_val == "DE")
+                    assemble({0xED, 0x32});
+                else if (op1.str_val == "BC")
+                    assemble({0xED, 0x33});
+                else
+                    return false;
+                return true;
+            }
+            if (mnemonic == "ADD" && this->match_reg16(op1) && this->match_imm16(op2)) {
+                if (!check_z80n())
+                    return false;
+                uint8_t opcode = 0;
+                if (op1.str_val == "HL")
+                    opcode = 0x34;
+                else if (op1.str_val == "DE")
+                    opcode = 0x35;
+                else if (op1.str_val == "BC")
+                    opcode = 0x36;
+                else
+                    return false;
+                assemble({0xED, opcode, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                return true;
+            }
             if ((mnemonic == "ADC" || mnemonic == "SBC") && op1.str_val == "HL" && this->match_reg16(op2)) {
                 uint8_t base_opcode = (mnemonic == "ADC") ? 0x4A : 0x42;
                 if (reg16_map().count(op2.str_val)) {
@@ -4427,8 +4544,7 @@ protected:
                 assemble({(uint8_t)(0x40 | (dest_code << 3) | src_code)});
                 return true;
             }
-            if (mnemonic == "LD" && (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && this->match_imm8(op2))
-            {
+            if (mnemonic == "LD" && (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && this->match_imm8(op2)) {
                 if (!check_undocumented())
                     return false;
                 uint8_t opcode = 0;
@@ -4821,6 +4937,33 @@ protected:
                     uint8_t prefix = (op1.base_reg == "IX") ? 0xDD : 0xFD;
                     uint8_t reg_code = reg8_map().at(op2.str_val);
                     assemble({prefix, 0xCB, (uint8_t)((int8_t)op1.offset), (uint8_t)(base_opcode | reg_code)});
+                    return true;
+                }
+            }
+            if (check_z80n()) {
+                if (mnemonic == "NEXTREG" && this->match_imm8(op1)) {
+                    if (this->match_imm8(op2)) {
+                        assemble({0xED, 0x91, (uint8_t)op1.num_val, (uint8_t)op2.num_val});
+                        return true;
+                    }
+                    if (this->match_reg8(op2) && op2.str_val == "A") {
+                        assemble({0xED, 0x92, (uint8_t)op1.num_val});
+                        return true;
+                    }
+                }
+                if (mnemonic == "MUL" && this->match_reg8(op1) && op1.str_val == "D" && this->match_reg8(op2) && op2.str_val == "E") {
+                    assemble({0xED, 0x30});
+                    return true;
+                }
+                if ((mnemonic == "BSLA" || mnemonic == "BSRA" || mnemonic == "BSRL" || mnemonic == "BSRF" || mnemonic == "BRLC") &&
+                    this->match_reg16(op1) && op1.str_val == "DE" && this->match_reg8(op2) && op2.str_val == "B") {
+                    uint8_t opcode = 0;
+                    if (mnemonic == "BSLA") opcode = 0x28;
+                    else if (mnemonic == "BSRA") opcode = 0x29;
+                    else if (mnemonic == "BSRL") opcode = 0x2A;
+                    else if (mnemonic == "BSRF") opcode = 0x2B;
+                    else if (mnemonic == "BRLC") opcode = 0x2C;
+                    assemble({0xED, opcode});
                     return true;
                 }
             }
