@@ -4036,6 +4036,56 @@ protected:
                 assemble({0xED, 0xB6});
                 return true;
             }
+            if (check_z80n()) {
+                if (mnemonic == "SWAPNIB") {
+                    assemble({0xED, 0x23});
+                    return true;
+                }
+                if (mnemonic == "MIRROR") {
+                    assemble({0xED, 0x24});
+                    return true;
+                }
+                if (mnemonic == "OUTINB") {
+                    assemble({0xED, 0x90});
+                    return true;
+                }
+                if (mnemonic == "PIXELAD") {
+                    assemble({0xED, 0x93});
+                    return true;
+                }
+                if (mnemonic == "PIXELDN") {
+                    assemble({0xED, 0x94});
+                    return true;
+                }
+                if (mnemonic == "SETAE") {
+                    assemble({0xED, 0x95});
+                    return true;
+                }
+                if (mnemonic == "LDIX") {
+                    assemble({0xED, 0xA4});
+                    return true;
+                }
+                if (mnemonic == "LDWS") {
+                    assemble({0xED, 0xA5});
+                    return true;
+                }
+                if (mnemonic == "LDDX") {
+                    assemble({0xED, 0xAC});
+                    return true;
+                }
+                if (mnemonic == "LDIRX") {
+                    assemble({0xED, 0xB4});
+                    return true;
+                }
+                if (mnemonic == "LDPIRX") {
+                    assemble({0xED, 0xB7});
+                    return true;
+                }
+                if (mnemonic == "LDDRX") {
+                    assemble({0xED, 0xBC});
+                    return true;
+                }
+            }
             return false;
         }
         bool encode_one_operand(const std::string& mnemonic, const typename Operands::Operand& op) {
@@ -4070,7 +4120,7 @@ protected:
             if (mnemonic == "PUSH" && this->match_imm16(op)) {
                 if (!check_z80n())
                     return false;
-                assemble({0xED, 0x8A, (uint8_t)(op.num_val >> 8), (uint8_t)(op.num_val & 0xFF)}); //Big Endian
+                assemble({0xED, 0x8A, (uint8_t)(op.num_val >> 8), (uint8_t)(op.num_val & 0xFF)});
                 return true;
             }
             if (mnemonic == "INC" && this->match_reg16(op)) {
@@ -4369,54 +4419,6 @@ protected:
                 return true;
             }
             if (check_z80n()) {
-                if (mnemonic == "SWAPNIB") {
-                    assemble({0xED, 0x23});
-                    return true;
-                }
-                if (mnemonic == "MIRROR") {
-                    assemble({0xED, 0x24});
-                    return true;
-                }
-                if (mnemonic == "OUTINB") {
-                    assemble({0xED, 0x90});
-                    return true;
-                }
-                if (mnemonic == "PIXELAD") {
-                    assemble({0xED, 0x93});
-                    return true;
-                }
-                if (mnemonic == "PIXELDN") {
-                    assemble({0xED, 0x94});
-                    return true;
-                }
-                if (mnemonic == "SETAE") {
-                    assemble({0xED, 0x95});
-                    return true;
-                }
-                if (mnemonic == "LDIX") {
-                    assemble({0xED, 0xA4});
-                    return true;
-                }
-                if (mnemonic == "LDWS") {
-                    assemble({0xED, 0xA5});
-                    return true;
-                }
-                if (mnemonic == "LDDX") {
-                    assemble({0xED, 0xAC});
-                    return true;
-                }
-                if (mnemonic == "LDIRX") {
-                    assemble({0xED, 0xB4});
-                    return true;
-                }
-                if (mnemonic == "LDPIRX") {
-                    assemble({0xED, 0xB7});
-                    return true;
-                }
-                if (mnemonic == "LDDRX") {
-                    assemble({0xED, 0xBC});
-                    return true;
-                }
                 if (mnemonic == "TEST" && this->match_imm8(op)) {
                     assemble({0xED, 0x27, (uint8_t)op.num_val});
                     return true;

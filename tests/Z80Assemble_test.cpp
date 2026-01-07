@@ -971,6 +971,81 @@ TEST_CASE(UndocumentedInstructionsDisabled) {
     ASSERT_COMPILE_FAILS_WITH_OPTS("RES 2, (IY+5), C", config);
 }
 
+TEST_CASE(Z80NInstructions) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_z80n = true;
+
+    // SWAPNIB
+    ASSERT_CODE_WITH_OPTS("SWAPNIB", {0xED, 0x23}, config);
+    // MIRROR
+    ASSERT_CODE_WITH_OPTS("MIRROR", {0xED, 0x24}, config);
+    // BSLA DE, B
+    ASSERT_CODE_WITH_OPTS("BSLA DE, B", {0xED, 0x28}, config);
+    // BSRA DE, B
+    ASSERT_CODE_WITH_OPTS("BSRA DE, B", {0xED, 0x29}, config);
+    // BSRL DE, B
+    ASSERT_CODE_WITH_OPTS("BSRL DE, B", {0xED, 0x2A}, config);
+    // BSRF DE, B
+    ASSERT_CODE_WITH_OPTS("BSRF DE, B", {0xED, 0x2B}, config);
+    // BRLC DE, B
+    ASSERT_CODE_WITH_OPTS("BRLC DE, B", {0xED, 0x2C}, config);
+    // MUL D, E
+    ASSERT_CODE_WITH_OPTS("MUL D, E", {0xED, 0x30}, config);
+    // ADD rr, A
+    ASSERT_CODE_WITH_OPTS("ADD HL, A", {0xED, 0x31}, config);
+    ASSERT_CODE_WITH_OPTS("ADD DE, A", {0xED, 0x32}, config);
+    ASSERT_CODE_WITH_OPTS("ADD BC, A", {0xED, 0x33}, config);
+    // ADD rr, nn
+    ASSERT_CODE_WITH_OPTS("ADD HL, 0x1234", {0xED, 0x34, 0x34, 0x12}, config);
+    ASSERT_CODE_WITH_OPTS("ADD DE, 0x1234", {0xED, 0x35, 0x34, 0x12}, config);
+    ASSERT_CODE_WITH_OPTS("ADD BC, 0x1234", {0xED, 0x36, 0x34, 0x12}, config);
+    // PUSH nn (Big Endian)
+    ASSERT_CODE_WITH_OPTS("PUSH 0x1234", {0xED, 0x8A, 0x12, 0x34}, config);
+    // OUTINB
+    ASSERT_CODE_WITH_OPTS("OUTINB", {0xED, 0x90}, config);
+    // NEXTREG n, n
+    ASSERT_CODE_WITH_OPTS("NEXTREG 0x10, 0x20", {0xED, 0x91, 0x10, 0x20}, config);
+    // NEXTREG n, A
+    ASSERT_CODE_WITH_OPTS("NEXTREG 0x10, A", {0xED, 0x92, 0x10}, config);
+    // PIXELAD
+    ASSERT_CODE_WITH_OPTS("PIXELAD", {0xED, 0x93}, config);
+    // PIXELDN
+    ASSERT_CODE_WITH_OPTS("PIXELDN", {0xED, 0x94}, config);
+    // SETAE
+    ASSERT_CODE_WITH_OPTS("SETAE", {0xED, 0x95}, config);
+    // JP (C)
+    ASSERT_CODE_WITH_OPTS("JP (C)", {0xED, 0x98}, config);
+    // LDIX
+    ASSERT_CODE_WITH_OPTS("LDIX", {0xED, 0xA4}, config);
+    // LDWS
+    ASSERT_CODE_WITH_OPTS("LDWS", {0xED, 0xA5}, config);
+    // LDDX
+    ASSERT_CODE_WITH_OPTS("LDDX", {0xED, 0xAC}, config);
+    // LDIRX
+    ASSERT_CODE_WITH_OPTS("LDIRX", {0xED, 0xB4}, config);
+    // LDIRSCALE
+    ASSERT_CODE_WITH_OPTS("LDIRSCALE", {0xED, 0xB6}, config);
+    // LDPIRX
+    ASSERT_CODE_WITH_OPTS("LDPIRX", {0xED, 0xB7}, config);
+    // LDDRX
+    ASSERT_CODE_WITH_OPTS("LDDRX", {0xED, 0xBC}, config);
+    // TEST n
+    ASSERT_CODE_WITH_OPTS("TEST 0xAA", {0xED, 0x27, 0xAA}, config);
+}
+
+TEST_CASE(Z80NInstructionsDisabled) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_z80n = false;
+
+    ASSERT_COMPILE_FAILS_WITH_OPTS("SWAPNIB 1", config); // Use invalid syntax to ensure it fails even if treated as label
+    ASSERT_COMPILE_FAILS_WITH_OPTS("NEXTREG 0x10, 0x20", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("PUSH 0x1234", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ADD HL, A", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ADD HL, 0x1234", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("JP (C), 0", config); // Invalid syntax
+    ASSERT_COMPILE_FAILS_WITH_OPTS("TEST 0xAA", config);
+}
+
 TEST_CASE(Directives) {
     // DB
     ASSERT_CODE("DB 0x12", {0x12});
