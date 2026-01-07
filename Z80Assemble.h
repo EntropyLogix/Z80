@@ -418,6 +418,7 @@ public:
             int max_passes = 10;
             int max_while_iterations = 10000;
             bool enable_optimization = true;
+            bool enable_undocumented = true;
         } compilation;
     };
     static const Config& get_default_config() {
@@ -3268,6 +3269,10 @@ protected:
             }
             return true;
         }
+        bool is_undocumented_register(const std::string& s) const {
+            static const std::set<std::string> undoc_regs = {"IXH", "IXL", "IYH", "IYL"};
+            return undoc_regs.count(s);
+        }
     private:
         Context& m_context;
         static bool is_in_set(const std::string& s, const std::set<std::string>& set) { return set.count(s); }
@@ -3699,9 +3704,17 @@ protected:
                 if (encode_two_operands(final_mnemonic, final_operands[0], final_operands[1]))
                     return true;
                 break;
+            case 3:
+                if (encode_three_operands(final_mnemonic, final_operands[0], final_operands[1], final_operands[2]))
+                    return true;
+                break;
             }
             this->m_policy.context().assembler.report_error("Invalid instruction or operands for mnemonic: " + mnemonic);
             return false;
+        }
+    private:
+        bool check_undocumented() {
+            return this->m_policy.context().assembler.m_config.compilation.enable_undocumented;
         }
     private:
         static const std::map<std::string, uint8_t>& reg8_map() {
@@ -4085,6 +4098,8 @@ protected:
             }
             if (mnemonic == "INC" && this->match_reg8(op)) {
                 if (op.str_val.find("IX") != std::string::npos || op.str_val.find("IY") != std::string::npos) {
+                    if (!check_undocumented())
+                        return false;
                     uint8_t prefix = (op.str_val.find("IX") != std::string::npos) ? 0xDD : 0xFD;
                     uint8_t opcode = (op.str_val.back() == 'H') ? 0x24 : 0x2C; // INC H or INC L
                     assemble({prefix, opcode});
@@ -4095,6 +4110,8 @@ protected:
             }
             if (mnemonic == "DEC" && this->match_reg8(op)) {
                 if (op.str_val.find("IX") != std::string::npos || op.str_val.find("IY") != std::string::npos) {
+                    if (!check_undocumented())
+                        return false;
                     uint8_t prefix = (op.str_val.find("IX") != std::string::npos) ? 0xDD : 0xFD;
                     uint8_t opcode = (op.str_val.back() == 'H') ? 0x25 : 0x2D; // DEC H or DEC L
                     assemble({prefix, opcode});
@@ -4206,6 +4223,8 @@ protected:
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
                  mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") && (this->match_reg8(op) || (this->match_mem_reg16(op) && op.str_val == "HL"))) {
                 uint8_t base_opcode = 0;
+                if (this->m_policy.context().assembler.m_keywords.is_undocumented_register(op.str_val) && !check_undocumented())
+                    return false;
                 if (mnemonic == "ADD")
                     base_opcode = 0x80;
                 else if (mnemonic == "ADC")
@@ -4292,6 +4311,8 @@ protected:
             };
             if (rotate_shift_map.count(mnemonic)) {
                 if (this->match_reg8(op) || (this->match_mem_reg16(op) && op.str_val == "HL")) {
+                    if ((mnemonic == "SLL" || mnemonic == "SLI") && !check_undocumented())
+                        return false;
                     uint8_t base_opcode = rotate_shift_map.at(mnemonic);
                     uint8_t reg_code;
                     if (op.type == Operands::Operand::Type::MEM_REG16)
@@ -4299,6 +4320,12 @@ protected:
                     else
                         reg_code = reg8_map().at(op.str_val);
                     assemble({0xCB, (uint8_t)(base_opcode | reg_code)});
+                    return true;
+                }
+                if (this->match_mem_indexed(op)) {
+                    uint8_t base_opcode = rotate_shift_map.at(mnemonic);
+                    uint8_t prefix = (op.base_reg == "IX") ? 0xDD : 0xFD;
+                    assemble({prefix, 0xCB, (uint8_t)((int8_t)op.offset), (uint8_t)(base_opcode | 6)});
                     return true;
                 }
             }
@@ -4386,6 +4413,8 @@ protected:
             else if (op1.base_reg == "IY" || op2.base_reg == "IY" || op1.str_val.find("IY") != std::string::npos || op2.str_val.find("IY") != std::string::npos)
                 prefix = 0xFD;
             if (mnemonic == "LD" && this->match_reg8(op1) && this->match_reg8(op2)) {
+                if ((this->m_policy.context().assembler.m_keywords.is_undocumented_register(op1.str_val) || this->m_policy.context().assembler.m_keywords.is_undocumented_register(op2.str_val)) && !check_undocumented())
+                    return false;
                 uint8_t dest_code = reg8_map().at(op1.str_val);
                 uint8_t src_code = reg8_map().at(op2.str_val);
                 if (prefix) {
@@ -4398,9 +4427,10 @@ protected:
                 assemble({(uint8_t)(0x40 | (dest_code << 3) | src_code)});
                 return true;
             }
-            if (mnemonic == "LD" &&
-                (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && this->match_imm8(op2)) 
+            if (mnemonic == "LD" && (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && this->match_imm8(op2))
             {
+                if (!check_undocumented())
+                    return false;
                 uint8_t opcode = 0;
                 if (op1.str_val == "IXH" || op1.str_val == "IYH")
                     opcode = 0x26; // LD H, n
@@ -4612,6 +4642,8 @@ protected:
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
                  mnemonic == "AND" || mnemonic == "XOR" || mnemonic == "OR" || mnemonic == "CP") &&
                  op1.str_val == "A" && ((this->match_reg8(op2) || (this->match_mem_reg16(op2) && op2.str_val == "HL")))) {
+                if (this->m_policy.context().assembler.m_keywords.is_undocumented_register(op2.str_val) && !check_undocumented())
+                    return false;
                 uint8_t base_opcode = 0;
                 if (mnemonic == "ADD")
                     base_opcode = 0x80;
@@ -4702,6 +4734,8 @@ protected:
             }
             if (mnemonic == "OUT" && this->match_mem_reg16(op1) && op1.str_val == "C" && (this->match_reg8(op2) || (op2.type == Operands::Operand::Type::IMMEDIATE && op2.num_val == 0))) {
                 if (op2.type == Operands::Operand::Type::IMMEDIATE && op2.num_val == 0) {
+                    if (!check_undocumented())
+                        return false;
                     assemble({0xED, 0x71});
                     return true;
                 }
@@ -4748,6 +4782,8 @@ protected:
                 return true;
             }
             if ((mnemonic == "SLL" || mnemonic == "SLI") && this->match_reg8(op1)) {
+                if (!check_undocumented())
+                    return false;
                 if (op1.num_val > 7)
                     this->m_policy.context().assembler.report_error("SLL bit index must be 0-7");
                 uint8_t reg_code = reg8_map().at(op1.str_val);
@@ -4772,6 +4808,35 @@ protected:
                     assemble({0xFD, 0xCB, (uint8_t)((int8_t)op2.offset), final_opcode});
                 } else
                     return false;
+                return true;
+            }
+            const std::map<std::string, uint8_t> rotate_shift_map = {
+                {"RLC", 0x00}, {"RRC", 0x08}, {"RL", 0x10}, {"RR", 0x18},
+                {"SLA", 0x20}, {"SRA", 0x28}, {"SLL", 0x30}, {"SLI", 0x30}, {"SRL", 0x38}
+            };
+            if (rotate_shift_map.count(mnemonic)) {
+                if (this->match_mem_indexed(op1) && this->match_reg8(op2)) {
+                    if (!check_undocumented()) return false;
+                    uint8_t base_opcode = rotate_shift_map.at(mnemonic);
+                    uint8_t prefix = (op1.base_reg == "IX") ? 0xDD : 0xFD;
+                    uint8_t reg_code = reg8_map().at(op2.str_val);
+                    assemble({prefix, 0xCB, (uint8_t)((int8_t)op1.offset), (uint8_t)(base_opcode | reg_code)});
+                    return true;
+                }
+            }
+            return false;
+        }
+        bool encode_three_operands(const std::string& mnemonic, const typename Operands::Operand& op1, const typename Operands::Operand& op2, const typename Operands::Operand& op3) {
+            if ((mnemonic == "SET" || mnemonic == "RES") && this->match_imm8(op1) && this->match_mem_indexed(op2) && this->match_reg8(op3)) {
+                if (!check_undocumented()) return false;
+                if (op1.num_val > 7)
+                    this->m_policy.context().assembler.report_error(mnemonic + " index must be 0-7");
+                uint8_t bit = op1.num_val;
+                uint8_t base_opcode = (mnemonic == "SET") ? 0xC0 : 0x80;
+
+                uint8_t reg_code = reg8_map().at(op3.str_val);
+                uint8_t prefix = (op2.base_reg == "IX") ? 0xDD : 0xFD;
+                assemble({prefix, 0xCB, (uint8_t)((int8_t)op2.offset), (uint8_t)(base_opcode | (bit << 3) | reg_code)});
                 return true;
             }
             return false;

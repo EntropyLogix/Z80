@@ -945,6 +945,32 @@ TEST_CASE(UndocumentedInstructions) {
     ASSERT_CODE("OUT (C), 0", {0xED, 0x71});
 }
 
+TEST_CASE(UndocumentedInstructionsDisabled) {
+    Z80Assembler<Z80StandardBus>::Config config;
+    config.compilation.enable_undocumented = false;
+
+    // SLL / SLI
+    ASSERT_COMPILE_FAILS_WITH_OPTS("SLL A", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("SLI B", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("SLL (HL)", config);
+
+    // IXH/IXL/IYH/IYL usage
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, IXH", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD IXL, 10", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("INC IYH", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("ADD A, IYL", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD IXH, IXL", config);
+
+    // Undocumented IO
+    ASSERT_COMPILE_FAILS_WITH_OPTS("OUT (C), 0", config);
+
+    // Undocumented Shift/Rotate/Bit with copy to register
+    ASSERT_COMPILE_FAILS_WITH_OPTS("RLC (IX+0), B", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("SLA (IY+5), C", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("SET 1, (IX+0), B", config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("RES 2, (IY+5), C", config);
+}
+
 TEST_CASE(Directives) {
     // DB
     ASSERT_CODE("DB 0x12", {0x12});
