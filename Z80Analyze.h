@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Version: 1.1.6b
+// Version: 1.1.8
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -199,6 +199,8 @@ public:
     Z80Analyzer(TMemory* memory, ILabels* labels = nullptr) : m_memory(memory), m_labels(labels) {}
     virtual ~Z80Analyzer() = default;
 
+    void set_z80n_mode(bool enable) { m_enable_z80n = enable; }
+    bool is_z80n_mode() const { return m_enable_z80n; }
     enum class AnalysisMode { RAW, HEURISTIC, EXEC };
     class CodeMapProfiler {
     public:
@@ -2108,6 +2110,132 @@ public:
                 line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG8, "B"), typename CodeLine::Operand(CodeLine::Operand::MEM_REG16, "C")};
                 line_info.ticks = 12;
                 break;
+            case 0x23:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "SWAPNIB";
+                    line_info.type = CodeLine::Type::ALU;
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x24:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "MIRROR";
+                    line_info.type = CodeLine::Type::ALU;
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x27:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "TEST";
+                    line_info.type = CodeLine::Type::ALU;
+                    auto byte_opt = ctx.peek_byte();
+                    if (!byte_opt) return to_db(line_info);
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::IMM8, *byte_opt)};
+                    line_info.ticks = 11;
+                }
+                break;
+            case 0x28:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "BSLA";
+                    line_info.type = CodeLine::Type::SHIFT_ROTATE;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "DE"), typename CodeLine::Operand(CodeLine::Operand::REG8, "B")};
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x29:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "BSRA";
+                    line_info.type = CodeLine::Type::SHIFT_ROTATE;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "DE"), typename CodeLine::Operand(CodeLine::Operand::REG8, "B")};
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x2A:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "BSRL";
+                    line_info.type = CodeLine::Type::SHIFT_ROTATE;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "DE"), typename CodeLine::Operand(CodeLine::Operand::REG8, "B")};
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x2B:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "BSRF";
+                    line_info.type = CodeLine::Type::SHIFT_ROTATE;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "DE"), typename CodeLine::Operand(CodeLine::Operand::REG8, "B")};
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x2C:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "BRLC";
+                    line_info.type = CodeLine::Type::SHIFT_ROTATE;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "DE"), typename CodeLine::Operand(CodeLine::Operand::REG8, "B")};
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x30:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "MUL";
+                    line_info.type = CodeLine::Type::ALU;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG8, "D"), typename CodeLine::Operand(CodeLine::Operand::REG8, "E")};
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x31:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "ADD";
+                    line_info.type = CodeLine::Type::ALU;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "HL"), typename CodeLine::Operand(CodeLine::Operand::REG8, "A")};
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x32:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "ADD";
+                    line_info.type = CodeLine::Type::ALU;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "DE"), typename CodeLine::Operand(CodeLine::Operand::REG8, "A")};
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x33:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "ADD";
+                    line_info.type = CodeLine::Type::ALU;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "BC"), typename CodeLine::Operand(CodeLine::Operand::REG8, "A")};
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x34:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "ADD";
+                    line_info.type = CodeLine::Type::ALU;
+                    auto word_opt = ctx.peek_word();
+                    if (!word_opt) return to_db(line_info);
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "HL"), typename CodeLine::Operand(CodeLine::Operand::IMM16, *word_opt)};
+                    line_info.ticks = 16;
+                }
+                break;
+            case 0x35:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "ADD";
+                    line_info.type = CodeLine::Type::ALU;
+                    auto word_opt = ctx.peek_word();
+                    if (!word_opt) return to_db(line_info);
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "DE"), typename CodeLine::Operand(CodeLine::Operand::IMM16, *word_opt)};
+                    line_info.ticks = 16;
+                }
+                break;
+            case 0x36:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "ADD";
+                    line_info.type = CodeLine::Type::ALU;
+                    auto word_opt = ctx.peek_word();
+                    if (!word_opt) return to_db(line_info);
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::REG16, "BC"), typename CodeLine::Operand(CodeLine::Operand::IMM16, *word_opt)};
+                    line_info.ticks = 16;
+                }
+                break;
             case 0x41:
                 line_info.mnemonic = "OUT";
                 line_info.type = CodeLine::Type::IO;
@@ -2407,6 +2535,70 @@ public:
                 line_info.ticks = 20;
                 break;
             }
+            case 0x8A:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "PUSH";
+                    line_info.type = CodeLine::Type::STACK | CodeLine::Type::LOAD;
+                    auto high_opt = ctx.peek_byte();
+                    if (!high_opt) return to_db(line_info);
+                    auto low_opt = ctx.peek_byte();
+                    if (!low_opt) return to_db(line_info);
+                    uint16_t val = ((uint16_t)*high_opt << 8) | *low_opt;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::IMM16, val)};
+                    line_info.ticks = 23;
+                }
+                break;
+            case 0x90:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "OUTINB";
+                    line_info.type = CodeLine::Type::IO;
+                    line_info.ticks = 16;
+                }
+                break;
+            case 0x91:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "NEXTREG";
+                    line_info.type = CodeLine::Type::IO;
+                    auto reg_opt = ctx.peek_byte();
+                    if (!reg_opt) return to_db(line_info);
+                    auto val_opt = ctx.peek_byte();
+                    if (!val_opt) return to_db(line_info);
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::IMM8, *reg_opt), typename CodeLine::Operand(CodeLine::Operand::IMM8, *val_opt)};
+                    line_info.ticks = 17;
+                }
+                break;
+            case 0x92:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "NEXTREG";
+                    line_info.type = CodeLine::Type::IO;
+                    auto reg_opt = ctx.peek_byte();
+                    if (!reg_opt) return to_db(line_info);
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::IMM8, *reg_opt), typename CodeLine::Operand(CodeLine::Operand::REG8, "A")};
+                    line_info.ticks = 17;
+                }
+                break;
+            case 0x93:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "PIXELAD";
+                    line_info.type = CodeLine::Type::ALU;
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x95:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "SETAE";
+                    line_info.type = CodeLine::Type::ALU;
+                    line_info.ticks = 8;
+                }
+                break;
+            case 0x98:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "JP";
+                    line_info.type = CodeLine::Type::JUMP;
+                    line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::MEM_REG16, "C")};
+                    line_info.ticks = 13;
+                }
+                break;
             case 0xA0:
                 line_info.mnemonic = "LDI";
                 line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
@@ -2427,10 +2619,31 @@ public:
                 line_info.type = CodeLine::Type::IO | CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 break;
+            case 0xA4:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "LDIX";
+                    line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
+                    line_info.ticks = 16;
+                }
+                break;
+            case 0xA5:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "LDWS";
+                    line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
+                    line_info.ticks = 16;
+                }
+                break;
             case 0xA8:
                 line_info.mnemonic = "LDD";
                 line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
+                break;
+            case 0xAC:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "LDDX";
+                    line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
+                    line_info.ticks = 16;
+                }
                 break;
             case 0xA9:
                 line_info.mnemonic = "CPD";
@@ -2452,6 +2665,30 @@ public:
                 line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
+                break;
+            case 0xB4:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "LDIRX";
+                    line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
+                    line_info.ticks = 16;
+                    line_info.ticks_alt = 21;
+                }
+                break;
+            case 0xB6:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "LDIRSCALE";
+                    line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
+                    line_info.ticks = 16;
+                    line_info.ticks_alt = 21;
+                }
+                break;
+            case 0xB7:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "LDPIRX";
+                    line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
+                    line_info.ticks = 16;
+                    line_info.ticks_alt = 21;
+                }
                 break;
             case 0xB1:
                 line_info.mnemonic = "CPIR";
@@ -2477,6 +2714,14 @@ public:
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
+            case 0xBC:
+                if (m_enable_z80n) {
+                    line_info.mnemonic = "LDDRX";
+                    line_info.type = CodeLine::Type::LOAD | CodeLine::Type::BLOCK;
+                    line_info.ticks = 16;
+                    line_info.ticks_alt = 21;
+                }
+                break;
             case 0xB9:
                 line_info.mnemonic = "CPDR";
                 line_info.type = CodeLine::Type::ALU | CodeLine::Type::BLOCK;
@@ -2495,7 +2740,8 @@ public:
                 line_info.ticks = 16;
                 line_info.ticks_alt = 21;
                 break;
-            default:
+            }
+            if (line_info.mnemonic.empty()) {
                 line_info.mnemonic = "NOP";
                 line_info.type = CodeLine::Type::CPU_CONTROL;
                 line_info.operands = {typename CodeLine::Operand(CodeLine::Operand::IMM8, 0xED), typename CodeLine::Operand(CodeLine::Operand::IMM8, opcodeED)};
@@ -2940,6 +3186,7 @@ protected:
     TMemory* m_memory;
     IndexMode m_index_mode;
     ILabels* m_labels = nullptr;
+    bool m_enable_z80n = false;
 };
 
 #endif //__Z80ANALYZE_H__

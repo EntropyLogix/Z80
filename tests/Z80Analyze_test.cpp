@@ -5,11 +5,11 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze_test.cpp
-// Verson: 1.1.6
+// Verson: 1.1.8
 //
 // This file contains unit tests for the Z80Analyzer class.
 //
-// Copyright (c) 2025 Adam Szulc
+// Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
 #include "Z80Analyze.h"
@@ -2063,6 +2063,65 @@ void run_tests() {
             }
             else tests_passed++;
         }
+    }
+
+    // --- Z80N Instructions ---
+    {
+        analyzer.set_z80n_mode(true);
+
+        // SWAPNIB
+        check_inst(analyzer, memory, {0xED, 0x23}, "SWAPNIB", {});
+        // MIRROR
+        check_inst(analyzer, memory, {0xED, 0x24}, "MIRROR", {});
+        // TEST n
+        check_inst(analyzer, memory, {0xED, 0x27, 0xAA}, "TEST", {"0xAA"});
+        // BSLA DE, B
+        check_inst(analyzer, memory, {0xED, 0x28}, "BSLA", {"DE", "B"});
+        // MUL D, E
+        check_inst(analyzer, memory, {0xED, 0x30}, "MUL", {"D", "E"});
+        // ADD HL, A
+        check_inst(analyzer, memory, {0xED, 0x31}, "ADD", {"HL", "A"});
+        // ADD DE, 0x1234
+        check_inst(analyzer, memory, {0xED, 0x35, 0x34, 0x12}, "ADD", {"DE", "0x1234"});
+        // PUSH 0x1234 (Big Endian in instruction)
+        check_inst(analyzer, memory, {0xED, 0x8A, 0x12, 0x34}, "PUSH", {"0x1234"});
+        // OUTINB
+        check_inst(analyzer, memory, {0xED, 0x90}, "OUTINB", {});
+        // NEXTREG 0x10, 0x20
+        check_inst(analyzer, memory, {0xED, 0x91, 0x10, 0x20}, "NEXTREG", {"0x10", "0x20"});
+        // NEXTREG 0x10, A
+        check_inst(analyzer, memory, {0xED, 0x92, 0x10}, "NEXTREG", {"0x10", "A"});
+        // PIXELAD
+        check_inst(analyzer, memory, {0xED, 0x93}, "PIXELAD", {});
+        // SETAE
+        check_inst(analyzer, memory, {0xED, 0x95}, "SETAE", {});
+        // JP (C)
+        check_inst(analyzer, memory, {0xED, 0x98}, "JP", {"(C)"});
+        // LDIX
+        check_inst(analyzer, memory, {0xED, 0xA4}, "LDIX", {});
+        // LDWS
+        check_inst(analyzer, memory, {0xED, 0xA5}, "LDWS", {});
+        // LDIRSCALE
+        check_inst(analyzer, memory, {0xED, 0xB6}, "LDIRSCALE", {});
+        // LDPIRX
+        check_inst(analyzer, memory, {0xED, 0xB7}, "LDPIRX", {});
+
+        analyzer.set_z80n_mode(false);
+    }
+
+    // --- Z80N Instructions Disabled (Disassembly) ---
+    {
+        analyzer.set_z80n_mode(false);
+
+        // SWAPNIB (ED 23) -> NOP 0xED, 0x23
+        check_inst(analyzer, memory, {0xED, 0x23}, "NOP", {"0xED", "0x23"});
+
+        // NEXTREG (ED 91) -> NOP 0xED, 0x91
+        // Note: Since it's unknown, it won't consume operands.
+        check_inst(analyzer, memory, {0xED, 0x91, 0x10, 0x20}, "NOP", {"0xED", "0x91"});
+        
+        // PUSH nn (ED 8A) -> NOP 0xED, 0x8A
+        check_inst(analyzer, memory, {0xED, 0x8A, 0x12, 0x34}, "NOP", {"0xED", "0x8A"});
     }
 
     std::cout << "Tests passed: " << tests_passed << ", Failed: " << tests_failed << "\n";

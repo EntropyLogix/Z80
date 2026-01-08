@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Version: 1.1.7a
+// Version: 1.1.8
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -284,6 +284,22 @@
 //     LD A, 0                 ; Optimized to XOR A
 //     OPTIMIZE POP            ; Restore previous state
 //
+// Assembly Options
+// ----------------
+// The assembler allows controlling supported instruction sets via the `OPTION` directive.
+//
+//   Directive | Syntax                                   | Description
+//   ----------|------------------------------------------|------------------------------------------------------------------
+//   OPTION    | OPTION [PUSH|POP] [+/-FLAG]              | Controls assembly options.
+//
+//   Flags:
+//   - Z80N:         Enable/Disable Z80N (ZX Spectrum Next) instructions.
+//   - UNDOC:        Enable/Disable undocumented Z80 instructions.
+//
+//   Stack Control:
+//   - PUSH:         Saves the current option state.
+//   - POP:          Restores the previously saved option state.
+//
 // Repetition (Loops):
 //   Directive | Aliases | Syntax       | Description
 //   ----------|---------|--------------|------------------------------------------------------------------
@@ -331,6 +347,7 @@
 // - Call and Return: CALL, RET, RETI, RETN, RST
 // - Input and Output: IN, INI, INIR, IND, INDR, OUT, OUTI, OTIR, OUTD, OTDR
 // - Undocumented: SLL (alias SLI), OUT (C), etc.
+// - Z80N Extensions: SWAPNIB, MIRROR, NEXTREG, PIXELAD, PIXELDN, SETAE, LDIX, LDWS, LDIRX, LDDX, LDDRX, LDPIRX, OUTINB, MUL, ADD rr,A/nn, PUSH nn, BSLA, BSRA, BSRL, BSRF, BRLC, TEST, LDIRSCALE
 
 #ifndef __Z80ASSEMBLE_H__
 #define __Z80ASSEMBLE_H__

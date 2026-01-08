@@ -5,11 +5,11 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble_test.cpp
-// Verson: 1.1.6
+// Verson: 1.1.8
 //
 // This file contains unit tests for the Z80Assembler class.
 //
-// Copyright (c) 2025 Adam Szulc
+// Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
 #include "Z80Assemble.h"

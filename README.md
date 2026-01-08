@@ -20,7 +20,7 @@ These libraries are used to build the `Z80Dump` and `Z80Asm` command-line tools,
 * **Header-Only Design:** Easy inclusion and integration into any C++ project.  
 * **Template-Based Architecture:** The core logic (`Z80<TBus, TEvents, TDebugger>`) is completely decoupled from system specifics, promoting clean separation of concerns.  
 * **Cycle-Accurate Timing:** Includes granular cycle tracking and integration with a user-defined event system (TEvents).  
-* **Comprehensive Instruction Set:** Implements the core Z80 instruction set, including standard opcodes and the extended instruction sets (prefixed opcodes like CB, ED, DD, and FD).  
+* **Comprehensive Instruction Set:** Implements the core Z80 instruction set, including standard opcodes, extended instruction sets (prefixed opcodes like CB, ED, DD, and FD), and Z80N (ZX Spectrum Next) extensions.  
 * **State Management:** Provides utility functions (save\_state, load\_state) for easy serialization and save-state functionality.
 
 ---
@@ -343,6 +343,7 @@ The following macros can be added to your C++ compiler flags in your build syste
 | `Z80_BIG_ENDIAN` | By default, the emulator assumes the host system is little-endian for register pairs (AF, BC, etc.). Define this macro if you are compiling on a big-endian architecture to ensure correct mapping of 8-bit to 16-bit registers. |
 | `Z80_DEBUGGER_OPCODES` | Enables collecting instruction bytes (opcode and operands) and passing them to the `TDebugger` implementation in the `before_step` and `after_step` methods. Useful for creating detailed debugging and tracing tools. |
 | `Z80_ENABLE_EXEC_API` | Exposes the public `exec_*` API, which allows executing individual Z80 instructions by calling dedicated methods (e.g., `cpu.exec_NOP()`, `cpu.exec_LD_A_n()`). This can be useful for testing or specific scenarios but is disabled by default to keep the public interface clean. |
+| `Z80_ENABLE_Z80N` | Enables support for Z80N (ZX Spectrum Next) instructions in the CPU core. |
 
 ### Build Options (CMake)
 
@@ -420,7 +421,7 @@ include(FetchContent)
 FetchContent_Declare(
   Z80
   GIT_REPOSITORY https://github.com/EntropyLogix/Z80
-  GIT_TAG        1.1.6 # You can use a tag, branch, or a specific commit
+  GIT_TAG        1.1.8 # You can use a tag, branch, or a specific commit
 )
 
 # Download and make the library available

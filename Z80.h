@@ -5,12 +5,12 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
-// Version: 1.1.6
+// Version: 1.1.8
 //
 // This file defines the core Z80 processor emulation class,
 // including register definitions, state management, and instruction execution logic.
 //
-// Copyright (c) 2025 Adam Szulc 
+// Copyright (c) 2025-2026 Adam Szulc 
 // MIT License
 
 #ifndef __Z80_H__
@@ -2644,6 +2644,242 @@ private:
     void handle_opcode_0xED_0x7D_RETN() {
         handle_RETN();
     }
+#ifdef Z80_ENABLE_Z80N
+    // ZX Spectrum Next specific ports
+    static constexpr uint16_t PORT_NEXT_REG_SELECT = 0x243B;
+    static constexpr uint16_t PORT_NEXT_REG_DATA   = 0x253B;
+    // Z80N Instructions
+    void handle_opcode_0xED_0x23_SWAPNIB() {
+        uint8_t a = get_A();
+        set_A((a << 4) | (a >> 4));
+    }
+    void handle_opcode_0xED_0x24_MIRROR() {
+        uint8_t a = get_A();
+        a = ((a & 0xF0) >> 4) | ((a & 0x0F) << 4);
+        a = ((a & 0xCC) >> 2) | ((a & 0x33) << 2);
+        a = ((a & 0xAA) >> 1) | ((a & 0x55) << 1);
+        set_A(a);
+    }
+    void handle_opcode_0xED_0x27_TEST_n() {
+        uint8_t value = fetch_next_byte();
+        uint8_t result = get_A() & value;
+        Flags flags = get_F();
+        flags.update(Flags::S, (result & 0x80) != 0)
+            .update(Flags::Z, result == 0)
+            .set(Flags::H)
+            .update(Flags::PV, is_parity_even(result))
+            .clear(Flags::N)
+            .clear(Flags::C);
+        set_F(flags);
+    }
+    void handle_opcode_0xED_0x28_BSLA_DE_B() {
+        uint8_t b = get_B() & 0x1F;
+        set_DE(get_DE() << b);
+    }
+    void handle_opcode_0xED_0x29_BSRA_DE_B() {
+        uint8_t b = get_B() & 0x1F;
+        int16_t de = (int16_t)get_DE();
+        set_DE((uint16_t)(de >> b));
+    }
+    void handle_opcode_0xED_0x2A_BSRL_DE_B() {
+        uint8_t b = get_B() & 0x1F;
+        set_DE(get_DE() >> b);
+    }
+    void handle_opcode_0xED_0x2B_BSRF_DE_B() {
+        uint8_t b = get_B() & 0x1F;
+        uint16_t de = get_DE();
+        if (b > 0) {
+            uint16_t ones = 0xFFFF;
+            ones <<= (16 - b);
+            set_DE((de >> b) | ones);
+        }
+    }
+    void handle_opcode_0xED_0x2C_BRLC_DE_B() {
+        uint8_t b = get_B() & 0x1F;
+        uint16_t de = get_DE();
+        if (b > 0)
+            set_DE((de << b) | (de >> (16 - b)));
+    }
+    void handle_opcode_0xED_0x30_MUL_D_E() {
+        set_DE((uint16_t)get_D() * (uint16_t)get_E());
+    }
+    void handle_opcode_0xED_0x31_ADD_HL_A() {
+        set_HL(get_HL() + get_A());
+    }
+    void handle_opcode_0xED_0x32_ADD_DE_A() {
+        set_DE(get_DE() + get_A());
+    }
+    void handle_opcode_0xED_0x33_ADD_BC_A() {
+        set_BC(get_BC() + get_A());
+    }
+    void handle_opcode_0xED_0x34_ADD_HL_nn() {
+        uint16_t nn = fetch_next_word();
+        set_HL(get_HL() + nn);
+        add_ticks(2);
+    }
+    void handle_opcode_0xED_0x35_ADD_DE_nn() {
+        uint16_t nn = fetch_next_word();
+        set_DE(get_DE() + nn);
+        add_ticks(2);
+    }
+    void handle_opcode_0xED_0x36_ADD_BC_nn() {
+        uint16_t nn = fetch_next_word();
+        set_BC(get_BC() + nn);
+        add_ticks(2);
+    }
+    void handle_opcode_0xED_0x8A_PUSH_nn() {
+        uint8_t h = fetch_next_byte();
+        uint8_t l = fetch_next_byte();
+        uint16_t val = ((uint16_t)h << 8) | l;
+        push_word(val);
+        add_ticks(2);
+    }
+    void handle_opcode_0xED_0x90_OUTINB() {
+        uint16_t hl = get_HL();
+        uint8_t val = read_byte(hl);
+        io_write(get_BC(), val);
+        set_HL(hl + 1);
+        add_ticks(1);
+    }
+    void handle_opcode_0xED_0x91_NEXTREG_n_n() {
+        uint8_t reg = fetch_next_byte();
+        uint8_t val = fetch_next_byte();
+        m_address_bus = PORT_NEXT_REG_SELECT;
+        m_data_bus = reg;
+        m_bus->out(PORT_NEXT_REG_SELECT, reg);
+        m_address_bus = PORT_NEXT_REG_DATA;
+        m_data_bus = val;
+        m_bus->out(PORT_NEXT_REG_DATA, val);
+        add_ticks(3);
+    }
+    void handle_opcode_0xED_0x92_NEXTREG_n_A() {
+        uint8_t reg = fetch_next_byte();
+        m_address_bus = PORT_NEXT_REG_SELECT;
+        m_data_bus = reg;
+        m_bus->out(PORT_NEXT_REG_SELECT, reg);
+        m_address_bus = PORT_NEXT_REG_DATA;
+        m_data_bus = get_A();
+        m_bus->out(PORT_NEXT_REG_DATA, get_A());
+        add_ticks(6);
+    }
+    void handle_opcode_0xED_0x93_PIXELAD() {
+        uint8_t y = get_D();
+        uint8_t x = get_E();
+        uint8_t h = 0x40 | ((y & 0xC0) >> 3) | (y & 0x07);
+        uint8_t l = ((y & 0x38) << 2) | (x >> 3);
+        set_HL(((uint16_t)h << 8) | l);
+    }
+    void handle_opcode_0xED_0x94_PIXELDN() {
+        uint16_t hl = get_HL();
+        uint8_t h = (hl >> 8);
+        uint8_t l = hl & 0xFF;
+        h++;
+        if ((h & 0x07) == 0) {
+            l += 0x20;
+            if (l < 0x20) {
+                h -= 8;
+            }
+        }
+        set_HL(((uint16_t)h << 8) | l);
+    }
+    void handle_opcode_0xED_0x95_SETAE() {
+        set_A(get_E());
+    }
+    void handle_opcode_0xED_0x98_JP_C() {
+        uint16_t pc = get_PC();
+        uint16_t target = (pc & 0xC000) | ((uint16_t)get_C() << 6);
+        set_PC(target);
+        add_ticks(5);
+    }
+    void handle_opcode_0xED_0xA4_LDIX() {
+        uint8_t value = read_byte(get_HL());
+        write_byte(get_DE(), value);
+        set_HL(get_HL() + 1);
+        set_DE(get_DE() + 1);
+        set_BC(get_BC() - 1);
+        add_ticks(2);
+        Flags flags = get_F();
+        flags.clear(Flags::N | Flags::H)
+            .update(Flags::PV, get_BC() != 0);
+        set_F(flags);
+    }
+    void handle_opcode_0xED_0xA5_LDWS() {
+        uint8_t value = read_byte(get_HL());
+        write_byte(get_DE(), value);
+        set_L(get_L() + 1);
+        set_D(get_D() + 1);
+    }
+    void handle_opcode_0xED_0xAC_LDDX() {
+        uint8_t value = read_byte(get_HL());
+        write_byte(get_DE(), value);
+        set_HL(get_HL() - 1);
+        set_DE(get_DE() - 1);
+        set_BC(get_BC() - 1);
+        add_ticks(2);
+        Flags flags = get_F();
+        flags.clear(Flags::N | Flags::H)
+            .update(Flags::PV, get_BC() != 0);
+        set_F(flags);
+    }
+    void handle_opcode_0xED_0xB4_LDIRX() {
+        handle_opcode_0xED_0xA4_LDIX();
+        if (get_BC() != 0) {
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
+            add_ticks(5);
+        }
+    }
+    void handle_opcode_0xED_0xB6_LDIRSCALE() {
+        uint8_t val = read_byte(get_HL());
+        write_byte(get_DE(), val);
+        set_DE(get_DE() + 1);
+        set_HL(get_HL() + get_BCp());
+        set_BC(get_BC() - 1);
+        add_ticks(2);
+        if (get_BC() != 0) {
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
+            add_ticks(5);
+        }
+        Flags flags = get_F();
+        flags.clear(Flags::N | Flags::H)
+             .update(Flags::PV, get_BC() != 0);
+        set_F(flags);
+    }
+    void handle_opcode_0xED_0xB7_LDPIRX() {
+        uint8_t val = read_byte(get_HL());
+        if (val != get_A()) {
+            write_byte(get_DE(), val);
+        } else {
+            add_ticks(3);
+        }
+        set_HL(get_HL() + 1);
+        set_DE(get_DE() + 1);
+        set_BC(get_BC() - 1);
+        add_ticks(2);
+        if (get_BC() != 0) {
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
+            add_ticks(5);
+        }
+        Flags flags = get_F();
+        flags.clear(Flags::N | Flags::H)
+             .update(Flags::PV, get_BC() != 0);
+        set_F(flags);
+    }
+    void handle_opcode_0xED_0xBC_LDDRX() {
+        handle_opcode_0xED_0xAC_LDDX();
+        if (get_BC() != 0) {
+            uint16_t new_pc = get_PC() - 2;
+            set_PC(new_pc);
+            set_WZ(new_pc + 1);
+            add_ticks(5);
+        }
+    }
+#endif
     void handle_IM_0() {
         set_IRQ_mode(0);
     }
@@ -3879,6 +4115,38 @@ private:
                     case 0x43:
                         handle_opcode_0xED_0x43_LD_nn_ptr_BC();
                         break;
+#ifdef Z80_ENABLE_Z80N
+                    case 0x23: handle_opcode_0xED_0x23_SWAPNIB(); break;
+                    case 0x24: handle_opcode_0xED_0x24_MIRROR(); break;
+                    case 0x27: handle_opcode_0xED_0x27_TEST_n(); break;
+                    case 0x28: handle_opcode_0xED_0x28_BSLA_DE_B(); break;
+                    case 0x29: handle_opcode_0xED_0x29_BSRA_DE_B(); break;
+                    case 0x2A: handle_opcode_0xED_0x2A_BSRL_DE_B(); break;
+                    case 0x2B: handle_opcode_0xED_0x2B_BSRF_DE_B(); break;
+                    case 0x2C: handle_opcode_0xED_0x2C_BRLC_DE_B(); break;
+                    case 0x30: handle_opcode_0xED_0x30_MUL_D_E(); break;
+                    case 0x31: handle_opcode_0xED_0x31_ADD_HL_A(); break;
+                    case 0x32: handle_opcode_0xED_0x32_ADD_DE_A(); break;
+                    case 0x33: handle_opcode_0xED_0x33_ADD_BC_A(); break;
+                    case 0x34: handle_opcode_0xED_0x34_ADD_HL_nn(); break;
+                    case 0x35: handle_opcode_0xED_0x35_ADD_DE_nn(); break;
+                    case 0x36: handle_opcode_0xED_0x36_ADD_BC_nn(); break;
+                    case 0x8A: handle_opcode_0xED_0x8A_PUSH_nn(); break;
+                    case 0x90: handle_opcode_0xED_0x90_OUTINB(); break;
+                    case 0x91: handle_opcode_0xED_0x91_NEXTREG_n_n(); break;
+                    case 0x92: handle_opcode_0xED_0x92_NEXTREG_n_A(); break;
+                    case 0x93: handle_opcode_0xED_0x93_PIXELAD(); break;
+                    case 0x94: handle_opcode_0xED_0x94_PIXELDN(); break;
+                    case 0x95: handle_opcode_0xED_0x95_SETAE(); break;
+                    case 0x98: handle_opcode_0xED_0x98_JP_C(); break;
+                    case 0xA4: handle_opcode_0xED_0xA4_LDIX(); break;
+                    case 0xA5: handle_opcode_0xED_0xA5_LDWS(); break;
+                    case 0xAC: handle_opcode_0xED_0xAC_LDDX(); break;
+                    case 0xB4: handle_opcode_0xED_0xB4_LDIRX(); break;
+                    case 0xB6: handle_opcode_0xED_0xB6_LDIRSCALE(); break;
+                    case 0xB7: handle_opcode_0xED_0xB7_LDPIRX(); break;
+                    case 0xBC: handle_opcode_0xED_0xBC_LDDRX(); break;
+#endif
                     case 0x44:
                         handle_opcode_0xED_0x44_NEG();
                         break;
