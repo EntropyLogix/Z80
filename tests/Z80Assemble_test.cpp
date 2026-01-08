@@ -3494,6 +3494,45 @@ TEST_CASE(DgDirective) {
     ASSERT_COMPILE_FAILS("DG 123"); // Not a string literal
 }
 
+TEST_CASE(NewDirectives_D24_DC_DEFD) {
+    // D24 - 24-bit integer (3 bytes)
+    ASSERT_CODE("D24 0x123456", {0x56, 0x34, 0x12});
+    ASSERT_CODE("D24 0xAABBCC, 0x112233", {0xCC, 0xBB, 0xAA, 0x33, 0x22, 0x11});
+
+    // DEFD - 32-bit integer (4 bytes), alias for DD/DWORD
+    ASSERT_CODE("DEFD 0x12345678", {0x78, 0x56, 0x34, 0x12});
+    ASSERT_CODE("DEFD 0xAABBCCDD, 0x11223344", {0xDD, 0xCC, 0xBB, 0xAA, 0x44, 0x33, 0x22, 0x11});
+    ASSERT_CODE("DD 0x12345678", {0x78, 0x56, 0x34, 0x12}); // Verify DD still works
+    ASSERT_CODE("DWORD 0x12345678", {0x78, 0x56, 0x34, 0x12}); // Verify DWORD still works
+
+    // DC - String with last character having bit 7 set
+    // "A" -> 'A' | 0x80 = 0x41 | 0x80 = 0xC1
+    ASSERT_CODE("DC \"A\"", {0xC1});
+    // "AB" -> 'A', 'B' | 0x80 = 0x41, 0x42 | 0x80 = 0x41, 0xC2
+    ASSERT_CODE("DC \"AB\"", {0x41, 0xC2});
+    // "ZX" -> 'Z', 'X' | 0x80 = 0x5A, 0x58 | 0x80 = 0x5A, 0xD8
+    ASSERT_CODE("DC \"ZX\"", {0x5A, 0xD8});
+    
+    // Multiple strings in DC
+    // "A", "B" -> ('A'|0x80), ('B'|0x80) -> 0xC1, 0xC2
+    ASSERT_CODE("DC \"A\", \"B\"", {0xC1, 0xC2});
+}
+
+TEST_CASE(SignedNumbersFix) {
+    // Test INT32_MIN (-2147483648) which caused issues with simple negation
+    // 0x80000000 -> Little Endian: 00 00 00 80
+    ASSERT_CODE("DEFD -2147483648", {0x00, 0x00, 0x00, 0x80});
+    
+    // Test normal negative number (-10 -> 0xFFFFFFF6)
+    ASSERT_CODE("DEFD -10", {0xF6, 0xFF, 0xFF, 0xFF});
+    
+    // Test boundary of positive signed 32-bit (0x7FFFFFFF)
+    ASSERT_CODE("DEFD 2147483647", {0xFF, 0xFF, 0xFF, 0x7F});
+    
+    // Test unsigned 32-bit that looks like negative signed (0xFFFFFFFF -> -1)
+    ASSERT_CODE("DEFD 0xFFFFFFFF", {0xFF, 0xFF, 0xFF, 0xFF});
+}
+
 TEST_CASE(MemoryAccessOperator) {
     // Test 1: Basic read from a numeric address
     ASSERT_BLOCKS(R"(

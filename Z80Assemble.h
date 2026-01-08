@@ -706,10 +706,11 @@ protected:
             }
             if (start == end)
                 return false;
-            auto result = std::from_chars(start, end, out_value, base);
+            uint32_t u_val;
+            auto result = std::from_chars(start, end, u_val, base);
             bool success = (result.ec == std::errc() && result.ptr == end);
-            if (success && is_negative)
-                out_value = -out_value;
+            if (success)
+                out_value = is_negative ? static_cast<int32_t>(0u - u_val) : static_cast<int32_t>(u_val);
             return success;
         }
         class Tokens {
@@ -1808,10 +1809,10 @@ protected:
                     while (j < expr.length() && isxdigit(expr[j]))
                         j++;
                     std::string num_str = expr.substr(i + 1, j - i - 1);
-                    int32_t val;
+                    uint32_t val;
                     auto result = std::from_chars(num_str.data(), num_str.data() + num_str.size(), val, 16);
                     if (result.ec == std::errc()) {
-                        tokens.push_back({Token::Type::NUMBER, "", (double)val});
+                        tokens.push_back({Token::Type::NUMBER, "", (double)(int32_t)val});
                         i = j - 1;
                         return true;
                     }
@@ -1824,10 +1825,10 @@ protected:
                     while (j < expr.length() && (expr[j] == '0' || expr[j] == '1'))
                         j++;
                     std::string num_str = expr.substr(i + 1, j - i - 1);
-                    int32_t val;
+                    uint32_t val;
                     auto result = std::from_chars(num_str.data(), num_str.data() + num_str.size(), val, 2);
                     if (result.ec == std::errc()) {
-                        tokens.push_back({Token::Type::NUMBER, "", (double)val});
+                        tokens.push_back({Token::Type::NUMBER, "", (double)(int32_t)val});
                         i = j - 1;
                         return true;
                     }
@@ -3386,7 +3387,7 @@ protected:
         }
         static const std::set<std::string>& directives() {
             static const std::set<std::string> directives = {
-                "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BREAK", "BYTE", "DB", "DD", "DEFB", "DEFH",
+                "ALIGN", "ASCIZ", "ASSERT", "BINARY", "BLOCK", "BREAK", "BYTE", "D24", "DB", "DC", "DD", "DEFB", "DEFD", "DEFH",
                 "DEFINE", "DEFL", "DEFG", "DEFM", "DEFS", "DEFW", "DEPHASE", "DG", "DH", "DISPLAY", "DM", "EXITW",
                 "DQ", "DS", "DUP", "DW", "DWORD", "DZ", "ECHO", "EDUP", "ELSE", "END", "ENDIF", "ENDM", "OPTION",
                 "ENDP", "ENDR", "ENDW", "EQU", "ERROR", "EXITM", "EXITR", "HEX", "IF", "IFDEF", "OPTIMIZE",
@@ -3876,7 +3877,20 @@ protected:
                 if (!bytes.empty())
                     assemble(bytes);
                 return true;
-            } else if (mnemonic == "DWORD" || mnemonic == "DD") {
+            } else if (mnemonic == "D24") {
+                std::vector<uint8_t> bytes;
+                for (const auto& op : ops) {
+                    if (this->match(op, Operands::Operand::Type::IMMEDIATE)) {
+                        bytes.push_back((uint8_t)(op.num_val & 0xFF));
+                        bytes.push_back((uint8_t)((op.num_val >> 8) & 0xFF));
+                        bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
+                    } else
+                        this->m_policy.context().assembler.report_error("Unsupported operand for D24: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                }
+                if (!bytes.empty())
+                    assemble(bytes);
+                return true;
+            } else if (mnemonic == "DWORD" || mnemonic == "DD" || mnemonic == "DEFD") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (this->match(op, Operands::Operand::Type::IMMEDIATE)) {
@@ -3885,7 +3899,25 @@ protected:
                         bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 24) & 0xFF));
                     } else
-                        this->m_policy.context().assembler.report_error("Unsupported operand for DWORD/DD: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                        this->m_policy.context().assembler.report_error("Unsupported operand for DWORD/DD/DEFD: " + (op.str_val.empty() ? "unknown" : op.str_val));
+                }
+                if (!bytes.empty())
+                    assemble(bytes);
+                return true;
+            } else if (mnemonic == "DC") {
+                std::vector<uint8_t> bytes;
+                for (const auto& op : ops) {
+                    if (this->match_string(op)) {
+                        if (op.str_val.empty())
+                            continue;
+                        for (size_t i = 0; i < op.str_val.length(); ++i) {
+                            uint8_t byte = (uint8_t)op.str_val[i];
+                            if (i == op.str_val.length() - 1)
+                                byte |= 0x80;
+                            bytes.push_back(byte);
+                        }
+                    } else
+                        this->m_policy.context().assembler.report_error("Unsupported operand for DC: " + op.str_val);
                 }
                 if (!bytes.empty())
                     assemble(bytes);
