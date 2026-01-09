@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Version: 1.1.8
+// Version: 1.1.8a
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -1070,7 +1070,7 @@ protected:
     public:
         Operands(IPhasePolicy& policy) : m_policy(policy) {}
         struct Operand {
-            enum class Type { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, CHAR_LITERAL, STRING_LITERAL, UNKNOWN };
+            enum class Type { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, UNKNOWN };
             Type type = Type::UNKNOWN;
             std::string str_val;
             int32_t num_val = 0;
@@ -1127,8 +1127,9 @@ protected:
                     base_reg_str.erase(base_reg_str.find_last_not_of(" \t") + 1);
                     if (base_reg_str == "IX" || base_reg_str == "IY") {
                         std::string offset_str = inner.substr(operator_pos);
+                        Expressions expression(m_policy);
                         int32_t offset_val;
-                        if (Strings::is_number(offset_str, offset_val, m_policy.context().assembler.m_config.numbers)) {
+                        if (expression.evaluate(offset_str, offset_val)) {
                             // Handle (IX/IY +/- d)
                             operand.type = Operand::Type::MEM_INDEXED;
                             operand.base_reg = base_reg_str;
@@ -1167,7 +1168,6 @@ protected:
         inline bool is_reg8(const std::string& s) const { return reg8_names().count(s);}
         inline bool is_reg16(const std::string& s) const { return reg16_names().count(s); }
         inline bool is_mem_ptr(const std::string& s) const { return !s.empty() && s.front() == '(' && s.back() == ')'; }
-        inline bool is_char_literal(const std::string& s) const { return s.length() == 3 && s.front() == '\'' && s.back() == '\''; }
         inline bool is_string_literal(const std::string& s) const { return s.length() > 1 && s.front() == '"' && s.back() == '"'; }
         inline bool is_condition(const std::string& s) const { return condition_names().count(s); }
 
@@ -1204,7 +1204,7 @@ protected:
             std::function<Value(Context&, const std::vector<Value>&)> apply;
         };
         struct Token {
-            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, MEM_LBRACE, MEM_RBRACE, CHAR_LITERAL, STRING_LITERAL, COMMA };
+            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, MEM_LBRACE, MEM_RBRACE, STRING_LITERAL, COMMA };
             Type type = Type::FUNCTION;
             std::string s_val;
             double n_val = 0.0;
@@ -1250,7 +1250,6 @@ protected:
                 {"%",  {90, false, true,  op_mod}},
                 {"MOD",{90, false, true,  op_mod}},
                 {"+",  {80, false, true,  op_add}},
-                {"##", {75, false, true,  op_concat}},
                 {"-",  {80, false, true,  op_sub}},
                 {"<<", {70, false, true,  op_shl}},
                 {">>", {70, false, true,  op_shr}},
@@ -1399,16 +1398,14 @@ protected:
             return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "%") % v2)};
         }
         static Value op_add(Context& ctx, const std::vector<Value>& args) {
+            bool s1 = args[0].type == Value::Type::STRING;
+            bool s2 = args[1].type == Value::Type::STRING;
+            if (s1 && s2)
+                return Value{Value::Type::STRING, 0.0, args[0].s_val + args[1].s_val};
             return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "+") + get_numeric_value(ctx, args[1], "+")};
         }
         static Value op_sub(Context& ctx, const std::vector<Value>& args) {
             return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "-") - get_numeric_value(ctx, args[1], "-")};
-        }
-        static Value op_concat(Context& ctx, const std::vector<Value>& args) {
-            auto to_str = [](const Value& v) {
-                return (v.type == Value::Type::STRING) ? v.s_val : std::to_string((int32_t)v.n_val);
-            };
-            return Value{Value::Type::STRING, 0.0, to_str(args[0]) + to_str(args[1])};
         }
         static Value op_shl(Context& ctx, const std::vector<Value>& args) {
             return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "<<") << (int32_t)get_numeric_value(ctx, args[1], "<<"))};
@@ -1417,23 +1414,15 @@ protected:
             return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], ">>") >> (int32_t)get_numeric_value(ctx, args[1], ">>"))};
         }
         static Value op_gt(Context& ctx, const std::vector<Value>& args) { 
-            if (args[0].type == Value::Type::STRING && args[1].type == Value::Type::STRING)
-                return Value{Value::Type::NUMBER, (double)(args[0].s_val > args[1].s_val)};
             return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], ">") > get_numeric_value(ctx, args[1], ">"))}; 
         }
         static Value op_lt(Context& ctx, const std::vector<Value>& args) { 
-            if (args[0].type == Value::Type::STRING && args[1].type == Value::Type::STRING)
-                return Value{Value::Type::NUMBER, (double)(args[0].s_val < args[1].s_val)};
             return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "<") < get_numeric_value(ctx, args[1], "<"))}; 
         }
         static Value op_ge(Context& ctx, const std::vector<Value>& args) { 
-            if (args[0].type == Value::Type::STRING && args[1].type == Value::Type::STRING)
-                return Value{Value::Type::NUMBER, (double)(args[0].s_val >= args[1].s_val)};
             return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], ">=") >= get_numeric_value(ctx, args[1], ">="))}; 
         }
         static Value op_le(Context& ctx, const std::vector<Value>& args) { 
-            if (args[0].type == Value::Type::STRING && args[1].type == Value::Type::STRING)
-                return Value{Value::Type::NUMBER, (double)(args[0].s_val <= args[1].s_val)};
             return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "<=") <= get_numeric_value(ctx, args[1], "<="))}; 
         }
         static Value op_eq(Context& ctx, const std::vector<Value>& args) {
@@ -1490,9 +1479,8 @@ protected:
             return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "||") || get_numeric_value(ctx, args[1], "||"))};
         }
         static Value op_ternary(Context& ctx, const std::vector<Value>& args) {
-            if (args[0].type != Value::Type::NUMBER)
-                ctx.assembler.report_error("Ternary condition must be a number.");
-            if (args[0].n_val != 0)
+            double val = get_numeric_value(ctx, args[0], "ternary condition");
+            if (val != 0)
                 return args[1];
             return Value{Value::Type::TERNARY_SKIP};
         }
@@ -1506,6 +1494,8 @@ protected:
             if (args[0].type == Value::Type::NUMBER)
                 return Value{Value::Type::NUMBER, 1.0};
             if (args[0].type == Value::Type::STRING) {
+                if (args[0].s_val.length() == 1)
+                    return Value{Value::Type::NUMBER, 1.0};
                 int32_t dummy;
                 if (Strings::is_number(args[0].s_val, dummy, context.assembler.m_config.numbers))
                     return Value{Value::Type::NUMBER, 1.0};
@@ -1746,7 +1736,7 @@ protected:
         }
         bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
-                tokens.push_back({Token::Type::CHAR_LITERAL, "", (double)(expr[i+1])});
+                tokens.push_back({Token::Type::STRING_LITERAL, std::string(1, expr[i+1]), 0.0});
                 i += 2;
                 return true;
             }
@@ -1979,7 +1969,6 @@ protected:
                 const auto& token = infix[i];
                 switch (token.type) {
                     case Token::Type::NUMBER:
-                    case Token::Type::CHAR_LITERAL:
                     case Token::Type::STRING_LITERAL:
                     case Token::Type::SYMBOL:
                         postfix.push_back(token);
@@ -2059,7 +2048,7 @@ protected:
         bool evaluate_rpn(const std::vector<Token>& rpn, Value& out_value) const {
             std::vector<Value> val_stack;
             for (const auto& token : rpn) {
-                if (token.type == Token::Type::NUMBER || token.type == Token::Type::CHAR_LITERAL) {
+                if (token.type == Token::Type::NUMBER) {
                     val_stack.push_back({Value::Type::NUMBER, token.n_val});
                 } else if (token.type == Token::Type::STRING_LITERAL) {
                     std::string s = token.s_val;
@@ -3416,16 +3405,15 @@ protected:
         bool match_reg8(const Operand& operand) const { return match(operand, OperandType::REG8);}
         bool match_reg16(const Operand& operand) const { return match(operand, OperandType::REG16); }
         bool match_imm8(const Operand& operand) const { 
-            return (match(operand, OperandType::IMMEDIATE) || match(operand, OperandType::CHAR_LITERAL)) && operand.num_val >= -128 && operand.num_val <= 255; 
+            return (match(operand, OperandType::IMMEDIATE) || (match(operand, OperandType::STRING_LITERAL) && operand.str_val.length() == 1)) && operand.num_val >= -128 && operand.num_val <= 255; 
         }
         bool match_imm16(const Operand& operand) const { 
-            return match(operand, OperandType::IMMEDIATE) && operand.num_val >= -32768 && operand.num_val <= 65535; 
+            return (match(operand, OperandType::IMMEDIATE) || (match(operand, OperandType::STRING_LITERAL) && operand.str_val.length() == 1)) && operand.num_val >= -32768 && operand.num_val <= 65535; 
         }
         bool match_mem_imm16(const Operand& operand) const { return match(operand, OperandType::MEM_IMMEDIATE); }
         bool match_mem_reg16(const Operand& operand) const { return match(operand, OperandType::MEM_REG16); }
         bool match_mem_indexed(const Operand& operand) const { return match(operand, OperandType::MEM_INDEXED); }
         bool match_condition(const Operand& operand) const { return match(operand, OperandType::CONDITION); }
-        bool match_char(const Operand& operand) const { return match(operand, OperandType::CHAR_LITERAL ); }
         bool match_string(const Operand& operand) const { return match(operand, OperandType::STRING_LITERAL ); }
 
         IPhasePolicy& m_policy;
@@ -3445,7 +3433,7 @@ protected:
             auto& context = this->m_policy.context();
             if (operands.size() == 1) {
                 if ((mnemonic == "JP" || mnemonic == "JR") && this->match_imm16(operands[0])) {
-                     if (operands[0].type == Operands::Operand::Type::IMMEDIATE)
+                     if (this->match_number(operands[0]))
                           context.jump_targets[context.address.current_logical] = operands[0].num_val;
                 }
             }
@@ -3456,13 +3444,60 @@ protected:
             return {Result::Action::NONE};
         }
     private:
+        bool match_number(const typename Operands::Operand& operand) const {
+            return (operand.type == Operands::Operand::Type::IMMEDIATE ||
+                    (operand.type == Operands::Operand::Type::STRING_LITERAL && operand.str_val.length() == 1));
+        }
+        Result optimize_alu_imm8(const std::string& mnemonic, const typename Operands::Operand& operand) {
+            auto& context = this->m_policy.context();
+            auto& options = context.optimization;
+            auto& stats = context.stats;
+            
+            auto replace_with = [&](const std::string& new_mnemonic) {
+                stats.bytes_saved += 1;
+                stats.cycles_saved += 3;
+                return Result{Result::Action::REPLACE, new_mnemonic, {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
+            };
+            uint8_t val = (uint8_t)operand.num_val;
+
+            if (mnemonic == "ADD") {
+                if (val == 1 && options.ops_inc)
+                    return replace_with("INC");
+                if (val == 0xFF && options.ops_inc)
+                    return replace_with("DEC");
+                if (val == 0 && options.ops_add0)
+                    return replace_with("OR");
+            } else if (mnemonic == "SUB") {
+                if (val == 1 && options.ops_inc)
+                    return replace_with("DEC");
+                if (val == 0xFF && options.ops_inc)
+                    return replace_with("INC");
+            } else if (mnemonic == "AND") {
+                if (val == 0 && options.ops_logic)
+                    return replace_with("XOR");
+                if (val == 0xFF && options.ops_inc)
+                    return replace_with("DEC");
+            } else if (mnemonic == "XOR") {
+                if (val == 0 && options.ops_logic)
+                    return replace_with("OR");
+            } else if (mnemonic == "OR") {
+                if (val == 0 && options.ops_logic)
+                    return replace_with("OR");
+                if (val == 0xFF && options.ops_inc)
+                    return replace_with("INC");
+            } else if (mnemonic == "CP") {
+                if (val == 0 && options.ops_or)
+                    return replace_with("OR");
+            }
+            return {Result::Action::NONE};
+        }
         Result optimize_one_operand(const std::string& mnemonic, const typename Operands::Operand& operand) {
             auto& context = this->m_policy.context();
             auto& options = context.optimization;
             auto& stats = context.stats;
             if (mnemonic == "JR" && this->match_imm16(operand)) {
                 int32_t target_addr = operand.num_val;
-                if (operand.type == Operands::Operand::Type::IMMEDIATE)
+                if (this->match_number(operand))
                     optimize_jump_target(target_addr);            
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (context.address.current_logical + instruction_size);
@@ -3494,14 +3529,14 @@ protected:
             }
             else if (mnemonic == "JP" && this->match_imm16(operand)) {
                 int32_t target_addr = operand.num_val;
-                if (operand.type == Operands::Operand::Type::IMMEDIATE)
+                if (this->match_number(operand))
                     optimize_jump_target(target_addr);
                 if (options.dce_jump && (uint16_t)target_addr == (uint16_t)(context.address.current_logical + 3)) {
                     stats.bytes_saved += 3;
                     stats.cycles_saved += 10;
                     return {Result::Action::DONE};
                 }
-                if (options.branch_short && !options.branch_speed && operand.type == Operands::Operand::Type::IMMEDIATE) {
+                if (options.branch_short && !options.branch_speed && this->match_number(operand)) {
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (context.address.current_logical + instruction_size);
                     if (offset >= -128 && offset <= 127) {
@@ -3527,68 +3562,7 @@ protected:
             }
             else if (mnemonic == "ADD" || mnemonic == "SUB" || mnemonic == "AND" || mnemonic == "OR" || mnemonic == "XOR" || mnemonic == "CP") {
                 if (this->match_imm8(operand)) {
-                    if (mnemonic == "ADD") {
-                        if (operand.num_val == 1 && options.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                        if ((uint8_t)operand.num_val == 0xFF && options.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                        if (operand.num_val == 0 && options.ops_add0) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                    } else if (mnemonic == "SUB") {
-                        if (operand.num_val == 1 && options.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                        if ((uint8_t)operand.num_val == 0xFF && options.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                    } else if (mnemonic == "AND") {
-                        if (operand.num_val == 0 && options.ops_logic) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "XOR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                        if ((uint8_t)operand.num_val == 0xFF && options.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "DEC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                    } else if (mnemonic == "XOR") {
-                        if (operand.num_val == 0 && options.ops_logic) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                    } else if (mnemonic == "OR") {
-                        if (operand.num_val == 0 && options.ops_logic) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                        if ((uint8_t)operand.num_val == 0xFF && options.ops_inc) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "INC", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                    } else if (mnemonic == "CP") {
-                        if (operand.num_val == 0 && options.ops_or) {
-                            stats.bytes_saved += 1;
-                            stats.cycles_saved += 3;
-                            return {Result::Action::REPLACE, "OR", {typename Operands::Operand{Operands::Operand::Type::REG8, "A"}}};
-                        }
-                    }
+                    return optimize_alu_imm8(mnemonic, operand);
                 }
             }
             else if (mnemonic == "SLA" && operand.str_val == "A" && options.ops_sla) {
@@ -3603,7 +3577,7 @@ protected:
             }
             else if (mnemonic == "DJNZ" && this->match_imm16(operand)) {
                 int32_t target_addr = operand.num_val;
-                if (operand.type == Operands::Operand::Type::IMMEDIATE) {
+                if (this->match_number(operand)) {
                     optimize_jump_target(target_addr);
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (context.address.current_logical + instruction_size);
@@ -3641,72 +3615,11 @@ protected:
                 }
             }
             else if ((mnemonic == "ADD" || mnemonic == "SUB" || mnemonic == "AND" || mnemonic == "OR" || mnemonic == "XOR" || mnemonic == "CP") && op1.str_val == "A" && this->match_imm8(op2)) {
-                if (mnemonic == "ADD") {
-                    if (op2.num_val == 1 && options.ops_inc) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "INC", {op1}};
-                    }
-                    if ((uint8_t)op2.num_val == 0xFF && options.ops_inc) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "DEC", {op1}};
-                    }
-                    if (op2.num_val == 0 && options.ops_add0) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "OR", {op1}};
-                    }
-                } else if (mnemonic == "SUB") {
-                    if (op2.num_val == 1 && options.ops_inc) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "DEC", {op1}};
-                    }
-                    if ((uint8_t)op2.num_val == 0xFF && options.ops_inc) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "INC", {op1}};
-                    }
-                } else if (mnemonic == "AND") {
-                    if (op2.num_val == 0 && options.ops_logic) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "XOR", {op1}};
-                    }
-                    if ((uint8_t)op2.num_val == 0xFF && options.ops_inc) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "DEC", {op1}};
-                    }
-                } else if (mnemonic == "XOR") {
-                    if (op2.num_val == 0 && options.ops_logic) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "OR", {op1}};
-                    }
-                } else if (mnemonic == "OR") {
-                    if (op2.num_val == 0 && options.ops_logic) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "OR", {op1}};
-                    }
-                    if ((uint8_t)op2.num_val == 0xFF && options.ops_inc) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "INC", {op1}};
-                    }
-                } else if (mnemonic == "CP") {
-                    if (op2.num_val == 0 && options.ops_or) {
-                        stats.bytes_saved += 1;
-                        stats.cycles_saved += 3;
-                        return {Result::Action::REPLACE, "OR", {op1}};
-                    }
-                }
+                return optimize_alu_imm8(mnemonic, op2);
             }
             else if (mnemonic == "JR" && this->match_condition(op1) && this->match_imm16(op2)) {
                 int32_t target_addr = op2.num_val;
-                if (op2.type == Operands::Operand::Type::IMMEDIATE)
+                if (this->match_number(op2))
                     optimize_jump_target(target_addr);
                 uint16_t instruction_size = 2;
                 int32_t offset = target_addr - (context.address.current_logical + instruction_size);
@@ -3730,14 +3643,14 @@ protected:
             }
             else if (mnemonic == "JP" && this->match_condition(op1) && this->match_imm16(op2)) {
                 int32_t target_addr = op2.num_val;
-                if (op2.type == Operands::Operand::Type::IMMEDIATE)
+                if (this->match_number(op2))
                     optimize_jump_target(target_addr);
                 if (options.dce_jump && (uint16_t)target_addr == (uint16_t)(context.address.current_logical + 3)) {
                     stats.bytes_saved += 3;
                     stats.cycles_saved += 10;
                     return {Result::Action::DONE};
                 }
-                if (options.branch_short && !options.branch_speed && op2.type == Operands::Operand::Type::IMMEDIATE) {
+                if (options.branch_short && !options.branch_speed && this->match_number(op2)) {
                     uint16_t instruction_size = 2;
                     int32_t offset = target_addr - (context.address.current_logical + instruction_size);
                     if (offset >= -128 && offset <= 127) {
@@ -3868,7 +3781,7 @@ protected:
             } else if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match_imm16(op) || this->match_char(op)) {
+                    if (this->match_imm16(op)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)(op.num_val >> 8));
                     } else
@@ -3880,7 +3793,7 @@ protected:
             } else if (mnemonic == "D24") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match(op, Operands::Operand::Type::IMMEDIATE)) {
+                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING_LITERAL) && op.str_val.length() == 1)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 8) & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
@@ -3893,7 +3806,7 @@ protected:
             } else if (mnemonic == "DWORD" || mnemonic == "DD" || mnemonic == "DEFD") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match(op, Operands::Operand::Type::IMMEDIATE)) {
+                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING_LITERAL) && op.str_val.length() == 1)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 8) & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
@@ -3925,7 +3838,7 @@ protected:
             } else if (mnemonic == "DQ") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match(op, Operands::Operand::Type::IMMEDIATE)) {
+                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING_LITERAL) && op.str_val.length() == 1)) {
                         uint64_t val = (uint64_t)(op.num_val);
                         for (int i = 0; i < 8; ++i)
                             bytes.push_back((uint8_t)((val >> (i*8)) & 0xFF));
@@ -3982,6 +3895,8 @@ protected:
                     this->m_policy.context().assembler.report_error(mnemonic + " requires 1 or 2 operands.");
                 if (!this->match_imm16(ops[0]))
                     this->m_policy.context().assembler.report_error(mnemonic + " size must be a number.");
+                if (ops.size() == 2 && !this->match_imm8(ops[1]))
+                    this->m_policy.context().assembler.report_error(mnemonic + " fill value must be a number.");
                 size_t count = ops[0].num_val;
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
                 std::vector<uint8_t> bytes(count, fill_value);
@@ -4965,8 +4880,8 @@ protected:
                 assemble({0xED, (uint8_t)(0x40 | (reg_code << 3))});
                 return true;
             }
-            if (mnemonic == "OUT" && this->match_mem_reg16(op1) && op1.str_val == "C" && (this->match_reg8(op2) || (op2.type == Operands::Operand::Type::IMMEDIATE && op2.num_val == 0))) {
-                if (op2.type == Operands::Operand::Type::IMMEDIATE && op2.num_val == 0) {
+            if (mnemonic == "OUT" && this->match_mem_reg16(op1) && op1.str_val == "C" && (this->match_reg8(op2) || (this->match_imm8(op2) && op2.num_val == 0))) {
+                if (this->match_imm8(op2) && op2.num_val == 0) {
                     if (!check_undocumented())
                         return false;
                     assemble({0xED, 0x71});

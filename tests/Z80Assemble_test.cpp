@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble_test.cpp
-// Verson: 1.1.8
+// Verson: 1.1.8a
 //
 // This file contains unit tests for the Z80Assembler class.
 //
@@ -1728,16 +1728,16 @@ TEST_CASE(MathFunctionsInExpressions) {
     ASSERT_CODE("LD A, TAN(0)", {0x3E, 0});
     ASSERT_CODE("LD A, ROUND(SIN(MATH_PI / 2))", {0x3E, 1}); // sin(pi/2)
     ASSERT_CODE("LD A, ROUND(COS(MATH_PI))", {0x3E, (uint8_t)-1}); // cos(pi)
-    ASSERT_CODE("LD A, ASIN(1)", {0x3E, 1}); // asin(1) ~= 1.57, rzutowane na 1
+    ASSERT_CODE("LD A, ASIN(1)", {0x3E, 1}); // asin(1) ~= 1.57, cast to 1
     ASSERT_CODE("LD A, ACOS(1)", {0x3E, 0});
-    ASSERT_CODE("LD A, ATAN(1)", {0x3E, 0}); // atan(1) ~= 0.785, rzutowane na 0
-    ASSERT_CODE("LD A, ATAN2(1, 0)", {0x3E, 1}); // atan2(1,0) ~= 1.57, rzutowane na 1
+    ASSERT_CODE("LD A, ATAN(1)", {0x3E, 0}); // atan(1) ~= 0.785, cast to 0
+    ASSERT_CODE("LD A, ATAN2(1, 0)", {0x3E, 1}); // atan2(1,0) ~= 1.57, cast to 1
 
-    // Testy funkcji potęgowych i logarytmicznych
+    // Power and logarithmic function tests
     ASSERT_CODE("LD A, ABS(-123.0)", {0x3E, 123});
     ASSERT_CODE("LD A, POW(2, 7)", {0x3E, 128});
     ASSERT_CODE("LD A, SQRT(64)", {0x3E, 8});
-    ASSERT_CODE("LD A, LOG(1)", {0x3E, 0}); // log naturalny
+    ASSERT_CODE("LD A, LOG(1)", {0x3E, 0}); // natural log
     ASSERT_CODE("LD A, LOG10(1000)", {0x3E, 3});
     ASSERT_CODE("LD A, LOG2(256)", {0x3E, 8});
     ASSERT_CODE("LD A, EXP(0)", {0x3E, 1});
@@ -3127,9 +3127,9 @@ TEST_CASE(MacroWithLocalLabels) {
         DELAY
     )", {
         0x06, 255,  // LD B, 255
-        0x10, 0xFE, // DJNZ do pierwszej unikalnej etykiety 'loop'
-        0x06, 255,  // LD B, 255 (z drugiego wywołania)
-        0x10, 0xFE  // DJNZ do drugiej unikalnej etykiety 'loop'
+        0x10, 0xFE, // DJNZ to the first unique label 'loop'
+        0x06, 255,  // LD B, 255 (from second call)
+        0x10, 0xFE  // DJNZ to the second unique label 'loop'
     });
 }
 
@@ -3260,16 +3260,16 @@ TEST_CASE(MacroShift) {
     ASSERT_CODE(R"(
         ORG 0x8000
         TEST_SHIFT MACRO v1, v2, v3
-            ; 1. POCZĄTEK: Zapisz \1 i \2 (Stan: 1, 2)
+            ; 1. START: Write \1 and \2 (State: 1, 2)
             DEFB \1
             DEFB \2
-            ; --- Wykonanie SHIFT ---
+            ; --- Execute SHIFT ---
             SHIFT
-            ; 2. PO 1. SHIFT: Zapisz nowe \1 (powinno być 2)
+            ; 2. AFTER 1st SHIFT: Write new \1 (should be 2)
             DEFB \1
-            ; --- Wykonanie SHIFT ---
+            ; --- Execute SHIFT ---
             SHIFT
-            ; 3. PO 2. SHIFT: Zapisz nowe \1 (powinno być 3)
+            ; 3. AFTER 2nd SHIFT: Write new \1 (should be 3)
             DEFB \1
         ENDM
         TEST_SHIFT 1, 2, 3
@@ -3278,35 +3278,35 @@ TEST_CASE(MacroShift) {
 
 TEST_CASE(MacroVariadicReptShift) {
     ASSERT_CODE(R"(
-        ; Definicja makra, które wypisuje wszystkie podane bajty
+        ; Definition of a macro that writes all provided bytes
         WRITE_BYTES MACRO
-            ; \0 to liczba argumentów. 
-            ; Jeśli wywołamy z 3 argumentami, pętla wykona się 3 razy.
+            ; \0 is the number of arguments. 
+            ; If called with 3 arguments, the loop runs 3 times.
             REPT \0
-                DB \1   ; Wypisz BIEŻĄCY pierwszy argument
-                SHIFT   ; Przesuń kolejkę: \2 staje się \1, \3 staje się \2 itd.
+                DB \1   ; Write CURRENT first argument
+                SHIFT   ; Shift queue: \2 becomes \1, \3 becomes \2 etc.
             ENDR
         ENDM
 
-        ; Wywołanie z 4 różnymi wartościami
+        ; Call with 4 different values
         WRITE_BYTES 0x10, 0x20, 0x30, 0x40
     )", {0x10, 0x20, 0x30, 0x40});
 }
 
 TEST_CASE(MacroIfNotBlank_OptionalParam) {
     ASSERT_CODE(R"(
-        ; Makro: Jeśli podano \1, załaduj go do A.
-        ; Jeśli nie, wyzeruj A (XOR A).
+        ; Macro: If \1 is provided, load it into A.
+        ; If not, clear A (XOR A).
         LOAD_OPT MACRO val
-            IFNB \1       ; Czy \1 nie jest pusty?
+            IFNB \1       ; Is \1 not empty?
                 LD A, \1
-            ELSE          ; Jest pusty
+            ELSE          ; Is empty
                 XOR A
             ENDIF
         ENDM
 
-        LOAD_OPT 0x55     ; Przypadek 1: Podano argument
-        LOAD_OPT          ; Przypadek 2: Brak argumentu
+        LOAD_OPT 0x55     ; Case 1: Argument provided
+        LOAD_OPT          ; Case 2: No argument
     )", {
         0x3E, 0x55,       // LD A, 0x55
         0xAF              // XOR A
@@ -3315,10 +3315,10 @@ TEST_CASE(MacroIfNotBlank_OptionalParam) {
 
 TEST_CASE(MacroIfIdentical_Optimization) {
     ASSERT_CODE(R"(
-        ; Makro: Jeśli wartość to dokładnie "0", użyj XOR.
-        ; W przeciwnym razie użyj LD.
+        ; Macro: If value is exactly "0", use XOR.
+        ; Otherwise use LD.
         SMART_LD MACRO val
-            ; Używamy nawiasów <>, aby bezpiecznie porównać stringi
+            ; We use <> brackets to safely compare strings
             IFIDN <\1>, <0>
                 XOR A
             ELSE
@@ -3326,9 +3326,9 @@ TEST_CASE(MacroIfIdentical_Optimization) {
             ENDIF
         ENDM
 
-        SMART_LD 0        ; Powinno być zoptymalizowane
-        SMART_LD 1        ; Powinno być standardowe
-        SMART_LD 00       ; "00" to nie to samo co "0" tekstowo!
+        SMART_LD 0        ; Should be optimized
+        SMART_LD 1        ; Should be standard
+        SMART_LD 00       ; "00" is not the same as "0" textually!
     )", {
         0xAF,             // XOR A
         0x3E, 0x01,       // LD A, 1
@@ -3338,7 +3338,7 @@ TEST_CASE(MacroIfIdentical_Optimization) {
 
 TEST_CASE(MacroIfIdentical_RegisterSelect) {
     ASSERT_CODE(R"(
-        ; Makro generuje PUSH dla konkretnego rejestru
+        ; Macro generates PUSH for a specific register
         MY_PUSH MACRO reg
             IFIDN <\1>, <HL>
                 PUSH HL
@@ -3346,15 +3346,15 @@ TEST_CASE(MacroIfIdentical_RegisterSelect) {
                 IFIDN <\1>, <BC>
                     PUSH BC
                 ELSE
-                    NOP ; Nieznany lub małe litery
+                    NOP ; Unknown or lowercase
                 ENDIF
             ENDIF
         ENDM
 
-        MY_PUSH HL        ; Pasuje
-        MY_PUSH BC        ; Pasuje
-        MY_PUSH hl        ; Nie pasuje (małe litery)
-        MY_PUSH AF        ; Nie pasuje
+        MY_PUSH HL        ; Matches
+        MY_PUSH BC        ; Matches
+        MY_PUSH hl        ; Does not match (lowercase)
+        MY_PUSH AF        ; Does not match
     )", {
         0xE5,             // PUSH HL
         0xC5,             // PUSH BC
@@ -3379,15 +3379,15 @@ TEST_CASE(MacroVariadicWithShiftAndCount) {
 TEST_CASE(MacroIfIdentical_Empty) {
     ASSERT_CODE(R"(
         CHECK_EMPTY MACRO val
-            IFIDN <\1>, <>  ; Czy \1 jest pusty?
+            IFIDN <\1>, <>  ; Is \1 empty?
                 DB 0xFF
             ELSE
                 DB 0x00
             ENDIF
         ENDM
 
-        CHECK_EMPTY       ; Pusty
-        CHECK_EMPTY 5     ; Niepusty
+        CHECK_EMPTY       ; Empty
+        CHECK_EMPTY 5     ; Not empty
     )", {
         0xFF,
         0x00
@@ -3571,33 +3571,33 @@ TEST_CASE(MemoryAccessOperator) {
 }
 
 TEST_CASE(TernaryOperator) {
-    // --- Testy numeryczne ---
-    // Prosty warunek prawdziwy
+    // --- Numeric tests ---
+    // Simple true condition
     ASSERT_CODE("DB 1 ? 10 : 20", {10});
-    // Prosty warunek fałszywy
+    // Simple false condition
     ASSERT_CODE("DB 0 ? 10 : 20", {20});
-    // Wyrażenie jako warunek (prawda)
+    // Expression as condition (true)
     ASSERT_CODE("DB (5 > 2) ? 100 : 200", {100});
-    // Wyrażenie jako warunek (fałsz)
+    // Expression as condition (false)
     ASSERT_CODE("DB (5 < 2) ? 100 : 200", {200});
-    // Wyrażenia w gałęziach
+    // Expressions in branches
     ASSERT_CODE("DB 1 ? 10+5 : 20-5", {15});
     ASSERT_CODE("DB 0 ? 10+5 : 20-5", {15});
 
-    // --- Testy z ciągami znaków ---
-    // Prosty warunek prawdziwy
+    // --- String tests ---
+    // Simple true condition
     ASSERT_CODE("DB 1 ? \"A\" : \"B\"", {'A'});
-    // Prosty warunek fałszywy
+    // Simple false condition
     ASSERT_CODE("DB 0 ? \"A\" : \"B\"", {'B'});
-    // Dłuższe ciągi znaków
+    // Longer strings
     ASSERT_CODE("DB 1 ? \"OK\" : \"FAIL\"", {'O', 'K'});
     ASSERT_CODE("DB 0 ? \"FAIL\" : \"OK\"", {'O', 'K'});
-    // Konkatenacja w gałęziach
-    ASSERT_CODE("DB 1 ? \"A\"##\"B\" : \"C\"", {'A', 'B'});
-    ASSERT_CODE("DB 0 ? \"A\" : \"B\"##\"C\"", {'B', 'C'});
+    // Concatenation in branches
+    ASSERT_CODE("DB 1 ? \"A\"+\"B\" : \"C\"", {'A', 'B'});
+    ASSERT_CODE("DB 0 ? \"A\" : \"B\"+\"C\"", {'B', 'C'});
 
-    // --- Testy z referencjami w przód (forward reference) ---
-    // Warunek zależny od referencji w przód
+    // --- Forward reference tests ---
+    // Condition dependent on forward reference
     ASSERT_CODE(R"(
         DB DO_TRUE ? 100 : 200
         DO_TRUE EQU 1
@@ -3606,7 +3606,7 @@ TEST_CASE(TernaryOperator) {
         DB DO_FALSE ? 100 : 200
         DO_FALSE EQU 0
     )", {200});
-    // Gałęzie zależne od referencji w przód
+    // Branches dependent on forward reference
     ASSERT_CODE(R"(
         DB 1 ? VAL_A : VAL_B
         VAL_A EQU 55
@@ -3618,18 +3618,18 @@ TEST_CASE(TernaryOperator) {
         VAL_B EQU 99
     )", {99});
 
-    // --- Testy zagnieżdżone ---
-    // Prawda -> Prawda
+    // --- Nested tests ---
+    // True -> True
     ASSERT_CODE("DB 1 ? (1 ? 10 : 20) : 30", {10});
-    // Prawda -> Fałsz
+    // True -> False
     ASSERT_CODE("DB 1 ? (0 ? 10 : 20) : 30", {20});
-    // Fałsz -> Prawda
+    // False -> True
     ASSERT_CODE("DB 0 ? 10 : (1 ? 20 : 30)", {20});
-    // Fałsz -> Fałsz
+    // False -> False
     ASSERT_CODE("DB 0 ? 10 : (0 ? 20 : 30)", {30});
 
-    // --- Złożone wyrażenia ---
-    // Zagnieżdżone z referencją w przód
+    // --- Complex expressions ---
+    // Nested with forward reference
     ASSERT_CODE(R"(
         DB OUTER_COND ? (INNER_COND ? VAL_A : VAL_B) : VAL_C
         OUTER_COND EQU 1
@@ -3639,11 +3639,11 @@ TEST_CASE(TernaryOperator) {
         VAL_C EQU 33
     )", {22});
 
-    // Zagnieżdżone z ciągami znaków
+    // Nested with strings
     ASSERT_CODE("DB 1 ? (0 ? \"A\" : \"B\") : \"C\"", {'B'});
     ASSERT_CODE("DB 0 ? \"A\" : (1 ? \"B\" : \"C\")", {'B'});
 
-    // Sprawdzenie, czy etykiety z '?' nie są parsowane jako operator trójargumentowy
+    // Check if labels with '?' are not parsed as ternary operator
     ASSERT_CODE(R"(
         label?: NOP
         JP label?
@@ -3969,28 +3969,26 @@ TEST_CASE(CustomDirectives) {
 }
 
 TEST_CASE(NewOperators) {
-    // Operator + (Matematyka / Suma)
+    // Operator + (Math / Sum)
     // Number + Number
     ASSERT_CODE("DB 65 + 1", {66});
     // String (Len=1) + Number
     ASSERT_CODE("DB \"A\" + 1", {66});
     // Number + String (Len=1)
     ASSERT_CODE("DB 1 + \"A\"", {66});
-    // String (Len>1) + Number -> BŁĄD
+    // String (Len>1) + Number -> ERROR
     ASSERT_COMPILE_FAILS("DB \"AB\" + 1");
 
-    // Operator ## (Sklejanie / Token Pasting)
-    // String ## String
-    ASSERT_CODE("DB \"A\" ## \"B\"", {'A', 'B'});
-    // String ## Number
-    ASSERT_CODE("DB \"R\" ## 2", {'R', '2'});
-    // Number ## Number
-    ASSERT_CODE("DB 1 ## 2", {'1', '2'});
+    // Operator + (Concatenation for strings)
+    ASSERT_CODE("DB \"A\" + \"B\"", {'A', 'B'});
+    ASSERT_CODE("DB \"AB\" + \"CD\"", {'A', 'B', 'C', 'D'});
+    ASSERT_CODE("DB \"A\" + \"B\" + \"C\"", {'A', 'B', 'C'});
 }
 
 TEST_CASE(SingleCharStringMath) {
     // Arithmetic operators
     ASSERT_CODE("DB \"A\" + 1", {66});
+    ASSERT_CODE("DB 'A' + 1", {66});
     ASSERT_CODE("DB 1 + \"A\"", {66});
     ASSERT_CODE("DB \"B\" - \"A\"", {1});
     ASSERT_CODE("DB \"A\" * 2", {130});
@@ -4024,6 +4022,42 @@ TEST_CASE(SingleCharStringMath) {
     ASSERT_CODE("DB !\"A\"", {0}); // !65 is 0
 }
 
+TEST_CASE(SingleCharStringParsing) {
+    // "A" treated as CHAR_LITERAL (65) in instruction operand
+    ASSERT_CODE("LD A, \"A\"", {0x3E, 65});
+    
+    // "A" treated as number in arithmetic
+    ASSERT_CODE("DB \"A\" + 1", {66});
+    
+    // "A" treated as string for concatenation
+    ASSERT_CODE("DM \"A\" + \"B\"", {'A', 'B'});
+    
+    // 'A' + 'B' -> "AB" (Concatenation of char literals which are now strings)
+    ASSERT_CODE("DB 'A' + 'B'", {'A', 'B'});
+    
+    // Comparison
+    ASSERT_CODE("DB \"A\" == 65", {1});
+}
+
+TEST_CASE(SingleCharStringOperand) {
+    // CHR(65) returns "A" (STRING type). Operands::parse should convert it to CHAR_LITERAL.
+    ASSERT_CODE("LD A, CHR(65)", {0x3E, 65}); // 'A'
+
+    // STR(5) returns "5" (STRING type).
+    ASSERT_CODE("LD A, STR(5)", {0x3E, 53}); // '5'
+
+    // "A" + "" evaluates to "A" (STRING type).
+    ASSERT_CODE("LD A, \"A\" + \"\"", {0x3E, 65});
+
+    // SUBSTR("ABC", 1, 1) -> "B"
+    ASSERT_CODE("LD A, SUBSTR(\"ABC\", 1, 1)", {0x3E, 66});
+
+    // ISSTRING checks
+    ASSERT_CODE("DB ISSTRING(\"A\")", {1}); // "A" is STRING now
+    ASSERT_CODE("DB ISNUMBER(\"A\")", {1}); // "A" is also a NUMBER (char literal)
+    ASSERT_CODE("DB ISSTRING(\"AB\")", {1}); // "AB" is STRING
+}
+
 TEST_CASE(StringMemoryAddressing) {
     // LD A, ("A") -> LD A, (65) -> 3A 41 00
     ASSERT_CODE("LD A, (\"A\")", {0x3A, 0x41, 0x00});
@@ -4045,6 +4079,20 @@ TEST_CASE(StringMemoryAddressing) {
     ASSERT_COMPILE_FAILS("LD B, (\"A\")");
 }
 
+TEST_CASE(IndexedAddressingWithExpressions) {
+    // LD A, (IX + "A") -> LD A, (IX + 65) -> DD 7E 41
+    ASSERT_CODE("LD A, (IX + \"A\")", {0xDD, 0x7E, 0x41});
+
+    // LD A, (IX - "A") -> LD A, (IX - 65) -> DD 7E BF
+    ASSERT_CODE("LD A, (IX - \"A\")", {0xDD, 0x7E, 0xBF});
+
+    // LD B, (IY + 1 + 2) -> LD B, (IY + 3) -> FD 46 03
+    ASSERT_CODE("LD B, (IY + 1 + 2)", {0xFD, 0x46, 0x03});
+
+    // LD (IX + "0"), A -> LD (IX + 48), A -> DD 77 30
+    ASSERT_CODE("LD (IX + \"0\"), A", {0xDD, 0x77, 0x30});
+}
+
 TEST_CASE(RelationalAndEqualityOperators) {
     // Equality (==, !=)
     ASSERT_CODE("DB 'A' == 65", {1});
@@ -4062,18 +4110,14 @@ TEST_CASE(RelationalAndEqualityOperators) {
     ASSERT_CODE("DB 2 < 10", {1});
     
     // String vs String (Lexicographical)
-    ASSERT_CODE("DB \"A\" < \"B\"", {1});
-    ASSERT_CODE("DB \"AA\" < \"AB\"", {1});
-    ASSERT_CODE("DB \"B\" > \"A\"", {1});
-    ASSERT_CODE("DB \"10\" < \"2\"", {1});
+    // Removed: Relational operators no longer support strings
+    ASSERT_COMPILE_FAILS("DB \"AA\" < \"AB\"");
+    ASSERT_COMPILE_FAILS("DB \"10\" < \"2\"");
     
     // Mixed (String len=1 vs Number)
     ASSERT_CODE("DB \"A\" > 64", {1});
     ASSERT_CODE("DB 64 < \"A\"", {1});
     
-    // Mixed (String len>1 vs Number) -> Error
-    ASSERT_COMPILE_FAILS("DB \"10\" > 2");
-    ASSERT_COMPILE_FAILS("DB 2 < \"10\"");
 }
 
 TEST_CASE(OptimizationFlags) {
@@ -4830,6 +4874,32 @@ TEST_CASE(OptionDirectiveNestedStack) {
         OPTION POP      ; Pop Level 0 (Z80N=Off)
         ; SWAPNIB       ; Would be label here
     )", {0xED, 0x23, 0x00, 0xED, 0x23}, config);
+}
+
+TEST_CASE(SingleCharStringInstructions) {
+    ASSERT_CODE("LD A, \"A\"", {0x3E, 'A'});
+    ASSERT_CODE("CP \"8\"", {0xFE, '8'});
+    ASSERT_CODE("ADD A, \" \"", {0xC6, ' '});
+    ASSERT_CODE("SUB \"a\"", {0xD6, 'a'});
+    ASSERT_CODE("LD B, \"*\"", {0x06, '*'});
+    ASSERT_CODE("AND \"Z\"", {0xE6, 'Z'});
+    ASSERT_CODE("XOR \"1\"", {0xEE, '1'});
+    ASSERT_CODE("OR \"@\"", {0xF6, '@'});
+}
+
+TEST_CASE(SingleCharStringAsNumberContexts) {
+    // Ternary operator
+    ASSERT_CODE("DB \"A\" ? 1 : 2", {1});
+    ASSERT_CODE("DB CHR(0) ? 1 : 2", {2});
+
+    // D24
+    ASSERT_CODE("D24 \"A\"", {0x41, 0x00, 0x00});
+    
+    // DWORD
+    ASSERT_CODE("DWORD \"A\"", {0x41, 0x00, 0x00, 0x00});
+    
+    // DQ
+    ASSERT_CODE("DQ \"A\"", {0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
 }
 
 int main() {
