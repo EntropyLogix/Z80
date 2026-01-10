@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble_test.cpp
-// Verson: 1.1.8a
+// Verson: 1.1.8b
 //
 // This file contains unit tests for the Z80Assembler class.
 //
@@ -4900,6 +4900,43 @@ TEST_CASE(SingleCharStringAsNumberContexts) {
     
     // DQ
     ASSERT_CODE("DQ \"A\"", {0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
+}
+
+TEST_CASE(EscapeSequences) {
+    // Test string escapes
+    ASSERT_CODE("DB \"\\\"\"", {'"'}); // "\"" -> "
+    ASSERT_CODE("DB \"\\\\\"", {'\\'}); // "\\" -> \
+    ASSERT_CODE("DB \"\\n\"", {0x0A}); // "\n" -> LF
+    ASSERT_CODE("DB \"\\r\"", {0x0D}); // "\r" -> CR
+    ASSERT_CODE("DB \"\\t\"", {0x09}); // "\t" -> TAB
+    ASSERT_CODE("DB \"\\0\"", {0x00}); // "\0" -> NUL
+    
+    // Test mixed
+    ASSERT_CODE("DB \"A\\nB\"", {'A', 0x0A, 'B'});
+    
+    // Test char literal escapes
+    ASSERT_CODE("LD A, '\\n'", {0x3E, 0x0A});
+    ASSERT_CODE("LD A, '\\''", {0x3E, '\''});
+    ASSERT_CODE("LD A, '\\\\'", {0x3E, '\\'});
+    
+    // Test in macro arguments (splitting)
+    ASSERT_CODE(R"(
+        MY_MACRO MACRO arg1, arg2
+            DB {arg1}
+            DB {arg2}
+        ENDM
+        MY_MACRO "A,B", "C\"D"
+    )", {'A', ',', 'B', 'C', '"', 'D'});
+}
+
+TEST_CASE(EscapeSequencesHex) {
+    ASSERT_CODE("DB \"\\x41\"", {0x41}); // 'A'
+    ASSERT_CODE("DB \"\\x00\"", {0x00});
+    ASSERT_CODE("DB \"\\xFF\"", {0xFF});
+    ASSERT_CODE("DB \"\\x1\"", {0x01}); // Single digit
+    ASSERT_CODE("DB \"\\x61B\"", {0x61, 'B'}); // 'a', 'B'
+    ASSERT_CODE("DB \"\\x\"", {'x'}); // Invalid hex, treat as 'x'
+    ASSERT_CODE("DB \"\\xG\"", {'x', 'G'}); // Invalid hex, treat as 'x', 'G'
 }
 
 int main() {

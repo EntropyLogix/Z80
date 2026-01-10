@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble.h
-// Version: 1.1.8a
+// Version: 1.1.8b
 //
 // This header provides a single-header Z80 assembler class, `Z80Assembler`, capable of
 // compiling Z80 assembly source code into machine code. It supports standard Z80
@@ -627,6 +627,85 @@ protected:
         static void to_upper(std::string& s) {
             std::transform(s.begin(), s.end(), s.begin(), ::toupper);
         }
+        static std::string unescape(const std::string& s) {
+            std::string result;
+            result.reserve(s.length());
+            for (size_t i = 0; i < s.length(); ++i) {
+                if (s[i] == '\\' && i + 1 < s.length()) {
+                    char next = s[i + 1];
+                    if (next == 'x') {
+                        int val = 0;
+                        int digits = 0;
+                        size_t j = i + 2;
+                        while (j < s.length() && digits < 2) {
+                            char c = s[j];
+                            int d = -1;
+                            if (c >= '0' && c <= '9')
+                                d = c - '0';
+                            else if (c >= 'a' && c <= 'f')
+                                d = c - 'a' + 10;
+                            else if (c >= 'A' && c <= 'F')
+                                d = c - 'A' + 10;
+                            if (d == -1)
+                                break;
+                            val = (val << 4) | d;
+                            digits++;
+                            j++;
+                        }
+                        if (digits > 0) {
+                            result += (char)val;
+                            i = j - 1;
+                        } else {
+                            result += 'x';
+                            i++;
+                        }
+                        continue;
+                    }
+                    switch (next) {
+                        case '"':
+                            result += '"';
+                            break;
+                        case '\'':
+                            result += '\'';
+                            break;
+                        case '\\':
+                            result += '\\';
+                            break;
+                        case 'n':
+                            result += '\n';
+                            break;
+                        case 'r':
+                            result += '\r';
+                            break;
+                        case 't':
+                            result += '\t';
+                            break;
+                        case '0':
+                            result += '\0';
+                            break;
+                        case 'a':
+                            result += '\a';
+                            break;
+                        case 'b':
+                            result += '\b';
+                            break;
+                        case 'f':
+                            result += '\f';
+                            break;
+                        case 'v':
+                            result += '\v';
+                            break;
+                        default:
+                            result += '\\';
+                            result += next;
+                            break;
+                    }
+                    i++;
+                } else
+                    result += s[i];
+            }
+            return result;
+        }
         static void replace_words(std::string& str, const std::string& from, const std::string& to) {
             if (from.empty())
                 return;
@@ -710,7 +789,7 @@ protected:
             auto result = std::from_chars(start, end, u_val, base);
             bool success = (result.ec == std::errc() && result.ptr == end);
             if (success)
-                out_value = is_negative ? static_cast<int32_t>(0u - u_val) : static_cast<int32_t>(u_val);
+                out_value = is_negative ? (int32_t)(0u - u_val) : (int32_t)(u_val);
             return success;
         }
         class Tokens {
@@ -748,25 +827,42 @@ protected:
                         return false;
                     }
                     std::vector<Token> to_arguments(char delimiter = ',') const {
-                        if (!m_arguments.has_value()) {
-                            std::vector<Token> args;
-                            bool in_string = false;
-                            int paren_level = 0;
-                            size_t start = 0;
-                            for (size_t i = 0; i <= m_original.length(); ++i) {
-                                if (i < m_original.length()) {
-                                    char c = m_original[i];
-                                    if (c == '"') 
-                                        in_string = !in_string;
-                                    else if (!in_string) {
-                                        if (c == '(')
-                                            paren_level++;
-                                        else if (c == ')') 
-                                            paren_level--;
+                        if (m_arguments.has_value()) {
+                            return *m_arguments;
+                        }
+
+                        std::vector<Token> args;
+                        bool in_string = false;
+                        int paren_level = 0;
+                        size_t start = 0;
+                        const size_t len = m_original.length();
+
+                        for (size_t i = 0; i <= len; ++i) {
+                            bool is_delimiter = (i == len);
+
+                            if (i < len) {
+                                const char c = m_original[i];
+                                if (in_string) {
+                                    if (c == '\\') {
+                                        i++; // Skip escaped character
+                                        if (i >= len) is_delimiter = true;
+                                    } else if (c == '"') {
+                                        in_string = false;
                                     }
-                                    if (c != delimiter || in_string || paren_level != 0)
-                                        continue;
+                                } else {
+                                    if (c == '"') {
+                                        in_string = true;
+                                    } else if (c == '(') {
+                                        paren_level++;
+                                    } else if (c == ')') {
+                                        if (paren_level > 0) paren_level--;
+                                    } else if (c == delimiter && paren_level == 0) {
+                                        is_delimiter = true;
+                                    }
                                 }
+                            }
+
+                            if (is_delimiter) {
                                 std::string arg_str = m_original.substr(start, i - start);
                                 size_t first = arg_str.find_first_not_of(" \t");
                                 if (first != std::string::npos) {
@@ -775,8 +871,8 @@ protected:
                                 }
                                 start = i + 1;
                             }
-                            m_arguments = std::move(args);
                         }
+                        m_arguments = std::move(args);
                         return *m_arguments;
                     }
                 private:
@@ -954,20 +1050,35 @@ protected:
                     }
                     continue;
                 }
-                if (c == '\'' && !in_string)
-                    in_char = !in_char;
-                else if (c == '"' && !in_char)
-                    in_string = !in_string;
-                if (!in_string && !in_char) {
-                    if (comment_options.allow_semicolon && c == ';')
-                        break;
-                    if (comment_options.allow_cpp_style && i + 1 < line.length() && c == '/' && line[i + 1] == '/')
-                        break;
-                    if (comment_options.allow_block && i + 1 < line.length() && c == '/' && line[i + 1] == '*') {
-                        in_block_comment = true;
-                        i++;
-                        continue;
+                
+                if (in_string) {
+                    processed_line += c;
+                    if (c == '\\' && i + 1 < line.length()) {
+                        processed_line += line[++i];
+                    } else if (c == '"') {
+                        in_string = false;
                     }
+                    continue;
+                }
+                if (in_char) {
+                    processed_line += c;
+                    if (c == '\\' && i + 1 < line.length()) {
+                        processed_line += line[++i];
+                    } else if (c == '\'') {
+                        in_char = false;
+                    }
+                    continue;
+                }
+
+                if (c == '"') { in_string = true; processed_line += c; continue; }
+                if (c == '\'') { in_char = true; processed_line += c; continue; }
+
+                if (comment_options.allow_semicolon && c == ';') break;
+                if (comment_options.allow_cpp_style && i + 1 < line.length() && c == '/' && line[i + 1] == '/') break;
+                if (comment_options.allow_block && i + 1 < line.length() && c == '/' && line[i + 1] == '*') {
+                    in_block_comment = true;
+                    i++;
+                    continue;
                 }
                 processed_line += c;
             }
@@ -1070,7 +1181,7 @@ protected:
     public:
         Operands(IPhasePolicy& policy) : m_policy(policy) {}
         struct Operand {
-            enum class Type { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, STRING_LITERAL, UNKNOWN };
+            enum class Type { REG8, REG16, IMMEDIATE, MEM_IMMEDIATE, MEM_REG16, MEM_INDEXED, CONDITION, STRING, UNKNOWN };
             Type type = Type::UNKNOWN;
             std::string str_val;
             int32_t num_val = 0;
@@ -1152,7 +1263,7 @@ protected:
             if (expression.evaluate(operand_string, value)) {
                 if (value.type == Expressions::Value::Type::STRING) {
                     operand.str_val = value.s_val;
-                    operand.type = Operand::Type::STRING_LITERAL;
+                    operand.type = Operand::Type::STRING;
                     if (value.s_val.length() == 1)
                         operand.num_val = (int32_t)(unsigned char)value.s_val[0];
                 } else {
@@ -1204,7 +1315,7 @@ protected:
             std::function<Value(Context&, const std::vector<Value>&)> apply;
         };
         struct Token {
-            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, MEM_LBRACE, MEM_RBRACE, STRING_LITERAL, COMMA };
+            enum class Type { UNKNOWN, NUMBER, SYMBOL, OPERATOR, FUNCTION, LPAREN, RPAREN, MEM_LBRACE, MEM_RBRACE, STRING, COMMA };
             Type type = Type::FUNCTION;
             std::string s_val;
             double n_val = 0.0;
@@ -1734,21 +1845,31 @@ protected:
             double val = get_numeric_value(ctx, args[0], "SGN");
             return Value{Value::Type::NUMBER, (double)((val > 0) - (val < 0))};
         }
-        bool parse_char_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
-            if (expr[i] == '\'' && i + 2 < expr.length() && expr[i+2] == '\'') {
-                tokens.push_back({Token::Type::STRING_LITERAL, std::string(1, expr[i+1]), 0.0});
-                i += 2;
-                return true;
-            }
-            return false;
-        }
-        bool parse_string_literal(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
-            if (expr[i] == '"') {
-                size_t end_pos = expr.find('"', i + 1);
-                if (end_pos != std::string::npos) {
-                    tokens.push_back({Token::Type::STRING_LITERAL, expr.substr(i, end_pos - i + 1)});
-                    i = end_pos;
-                    return true;
+        bool parse_string(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
+            char quote = expr[i];
+            if (quote != '"' && quote != '\'') return false;
+            size_t j = i + 1;
+            while (j < expr.length()) {
+                if (expr[j] == '\\') {
+                    j++;
+                    if (j < expr.length()) j++;
+                } else if (expr[j] == quote) {
+                    if (quote == '"') {
+                        tokens.push_back({Token::Type::STRING, expr.substr(i, j - i + 1)});
+                        i = j;
+                        return true;
+                    } else {
+                        std::string content = expr.substr(i + 1, j - i - 1);
+                        std::string unescaped = Strings::unescape(content);
+                        if (unescaped.length() == 1) {
+                            tokens.push_back({Token::Type::STRING, unescaped, 0.0});
+                            i = j;
+                            return true;
+                        }
+                        break;
+                    }
+                } else {
+                    j++;
                 }
             }
             return false;
@@ -1940,11 +2061,9 @@ protected:
                 char c = expr[i];
                 if (isspace(c))
                     continue;
-                if (parse_string_literal(expr, i, tokens))
+                if (parse_string(expr, i, tokens))
                     continue;
                 if (parse_number(expr, i, tokens))
-                    continue;
-                if (parse_char_literal(expr, i, tokens))
                     continue;
                 if (parse_symbol(expr, i, tokens))
                     continue;
@@ -1969,7 +2088,7 @@ protected:
                 const auto& token = infix[i];
                 switch (token.type) {
                     case Token::Type::NUMBER:
-                    case Token::Type::STRING_LITERAL:
+                    case Token::Type::STRING:
                     case Token::Type::SYMBOL:
                         postfix.push_back(token);
                         break; 
@@ -2050,10 +2169,12 @@ protected:
             for (const auto& token : rpn) {
                 if (token.type == Token::Type::NUMBER) {
                     val_stack.push_back({Value::Type::NUMBER, token.n_val});
-                } else if (token.type == Token::Type::STRING_LITERAL) {
+                } else if (token.type == Token::Type::STRING) {
                     std::string s = token.s_val;
-                    if (s.length() >= 2 && s.front() == '"' && s.back() == '"')
+                    if (s.length() >= 2 && s.front() == '"' && s.back() == '"') {
                         s = s.substr(1, s.length() - 2);
+                        s = Strings::unescape(s);
+                    }
                     val_stack.push_back({Value::Type::STRING, 0.0, s});
                 } else if (token.type == Token::Type::SYMBOL) {
                     int32_t sum_val;
@@ -3405,16 +3526,16 @@ protected:
         bool match_reg8(const Operand& operand) const { return match(operand, OperandType::REG8);}
         bool match_reg16(const Operand& operand) const { return match(operand, OperandType::REG16); }
         bool match_imm8(const Operand& operand) const { 
-            return (match(operand, OperandType::IMMEDIATE) || (match(operand, OperandType::STRING_LITERAL) && operand.str_val.length() == 1)) && operand.num_val >= -128 && operand.num_val <= 255; 
+            return (match(operand, OperandType::IMMEDIATE) || (match(operand, OperandType::STRING) && operand.str_val.length() == 1)) && operand.num_val >= -128 && operand.num_val <= 255; 
         }
         bool match_imm16(const Operand& operand) const { 
-            return (match(operand, OperandType::IMMEDIATE) || (match(operand, OperandType::STRING_LITERAL) && operand.str_val.length() == 1)) && operand.num_val >= -32768 && operand.num_val <= 65535; 
+            return (match(operand, OperandType::IMMEDIATE) || (match(operand, OperandType::STRING) && operand.str_val.length() == 1)) && operand.num_val >= -32768 && operand.num_val <= 65535; 
         }
         bool match_mem_imm16(const Operand& operand) const { return match(operand, OperandType::MEM_IMMEDIATE); }
         bool match_mem_reg16(const Operand& operand) const { return match(operand, OperandType::MEM_REG16); }
         bool match_mem_indexed(const Operand& operand) const { return match(operand, OperandType::MEM_INDEXED); }
         bool match_condition(const Operand& operand) const { return match(operand, OperandType::CONDITION); }
-        bool match_string(const Operand& operand) const { return match(operand, OperandType::STRING_LITERAL ); }
+        bool match_string(const Operand& operand) const { return match(operand, OperandType::STRING ); }
 
         IPhasePolicy& m_policy;
     };
@@ -3446,7 +3567,7 @@ protected:
     private:
         bool match_number(const typename Operands::Operand& operand) const {
             return (operand.type == Operands::Operand::Type::IMMEDIATE ||
-                    (operand.type == Operands::Operand::Type::STRING_LITERAL && operand.str_val.length() == 1));
+                    (operand.type == Operands::Operand::Type::STRING && operand.str_val.length() == 1));
         }
         Result optimize_alu_imm8(const std::string& mnemonic, const typename Operands::Operand& operand) {
             auto& context = this->m_policy.context();
@@ -3767,7 +3888,7 @@ protected:
             if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM" || mnemonic == "DEFM") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (op.type == Operands::Operand::Type::STRING_LITERAL) {
+                    if (op.type == Operands::Operand::Type::STRING) {
                         for (char c : op.str_val)
                             bytes.push_back((uint8_t)c);
                     } else if (this->match_imm8(op)) 
@@ -3793,7 +3914,7 @@ protected:
             } else if (mnemonic == "D24") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING_LITERAL) && op.str_val.length() == 1)) {
+                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING) && op.str_val.length() == 1)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 8) & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
@@ -3806,7 +3927,7 @@ protected:
             } else if (mnemonic == "DWORD" || mnemonic == "DD" || mnemonic == "DEFD") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING_LITERAL) && op.str_val.length() == 1)) {
+                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING) && op.str_val.length() == 1)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 8) & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
@@ -3838,7 +3959,7 @@ protected:
             } else if (mnemonic == "DQ") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING_LITERAL) && op.str_val.length() == 1)) {
+                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING) && op.str_val.length() == 1)) {
                         uint64_t val = (uint64_t)(op.num_val);
                         for (int i = 0; i < 8; ++i)
                             bytes.push_back((uint8_t)((val >> (i*8)) & 0xFF));
