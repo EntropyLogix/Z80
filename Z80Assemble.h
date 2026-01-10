@@ -4080,12 +4080,28 @@ protected:
                 assemble({0x0F});
                 return true;
             }
+            if (mnemonic == "RLD") {
+                assemble({0xED, 0x6F});
+                return true;
+            }
+            if (mnemonic == "RRD") {
+                assemble({0xED, 0x67});
+                return true;
+            }
             if (mnemonic == "RLA") {
                 assemble({0x17});
                 return true;
             }
             if (mnemonic == "RRA") {
                 assemble({0x1F});
+                return true;
+            }
+            if (mnemonic == "RLD") {
+                assemble({0xED, 0x6F});
+                return true;
+            }
+            if (mnemonic == "RRD") {
+                assemble({0xED, 0x67});
                 return true;
             }
             if (mnemonic == "DAA") {

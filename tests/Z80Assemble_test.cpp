@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Assemble_test.cpp
-// Verson: 1.1.8b
+// Verson: 1.1.8c
 //
 // This file contains unit tests for the Z80Assembler class.
 //
@@ -412,6 +412,8 @@ TEST_CASE(NoOperandInstructions) {
     ASSERT_CODE("RRCA", {0x0F});
     ASSERT_CODE("RLA", {0x17});
     ASSERT_CODE("RRA", {0x1F});
+    ASSERT_CODE("RLD", {0xED, 0x6F});
+    ASSERT_CODE("RRD", {0xED, 0x67});
     ASSERT_CODE("DAA", {0x27});
     ASSERT_CODE("CPL", {0x2F});
     ASSERT_CODE("SCF", {0x37});
@@ -1989,6 +1991,14 @@ TEST_CASE(CommentOptions) {
         */
         LD B, 2
     )", {0x3E, 0x01, 0x06, 0x02}, config);
+}
+
+TEST_CASE(SemicolonInString) {
+    // Test semicolon inside a string literal
+    // CP ";"          ; }
+    // Should be parsed as CP 0x3B (ASCII for ';')
+    // The second semicolon starts a comment.
+    ASSERT_CODE("CP \";\"          ; }", {0xFE, 0x3B});
 }
 
 TEST_CASE(ForwardReferences) {
