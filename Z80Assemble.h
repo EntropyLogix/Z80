@@ -832,7 +832,7 @@ protected:
                         }
 
                         std::vector<Token> args;
-                        bool in_string = false;
+                        char quote_char = 0;
                         int paren_level = 0;
                         size_t start = 0;
                         const size_t len = m_original.length();
@@ -842,16 +842,16 @@ protected:
 
                             if (i < len) {
                                 const char c = m_original[i];
-                                if (in_string) {
+                                if (quote_char) {
                                     if (c == '\\') {
                                         i++; // Skip escaped character
                                         if (i >= len) is_delimiter = true;
-                                    } else if (c == '"') {
-                                        in_string = false;
+                                    } else if (c == quote_char) {
+                                        quote_char = 0;
                                     }
                                 } else {
-                                    if (c == '"') {
-                                        in_string = true;
+                                    if (c == '"' || c == '\'') {
+                                        quote_char = c;
                                     } else if (c == '(') {
                                         paren_level++;
                                     } else if (c == ')') {
@@ -861,7 +861,6 @@ protected:
                                     }
                                 }
                             }
-
                             if (is_delimiter) {
                                 std::string arg_str = m_original.substr(start, i - start);
                                 size_t first = arg_str.find_first_not_of(" \t");
@@ -1847,30 +1846,20 @@ protected:
         }
         bool parse_string(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             char quote = expr[i];
-            if (quote != '"' && quote != '\'') return false;
+            if (quote != '"' && quote != '\'')
+                return false;
             size_t j = i + 1;
             while (j < expr.length()) {
                 if (expr[j] == '\\') {
                     j++;
-                    if (j < expr.length()) j++;
+                    if (j < expr.length())
+                        j++;
                 } else if (expr[j] == quote) {
-                    if (quote == '"') {
-                        tokens.push_back({Token::Type::STRING, expr.substr(i, j - i + 1)});
-                        i = j;
-                        return true;
-                    } else {
-                        std::string content = expr.substr(i + 1, j - i - 1);
-                        std::string unescaped = Strings::unescape(content);
-                        if (unescaped.length() == 1) {
-                            tokens.push_back({Token::Type::STRING, unescaped, 0.0});
-                            i = j;
-                            return true;
-                        }
-                        break;
-                    }
-                } else {
+                    tokens.push_back({Token::Type::STRING, expr.substr(i, j - i + 1)});
+                    i = j;
+                    return true;
+                } else
                     j++;
-                }
             }
             return false;
         }
@@ -2171,7 +2160,7 @@ protected:
                     val_stack.push_back({Value::Type::NUMBER, token.n_val});
                 } else if (token.type == Token::Type::STRING) {
                     std::string s = token.s_val;
-                    if (s.length() >= 2 && s.front() == '"' && s.back() == '"') {
+                    if (s.length() >= 2 && ((s.front() == '"' && s.back() == '"') || (s.front() == '\'' && s.back() == '\''))) {
                         s = s.substr(1, s.length() - 2);
                         s = Strings::unescape(s);
                     }
