@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze.h
-// Version: 1.1.8
+// Version: 1.1.8a
 //
 // This file contains the Z80Analyzer class,
 // which provides functionality for disassembling Z80 machine code.
@@ -303,7 +303,7 @@ public:
         bool m_inside_instruction = false;
         uint8_t m_instruction_byte_count = 0;
     };
-    virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruction_limit, CodeMap* external_code_map = nullptr, bool use_execution = false, bool use_heuristic = false, size_t max_data_group = 16) {
+    virtual std::vector<CodeLine> parse_code(uint16_t& start_address, size_t instruction_limit, CodeMap* external_code_map = nullptr, bool use_execution = false, bool use_heuristic = false, size_t max_data_group = 16, std::function<bool(uint16_t)> validator = nullptr) {
         CodeMap local_map;
         CodeMap* pMap = external_code_map; 
         if (!pMap) {
@@ -317,7 +317,7 @@ public:
             has_map_info = true; 
         }
         if (use_heuristic) {
-            run_heuristic_phase(*pMap, start_address);
+            run_heuristic_phase(*pMap, start_address, validator);
             has_map_info = true;
         }
         return generate_listing(*pMap, start_address, instruction_limit, has_map_info, max_data_group);
@@ -3089,7 +3089,7 @@ protected:
                 break;
         }
     }
-    void run_heuristic_phase(CodeMap& map, uint16_t start_addr) {
+    void run_heuristic_phase(CodeMap& map, uint16_t start_addr, std::function<bool(uint16_t)> validator) {
         std::vector<bool> visited(0x10000, false);
         std::vector<uint16_t> work_list;
         bool found_existing_code = false;
@@ -3107,6 +3107,8 @@ protected:
             if (visited[current_addr])
                 continue;
             while (true) {
+                if (validator && !validator(current_addr))
+                    break;
                 if (visited[current_addr])
                     break;
                 CodeLine line = parse_instruction(current_addr);
@@ -3124,12 +3126,14 @@ protected:
                         const auto& last_op = line.operands.back();
                         if (last_op.type == CodeLine::Operand::Type::IMM16) {
                             uint16_t target = (uint16_t)last_op.num_val;
-                            work_list.push_back(target);
-                            if (m_labels && m_labels->get_label(target).empty()) {
-                                std::stringstream ss;
-                                ss << (line.type == CodeLine::Type::CALL ? "SUB_" : "L_");
-                                ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << target;
-                                m_labels->add_label(target, ss.str());
+                            if (!validator || validator(target)) {
+                                work_list.push_back(target);
+                                if (m_labels && m_labels->get_label(target).empty()) {
+                                    std::stringstream ss;
+                                    ss << (line.type == CodeLine::Type::CALL ? "SUB_" : "L_");
+                                    ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << target;
+                                    m_labels->add_label(target, ss.str());
+                                }
                             }
                         }
                     }
@@ -3149,6 +3153,8 @@ protected:
         }
     }
     virtual std::vector<CodeLine> generate_listing(CodeMap& map, uint16_t& start_address, size_t instruction_limit, bool use_map, size_t max_data_group = 16) {
+        if (instruction_limit == 0)
+            instruction_limit = (size_t)-1; // Treat 0 as unlimited (SIZE_MAX)
         std::vector<CodeLine> result;
         uint32_t pc = start_address;
         while (pc < 0x10000 && result.size() < instruction_limit) {
