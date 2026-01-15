@@ -7,12 +7,12 @@
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze_test.cpp
 // Verson: 1.1.8
 //
-// This file contains unit tests for the Z80Analyzer class.
+// This file contains unit tests for the Z80Decoder class.
 //
 // Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
-#include "Z80Analyze.h"
+#include "Z80Decode.h"
 #include <iostream>
 #include <vector>
 #include <cassert>
@@ -62,9 +62,25 @@ public:
     }
 };
 
-class TestableZ80Analyzer : public Z80Analyzer<TestMemory> {
+class TestableZ80Analyzer : public Z80Disassembler<TestMemory> {
 public:
-    using Z80Analyzer<TestMemory>::Z80Analyzer;
+    using Z80Disassembler<TestMemory>::Z80Disassembler;
+
+    CodeLine parse_instruction(uint16_t address) {
+        return get_decoder().parse_instruction(address);
+    }
+    CodeLine parse_db(uint16_t address, size_t count = 1) {
+        return get_decoder().parse_db(address, count);
+    }
+    CodeLine parse_dw(uint16_t address, size_t count = 1) {
+        return get_decoder().parse_dw(address, count);
+    }
+    CodeLine parse_dz(uint16_t address) {
+        return get_decoder().parse_dz(address);
+    }
+    CodeLine parse_ds(uint16_t address, size_t count, std::optional<uint8_t> fill = std::nullopt) {
+        return get_decoder().parse_ds(address, count, fill);
+    }
 
     std::vector<CodeLine> generate_listing_public(CodeMap& map, uint16_t& start_address, size_t instruction_limit, bool use_map, size_t max_data_group = 16) {
         return generate_listing(map, start_address, instruction_limit, use_map, max_data_group);
@@ -91,25 +107,25 @@ void check_inst(TestableZ80Analyzer& analyzer, TestMemory& memory,
             std::string op_str;
             const auto& op = line.operands[i];
             switch (op.type) {
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::REG8:
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::REG16:
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::CONDITION:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::REG8:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::REG16:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::CONDITION:
                     op_str = op.s_val;
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::IMM8:
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::PORT_IMM8:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::IMM8:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::PORT_IMM8:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::IMM16:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::IMM16:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::MEM_REG16:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_REG16:
                     op_str = "(" + op.s_val + ")";
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::MEM_IMM16:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_IMM16:
                     { std::stringstream ss; ss << "(0x" << std::hex << std::uppercase << op.num_val << ")"; op_str = ss.str(); }
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::MEM_INDEXED:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_INDEXED:
                     { 
                         std::stringstream ss; 
                         ss << "(" << op.base_reg << (op.offset >= 0 ? "+" : "") << std::dec << (int)op.offset << ")"; 
@@ -141,25 +157,25 @@ void check_inst(TestableZ80Analyzer& analyzer, TestMemory& memory,
             std::string op_str;
             const auto& op = line.operands[i];
             switch (op.type) {
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::REG8:
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::REG16:
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::CONDITION:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::REG8:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::REG16:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::CONDITION:
                     op_str = op.s_val;
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::IMM8:
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::PORT_IMM8:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::IMM8:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::PORT_IMM8:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::IMM16:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::IMM16:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::MEM_REG16:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_REG16:
                     op_str = "(" + op.s_val + ")";
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::MEM_IMM16:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_IMM16:
                     { std::stringstream ss; ss << "(0x" << std::hex << std::uppercase << op.num_val << ")"; op_str = ss.str(); }
                     break;
-                case Z80Analyzer<TestMemory>::CodeLine::Operand::MEM_INDEXED:
+                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_INDEXED:
                     { 
                         std::stringstream ss; 
                         ss << "(" << op.base_reg << (op.offset >= 0 ? "+" : "") << std::dec << (int)op.offset << ")"; 
@@ -578,7 +594,7 @@ void run_tests() {
         }
         
         // Test with CodeMap hint
-        Z80Analyzer<TestMemory>::CodeMap map(0x10000, 0);
+        Z80Disassembler<TestMemory>::CodeMap map(0x10000, 0);
         map.mark_code(0x5000, 2, true); // Mark LD A, 10
         
         prev = analyzer.parse_instruction_backwards(0x5002, &map);
@@ -596,7 +612,7 @@ void run_tests() {
         for(int i=0; i<20; ++i) data_block.push_back(i);
         memory.set_data(0x2000, data_block);
 
-        Z80Analyzer<TestMemory>::CodeMap map(0x10000, 0); 
+        Z80Disassembler<TestMemory>::CodeMap map(0x10000, 0); 
         uint16_t start_addr = 0x2000;
         
         auto lines = analyzer.generate_listing_public(map, start_addr, 100, true, 8);
@@ -616,7 +632,7 @@ void run_tests() {
 
     // --- CodeMap Tests ---
     {
-        using CodeMap = Z80Analyzer<TestMemory>::CodeMap;
+        using CodeMap = Z80Disassembler<TestMemory>::CodeMap;
         CodeMap map(0x10000, 0);
         bool codemap_pass = true;
 
@@ -1121,7 +1137,7 @@ void run_tests() {
 
     // --- Instruction Types ---
     {
-        using Type = Z80Analyzer<TestMemory>::CodeLine::Type;
+        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
         
         // LD -> LOAD
         memory.set_data(0x7010, {0x01, 0x34, 0x12}); // LD BC, 1234
@@ -1194,7 +1210,7 @@ void run_tests() {
 
     // --- Instruction Types (Extended) ---
     {
-        using Type = Z80Analyzer<TestMemory>::CodeLine::Type;
+        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
 
         // RST -> CALL | STACK
         memory.set_data(0x7200, {0xC7}); // RST 00
@@ -1273,7 +1289,7 @@ void run_tests() {
 
     // --- Instruction Types (Block & Misc) ---
     {
-        using Type = Z80Analyzer<TestMemory>::CodeLine::Type;
+        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
 
         // LDI -> BLOCK | LOAD
         memory.set_data(0x7500, {0xED, 0xA0});
@@ -1370,7 +1386,7 @@ void run_tests() {
 
     // --- Instruction Types (Bit, Shift, Control, Misc) ---
     {
-        using Type = Z80Analyzer<TestMemory>::CodeLine::Type;
+        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
 
         // BIT 0, A -> BIT | ALU
         memory.set_data(0x7600, {0xCB, 0x47});
@@ -1421,7 +1437,7 @@ void run_tests() {
 
     // --- More Instruction Types ---
     {
-        using Type = Z80Analyzer<TestMemory>::CodeLine::Type;
+        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
 
         // DJNZ -> JUMP | ALU
         memory.set_data(0x8100, {0x10, 0xFE});
@@ -1452,7 +1468,7 @@ void run_tests() {
 
     // --- Instruction Types (Comprehensive) ---
     {
-        using Type = Z80Analyzer<TestMemory>::CodeLine::Type;
+        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
 
         // IM 0 -> CPU_CONTROL
         memory.set_data(0x8200, {0xED, 0x46});
@@ -1692,7 +1708,7 @@ void run_tests() {
         // 0x4000: 00 (NOP)
         // 0x4001: 00 (NOP)
         memory.set_data(0x4000, {0x00, 0xFF});
-        Z80Analyzer<TestMemory>::CodeMap my_map(0x10000, 0);
+        Z80Disassembler<TestMemory>::CodeMap my_map(0x10000, 0);
         my_map.mark_code(0x4000, 1, true); // Mark first NOP as code
         
         start = 0x4000;
@@ -1718,7 +1734,7 @@ void run_tests() {
         // Test 6: Max Data Grouping
         // 0x6000: 01 02 03 04 05 (Different bytes to avoid DS)
         memory.set_data(0x6000, {0x01, 0x02, 0x03, 0x04, 0x05});
-        Z80Analyzer<TestMemory>::CodeMap data_map(0x10000, 0); // All data
+        Z80Disassembler<TestMemory>::CodeMap data_map(0x10000, 0); // All data
         start = 0x6000;
         // max_data_group = 2
         lines = analyzer.parse_code(start, 3, &data_map, false, false, 2);
@@ -1861,7 +1877,7 @@ void run_tests() {
         // Test 12: Max Data Grouping = 1 (No grouping)
         // 0x9300: 01 02 03 04
         memory.set_data(0x9300, {0x01, 0x02, 0x03, 0x04});
-        Z80Analyzer<TestMemory>::CodeMap data_map(0x10000, 0); // All data
+        Z80Disassembler<TestMemory>::CodeMap data_map(0x10000, 0); // All data
         
         uint16_t start = 0x9300;
         auto lines = analyzer.parse_code(start, 4, &data_map, false, false, 1);
@@ -2032,7 +2048,7 @@ void run_tests() {
         // 0x9903: 76          HALT
         memory.set_data(0x9900, {0x18, 0x01, 0x00, 0x76});
         
-        Z80Analyzer<TestMemory>::CodeMap my_map(0x10000, 0);
+        Z80Disassembler<TestMemory>::CodeMap my_map(0x10000, 0);
         // Manually mark the skipped NOP as code
         my_map.mark_code(0x9902, 1, true);
         
@@ -2055,10 +2071,10 @@ void run_tests() {
         else if (!found_halt) { std::cout << "FAIL: Exec+Map HALT missing (execution)\n"; tests_failed++; }
         else {
             // Verify map was updated
-            if (!(my_map[0x9900] & Z80Analyzer<TestMemory>::CodeMap::FLAG_CODE_START)) {
+            if (!(my_map[0x9900] & Z80Disassembler<TestMemory>::CodeMap::FLAG_CODE_START)) {
                  std::cout << "FAIL: Exec+Map: Map not updated by execution (JR)\n"; tests_failed++;
             }
-            else if (!(my_map[0x9903] & Z80Analyzer<TestMemory>::CodeMap::FLAG_CODE_START)) {
+            else if (!(my_map[0x9903] & Z80Disassembler<TestMemory>::CodeMap::FLAG_CODE_START)) {
                  std::cout << "FAIL: Exec+Map: Map not updated by execution (HALT)\n"; tests_failed++;
             }
             else tests_passed++;

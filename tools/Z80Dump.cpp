@@ -14,7 +14,7 @@
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 
-#include "Z80Analyze.h"
+#include "Z80Decode.h"
 #include "Z80.h"
 #include <algorithm>
 #include <cctype>
@@ -38,10 +38,9 @@ void print_usage() {
               << "  -mem <address> <bytes_dec>\n"
               << "    Dumps memory from the specified <address> (hex/dec) for a number of <bytes_dec> (dec).\n"
               << "    Example: -mem 4000 100\n"
-              << "  -dasm <address> <lines_dec> [mode]\n"
+              << "  -dasm <address> <lines_dec>\n"
               << "    Disassembles code from the specified <address> (hex/dec) for a number of <lines_dec> (dec).\n"
-              << "    Mode can be 'r' (raw), 'h' (heuristic), or 'e' (exec). Default is 'e'.\n"
-              << "    Example: -dasm 8000 20 h\n"
+              << "    Example: -dasm 8000 20\n"
               ;
 }
 
@@ -233,46 +232,46 @@ private:
     std::map<uint16_t, std::string> m_labels;
 };
 
-using Analyzer = Z80Analyzer<Z80StandardBus>;
+using Decoder = Z80Decoder<Z80StandardBus>;
 
-std::string format_operands(const std::vector<Analyzer::CodeLine::Operand>& operands) {
+std::string format_operands(const std::vector<Decoder::CodeLine::Operand>& operands) {
     if (operands.empty())
         return "";
     std::stringstream ss;
     for (size_t i = 0; i < operands.size(); ++i) {
         const auto& op = operands[i];
         switch (op.type) {
-            case Analyzer::CodeLine::Operand::REG8:
-            case Analyzer::CodeLine::Operand::REG16:
-            case Analyzer::CodeLine::Operand::CONDITION:
+            case Decoder::CodeLine::Operand::REG8:
+            case Decoder::CodeLine::Operand::REG16:
+            case Decoder::CodeLine::Operand::CONDITION:
                 ss << op.s_val;
                 break;
-            case Analyzer::CodeLine::Operand::IMM8:
+            case Decoder::CodeLine::Operand::IMM8:
                 ss << format_hex(static_cast<uint8_t>(op.num_val), 2);
                 break;
-            case Analyzer::CodeLine::Operand::IMM16:
-            case Analyzer::CodeLine::Operand::MEM_IMM16: {
+            case Decoder::CodeLine::Operand::IMM16:
+            case Decoder::CodeLine::Operand::MEM_IMM16: {
                 std::string formatted_addr = op.label.empty() ? format_hex(static_cast<uint16_t>(op.num_val), 4) : op.label;
-                if (op.type == Analyzer::CodeLine::Operand::MEM_IMM16) ss << "(" << formatted_addr << ")";
+                if (op.type == Decoder::CodeLine::Operand::MEM_IMM16) ss << "(" << formatted_addr << ")";
                 else ss << formatted_addr;
                 break;
             }
-            case Analyzer::CodeLine::Operand::MEM_REG16:
+            case Decoder::CodeLine::Operand::MEM_REG16:
                 ss << "(" << op.s_val << ")";
                 break;
-            case Analyzer::CodeLine::Operand::MEM_INDEXED:
+            case Decoder::CodeLine::Operand::MEM_INDEXED:
                 ss << "(" << op.base_reg << (op.offset >= 0 ? "+" : "") << static_cast<int>(op.offset) << ")";
                 break;
-            case Analyzer::CodeLine::Operand::PORT_IMM8:
+            case Decoder::CodeLine::Operand::PORT_IMM8:
                 ss << "(" << format_hex(static_cast<uint8_t>(op.num_val), 2) << ")";
                 break;
-            case Analyzer::CodeLine::Operand::STRING:
+            case Decoder::CodeLine::Operand::STRING:
                 ss << "\"" << op.s_val << "\"";
                 break;
-            case Analyzer::CodeLine::Operand::CHAR_LITERAL:
+            case Decoder::CodeLine::Operand::CHAR_LITERAL:
                 ss << "'" << static_cast<char>(op.num_val) << "'";
                 break;
-            case Analyzer::CodeLine::Operand::UNKNOWN:
+            case Decoder::CodeLine::Operand::UNKNOWN:
                 ss << "?";
                 break;
         }
@@ -282,12 +281,6 @@ std::string format_operands(const std::vector<Analyzer::CodeLine::Operand>& oper
     return ss.str();
 }
 
-enum class AnalysisMode {
-    RAW,
-    EXEC,
-    HEURISTIC
-};
-
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         print_usage();
@@ -296,7 +289,6 @@ int main(int argc, char* argv[]) {
     std::string file_path = argv[1];
     std::string mem_dump_addr_str, disasm_addr_str;
     size_t mem_dump_size = 0, disasm_lines = 0;
-    AnalysisMode disassembly_mode = AnalysisMode::EXEC;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-mem" && i + 2 < argc) {
@@ -309,20 +301,6 @@ int main(int argc, char* argv[]) {
             }
             disasm_addr_str = argv[++i];
             disasm_lines = std::stoul(argv[++i], nullptr, 10);
-            if (i + 1 < argc && argv[i + 1][0] != '-') {
-                std::string mode_str = argv[++i];
-                std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(), ::tolower);
-                if (mode_str == "h")
-                    disassembly_mode = AnalysisMode::HEURISTIC;
-                else if (mode_str == "r")
-                    disassembly_mode = AnalysisMode::RAW;
-                else if (mode_str == "e")
-                    disassembly_mode = AnalysisMode::EXEC;
-                else {
-                    std::cerr << "Error: Invalid disassembly mode '" << mode_str << "'. Use 'r', 'h', or 'e'." << std::endl;
-                    return 1;
-                }
-            }
         }
         else {
             bool is_known_arg_with_missing_value =
@@ -343,7 +321,7 @@ int main(int argc, char* argv[]) {
     }
     Z80<> cpu;
     DumpLabelHandler label_handler;
-    Analyzer analyzer(cpu.get_bus(), &label_handler);
+    Decoder decoder(cpu.get_bus(), &label_handler);
     std::string map_file_path = file_path;
     size_t dot_pos = map_file_path.rfind('.');
     if (dot_pos != std::string::npos)
@@ -404,11 +382,9 @@ int main(int argc, char* argv[]) {
         uint16_t disasm_addr = resolve_address(disasm_addr_str, cpu);
         std::cout << "--- Disassembly from " << format_hex(disasm_addr, 4) << " (" << std::dec << disasm_lines << " lines) ---\n";
         uint16_t pc = disasm_addr;
-        bool use_execution = (disassembly_mode == AnalysisMode::EXEC);
-        bool use_heuristic = (disassembly_mode == AnalysisMode::HEURISTIC);
-        auto listing = analyzer.parse_code(pc, disasm_lines, nullptr, use_execution, use_heuristic); 
         std::cout << std::setfill(' ');
-        for (const auto& line_info : listing) {
+        for (size_t i = 0; i < disasm_lines; ++i) {
+            auto line_info = decoder.parse_instruction(pc);
             uint16_t start_pc = line_info.address;
             std::string ticks_str;
             if (line_info.ticks > 0)
@@ -419,6 +395,8 @@ int main(int argc, char* argv[]) {
             std::cout << "\t";
             std::cout << std::left << format_hex(start_pc, 4) << "  " << std::setw(24) << format_bytes_str(line_info.bytes, true) << " "
                       << std::setw(10) << ticks_str << " " << std::setw(7) << line_info.mnemonic << " " << std::setw(18) << format_operands(line_info.operands) << std::endl;
+            pc += line_info.bytes.size();
+            if (line_info.bytes.empty()) pc++;
         }
     }
     if (mem_dump_size == 0 && disasm_lines == 0) {

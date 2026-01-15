@@ -14,7 +14,7 @@
 // MIT License
 
 #include "Z80Assemble.h"
-#include "Z80Analyze.h"
+#include "Z80Decode.h"
 #include <cstdint>
 #include <fstream>
 #include <sstream>

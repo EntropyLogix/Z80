@@ -42,10 +42,10 @@ set_target_properties(Z80Assemble_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_R
 target_include_directories(Z80Assemble_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 add_test(NAME AssembleTest COMMAND Z80Assemble_test)
 
-add_executable(Z80Analyze_test Z80Analyze_test.cpp)
-set_target_properties(Z80Analyze_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-target_include_directories(Z80Analyze_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
-add_test(NAME AnalyzeTest COMMAND Z80Analyze_test)
+add_executable(Z80Decode_test Z80Decode_test.cpp)
+set_target_properties(Z80Decode_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_include_directories(Z80Decode_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
+add_test(NAME DecodeTest COMMAND Z80Decode_test)
 
 option(ENABLE_PGO "Enable Profile-Guided Optimization (PGO)" OFF)
 if(ENABLE_PGO)
