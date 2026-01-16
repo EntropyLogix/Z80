@@ -773,19 +773,15 @@ Z80Dump is a versatile tool for analyzing Z80 binary files and memory snapshots.
 *   **Supported Input Formats:** `.bin` (raw binary), `.sna` (48K ZX Spectrum snapshot), `.z80` (v1 48K ZX Spectrum snapshot).
 *   **Analysis Options:**
     *   `-mem <address> <bytes_dec>`: Dumps a specified region of memory. The address can be hex or decimal, and the byte count is decimal.
-    *   `-dasm <address> <lines_dec> [mode]`: Disassembles a specified number of lines.
-        *   **`mode`**: Specifies the analysis mode: `r` (raw), `h` (heuristic), or `e` (exec). Defaults to `e`.
-        *   `r` (raw): Performs a linear disassembly from the start address.
-        *   `h` (heuristic): Attempts to distinguish between code and data to avoid disassembling data bytes.
-        *   `e` (exec): Simulates execution flow, following jumps and calls to discover code paths.
+    *   `-dasm <address> <lines_dec>`: Disassembles a specified number of lines starting from the given address.
     *   The tool automatically loads a symbol map file (e.g., `my_program.map`) if it exists in the same directory as the input file, enriching the disassembly output with labels.
 *   **Usage Examples:**
     ```bash
     # Dump 256 bytes of memory starting at address 0x4000 from a binary file
     Z80Dump my_program.bin -mem 0x4000 256
 
-    # Disassemble 50 lines of code from address 0x8000 in a snapshot file using heuristic mode
-    Z80Dump my_snapshot.z80 -dasm 0x8000 50 h
+    # Disassemble 50 lines of code from address 0x8000 in a snapshot file
+    Z80Dump my_snapshot.z80 -dasm 0x8000 50
     ```
 
 ### How to Build
