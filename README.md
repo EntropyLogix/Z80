@@ -8,8 +8,8 @@ The design emphasizes decoupling the CPU logic from external components (Bus, Ev
 
 In addition to the core Z80 emulator, this repository provides a suite of powerful header-only libraries for code analysis and assembly.
 
-*   **`Z80Analyze.h`**: A comprehensive library for disassembling Z80 machine code, dumping memory, and inspecting CPU state. It includes support for loading symbol maps to produce human-readable output.
-*   **`Z80Assemble.h`**: A full-featured, two-pass Z80 assembler capable of converting assembly source files into machine code, handling labels, directives, and expressions.
+*   **`Z80Decoder.h`**: A comprehensive library for disassembling Z80 machine code, dumping memory, and inspecting CPU state. It includes support for loading symbol maps to produce human-readable output.
+*   **`Z80Assembler.h`**: A full-featured, two-pass Z80 assembler capable of converting assembly source files into machine code, handling labels, directives, and expressions.
 
 These libraries are used to build the `Z80Dump` and `Z80Asm` command-line tools, which serve as ready-to-use utilities and practical examples of how to integrate the libraries into your own projects.
 
@@ -363,8 +363,8 @@ my_project/
 ├── lib/
 │   └── Z80/
 │       ├── Z80.h
-│       ├── Z80Analyze.h
-│       └── Z80Assemble.h
+│       ├── Z80Decoder.h
+│       └── Z80Assembler.h
 ├── CMakeLists.txt
 └── main.cpp
 ```
@@ -421,7 +421,7 @@ include(FetchContent)
 FetchContent_Declare(
   Z80
   GIT_REPOSITORY https://github.com/EntropyLogix/Z80
-  GIT_TAG        1.1.8 # You can use a tag, branch, or a specific commit
+  GIT_TAG        1.0 # You can use a tag, branch, or a specific commit
 )
 
 # Download and make the library available
@@ -445,7 +445,7 @@ In your `main.cpp` file, you include the headers in the same way:
 
 ## 🛠️ **Library Components**
 
-### **Assembler (`Z80Assemble`)**
+### **Assembler (`Z80Assembler`)**
 The Z80Assembler class is a powerful, two-pass assembler that converts Z80 assembly source code into machine code. It is designed for flexibility, with built-in support for labels, directives, expressions, and forward references.
 
 #### **Usage and Initialization**
@@ -499,7 +499,7 @@ private:
 
 ```cpp
 #include "Z80.h"
-#include "Z80Assemble.h"
+#include "Z80Assembler.h"
 #include <iostream>
 
 int main() {
@@ -556,7 +556,7 @@ This approach allows you to encapsulate your custom logic and create a reusable,
 
 **Example of a Custom Assembler Class:**
 ```cpp
-#include "Z80Assemble.h"
+#include "Z80Assembler.h"
 #include <cmath> // For std::pow
 
 // 1. Create a class that inherits from Z80Assembler
@@ -676,21 +676,21 @@ if (assembler.compile("main.asm")) {
     }
 }
 ```
-### **Analyzer (`Z80Analyzer`)**
+### **Decoder (`Z80Decoder`)**
 
-The `Z80Analyzer` class provides a powerful toolkit for disassembling Z80 machine code. It is designed to work with any object that provides a memory-peeking interface (`peek()`) and can integrate with a label provider (`ILabels`) to produce more readable, symbolic disassembly output.
+The `Z80Decoder` class provides a powerful toolkit for disassembling Z80 machine code. It is designed to work with any object that provides a memory-peeking interface (`peek()`) and can integrate with a label provider (`ILabels`) to produce more readable, symbolic disassembly output.
 
 #### **Usage and Initialization**
 
-To use the analyzer, you need to instantiate it by passing a pointer to a memory object from which it can read code and data.
+To use the decoder, you need to instantiate it by passing a pointer to a memory object from which it can read code and data.
 
-`Z80Analyzer(TMemory* memory, ILabels* labels = nullptr)`
+`Z80Decoder(TMemory* memory, ILabels* labels = nullptr)`
 
 **Example:**
 
 ```cpp
 #include "Z80.h"
-#include "Z80Analyze.h"
+#include "Z80Decoder.h"
 #include <iostream>
 #include <iomanip>
 
@@ -712,15 +712,17 @@ int main() {
     bus.poke(0x8006, 0x00);
     bus.poke(0x8007, 0x80);
 
-    // Create an analyzer instance
-    Z80Analyzer<Z80StandardBus> analyzer(&bus);
+    // Create a decoder instance
+    Z80Decoder<Z80StandardBus> decoder(&bus);
 
     // Disassemble 5 lines of code starting at 0x8000
     std::cout << "--- Disassembly ---" << std::endl;
     uint16_t pc = 0x8000;
-    auto code_lines = analyzer.parse_code(pc, 5, nullptr, false, false);
 
-    for (const auto& line : code_lines) {
+    for (int i = 0; i < 5; ++i) {
+        auto line = decoder.parse_instruction(pc);
+        pc += line.bytes.size();
+
         std::cout << "0x" << std::hex << std::setw(4) << std::setfill('0') << line.address << ": ";
         std::cout << line.mnemonic;
         bool first_op = true;
@@ -730,7 +732,7 @@ int main() {
              if (!op.s_val.empty()) {
                  std::cout << op.s_val;
              } else {
-                 if (op.type == Z80Analyzer<Z80StandardBus>::CodeLine::Operand::MEM_IMM16) {
+                 if (op.type == Z80Decoder<Z80StandardBus>::CodeLine::Operand::MEM_IMM16) {
                      std::cout << "(0x" << std::hex << op.num_val << ")";
                  } else {
                      std::cout << "0x" << std::hex << op.num_val;
@@ -748,7 +750,7 @@ int main() {
 
 ## 🛠️ Command-Line Tools
 
-The repository includes two command-line tools that demonstrate the use of the Z80 core and the Z80Analyze and Z80Assembler libraries.
+The repository includes two command-line tools that demonstrate the use of the Z80 core and the Z80Decoder and Z80Assembler libraries.
 
 ### Z80Asm Tool
 

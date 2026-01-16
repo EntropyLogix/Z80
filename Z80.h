@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
-// Version: 1.1.8
+// Version: 1.0
 //
 // This file defines the core Z80 processor emulation class,
 // including register definitions, state management, and instruction execution logic.
@@ -2695,36 +2695,58 @@ private:
         }
     }
     void handle_opcode_0xED_0x2C_BRLC_DE_B() {
-        uint8_t b = get_B() & 0x1F;
+        uint8_t b = get_B() & 0x0F;
         uint16_t de = get_DE();
         if (b > 0)
             set_DE((de << b) | (de >> (16 - b)));
     }
     void handle_opcode_0xED_0x30_MUL_D_E() {
-        set_DE((uint16_t)get_D() * (uint16_t)get_E());
+        uint16_t result = (uint16_t)get_D() * (uint16_t)get_E();
+        set_DE(result);
+        Flags flags = get_F();
+        flags.update(Flags::C, result > 255).clear(Flags::N);
+        set_F(flags);
     }
     void handle_opcode_0xED_0x31_ADD_HL_A() {
-        set_HL(get_HL() + get_A());
+        uint16_t hl = get_HL();
+        uint16_t a = get_A();
+        uint32_t result = (uint32_t)hl + a;
+        set_HL((uint16_t)result);
+        Flags flags = get_F();
+        flags.update(Flags::C, result > 0xFFFF).update(Flags::Z, (result & 0xFFFF) == 0).update(Flags::H, ((hl & 0x0FFF) + a) > 0x0FFF).clear(Flags::N);
+        set_F(flags);
     }
     void handle_opcode_0xED_0x32_ADD_DE_A() {
-        set_DE(get_DE() + get_A());
+        uint16_t de = get_DE();
+        uint16_t a = get_A();
+        uint32_t result = (uint32_t)de + a;
+        set_DE((uint16_t)result);
+        Flags flags = get_F();
+        flags.update(Flags::C, result > 0xFFFF).update(Flags::Z, (result & 0xFFFF) == 0).update(Flags::H, ((de & 0x0FFF) + a) > 0x0FFF).clear(Flags::N);
+        set_F(flags);
     }
     void handle_opcode_0xED_0x33_ADD_BC_A() {
-        set_BC(get_BC() + get_A());
+        uint16_t bc = get_BC();
+        uint16_t a = get_A();
+        uint32_t result = (uint32_t)bc + a;
+        set_BC((uint16_t)result);
+        Flags flags = get_F();
+        flags.update(Flags::C, result > 0xFFFF).update(Flags::Z, (result & 0xFFFF) == 0).update(Flags::H, ((bc & 0x0FFF) + a) > 0x0FFF).clear(Flags::N);
+        set_F(flags);
     }
     void handle_opcode_0xED_0x34_ADD_HL_nn() {
         uint16_t nn = fetch_next_word();
-        set_HL(get_HL() + nn);
+        set_HL(add_16bit(get_HL(), nn));
         add_ticks(2);
     }
     void handle_opcode_0xED_0x35_ADD_DE_nn() {
         uint16_t nn = fetch_next_word();
-        set_DE(get_DE() + nn);
+        set_DE(add_16bit(get_DE(), nn));
         add_ticks(2);
     }
     void handle_opcode_0xED_0x36_ADD_BC_nn() {
         uint16_t nn = fetch_next_word();
-        set_BC(get_BC() + nn);
+        set_BC(add_16bit(get_BC(), nn));
         add_ticks(2);
     }
     void handle_opcode_0xED_0x8A_PUSH_nn() {
@@ -2776,14 +2798,15 @@ private:
         h++;
         if ((h & 0x07) == 0) {
             l += 0x20;
-            if (l < 0x20) {
+            if (l >= 0x20) {
                 h -= 8;
             }
         }
         set_HL(((uint16_t)h << 8) | l);
     }
     void handle_opcode_0xED_0x95_SETAE() {
-        set_A(get_E());
+        uint8_t e = get_E();
+        set_A(1 << (7 - (e & 7)));
     }
     void handle_opcode_0xED_0x98_JP_C() {
         uint16_t pc = get_PC();
@@ -2808,6 +2831,7 @@ private:
         write_byte(get_DE(), value);
         set_L(get_L() + 1);
         set_D(get_D() + 1);
+        add_ticks(2);
     }
     void handle_opcode_0xED_0xAC_LDDX() {
         uint8_t value = read_byte(get_HL());
@@ -2845,7 +2869,8 @@ private:
         }
         Flags flags = get_F();
         flags.clear(Flags::N | Flags::H)
-             .update(Flags::PV, get_BC() != 0);
+             .update(Flags::PV, get_BC() != 0)
+             .update(Flags::Z, get_BC() == 0);
         set_F(flags);
     }
     void handle_opcode_0xED_0xB7_LDPIRX() {
@@ -7928,7 +7953,7 @@ public:
     Z80StandardBus() {
         m_ram.resize(0x10000, 0);
     }
-    template <typename TEvents, typename TDebugger> void connect(Z80<Z80StandardBus, TEvents, TDebugger>* cpu) {
+    template <typename TBus, typename TEvents, typename TDebugger> void connect(Z80<TBus, TEvents, TDebugger>* cpu) {
     }
     void reset() {
         std::fill(m_ram.begin(), m_ram.end(), 0);
@@ -7957,7 +7982,7 @@ private:
 class Z80StandardEvents {
 public:
     static constexpr long long CYCLES_PER_EVENT = LLONG_MAX;
-    template <typename TBus, typename TDebugger> void connect(const Z80<TBus, Z80StandardEvents, TDebugger>* cpu) {
+    template <typename TBus, typename TEvents, typename TDebugger> void connect(const Z80<TBus, TEvents, TDebugger>* cpu) {
     }
     void reset() {
     }
@@ -7969,7 +7994,7 @@ public:
 };
 class Z80StandardDebugger {
 public:
-    template <typename TBus, typename TEvents> void connect(const Z80<TBus, TEvents, Z80StandardDebugger>* cpu) {
+    template <typename TBus, typename TEvents, typename TDebugger> void connect(const Z80<TBus, TEvents, TDebugger>* cpu) {
     }
     void reset() {
     }

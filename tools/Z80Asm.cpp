@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Asm.cpp
-// Verson: 1.1.1
+// Verson: 1.0
 //
 // This file contains a command-line utility for assembling Z80 code.
 // It serves as an example of how to use the Z80Assembler class.
@@ -13,8 +13,8 @@
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 
-#include "Z80Assemble.h"
-#include "Z80Decode.h"
+#include "Z80Assembler.h"
+#include "Z80Decoder.h"
 #include <cstdint>
 #include <fstream>
 #include <sstream>

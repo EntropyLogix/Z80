@@ -5,14 +5,14 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Analyze_test.cpp
-// Verson: 1.1.8
+// Verson: 1.0
 //
 // This file contains unit tests for the Z80Decoder class.
 //
 // Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
-#include "Z80Decode.h"
+#include "Z80Decoder.h"
 #include <iostream>
 #include <vector>
 #include <cassert>
@@ -57,40 +57,15 @@ public:
         return "";
     }
 
-    void add_label(uint16_t address, const std::string& label) override {
+    void add_label(uint16_t address, const std::string& label) {
         labels[address] = label;
-    }
-};
-
-class TestableZ80Analyzer : public Z80Disassembler<TestMemory> {
-public:
-    using Z80Disassembler<TestMemory>::Z80Disassembler;
-
-    CodeLine parse_instruction(uint16_t address) {
-        return get_decoder().parse_instruction(address);
-    }
-    CodeLine parse_db(uint16_t address, size_t count = 1) {
-        return get_decoder().parse_db(address, count);
-    }
-    CodeLine parse_dw(uint16_t address, size_t count = 1) {
-        return get_decoder().parse_dw(address, count);
-    }
-    CodeLine parse_dz(uint16_t address) {
-        return get_decoder().parse_dz(address);
-    }
-    CodeLine parse_ds(uint16_t address, size_t count, std::optional<uint8_t> fill = std::nullopt) {
-        return get_decoder().parse_ds(address, count, fill);
-    }
-
-    std::vector<CodeLine> generate_listing_public(CodeMap& map, uint16_t& start_address, size_t instruction_limit, bool use_map, size_t max_data_group = 16) {
-        return generate_listing(map, start_address, instruction_limit, use_map, max_data_group);
     }
 };
 
 int tests_passed = 0;
 int tests_failed = 0;
 
-void check_inst(TestableZ80Analyzer& analyzer, TestMemory& memory, 
+void check_inst(Z80Decoder<TestMemory>& analyzer, TestMemory& memory, 
                 const std::vector<uint8_t>& bytes, 
                 const std::string& expected_mnemonic, 
                 const std::vector<std::string>& expected_ops) {
@@ -107,25 +82,25 @@ void check_inst(TestableZ80Analyzer& analyzer, TestMemory& memory,
             std::string op_str;
             const auto& op = line.operands[i];
             switch (op.type) {
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::REG8:
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::REG16:
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::CONDITION:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::REG8:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::REG16:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::CONDITION:
                     op_str = op.s_val;
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::IMM8:
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::PORT_IMM8:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::IMM8:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::PORT_IMM8:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::IMM16:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::IMM16:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_REG16:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_REG16:
                     op_str = "(" + op.s_val + ")";
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_IMM16:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_IMM16:
                     { std::stringstream ss; ss << "(0x" << std::hex << std::uppercase << op.num_val << ")"; op_str = ss.str(); }
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_INDEXED:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_INDEXED:
                     { 
                         std::stringstream ss; 
                         ss << "(" << op.base_reg << (op.offset >= 0 ? "+" : "") << std::dec << (int)op.offset << ")"; 
@@ -157,25 +132,25 @@ void check_inst(TestableZ80Analyzer& analyzer, TestMemory& memory,
             std::string op_str;
             const auto& op = line.operands[i];
             switch (op.type) {
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::REG8:
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::REG16:
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::CONDITION:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::REG8:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::REG16:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::CONDITION:
                     op_str = op.s_val;
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::IMM8:
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::PORT_IMM8:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::IMM8:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::PORT_IMM8:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::IMM16:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::IMM16:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_REG16:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_REG16:
                     op_str = "(" + op.s_val + ")";
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_IMM16:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_IMM16:
                     { std::stringstream ss; ss << "(0x" << std::hex << std::uppercase << op.num_val << ")"; op_str = ss.str(); }
                     break;
-                case Z80Disassembler<TestMemory>::CodeLine::Operand::MEM_INDEXED:
+                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_INDEXED:
                     { 
                         std::stringstream ss; 
                         ss << "(" << op.base_reg << (op.offset >= 0 ? "+" : "") << std::dec << (int)op.offset << ")"; 
@@ -194,7 +169,7 @@ void check_inst(TestableZ80Analyzer& analyzer, TestMemory& memory,
 void run_tests() {
     TestMemory memory;
     TestLabels labels;
-    TestableZ80Analyzer analyzer(&memory, &labels);
+    Z80Decoder<TestMemory> analyzer(&memory, &labels);
 
     std::cout << "Running Z80Analyzer tests...\n";
 
@@ -563,132 +538,6 @@ void run_tests() {
     // --- Misc Instructions ---
     {
         check_inst(analyzer, memory, {0x08}, "EX AF, AF'", {});
-    }
-
-    // --- Parse Instruction Backwards ---
-    {
-        // Setup a sequence of instructions
-        // 0x5000: LD A, 10     (3E 0A) - 2 bytes
-        // 0x5002: INC A        (3C)    - 1 byte
-        // 0x5003: LD B, A      (47)    - 1 byte
-        // 0x5004: NOP          (00)    - 1 byte
-        
-        memory.set_data(0x5000, {0x3E, 0x0A, 0x3C, 0x47, 0x00});
-        
-        // Test finding start of 0x5002 (INC A) -> should be 0x5000
-        uint16_t prev = analyzer.parse_instruction_backwards(0x5002);
-        if (prev != 0x5000) {
-             std::cout << "FAIL: parse_instruction_backwards(0x5002) returned 0x" << std::hex << prev << " expected 0x5000\n";
-             tests_failed++;
-        } else {
-             tests_passed++;
-        }
-
-        // Target 0x5003 (LD B, A), prev should be 0x5002
-        prev = analyzer.parse_instruction_backwards(0x5003);
-        if (prev != 0x5002) {
-             std::cout << "FAIL: parse_instruction_backwards(0x5003) returned 0x" << std::hex << prev << " expected 0x5002\n";
-             tests_failed++;
-        } else {
-             tests_passed++;
-        }
-        
-        // Test with CodeMap hint
-        Z80Disassembler<TestMemory>::CodeMap map(0x10000, 0);
-        map.mark_code(0x5000, 2, true); // Mark LD A, 10
-        
-        prev = analyzer.parse_instruction_backwards(0x5002, &map);
-        if (prev != 0x5000) {
-             std::cout << "FAIL: parse_instruction_backwards(0x5002, map) returned 0x" << std::hex << prev << " expected 0x5000\n";
-             tests_failed++;
-        } else {
-             tests_passed++;
-        }
-    }
-
-    // --- Data Grouping Test ---
-    {
-        std::vector<uint8_t> data_block;
-        for(int i=0; i<20; ++i) data_block.push_back(i);
-        memory.set_data(0x2000, data_block);
-
-        Z80Disassembler<TestMemory>::CodeMap map(0x10000, 0); 
-        uint16_t start_addr = 0x2000;
-        
-        auto lines = analyzer.generate_listing_public(map, start_addr, 100, true, 8);
-        
-        if (lines.empty()) {
-            std::cout << "FAIL: Data grouping returned no lines\n";
-            tests_failed++;
-        } else {
-            if (lines[0].mnemonic == "DB" && lines[0].operands.size() == 8) tests_passed++;
-            else {
-                std::cout << "FAIL: Data grouping failed (expected DB with 8 operands)\n";
-                std::cout << "      Got: " << lines[0].mnemonic << " with " << lines[0].operands.size() << " operands\n";
-                tests_failed++;
-            }
-        }
-    }
-
-    // --- CodeMap Tests ---
-    {
-        using CodeMap = Z80Disassembler<TestMemory>::CodeMap;
-        CodeMap map(0x10000, 0);
-        bool codemap_pass = true;
-
-        // Test 1: Mark Code
-        map.mark_code(0x1000, 3, true);
-        if (map[0x1000] != CodeMap::FLAG_CODE_START) {
-            std::cout << "FAIL: CodeMap mark_code start flag missing\n";
-            codemap_pass = false;
-        }
-        if (map[0x1001] != CodeMap::FLAG_CODE_INTERIOR) {
-            std::cout << "FAIL: CodeMap mark_code interior flag missing (1)\n";
-            codemap_pass = false;
-        }
-        if (map[0x1002] != CodeMap::FLAG_CODE_INTERIOR) {
-            std::cout << "FAIL: CodeMap mark_code interior flag missing (2)\n";
-            codemap_pass = false;
-        }
-
-        // Test 2: Mark Data
-        map.mark_data(0x2000, 1, false, true); // Read
-        if (map[0x2000] != CodeMap::FLAG_DATA_READ) {
-             std::cout << "FAIL: CodeMap mark_data read flag missing\n";
-             codemap_pass = false;
-        }
-        map.mark_data(0x2000, 1, true, true); // Write
-        if (map[0x2000] != (CodeMap::FLAG_DATA_READ | CodeMap::FLAG_DATA_WRITE)) {
-             std::cout << "FAIL: CodeMap mark_data write flag missing or read flag lost\n";
-             codemap_pass = false;
-        }
-
-        // Test 3: Unmark Code
-        map.mark_code(0x1000, 3, false);
-        if (map[0x1000] != 0 || map[0x1001] != 0 || map[0x1002] != 0) {
-            std::cout << "FAIL: CodeMap unmark_code failed\n";
-            codemap_pass = false;
-        }
-
-        // Test 4: Orphan cleanup
-        // Setup: Instruction at 0x3000 len 4
-        map.mark_code(0x3000, 4, true);
-        // Overwrite with instruction at 0x3000 len 2
-        map.mark_code(0x3000, 2, true);
-        
-        if (map[0x3000] != CodeMap::FLAG_CODE_START) { std::cout << "FAIL: Orphan cleanup check 0\n"; codemap_pass = false; }
-        if (map[0x3001] != CodeMap::FLAG_CODE_INTERIOR) { std::cout << "FAIL: Orphan cleanup check 1\n"; codemap_pass = false; }
-        if (map[0x3002] != 0) {
-             std::cout << "FAIL: CodeMap orphan cleanup failed at 0x3002 (got " << (int)map[0x3002] << ")\n";
-             codemap_pass = false;
-        }
-        if (map[0x3003] != 0) {
-             std::cout << "FAIL: CodeMap orphan cleanup failed at 0x3003 (got " << (int)map[0x3003] << ")\n";
-             codemap_pass = false;
-        }
-
-        if (codemap_pass) tests_passed++;
-        else tests_failed++;
     }
 
     // --- Parse DS Tests ---
@@ -1137,7 +986,7 @@ void run_tests() {
 
     // --- Instruction Types ---
     {
-        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
+        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
         
         // LD -> LOAD
         memory.set_data(0x7010, {0x01, 0x34, 0x12}); // LD BC, 1234
@@ -1210,7 +1059,7 @@ void run_tests() {
 
     // --- Instruction Types (Extended) ---
     {
-        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
+        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
 
         // RST -> CALL | STACK
         memory.set_data(0x7200, {0xC7}); // RST 00
@@ -1289,7 +1138,7 @@ void run_tests() {
 
     // --- Instruction Types (Block & Misc) ---
     {
-        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
+        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
 
         // LDI -> BLOCK | LOAD
         memory.set_data(0x7500, {0xED, 0xA0});
@@ -1386,7 +1235,7 @@ void run_tests() {
 
     // --- Instruction Types (Bit, Shift, Control, Misc) ---
     {
-        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
+        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
 
         // BIT 0, A -> BIT | ALU
         memory.set_data(0x7600, {0xCB, 0x47});
@@ -1437,7 +1286,7 @@ void run_tests() {
 
     // --- More Instruction Types ---
     {
-        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
+        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
 
         // DJNZ -> JUMP | ALU
         memory.set_data(0x8100, {0x10, 0xFE});
@@ -1468,7 +1317,7 @@ void run_tests() {
 
     // --- Instruction Types (Comprehensive) ---
     {
-        using Type = Z80Disassembler<TestMemory>::CodeLine::Type;
+        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
 
         // IM 0 -> CPU_CONTROL
         memory.set_data(0x8200, {0xED, 0x46});
@@ -1638,452 +1487,9 @@ void run_tests() {
         check_inst(analyzer, memory, {0x75}, "LD", {"(HL)", "L"});
     }
 
-    // --- Parse Code Tests ---
-    {
-        // Test 1: Basic Raw Disassembly
-        // 0x1000: 3E 05 (LD A, 5)
-        // 0x1002: 06 0A (LD B, 10)
-        memory.set_data(0x1000, {0x3E, 0x05, 0x06, 0x0A});
-        uint16_t start = 0x1000;
-        auto lines = analyzer.parse_code(start, 10);
-        
-        if (lines.size() < 2) { std::cout << "FAIL: Parse Code Raw size\n"; tests_failed++; }
-        else if (lines[0].mnemonic != "LD" || lines[0].operands[0].s_val != "A") { std::cout << "FAIL: Parse Code Raw line 1\n"; tests_failed++; }
-        else if (lines[1].mnemonic != "LD" || lines[1].operands[0].s_val != "B") { std::cout << "FAIL: Parse Code Raw line 2\n"; tests_failed++; }
-        else tests_passed++;
-
-        // Test 2: Heuristic Analysis (Jump following)
-        // 0x2000: C3 05 20 (JP 0x2005)
-        // 0x2003: 00 00    (NOPs/Data)
-        // 0x2005: 3C       (INC A)
-        memory.set_data(0x2000, {0xC3, 0x05, 0x20, 0x00, 0x00, 0x3C});
-        start = 0x2000;
-        // Use heuristic = true
-        lines = analyzer.parse_code(start, 10, nullptr, false, true);
-        
-        bool found_jp = false;
-        bool found_inc = false;
-        bool found_db = false;
-        for(const auto& l : lines) {
-            if (l.address == 0x2000 && l.mnemonic == "JP") found_jp = true;
-            if (l.address == 0x2003 && l.mnemonic == "DB") found_db = true;
-            if (l.address == 0x2005 && l.mnemonic == "INC") found_inc = true;
-        }
-        
-        if (!found_jp) { std::cout << "FAIL: Parse Code Heuristic JP missing\n"; tests_failed++; }
-        else if (!found_db) { std::cout << "FAIL: Parse Code Heuristic DB missing (gap should be data)\n"; tests_failed++; }
-        else if (!found_inc) { std::cout << "FAIL: Parse Code Heuristic INC missing\n"; tests_failed++; }
-        else tests_passed++;
-
-        // Test 3: Execution Analysis
-        // 0x3000: 3E 01    LD A, 1
-        // 0x3002: FE 01    CP 1
-        // 0x3004: 28 02    JR Z, +2 (to 0x3008)
-        // 0x3006: 00       NOP (Skipped)
-        // 0x3008: 76       HALT
-        memory.set_data(0x3000, {0x3E, 0x01, 0xFE, 0x01, 0x28, 0x02, 0x00, 0x00, 0x76});
-        start = 0x3000;
-        // Use execution = true
-        lines = analyzer.parse_code(start, 10, nullptr, true, false);
-        
-        bool found_ld = false;
-        bool found_jr = false;
-        bool found_halt = false;
-        bool found_skipped_nop_as_db = false;
-
-        for(const auto& l : lines) {
-            if (l.address == 0x3000 && l.mnemonic == "LD") found_ld = true;
-            if (l.address == 0x3004 && l.mnemonic == "JR") found_jr = true;
-            if (l.address == 0x3006 && l.mnemonic == "DB") found_skipped_nop_as_db = true;
-            if (l.address == 0x3008 && l.mnemonic == "HALT") found_halt = true;
-        }
-
-        if (!found_ld) { std::cout << "FAIL: Parse Code Exec LD missing\n"; tests_failed++; }
-        else if (!found_jr) { std::cout << "FAIL: Parse Code Exec JR missing\n"; tests_failed++; }
-        else if (!found_halt) { std::cout << "FAIL: Parse Code Exec HALT missing\n"; tests_failed++; }
-        else if (!found_skipped_nop_as_db) { std::cout << "FAIL: Parse Code Exec skipped NOP should be DB\n"; tests_failed++; }
-        else tests_passed++;
-
-        // Test 4: External CodeMap
-        // 0x4000: 00 (NOP)
-        // 0x4001: 00 (NOP)
-        memory.set_data(0x4000, {0x00, 0xFF});
-        Z80Disassembler<TestMemory>::CodeMap my_map(0x10000, 0);
-        my_map.mark_code(0x4000, 1, true); // Mark first NOP as code
-        
-        start = 0x4000;
-        lines = analyzer.parse_code(start, 2, &my_map, false, false);
-        
-        if (lines.size() < 2) { std::cout << "FAIL: Parse Code Map size\n"; tests_failed++; }
-        else if (lines[0].mnemonic == "NOP" && lines[1].mnemonic == "DB") tests_passed++;
-        else { std::cout << "FAIL: Parse Code Map mismatch\n"; tests_failed++; }
-    }
-
-    // --- Parse Code Advanced Tests ---
-    {
-        // Test 5: Instruction Limit
-        // 0x5000: NOP
-        // 0x5001: NOP
-        // 0x5002: NOP
-        memory.set_data(0x5000, {0x00, 0x00, 0x00});
-        uint16_t start = 0x5000;
-        auto lines = analyzer.parse_code(start, 2); // Limit 2
-        if (lines.size() != 2) { std::cout << "FAIL: Parse Code Limit size\n"; tests_failed++; }
-        else tests_passed++;
-
-        // Test 6: Max Data Grouping
-        // 0x6000: 01 02 03 04 05 (Different bytes to avoid DS)
-        memory.set_data(0x6000, {0x01, 0x02, 0x03, 0x04, 0x05});
-        Z80Disassembler<TestMemory>::CodeMap data_map(0x10000, 0); // All data
-        start = 0x6000;
-        // max_data_group = 2
-        lines = analyzer.parse_code(start, 3, &data_map, false, false, 2);
-        
-        if (lines.size() != 3) { 
-            std::cout << "FAIL: Parse Code Max Data Group size (expected 3, got " << lines.size() << ")\n"; 
-            tests_failed++; 
-        } else {
-            if (lines[0].operands.size() == 2 && lines[1].operands.size() == 2 && lines[2].operands.size() == 1) tests_passed++;
-            else { 
-                std::cout << "FAIL: Parse Code Max Data Group operands count. Got: " 
-                          << lines[0].operands.size() << ", " 
-                          << lines[1].operands.size() << ", " 
-                          << lines[2].operands.size() << "\n"; 
-                tests_failed++; 
-            }
-        }
-
-        // Test 7: Heuristic Conditional Jump
-        // 0x7000: 28 02    JR Z, +2 (to 0x7004)
-        // 0x7002: C9       RET (Fallthrough)
-        // 0x7003: FF       DB 0xFF (Data gap)
-        // 0x7004: 00       NOP (Target)
-        memory.set_data(0x7000, {0x28, 0x02, 0xC9, 0xFF, 0x00});
-        start = 0x7000;
-        lines = analyzer.parse_code(start, 10, nullptr, false, true); // Use heuristic
-        
-        bool found_jr = false;
-        bool found_ret = false;
-        bool found_data = false;
-        bool found_nop = false;
-        
-        for(const auto& l : lines) {
-            if (l.address == 0x7000 && l.mnemonic == "JR") found_jr = true;
-            if (l.address == 0x7002 && l.mnemonic == "RET") found_ret = true;
-            if (l.address == 0x7003 && l.mnemonic == "DB") found_data = true;
-            if (l.address == 0x7004 && l.mnemonic == "NOP") found_nop = true;
-        }
-        
-        if (!found_jr) { std::cout << "FAIL: Heuristic JR missing\n"; tests_failed++; }
-        else if (!found_ret) { std::cout << "FAIL: Heuristic RET (fallthrough) missing\n"; tests_failed++; }
-        else if (!found_data) { std::cout << "FAIL: Heuristic Data gap missing\n"; tests_failed++; }
-        else if (!found_nop) { std::cout << "FAIL: Heuristic Target NOP missing\n"; tests_failed++; }
-        else tests_passed++;
-    }
-
-    // --- Parse Code Edge Cases ---
-    {
-        // Test 8: Code at Memory End
-        // 0xFFFE: 00 (NOP)
-        // 0xFFFF: 00 (NOP)
-        memory.set_data(0xFFFE, {0x00, 0x00});
-        uint16_t start = 0xFFFE;
-        auto lines = analyzer.parse_code(start, 10);
-        
-        if (lines.size() != 2) { std::cout << "FAIL: Parse Code Memory End size\n"; tests_failed++; }
-        else if (lines[0].address != 0xFFFE || lines[1].address != 0xFFFF) { std::cout << "FAIL: Parse Code Memory End addresses\n"; tests_failed++; }
-        else tests_passed++;
-
-        // Test 9: Execution Analysis Loop
-        // 0x9000: 3D       DEC A
-        // 0x9001: 20 FD    JR NZ, -3 (to 0x9000)
-        // 0x9003: 76       HALT
-        memory.set_data(0x9000, {0x3D, 0x20, 0xFD, 0x76});
-        
-        start = 0x9000;
-        lines = analyzer.parse_code(start, 10, nullptr, true, false);
-        
-        bool found_dec = false;
-        bool found_jr = false;
-        bool found_halt = false;
-        
-        for(const auto& l : lines) {
-            if (l.address == 0x9000 && l.mnemonic == "DEC") found_dec = true;
-            if (l.address == 0x9001 && l.mnemonic == "JR") found_jr = true;
-            if (l.address == 0x9003 && l.mnemonic == "HALT") found_halt = true;
-        }
-        
-        if (!found_dec) { std::cout << "FAIL: Parse Code Exec Loop DEC missing\n"; tests_failed++; }
-        else if (!found_jr) { std::cout << "FAIL: Parse Code Exec Loop JR missing\n"; tests_failed++; }
-        else if (!found_halt) { std::cout << "FAIL: Parse Code Exec Loop HALT missing\n"; tests_failed++; }
-        else tests_passed++;
-    }
-
-    // --- Parse Code SMC & Heuristic Stop ---
-    {
-        // Test 10: Self-Modifying Code (SMC) with Execution
-        // 0x9100: 21 05 91    LD HL, 0x9105
-        // 0x9103: 36 76       LD (HL), 0x76 (HALT)
-        // 0x9105: 00          NOP (Initially) -> becomes HALT
-        // 0x9106: 00          NOP
-        // Clear memory first to ensure no artifacts
-        for(uint16_t i=0x9100; i<0x9110; ++i) memory.poke(i, 0);
-        memory.set_data(0x9100, {0x21, 0x05, 0x91, 0x36, 0x76, 0x00, 0x00});
-        
-        uint16_t start = 0x9100;
-        // Run with execution enabled
-        auto lines = analyzer.parse_code(start, 10, nullptr, true, false);
-        
-        bool found_halt = false;
-        for(const auto& l : lines) {
-            if (l.address == 0x9105) {
-                if (l.mnemonic == "HALT") found_halt = true;
-            }
-        }
-        
-        if (!found_halt) { 
-            std::cout << "FAIL: Parse Code SMC: Target instruction not modified to HALT\n"; 
-            std::cout << "      Byte at 0x9105: 0x" << std::hex << (int)memory.peek(0x9105) << "\n";
-            // Debug output
-            for(const auto& l : lines) {
-                if (l.address == 0x9105) std::cout << "At 0x9105 found: " << l.mnemonic << " (Byte: 0x" << std::hex << (int)memory.peek(l.address) << ")\n";
-            }
-            tests_failed++; 
-        }
-        else tests_passed++;
-
-        // Test 11: Heuristic Stop on Unconditional Jump
-        // 0x9200: C3 00 00    JP 0x0000
-        // 0x9203: 3C          INC A (Unreachable, should be DB)
-        memory.set_data(0x9200, {0xC3, 0x00, 0x00, 0x3C});
-        start = 0x9200;
-        // Use heuristic
-        lines = analyzer.parse_code(start, 10, nullptr, false, true);
-        
-        bool found_jp = false;
-        bool found_db = false;
-        for(const auto& l : lines) {
-            if (l.address == 0x9200 && l.mnemonic == "JP") found_jp = true;
-            if (l.address == 0x9203 && l.mnemonic == "DB") found_db = true;
-        }
-        
-        if (!found_jp) { std::cout << "FAIL: Heuristic Stop JP missing\n"; tests_failed++; }
-        else if (!found_db) { std::cout << "FAIL: Heuristic Stop Unreachable code should be DB\n"; tests_failed++; }
-        else tests_passed++;
-    }
-
-    // --- Parse Code Data Grouping Edge Cases ---
-    {
-        // Test 12: Max Data Grouping = 1 (No grouping)
-        // 0x9300: 01 02 03 04
-        memory.set_data(0x9300, {0x01, 0x02, 0x03, 0x04});
-        Z80Disassembler<TestMemory>::CodeMap data_map(0x10000, 0); // All data
-        
-        uint16_t start = 0x9300;
-        auto lines = analyzer.parse_code(start, 4, &data_map, false, false, 1);
-        
-        if (lines.size() != 4) { 
-            std::cout << "FAIL: Parse Code Data Group 1 size (expected 4, got " << lines.size() << ")\n"; 
-            tests_failed++; 
-        } else {
-            bool all_single = true;
-            for(const auto& l : lines) if(l.operands.size() != 1) all_single = false;
-            if (all_single) tests_passed++;
-            else { std::cout << "FAIL: Parse Code Data Group 1 operands count\n"; tests_failed++; }
-        }
-
-        // Test 13: Max Data Grouping = 0 (Unlimited)
-        start = 0x9300;
-        lines = analyzer.parse_code(start, 1, &data_map, false, false, 0);
-        
-        if (lines.size() != 1) { 
-            std::cout << "FAIL: Parse Code Data Group 0 size (expected 1, got " << lines.size() << ")\n"; 
-            tests_failed++; 
-        } else {
-            if (lines[0].operands.size() == 4) tests_passed++;
-            else { std::cout << "FAIL: Parse Code Data Group 0 operands count (expected 4, got " << lines[0].operands.size() << ")\n"; tests_failed++; }
-        }
-    }
-
-    // --- Parse Code Heuristic JR ---
-    {
-        // Test 14: Heuristic Stop on Unconditional JR
-        // 0x9400: 18 FE    JR -2 (Jump to self)
-        // 0x9402: 3C       INC A (Unreachable)
-        memory.set_data(0x9400, {0x18, 0xFE, 0x3C});
-        uint16_t start = 0x9400;
-        auto lines = analyzer.parse_code(start, 10, nullptr, false, true);
-        
-        bool found_jr = false;
-        bool found_db_jr = false;
-        for(const auto& l : lines) {
-            if (l.address == 0x9400 && l.mnemonic == "JR") found_jr = true;
-            if (l.address == 0x9402 && l.mnemonic == "DB") found_db_jr = true;
-        }
-        if (!found_jr) { std::cout << "FAIL: Heuristic Stop JR missing\n"; tests_failed++; }
-        else if (!found_db_jr) { std::cout << "FAIL: Heuristic Stop JR Unreachable code should be DB\n"; tests_failed++; }
-        else tests_passed++;
-    }
-
-    // --- Parse Code Execution: Indirect Jump ---
-    {
-        // Test 15: Execution Tracing Indirect Jump (JP (HL))
-        // 0x9500: 21 05 95    LD HL, 0x9505
-        // 0x9503: E9          JP (HL)
-        // 0x9504: FF          DB 0xFF (Skipped)
-        // 0x9505: 76          HALT
-        memory.set_data(0x9500, {0x21, 0x05, 0x95, 0xE9, 0xFF, 0x76});
-        uint16_t start = 0x9500;
-        
-        auto lines = analyzer.parse_code(start, 10, nullptr, true, false);
-        
-        bool found_ld = false;
-        bool found_jp_hl = false;
-        bool found_halt = false;
-        bool found_db = false;
-
-        for(const auto& l : lines) {
-            if (l.address == 0x9500 && l.mnemonic == "LD") found_ld = true;
-            if (l.address == 0x9503 && l.mnemonic == "JP") found_jp_hl = true;
-            if (l.address == 0x9504 && l.mnemonic == "DB") found_db = true;
-            if (l.address == 0x9505 && l.mnemonic == "HALT") found_halt = true;
-        }
-
-        if (!found_ld) { std::cout << "FAIL: Exec JP(HL) LD missing\n"; tests_failed++; }
-        else if (!found_jp_hl) { std::cout << "FAIL: Exec JP(HL) JP missing\n"; tests_failed++; }
-        else if (!found_halt) { std::cout << "FAIL: Exec JP(HL) HALT missing (target not found)\n"; tests_failed++; }
-        else if (!found_db) { std::cout << "FAIL: Exec JP(HL) DB missing (skipped byte)\n"; tests_failed++; }
-        else tests_passed++;
-    }
-
-    // --- Parse Code Execution: CALL/RET ---
-    {
-        // Test 16: Execution Tracing CALL/RET
-        // 0x9600: CD 04 96    CALL 0x9604
-        // 0x9603: 76          HALT (Return address)
-        // 0x9604: C9          RET
-        memory.set_data(0x9600, {0xCD, 0x04, 0x96, 0x76, 0xC9});
-        uint16_t start = 0x9600;
-        
-        auto lines = analyzer.parse_code(start, 10, nullptr, true, false);
-        
-        bool found_call = false;
-        bool found_ret = false;
-        bool found_halt = false;
-        
-        for(const auto& l : lines) {
-            if (l.address == 0x9600 && l.mnemonic == "CALL") found_call = true;
-            if (l.address == 0x9603 && l.mnemonic == "HALT") found_halt = true;
-            if (l.address == 0x9604 && l.mnemonic == "RET") found_ret = true;
-        }
-        
-        if (!found_call) { std::cout << "FAIL: Exec CALL missing\n"; tests_failed++; }
-        else if (!found_ret) { std::cout << "FAIL: Exec RET missing\n"; tests_failed++; }
-        else if (!found_halt) { std::cout << "FAIL: Exec HALT missing (after return)\n"; tests_failed++; }
-        else tests_passed++;
-    }
-
-    // --- Parse Code Execution: RST & DJNZ ---
-    {
-        // Test 17: Execution Tracing RST
-        // 0x9700: D7          RST 10H
-        // 0x9701: 00          NOP (After return)
-        // 0x9702: 76          HALT
-        // 0x0010: C9          RET
-        memory.set_data(0x9700, {0xD7, 0x00, 0x76});
-        memory.poke(0x0010, 0xC9); // RET at RST 10H vector
-        
-        uint16_t start = 0x9700;
-        auto lines = analyzer.parse_code(start, 10, nullptr, true, false);
-        
-        bool found_rst = false;
-        bool found_nop_after = false;
-        bool found_halt = false;
-        
-        for(const auto& l : lines) {
-            if (l.address == 0x9700 && l.mnemonic == "RST") found_rst = true;
-            if (l.address == 0x9701 && l.mnemonic == "NOP") found_nop_after = true;
-            if (l.address == 0x9702 && l.mnemonic == "HALT") found_halt = true;
-        }
-        
-        if (!found_rst) { std::cout << "FAIL: Exec RST missing\n"; tests_failed++; }
-        else if (!found_nop_after) { std::cout << "FAIL: Exec RST return path (NOP) missing\n"; tests_failed++; }
-        else if (!found_halt) { std::cout << "FAIL: Exec RST HALT missing\n"; tests_failed++; }
-        else tests_passed++;
-
-        // Test 18: Execution Tracing DJNZ
-        // 0x9800: 06 02       LD B, 2
-        // 0x9802: 3C          INC A
-        // 0x9803: 10 FD       DJNZ -3 (to 0x9802)
-        // 0x9805: 76          HALT
-        memory.set_data(0x9800, {0x06, 0x02, 0x3C, 0x10, 0xFD, 0x76});
-        start = 0x9800;
-        
-        lines = analyzer.parse_code(start, 10, nullptr, true, false);
-        
-        bool found_ld = false;
-        bool found_inc = false;
-        bool found_djnz = false;
-        bool found_halt_djnz = false;
-        
-        for(const auto& l : lines) {
-            if (l.address == 0x9800 && l.mnemonic == "LD") found_ld = true;
-            if (l.address == 0x9802 && l.mnemonic == "INC") found_inc = true;
-            if (l.address == 0x9803 && l.mnemonic == "DJNZ") found_djnz = true;
-            if (l.address == 0x9805 && l.mnemonic == "HALT") found_halt_djnz = true;
-        }
-        
-        if (!found_ld) { std::cout << "FAIL: Exec DJNZ LD missing\n"; tests_failed++; }
-        else if (!found_inc) { std::cout << "FAIL: Exec DJNZ INC missing\n"; tests_failed++; }
-        else if (!found_djnz) { std::cout << "FAIL: Exec DJNZ DJNZ missing\n"; tests_failed++; }
-        else if (!found_halt_djnz) { std::cout << "FAIL: Exec DJNZ HALT (fallthrough) missing\n"; tests_failed++; }
-        else tests_passed++;
-    }
-
-    // --- Parse Code Execution + CodeMap ---
-    {
-        // Test 19: Execution + External CodeMap
-        // 0x9900: 18 01       JR +1 (to 0x9903)
-        // 0x9902: 00          NOP (Skipped by execution, but marked in map)
-        // 0x9903: 76          HALT
-        memory.set_data(0x9900, {0x18, 0x01, 0x00, 0x76});
-        
-        Z80Disassembler<TestMemory>::CodeMap my_map(0x10000, 0);
-        // Manually mark the skipped NOP as code
-        my_map.mark_code(0x9902, 1, true);
-        
-        uint16_t start = 0x9900;
-        // use_execution = true, external_code_map = &my_map
-        auto lines = analyzer.parse_code(start, 10, &my_map, true, false);
-        
-        bool found_jr = false;
-        bool found_nop = false;
-        bool found_halt = false;
-        
-        for(const auto& l : lines) {
-            if (l.address == 0x9900 && l.mnemonic == "JR") found_jr = true;
-            if (l.address == 0x9902 && l.mnemonic == "NOP") found_nop = true;
-            if (l.address == 0x9903 && l.mnemonic == "HALT") found_halt = true;
-        }
-        
-        if (!found_jr) { std::cout << "FAIL: Exec+Map JR missing (execution)\n"; tests_failed++; }
-        else if (!found_nop) { std::cout << "FAIL: Exec+Map NOP missing (from map)\n"; tests_failed++; }
-        else if (!found_halt) { std::cout << "FAIL: Exec+Map HALT missing (execution)\n"; tests_failed++; }
-        else {
-            // Verify map was updated
-            if (!(my_map[0x9900] & Z80Disassembler<TestMemory>::CodeMap::FLAG_CODE_START)) {
-                 std::cout << "FAIL: Exec+Map: Map not updated by execution (JR)\n"; tests_failed++;
-            }
-            else if (!(my_map[0x9903] & Z80Disassembler<TestMemory>::CodeMap::FLAG_CODE_START)) {
-                 std::cout << "FAIL: Exec+Map: Map not updated by execution (HALT)\n"; tests_failed++;
-            }
-            else tests_passed++;
-        }
-    }
-
     // --- Z80N Instructions ---
     {
-        analyzer.set_z80n_mode(true);
+        analyzer.set_options({.z80n = true});
 
         // SWAPNIB
         check_inst(analyzer, memory, {0xED, 0x23}, "SWAPNIB", {});
@@ -2122,12 +1528,12 @@ void run_tests() {
         // LDPIRX
         check_inst(analyzer, memory, {0xED, 0xB7}, "LDPIRX", {});
 
-        analyzer.set_z80n_mode(false);
+        analyzer.set_options({.z80n = false});
     }
 
     // --- Z80N Instructions Disabled (Disassembly) ---
     {
-        analyzer.set_z80n_mode(false);
+        analyzer.set_options({.z80n = false});
 
         // SWAPNIB (ED 23) -> NOP 0xED, 0x23
         check_inst(analyzer, memory, {0xED, 0x23}, "NOP", {"0xED", "0x23"});

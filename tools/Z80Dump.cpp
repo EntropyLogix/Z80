@@ -6,7 +6,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Dump.cpp
-// Verson: 1.1.1
+// Verson: 1.0
 //
 // This file contains a command-line utility for dumping memory, registers,
 // and disassembling code from Z80 binary files and snapshots.
@@ -14,7 +14,7 @@
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 
-#include "Z80Decode.h"
+#include "Z80Decoder.h"
 #include "Z80.h"
 #include <algorithm>
 #include <cctype>
@@ -227,7 +227,7 @@ public:
         }
     }
     std::string get_label(uint16_t address) const override { auto it = m_labels.find(address); return (it != m_labels.end()) ? it->second : ""; }
-    void add_label(uint16_t address, const std::string& label) override { m_labels[address] = label; }
+    void add_label(uint16_t address, const std::string& label) { m_labels[address] = label; }
 private:
     std::map<uint16_t, std::string> m_labels;
 };
