@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Decoder.h
-// Version: 1.0
+// Version: 1.0.0
 //
 // This file contains the Z80Decoder class,
 // which provides functionality for disassembling Z80 machine code.

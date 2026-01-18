@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   .h
-// Version: 1.0
+// Version: 1.0.0
 //
 // This file defines the core Z80 processor emulation class,
 // including register definitions, state management, and instruction execution logic.
