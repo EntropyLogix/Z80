@@ -3210,6 +3210,29 @@ TEST_CASE(MacroWithLocalLabelAndSpecialChars) {
     )", {0x06, 255, 0x10, 0xFE, 0x00, 0x06, 255, 0x10, 0xFE, 0x00});
 }
 
+TEST_CASE(MacroWithLocalLabelAndExtendedChars) {
+    // Test ensuring that local labels are not replaced when they are substrings of labels with special chars like ? or @
+    ASSERT_CODE(R"(
+        TEST_MACRO MACRO
+            LOCAL lbl
+            lbl: NOP
+            JP lbl?  ; Should NOT replace 'lbl' here
+            JP lbl@  ; Should NOT replace 'lbl' here
+        ENDM
+        
+        lbl?: NOP
+        lbl@: NOP
+        
+        TEST_MACRO
+    )", {
+        0x00,             // lbl?: NOP
+        0x00,             // lbl@: NOP
+        0x00,             // Macro expansion: lbl: NOP
+        0xC3, 0x00, 0x00, // JP lbl? (0x0000)
+        0xC3, 0x01, 0x00  // JP lbl@ (0x0001)
+    });
+}
+
 TEST_CASE(MacroWithMoreThanNineParams) {
     ASSERT_CODE(R"(
         BIG_MACRO MACRO
@@ -3495,6 +3518,16 @@ TEST_CASE(ReptDirectiveWithIterationCounter) {
         10, 1, 2, 3, // Outer loop 1
         20, 1, 2, 3  // Outer loop 2
     });
+}
+
+TEST_CASE(ReptDirectiveComplexReplacement) {
+    // Test replacement in expressions (parentheses) and strings
+    ASSERT_CODE(R"(
+        REPT 2
+            DB (\@ + 1)
+            DB "Iter: \@"
+        ENDR
+    )", {2, 'I', 't', 'e', 'r', ':', ' ', '1', 3, 'I', 't', 'e', 'r', ':', ' ', '2'});
 }
 
 TEST_CASE(WhileAndReptDirectives) {
@@ -5312,6 +5345,106 @@ TEST_CASE(BlockGeneration_Incbin) {
         if (!check_block(2, 0x1005, 1, true)) ok = false;
     }
     
+    if (ok) tests_passed++; else tests_failed++;
+}
+
+TEST_CASE(MemoryMapGeneration) {
+    std::string code = R"(
+        ORG 0x1000
+        LD A, 0x10      ; Code: 3E 10 (Opcode, Operand)
+        DB 0xAA         ; Data: AA
+        NOP             ; Code: 00 (Opcode)
+        DW 0xBBCC       ; Data: CC BB
+        LD BC, 0x1234   ; Code: 01 34 12 (Opcode, Operand, Operand)
+        DS 2, 0xFF      ; Data: FF FF
+    )";
+
+    Z80StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
+    
+    std::vector<uint8_t> memory_map;
+    bool success = assembler.compile("main.asm", 0x0000, nullptr, nullptr, &memory_map);
+    
+    if (!success) {
+        std::cerr << "MemoryMapGeneration compilation failed\n";
+        tests_failed++;
+        return;
+    }
+
+    if (memory_map.size() != 65536) {
+        std::cerr << "MemoryMapGeneration: Expected map size 65536, got " << memory_map.size() << "\n";
+        tests_failed++;
+        return;
+    }
+
+    using Map = Z80Assembler<Z80StandardBus>::Map;
+    auto check_map = [&](uint16_t addr, Map expected) {
+        if (memory_map[addr] != (uint8_t)expected) {
+            std::cerr << "MemoryMap mismatch at 0x" << std::hex << addr 
+                      << ". Expected " << (int)expected << ", Got " << (int)memory_map[addr] << "\n";
+            return false;
+        }
+        return true;
+    };
+
+    bool ok = true;
+    if (!check_map(0x1000, Map::Opcode)) ok = false;  // LD A, ...
+    if (!check_map(0x1001, Map::Operand)) ok = false; // ... 0x10
+    if (!check_map(0x1002, Map::Data)) ok = false;    // DB 0xAA
+    if (!check_map(0x1003, Map::Opcode)) ok = false;  // NOP
+    if (!check_map(0x1004, Map::Data)) ok = false;    // DW low
+    if (!check_map(0x1005, Map::Data)) ok = false;    // DW high
+    if (!check_map(0x1006, Map::Opcode)) ok = false;  // LD BC, ...
+    if (!check_map(0x1007, Map::Operand)) ok = false; // ... low
+    if (!check_map(0x1008, Map::Operand)) ok = false; // ... high
+    if (!check_map(0x1009, Map::Data)) ok = false;    // DS byte 1
+    if (!check_map(0x100A, Map::Data)) ok = false;    // DS byte 2
+    
+    // Check uninitialized area
+    if (!check_map(0x0000, Map::None)) ok = false;
+    if (!check_map(0x2000, Map::None)) ok = false;
+
+    if (ok) tests_passed++; else tests_failed++;
+}
+
+TEST_CASE(MemoryMapPhaseDephase) {
+    std::string code = R"(
+        ORG 0x1000
+        PHASE 0x8000
+        NOP             ; Logical 0x8000, Physical 0x1000
+        DEPHASE
+    )";
+
+    Z80StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
+    
+    std::vector<uint8_t> memory_map;
+    bool success = assembler.compile("main.asm", 0x0000, nullptr, nullptr, &memory_map);
+    
+    if (!success) {
+        std::cerr << "MemoryMapPhaseDephase compilation failed\n";
+        tests_failed++;
+        return;
+    }
+
+    using Map = Z80Assembler<Z80StandardBus>::Map;
+    
+    bool ok = true;
+    // Should be at physical address 0x1000
+    if (memory_map[0x1000] != (uint8_t)Map::Opcode) {
+        std::cerr << "MemoryMapPhaseDephase: Expected Opcode at physical 0x1000, got " << (int)memory_map[0x1000] << "\n";
+        ok = false;
+    }
+    // Should NOT be at logical address 0x8000 (unless physical was also 0x8000, which it isn't)
+    if (memory_map[0x8000] != (uint8_t)Map::None) {
+        std::cerr << "MemoryMapPhaseDephase: Expected None at logical 0x8000, got " << (int)memory_map[0x8000] << "\n";
+        ok = false;
+    }
+
     if (ok) tests_passed++; else tests_failed++;
 }
 

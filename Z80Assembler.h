@@ -386,6 +386,12 @@ public:
 };
 template <typename TMemory> class Z80Assembler {
 public:
+    enum class Map : uint8_t {
+        None = 0,
+        Opcode = 1 << 0,
+        Operand = 1 << 1,
+        Data = 1 << 2
+    };
     struct Config {
         struct LabelOptions {
             bool enabled = true;
@@ -546,7 +552,7 @@ public:
         }
     }
     virtual ~Z80Assembler() {}
-    virtual bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000, const InstructionOptions* options = nullptr, const OptimizationOptions* optimizations = nullptr) {
+    virtual bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000, const InstructionOptions* options = nullptr, const OptimizationOptions* optimizations = nullptr, std::vector<uint8_t>* memory_map = nullptr) {
         if (options)
             m_context.initial_instruction_options = *options;
         else {
@@ -568,6 +574,11 @@ public:
         SymbolsPhase symbols_building(m_context, m_config.compilation.max_passes);
         m_context.address.start = start_addr;
         AssemblyPhase code_generation(m_context);
+        if (memory_map) {
+            memory_map->clear();
+            memory_map->resize(65536, (uint8_t)Map::None);
+            code_generation.set_memory_map(memory_map);
+        }
         std::vector<IPhasePolicy*> phases = {&symbols_building, &code_generation};
         m_context.phase_index = 1;
         for (auto& phase : phases) {
@@ -707,29 +718,26 @@ protected:
             }
             return result;
         }
-        static void replace_words(std::string& str, const std::string& from, const std::string& to) {
+        static void replace_all(std::string& str, const std::string& from, const std::string& to) {
             if (from.empty())
                 return;
             size_t start_pos = 0;
             while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
-                bool prefix_ok = (start_pos == 0) || std::isspace(str[start_pos - 1]);
-                bool suffix_ok = (start_pos + from.length() == str.length()) || std::isspace(str[start_pos + from.length()]);
-                if (prefix_ok && suffix_ok) {
-                    str.replace(start_pos, from.length(), to);
-                    start_pos += to.length();
-                } else {
-                    start_pos += 1;
-                }
+                str.replace(start_pos, from.length(), to);
+                start_pos += to.length();
             }
+        }
+        static bool is_label_char(char c) {
+            return std::isalnum(c) || c == '_' || c == '.' || c == '@' || c == '?';
         }
         static void replace_labels(std::string& str, const std::string& label, const std::string& replacement) {
             if (label.empty())
                 return;
             size_t start_pos = 0;
             while ((start_pos = str.find(label, start_pos)) != std::string::npos) {
-                bool prefix_ok = (start_pos == 0) || !std::isalnum(str[start_pos - 1]);
+                bool prefix_ok = (start_pos == 0) || !is_label_char(str[start_pos - 1]);
                 size_t suffix_pos = start_pos + label.length();
-                bool suffix_ok = (suffix_pos == str.length()) || !std::isalnum(str[suffix_pos]);
+                bool suffix_ok = (suffix_pos == str.length()) || !is_label_char(str[suffix_pos]);
                 if (prefix_ok && suffix_ok) {
                     str.replace(start_pos, label.length(), replacement);
                     start_pos += replacement.length();
@@ -1132,6 +1140,8 @@ protected:
                         m_context.macros.definitions[current_macro_name] = current_macro;
                     } else {
                         if (tokens.count() > 1 && tokens[0].upper() == "LOCAL") {
+                            if (tokens.count() > 2)
+                                tokens.merge(1, tokens.count() - 1);
                             auto args = tokens[1].to_arguments();
                             for(const auto& arg : args)
                                 current_macro.local_labels.push_back(arg.original());
@@ -1689,13 +1699,7 @@ protected:
             std::string s = args[0].s_val;
             const std::string& old_str = args[1].s_val;
             const std::string& new_str = args[2].s_val;
-            if (old_str.empty())
-                return Value{Value::Type::STRING, 0.0, s};
-            size_t start_pos = 0;
-            while((start_pos = s.find(old_str, start_pos)) != std::string::npos) {
-                s.replace(start_pos, old_str.length(), new_str);
-                start_pos += new_str.length();
-            }
+            Strings::replace_all(s, old_str, new_str);
             return Value{Value::Type::STRING, 0.0, s};
         }
         static Value func_lcase(Context& context, const std::vector<Value>& args) {
@@ -2875,7 +2879,7 @@ protected:
                         on_exitr_directive();
                         break;
                     }
-                    Strings::replace_words(line, "\\@", iteration_str);
+                    Strings::replace_all(line, "\\@", iteration_str);
                     expanded_lines.push_back(line);
                 }
             }
@@ -3300,6 +3304,8 @@ protected:
         
         AssemblyPhase(Context& context) : BasePolicy(context) {}
         virtual ~AssemblyPhase() = default;
+        
+        void set_memory_map(std::vector<uint8_t>* map) { m_memory_map = map; }
 
         virtual void on_initialize() override {
             this->reset_symbols_index();
@@ -3389,6 +3395,17 @@ protected:
         }
         virtual void on_assemble(std::vector<uint8_t> bytes, bool is_code) override {
             uint16_t current_addr = this->m_context.address.current_physical;
+            if (m_memory_map) {
+                for (size_t i = 0; i < bytes.size(); ++i) {
+                    size_t addr = (size_t)((current_addr + i) & 0xFFFF);
+                    if (addr < m_memory_map->size()) {
+                        if (is_code)
+                            (*m_memory_map)[addr] = (uint8_t)((i == 0) ? Map::Opcode : Map::Operand);
+                        else
+                            (*m_memory_map)[addr] = (uint8_t)Map::Data;
+                    }
+                }
+            }
             for (auto& byte : bytes)
                 this->m_context.memory->poke(this->m_context.address.current_physical++, byte);
             this->m_context.address.current_logical += bytes.size();
@@ -3412,6 +3429,7 @@ protected:
             }
         }
     private:
+        std::vector<uint8_t>* m_memory_map = nullptr;
         void update_symbol_index(const std::string& label) {
             std::string actual_name = this->get_absolute_symbol_name(label);
             auto it = this->m_context.symbols.map.find(actual_name);
@@ -3449,7 +3467,7 @@ protected:
             if (!std::isalpha(s[0]) && s[0] != '_' && s[0] != '.' && s[0] != '@' && s[0] != '?')
                 return false;
             for (char c : s) {
-                if (!std::isalnum(c) && c != '_' && c != '.' && c != '@' && c != '?')
+                if (!Strings::is_label_char(c))
                     return false;
             }
             return true;
@@ -3520,6 +3538,15 @@ protected:
         }
         bool match_imm16(const Operand& operand) const { 
             return (match(operand, OperandType::IMMEDIATE) || (match(operand, OperandType::STRING) && operand.str_val.length() == 1)) && operand.num_val >= -32768 && operand.num_val <= 65535; 
+        }
+        bool match_data8(const Operand& operand) const {
+            return match_imm8(operand) || (match(operand, OperandType::MEM_IMMEDIATE) && operand.num_val >= -128 && operand.num_val <= 255);
+        }
+        bool match_data16(const Operand& operand) const {
+            return match_imm16(operand) || (match(operand, OperandType::MEM_IMMEDIATE) && operand.num_val >= -32768 && operand.num_val <= 65535);
+        }
+        bool match_data_value(const Operand& operand) const {
+            return match(operand, OperandType::IMMEDIATE) || (match(operand, OperandType::STRING) && operand.str_val.length() == 1) || match(operand, OperandType::MEM_IMMEDIATE);
         }
         bool match_mem_imm16(const Operand& operand) const { return match(operand, OperandType::MEM_IMMEDIATE); }
         bool match_mem_reg16(const Operand& operand) const { return match(operand, OperandType::MEM_REG16); }
@@ -3881,7 +3908,7 @@ protected:
                     if (op.type == Operands::Operand::Type::STRING) {
                         for (char c : op.str_val)
                             bytes.push_back((uint8_t)c);
-                    } else if (this->match_imm8(op)) 
+                    } else if (this->match_data8(op)) 
                         bytes.push_back((uint8_t)op.num_val);
                     else
                         this->m_policy.context().assembler.report_error("Unsupported or out-of-range operand for DB: " + op.str_val);
@@ -3892,7 +3919,7 @@ protected:
             } else if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match_imm16(op)) {
+                    if (this->match_data16(op)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)(op.num_val >> 8));
                     } else
@@ -3904,7 +3931,7 @@ protected:
             } else if (mnemonic == "D24") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING) && op.str_val.length() == 1)) {
+                    if (this->match_data_value(op)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 8) & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
@@ -3917,7 +3944,7 @@ protected:
             } else if (mnemonic == "DWORD" || mnemonic == "DD" || mnemonic == "DEFD") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING) && op.str_val.length() == 1)) {
+                    if (this->match_data_value(op)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 8) & 0xFF));
                         bytes.push_back((uint8_t)((op.num_val >> 16) & 0xFF));
@@ -3949,7 +3976,7 @@ protected:
             } else if (mnemonic == "DQ") {
                 std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
-                    if (this->match(op, Operands::Operand::Type::IMMEDIATE) || (this->match(op, Operands::Operand::Type::STRING) && op.str_val.length() == 1)) {
+                    if (this->match_data_value(op)) {
                         uint64_t val = (uint64_t)(op.num_val);
                         for (int i = 0; i < 8; ++i)
                             bytes.push_back((uint8_t)((val >> (i*8)) & 0xFF));
@@ -3993,7 +4020,7 @@ protected:
                     if (this->match_string(op)) {
                         for (char c : op.str_val)
                             bytes.push_back((uint8_t)c);
-                    } else if (this->match_imm8(op))
+                    } else if (this->match_data8(op))
                         bytes.push_back((uint8_t)op.num_val);
                     else
                         this->m_policy.context().assembler.report_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
@@ -4004,9 +4031,9 @@ protected:
             } else if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
                 if (ops.empty() || ops.size() > 2)
                     this->m_policy.context().assembler.report_error(mnemonic + " requires 1 or 2 operands.");
-                if (!this->match_imm16(ops[0]))
+                if (!this->match_data16(ops[0]))
                     this->m_policy.context().assembler.report_error(mnemonic + " size must be a number.");
-                if (ops.size() == 2 && !this->match_imm8(ops[1]))
+                if (ops.size() == 2 && !this->match_data8(ops[1]))
                     this->m_policy.context().assembler.report_error(mnemonic + " fill value must be a number.");
                 size_t count = ops[0].num_val;
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
