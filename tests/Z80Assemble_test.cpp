@@ -102,9 +102,17 @@ void ASSERT_CODE_WITH_OPTS(const std::string& asm_code, const std::vector<uint8_
     }
 
     auto blocks = assembler.get_blocks();
+    
+    // Calculate total compiled size by summing up all blocks
     size_t compiled_size = 0;
-    if (!blocks.empty()) {
-        compiled_size = blocks[0].size;
+    if (!blocks.empty()) { 
+        // Only sum blocks that are contiguous from the start
+        uint16_t next_addr = blocks[0].start_address;
+        for (const auto& block : blocks) {
+            if (block.start_address != next_addr) break;
+            compiled_size += block.size;
+            next_addr += block.size;
+        }
     }
 
     if (compiled_size != expected_bytes.size()) {
@@ -155,7 +163,16 @@ void ASSERT_CODE_WITH_ASSEMBLER(Z80StandardBus& bus, Z80Assembler<Z80StandardBus
     }
 
     auto blocks = assembler.get_blocks();
-    size_t compiled_size = blocks.empty() ? 0 : blocks[0].size;
+    
+    size_t compiled_size = 0;
+    if (!blocks.empty()) {
+        uint16_t next_addr = blocks[0].start_address;
+        for (const auto& block : blocks) {
+            if (block.start_address != next_addr) break;
+            compiled_size += block.size;
+            next_addr += block.size;
+        }
+    }
 
     if (compiled_size != expected_bytes.size()) {
         std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
@@ -195,16 +212,31 @@ void ASSERT_BLOCKS(const std::string& asm_code, const std::map<uint16_t, std::ve
     }
 
     auto compiled_blocks = assembler.get_blocks();
+    
+    // Merge contiguous compiled blocks for comparison
+    std::vector<Z80Assembler<Z80StandardBus>::BlockInfo> merged_blocks;
+    if (!compiled_blocks.empty()) {
+        merged_blocks.push_back(compiled_blocks[0]);
+        for (size_t i = 1; i < compiled_blocks.size(); ++i) {
+            auto& last = merged_blocks.back();
+            const auto& curr = compiled_blocks[i];
+            if (last.start_address + last.size == curr.start_address) {
+                last.size += curr.size;
+            } else {
+                merged_blocks.push_back(curr);
+            }
+        }
+    }
 
-    if (compiled_blocks.size() != expected_blocks.size()) {
+    if (merged_blocks.size() != expected_blocks.size()) {
         std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
         std::cerr << "Assertion failed: Incorrect number of compiled blocks for '" << asm_code << "'.\n";
-        std::cerr << "  Expected: " << expected_blocks.size() << ", Got: " << compiled_blocks.size() << "\n";
+        std::cerr << "  Expected: " << expected_blocks.size() << ", Got: " << merged_blocks.size() << "\n";
         tests_failed++;
         return;
     }
 
-    for (const auto& compiled_block : compiled_blocks) {
+    for (const auto& compiled_block : merged_blocks) {
         uint16_t start_address = compiled_block.start_address;
         if (expected_blocks.find(start_address) == expected_blocks.end()) {
             std::cerr << "Failing code:\n---\n" << asm_code << "\n---\n";
@@ -1155,9 +1187,17 @@ TEST_CASE(LabelsAndExpressions) {
     assert(success && "Compilation with labels failed");
 
     auto blocks = assembler.get_blocks();
-    assert(blocks.size() == 1 && "Expected one code block");
-    assert(blocks[0].start_address == 0x100 && "Block should start at 0x100");
-    assert(blocks[0].size == expected.size() && "Incorrect compiled size");
+    
+    // Calculate total size of contiguous blocks
+    size_t total_size = 0;
+    if (!blocks.empty()) {
+        assert(blocks[0].start_address == 0x100 && "Block should start at 0x100");
+        for(const auto& b : blocks) total_size += b.size;
+    } else {
+        assert(false && "No blocks generated");
+    }
+
+    assert(total_size == expected.size() && "Incorrect compiled size");
 
     bool mismatch = false;
     for (size_t i = 0; i < expected.size(); ++i) {
@@ -2042,7 +2082,10 @@ TEST_CASE(IncludeDirective_Basic) {
 
     std::vector<uint8_t> expected = {0x3E, 0x05, 0x06, 0x0A, 0x80};
     auto blocks = assembler.get_blocks();
-    assert(blocks.size() == 1 && blocks[0].size == expected.size());
+    size_t total_size = 0;
+    for(const auto& b : blocks) total_size += b.size;
+    
+    assert(total_size == expected.size());
     bool mismatch = false;
     for(size_t i = 0; i < expected.size(); ++i) {
         if (bus.peek(i) != expected[i]) mismatch = true;
@@ -2063,7 +2106,10 @@ TEST_CASE(IncludeDirective_Nested) {
 
     std::vector<uint8_t> expected = {0x3E, 0x01, 0x06, 0x02};
     auto blocks = assembler.get_blocks();
-    assert(blocks.size() == 1 && blocks[0].size == expected.size());
+    size_t total_size = 0;
+    for(const auto& b : blocks) total_size += b.size;
+
+    assert(total_size == expected.size());
     bool mismatch = false;
     for(size_t i = 0; i < expected.size(); ++i) {
         if (bus.peek(i) != expected[i]) mismatch = true;
@@ -2100,7 +2146,10 @@ TEST_CASE(IncbinDirective) {
 
         std::vector<uint8_t> expected = {0xDE, 0xAD, 0xBE, 0xEF, 0x00};
         auto blocks = assembler.get_blocks();
-        assert(blocks.size() == 1 && blocks[0].start_address == 0x100 && blocks[0].size == expected.size());
+        size_t total_size = 0;
+        for(const auto& b : blocks) total_size += b.size;
+
+        assert(!blocks.empty() && blocks[0].start_address == 0x100 && total_size == expected.size());
         for(size_t i = 0; i < expected.size(); ++i) {
             if (bus.peek(0x100 + i) != expected[i]) {
                  assert(false && "Byte mismatch in basic INCBIN test");
@@ -3807,7 +3856,7 @@ public:
         if (!args.empty()) {
             static_cast<TestAssembler&>(policy.context().assembler).report_error("FOURTY_TWO does not take arguments");
         }
-        policy.on_assemble({42});
+        policy.on_assemble({42}, false);
     }
 
     static void fill_handler(IPhasePolicy& policy, const std::vector<typename Strings::Tokens::Token>& args) {
@@ -3820,7 +3869,7 @@ public:
             static_cast<TestAssembler&>(policy.context().assembler).report_error("Invalid arguments for FILL");
         }
         std::vector<uint8_t> bytes(count, (uint8_t)value);
-        policy.on_assemble(bytes);
+        policy.on_assemble(bytes, false);
     }
 };
 
@@ -4948,6 +4997,322 @@ TEST_CASE(EscapeSequencesHex) {
     ASSERT_CODE("DB \"\\x61B\"", {0x61, 'B'}); // 'a', 'B'
     ASSERT_CODE("DB \"\\x\"", {'x'}); // Invalid hex, treat as 'x'
     ASSERT_CODE("DB \"\\xG\"", {'x', 'G'}); // Invalid hex, treat as 'x', 'G'
+}
+
+TEST_CASE(BlockGeneration) {
+    std::string code = R"(
+        ORG 0x1000
+        NOP             ; Code (1 byte)
+        LD A, 0         ; Code (2 bytes)
+        DB 0x11         ; Data (1 byte)
+        DS 2            ; Data (2 bytes)
+        RET             ; Code (1 byte)
+        
+        ORG 0x2000
+        DW 0x1234       ; Data (2 bytes)
+    )";
+
+    Z80StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
+    
+    bool success = assembler.compile("main.asm");
+    if (!success) {
+        std::cerr << "BlockGeneration compilation failed\n";
+        tests_failed++;
+        return;
+    }
+
+    auto blocks = assembler.get_blocks();
+    
+    bool ok = true;
+    if (blocks.size() != 4) { std::cerr << "BlockGeneration: Expected 4 blocks, got " << blocks.size() << "\n"; ok = false; }
+    else {
+        if (blocks[0].start_address != 0x1000 || blocks[0].size != 3 || !blocks[0].is_code) { std::cerr << "Block 0 mismatch\n"; ok = false; }
+        if (blocks[1].start_address != 0x1003 || blocks[1].size != 3 || blocks[1].is_code) { std::cerr << "Block 1 mismatch\n"; ok = false; }
+        if (blocks[2].start_address != 0x1006 || blocks[2].size != 1 || !blocks[2].is_code) { std::cerr << "Block 2 mismatch\n"; ok = false; }
+        if (blocks[3].start_address != 0x2000 || blocks[3].size != 2 || blocks[3].is_code) { std::cerr << "Block 3 mismatch\n"; ok = false; }
+    }
+    
+    if (ok) tests_passed++; else tests_failed++;
+}
+
+TEST_CASE(BlockGeneration_ComplexAddresses) {
+    std::string code = R"(
+        ORG START_ADDR
+    
+    CODE_BLOCK_1:
+        LD HL, DATA_BLOCK
+        LD A, (DATA_BLOCK)
+        
+        ORG $ + GAP_SIZE
+        
+    DATA_BLOCK:
+        DB 0xAA, 0xBB
+        
+        ORG $ + GAP_SIZE
+        
+    CODE_BLOCK_2:
+        HALT
+        
+    START_ADDR EQU 0x2000
+    GAP_SIZE   EQU 0x10
+    )";
+
+    Z80StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
+    
+    bool success = assembler.compile("main.asm");
+    if (!success) {
+        std::cerr << "BlockGeneration_ComplexAddresses compilation failed\n";
+        tests_failed++;
+        return;
+    }
+
+    auto blocks = assembler.get_blocks();
+    
+    bool ok = true;
+    if (blocks.size() != 3) { std::cerr << "BlockGeneration_ComplexAddresses: Expected 3 blocks, got " << blocks.size() << "\n"; ok = false; }
+    else {
+        // Block 1: Code at 0x2000, size 6 (LD HL + LD A)
+        if (blocks[0].start_address != 0x2000 || blocks[0].size != 6 || !blocks[0].is_code) { 
+            std::cerr << "Block 0 mismatch: Addr=" << std::hex << blocks[0].start_address << " Size=" << std::dec << blocks[0].size << " Code=" << blocks[0].is_code << "\n"; 
+            ok = false; 
+        }
+        // Block 2: Data at 0x2016 (0x2006 + 0x10), size 2 (DB, DB)
+        if (blocks[1].start_address != 0x2016 || blocks[1].size != 2 || blocks[1].is_code) { 
+            std::cerr << "Block 1 mismatch: Addr=" << std::hex << blocks[1].start_address << " Size=" << std::dec << blocks[1].size << " Code=" << blocks[1].is_code << "\n"; 
+            ok = false; 
+        }
+        // Block 3: Code at 0x2028 (0x2018 + 0x10), size 1 (HALT)
+        if (blocks[2].start_address != 0x2028 || blocks[2].size != 1 || !blocks[2].is_code) { 
+            std::cerr << "Block 2 mismatch: Addr=" << std::hex << blocks[2].start_address << " Size=" << std::dec << blocks[2].size << " Code=" << blocks[2].is_code << "\n"; 
+            ok = false; 
+        }
+    }
+    
+    if (ok) tests_passed++; else tests_failed++;
+}
+
+TEST_CASE(BlockGeneration_MixedTypes) {
+    std::string code = R"(
+        ORG 0x1000
+        NOP             ; Code (1 byte)
+        DB 0x11         ; Data (1 byte)
+        LD A, 0         ; Code (2 bytes)
+        DW 0x1234       ; Data (2 bytes)
+        RET             ; Code (1 byte)
+        DS 2            ; Data (2 bytes)
+    )";
+
+    Z80StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
+    
+    bool success = assembler.compile("main.asm");
+    if (!success) {
+        std::cerr << "BlockGeneration_MixedTypes compilation failed\n";
+        tests_failed++;
+        return;
+    }
+
+    auto blocks = assembler.get_blocks();
+    
+    // Expected:
+    // 1. 0x1000, size 1, code (NOP)
+    // 2. 0x1001, size 1, data (DB)
+    // 3. 0x1002, size 2, code (LD A, 0)
+    // 4. 0x1004, size 2, data (DW)
+    // 5. 0x1006, size 1, code (RET)
+    // 6. 0x1007, size 2, data (DS)
+
+    bool ok = true;
+    if (blocks.size() != 6) { 
+        std::cerr << "BlockGeneration_MixedTypes: Expected 6 blocks, got " << blocks.size() << "\n"; 
+        ok = false; 
+    } else {
+        auto check_block = [&](int idx, uint16_t addr, uint16_t size, bool is_code) {
+            if (blocks[idx].start_address != addr || blocks[idx].size != size || blocks[idx].is_code != is_code) {
+                std::cerr << "Block " << idx << " mismatch: "
+                          << "Addr=" << std::hex << blocks[idx].start_address << " (Exp: " << addr << "), "
+                          << "Size=" << std::dec << blocks[idx].size << " (Exp: " << size << "), "
+                          << "Code=" << blocks[idx].is_code << " (Exp: " << is_code << ")\n";
+                return false;
+            }
+            return true;
+        };
+
+        if (!check_block(0, 0x1000, 1, true)) ok = false;
+        if (!check_block(1, 0x1001, 1, false)) ok = false;
+        if (!check_block(2, 0x1002, 2, true)) ok = false;
+        if (!check_block(3, 0x1004, 2, false)) ok = false;
+        if (!check_block(4, 0x1006, 1, true)) ok = false;
+        if (!check_block(5, 0x1007, 2, false)) ok = false;
+    }
+    
+    if (ok) tests_passed++; else tests_failed++;
+}
+
+TEST_CASE(BlockGeneration_Directives) {
+    std::string code = R"(
+        ORG 0x1000
+        NOP             ; Code (1 byte) at 0x1000
+        ALIGN 4         ; Data (padding 3 bytes: 0x1001, 0x1002, 0x1003) -> Next 0x1004
+        LD A, 0         ; Code (2 bytes) at 0x1004
+    )";
+
+    Z80StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
+    
+    bool success = assembler.compile("main.asm");
+    if (!success) {
+        std::cerr << "BlockGeneration_Directives compilation failed\n";
+        tests_failed++;
+        return;
+    }
+
+    auto blocks = assembler.get_blocks();
+    
+    // Expected:
+    // 1. 0x1000, size 1, code (NOP)
+    // 2. 0x1001, size 3, data (ALIGN padding)
+    // 3. 0x1004, size 2, code (LD A, 0)
+
+    bool ok = true;
+    if (blocks.size() != 3) { 
+        std::cerr << "BlockGeneration_Directives: Expected 3 blocks, got " << blocks.size() << "\n"; 
+        ok = false; 
+    } else {
+        auto check_block = [&](int idx, uint16_t addr, uint16_t size, bool is_code) {
+            if (blocks[idx].start_address != addr || blocks[idx].size != size || blocks[idx].is_code != is_code) {
+                std::cerr << "Block " << idx << " mismatch: "
+                          << "Addr=" << std::hex << blocks[idx].start_address << " (Exp: " << addr << "), "
+                          << "Size=" << std::dec << blocks[idx].size << " (Exp: " << size << "), "
+                          << "Code=" << blocks[idx].is_code << " (Exp: " << is_code << ")\n";
+                return false;
+            }
+            return true;
+        };
+
+        if (!check_block(0, 0x1000, 1, true)) ok = false;
+        if (!check_block(1, 0x1001, 3, false)) ok = false;
+        if (!check_block(2, 0x1004, 2, true)) ok = false;
+    }
+    
+    if (ok) tests_passed++; else tests_failed++;
+}
+
+TEST_CASE(BlockGeneration_Macros) {
+    std::string code = R"(
+        MIXED MACRO
+            NOP         ; Code (1)
+            DB 0xAA     ; Data (1)
+            RET         ; Code (1)
+        ENDM
+        
+        ORG 0x1000
+        MIXED
+    )";
+
+    Z80StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
+    
+    bool success = assembler.compile("main.asm");
+    if (!success) {
+        std::cerr << "BlockGeneration_Macros compilation failed\n";
+        tests_failed++;
+        return;
+    }
+
+    auto blocks = assembler.get_blocks();
+    
+    // Expected:
+    // 1. 0x1000, size 1, code (NOP)
+    // 2. 0x1001, size 1, data (DB)
+    // 3. 0x1002, size 1, code (RET)
+
+    bool ok = true;
+    if (blocks.size() != 3) { 
+        std::cerr << "BlockGeneration_Macros: Expected 3 blocks, got " << blocks.size() << "\n"; 
+        ok = false; 
+    } else {
+        auto check_block = [&](int idx, uint16_t addr, uint16_t size, bool is_code) {
+            if (blocks[idx].start_address != addr || blocks[idx].size != size || blocks[idx].is_code != is_code) {
+                std::cerr << "Block " << idx << " mismatch: "
+                          << "Addr=" << std::hex << blocks[idx].start_address << " (Exp: " << addr << "), "
+                          << "Size=" << std::dec << blocks[idx].size << " (Exp: " << size << "), "
+                          << "Code=" << blocks[idx].is_code << " (Exp: " << is_code << ")\n";
+                return false;
+            }
+            return true;
+        };
+
+        if (!check_block(0, 0x1000, 1, true)) ok = false;
+        if (!check_block(1, 0x1001, 1, false)) ok = false;
+        if (!check_block(2, 0x1002, 1, true)) ok = false;
+    }
+    
+    if (ok) tests_passed++; else tests_failed++;
+}
+
+TEST_CASE(BlockGeneration_Incbin) {
+    std::string code = R"(
+        ORG 0x1000
+        NOP             ; Code (1)
+        INCBIN "data.bin" ; Data (4)
+        RET             ; Code (1)
+    )";
+
+    Z80StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    file_provider.add_binary_source("data.bin", {0x11, 0x22, 0x33, 0x44});
+    Z80Assembler<Z80StandardBus> assembler(&bus, &file_provider);
+    
+    bool success = assembler.compile("main.asm");
+    if (!success) {
+        std::cerr << "BlockGeneration_Incbin compilation failed\n";
+        tests_failed++;
+        return;
+    }
+
+    auto blocks = assembler.get_blocks();
+    
+    // Expected:
+    // 1. 0x1000, size 1, code
+    // 2. 0x1001, size 4, data
+    // 3. 0x1005, size 1, code
+
+    bool ok = true;
+    if (blocks.size() != 3) { 
+        std::cerr << "BlockGeneration_Incbin: Expected 3 blocks, got " << blocks.size() << "\n"; 
+        ok = false; 
+    } else {
+        auto check_block = [&](int idx, uint16_t addr, uint16_t size, bool is_code) {
+            if (blocks[idx].start_address != addr || blocks[idx].size != size || blocks[idx].is_code != is_code) {
+                std::cerr << "Block " << idx << " mismatch: "
+                          << "Addr=" << std::hex << blocks[idx].start_address << " (Exp: " << addr << "), "
+                          << "Size=" << std::dec << blocks[idx].size << " (Exp: " << size << "), "
+                          << "Code=" << blocks[idx].is_code << " (Exp: " << is_code << ")\n";
+                return false;
+            }
+            return true;
+        };
+
+        if (!check_block(0, 0x1000, 1, true)) ok = false;
+        if (!check_block(1, 0x1001, 4, false)) ok = false;
+        if (!check_block(2, 0x1005, 1, true)) ok = false;
+    }
+    
+    if (ok) tests_passed++; else tests_failed++;
 }
 
 int main() {

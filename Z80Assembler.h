@@ -523,6 +523,7 @@ public:
     struct BlockInfo {
         uint16_t start_address;
         uint16_t size;
+        bool is_code;
     };
     struct SourceLine {
         std::string file_path;
@@ -2356,7 +2357,7 @@ protected:
         virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
         virtual void on_source_line_begin() = 0;
         virtual void on_source_line_end() = 0;
-        virtual void on_assemble(std::vector<uint8_t> bytes) = 0;
+        virtual void on_assemble(std::vector<uint8_t> bytes, bool is_code) = 0;
     };
     void add_custom_directive(const std::string& name, std::function<void(IPhasePolicy&, const std::vector<typename Strings::Tokens::Token>&)> func) {
         std::string upper_name = name;
@@ -2452,7 +2453,7 @@ protected:
             if (!this->m_context.assembler.m_config.directives.allow_incbin) return;
             std::vector<uint8_t> data;
             if (this->m_context.source_provider->read_file(filename, data))
-                on_assemble(data);
+                on_assemble(data, false);
             else
                 m_context.assembler.report_error("Could not open file for INCBIN: " + filename);
         }
@@ -2850,7 +2851,7 @@ protected:
         }
         virtual void on_source_line_begin() override {}
         virtual void on_source_line_end() override {}
-        virtual void on_assemble(std::vector<uint8_t> bytes) override {}
+        virtual void on_assemble(std::vector<uint8_t> bytes, bool is_code) override {}
         virtual bool on_repeat_recording(const std::string& line) override {
             if (!m_context.repeat.stack.empty()) {
                 m_context.repeat.stack.back().body.push_back(line);
@@ -3089,7 +3090,7 @@ protected:
                 uint16_t current_addr = this->m_context.address.current_logical;
                 uint16_t new_addr = (current_addr + align_val - 1) & ~(align_val - 1);
                 for (uint16_t i = current_addr; i < new_addr; ++i)
-                    on_assemble({0x00});
+                    on_assemble({0x00}, false);
             } else {
                 if (stop_on_evaluate_error)
                     m_context.assembler.report_error("Invalid ALIGN expression: " + boundary);
@@ -3233,7 +3234,7 @@ protected:
         virtual void on_align_directive(const std::string& boundary) override {
             BasePolicy::on_align_directive(boundary, false);
         }
-        virtual void on_assemble(std::vector<uint8_t> bytes) override {
+        virtual void on_assemble(std::vector<uint8_t> bytes, bool is_code) override {
             size_t size = bytes.size();
             this->m_context.address.current_logical += size;
             this->m_context.address.current_physical += size;
@@ -3310,13 +3311,10 @@ protected:
         virtual void on_pass_begin() override {
             BasePolicy::on_pass_begin();
             this->m_context.symbols.last_global_label.clear();
-            m_blocks.push_back({this->m_context.address.start, 0});
+            m_blocks.clear();
         }
         virtual bool on_pass_end() override {
-            for (auto& block : m_blocks) {
-                if (block.second != 0)
-                    this->m_context.results.blocks_table.push_back({block.first, block.second});
-            }
+            this->m_context.results.blocks_table = m_blocks;
             return true;
         }
         virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
@@ -3352,7 +3350,6 @@ protected:
             if (expression.evaluate(label, addr)) {
                 this->m_context.address.current_logical = addr;
                 this->m_context.address.current_physical = addr;
-                this->m_blocks.push_back({addr, 0});
             }
             else
                 this->m_context.assembler.report_error("Invalid ORG expression: " + label);
@@ -3390,13 +3387,17 @@ protected:
         virtual void on_align_directive(const std::string& boundary) override {
             BasePolicy::on_align_directive(boundary, true);
         }
-        virtual void on_assemble(std::vector<uint8_t> bytes) override {
+        virtual void on_assemble(std::vector<uint8_t> bytes, bool is_code) override {
+            uint16_t current_addr = this->m_context.address.current_physical;
             for (auto& byte : bytes)
                 this->m_context.memory->poke(this->m_context.address.current_physical++, byte);
             this->m_context.address.current_logical += bytes.size();
-            if (this->m_blocks.empty())
-                this->m_context.assembler.report_error("Invalid code block.");
-            this->m_blocks.back().second += bytes.size();
+            if (m_blocks.empty() || 
+                m_blocks.back().start_address + m_blocks.back().size != current_addr ||
+                m_blocks.back().is_code != is_code) {
+                m_blocks.push_back({current_addr, (uint16_t)bytes.size(), is_code});
+            } else
+                m_blocks.back().size += bytes.size();
         }
         virtual void on_source_line_begin() override {
             m_line_start_address = this->m_context.address.current_logical;
@@ -3420,7 +3421,7 @@ protected:
                     symbol->index++;
             }
         };
-        std::vector<std::pair<uint16_t, uint16_t>> m_blocks;
+        std::vector<BlockInfo> m_blocks;
         uint16_t m_line_start_address = 0;
     };
     class Keywords {
@@ -3869,7 +3870,7 @@ protected:
                 match = this->m_policy.on_operand_not_matching(operand, expected);
             return match;
         }
-        void assemble(std::vector<uint8_t> bytes) { this->m_policy.on_assemble(bytes);}
+        void assemble(std::vector<uint8_t> bytes, bool is_code) { this->m_policy.on_assemble(bytes, is_code);}
         bool encode_data_block(const std::string& mnemonic, const std::vector<typename Operands::Operand>& ops) {
             const auto& directive_options = this->m_policy.context().assembler.m_config.directives;
             if (!directive_options.enabled || !directive_options.allow_data_definitions)
@@ -3886,7 +3887,7 @@ protected:
                         this->m_policy.context().assembler.report_error("Unsupported or out-of-range operand for DB: " + op.str_val);
                 }
                 if (!bytes.empty())
-                    assemble(bytes);
+                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
                 std::vector<uint8_t> bytes;
@@ -3898,7 +3899,7 @@ protected:
                         this->m_policy.context().assembler.report_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 if (!bytes.empty())
-                    assemble(bytes);
+                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "D24") {
                 std::vector<uint8_t> bytes;
@@ -3911,7 +3912,7 @@ protected:
                         this->m_policy.context().assembler.report_error("Unsupported operand for D24: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 if (!bytes.empty())
-                    assemble(bytes);
+                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DWORD" || mnemonic == "DD" || mnemonic == "DEFD") {
                 std::vector<uint8_t> bytes;
@@ -3925,7 +3926,7 @@ protected:
                         this->m_policy.context().assembler.report_error("Unsupported operand for DWORD/DD/DEFD: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 if (!bytes.empty())
-                    assemble(bytes);
+                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DC") {
                 std::vector<uint8_t> bytes;
@@ -3943,7 +3944,7 @@ protected:
                         this->m_policy.context().assembler.report_error("Unsupported operand for DC: " + op.str_val);
                 }
                 if (!bytes.empty())
-                    assemble(bytes);
+                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DQ") {
                 std::vector<uint8_t> bytes;
@@ -3956,7 +3957,7 @@ protected:
                         this->m_policy.context().assembler.report_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
                 if (!bytes.empty())
-                    assemble(bytes);
+                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DH" || mnemonic == "HEX" || mnemonic == "DEFH") {
                 if (ops.empty())
@@ -3982,7 +3983,7 @@ protected:
                         bytes.push_back(byte_val);
                     }
                 }
-                if (!bytes.empty()) assemble(bytes);
+                if (!bytes.empty()) assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DZ" || mnemonic == "ASCIZ") {
                 if (ops.empty())
@@ -3998,7 +3999,7 @@ protected:
                         this->m_policy.context().assembler.report_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
                 }
                 bytes.push_back(0x00);
-                assemble(bytes);
+                assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
                 if (ops.empty() || ops.size() > 2)
@@ -4010,7 +4011,7 @@ protected:
                 size_t count = ops[0].num_val;
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
                 std::vector<uint8_t> bytes(count, fill_value);
-                assemble(bytes);
+                assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DG" || mnemonic == "DEFG") {
                 std::vector<uint8_t> bytes;
@@ -4034,211 +4035,211 @@ protected:
                     }
                 }
                 if (!bytes.empty())
-                    assemble(bytes);
+                    assemble(bytes, false);
                 return true;
             }
             return false;
         }
         bool encode_no_operand(const std::string& mnemonic) {
             if (mnemonic == "NOP") {
-                assemble({0x00});
+                assemble({0x00}, true);
                 return true;
             }
             if (mnemonic == "HALT") {
-                assemble({0x76});
+                assemble({0x76}, true);
                 return true;
             }
             if (mnemonic == "DI") {
-                assemble({0xF3});
+                assemble({0xF3}, true);
                 return true;
             }
             if (mnemonic == "EI") {
-                assemble({0xFB});
+                assemble({0xFB}, true);
                 return true;
             }
             if (mnemonic == "EXX") {
-                assemble({0xD9});
+                assemble({0xD9}, true);
                 return true;
             }
             if (mnemonic == "RET") {
-                assemble({0xC9});
+                assemble({0xC9}, true);
                 return true;
             }
             if (mnemonic == "RETI") {
-                assemble({0xED, 0x4D});
+                assemble({0xED, 0x4D}, true);
                 return true;
             }
             if (mnemonic == "RETN") {
-                assemble({0xED, 0x45});
+                assemble({0xED, 0x45}, true);
                 return true;
             }
             if (mnemonic == "RLCA") {
-                assemble({0x07});
+                assemble({0x07}, true);
                 return true;
             }
             if (mnemonic == "RRCA") {
-                assemble({0x0F});
+                assemble({0x0F}, true);
                 return true;
             }
             if (mnemonic == "RLD") {
-                assemble({0xED, 0x6F});
+                assemble({0xED, 0x6F}, true);
                 return true;
             }
             if (mnemonic == "RRD") {
-                assemble({0xED, 0x67});
+                assemble({0xED, 0x67}, true);
                 return true;
             }
             if (mnemonic == "RLA") {
-                assemble({0x17});
+                assemble({0x17}, true);
                 return true;
             }
             if (mnemonic == "RRA") {
-                assemble({0x1F});
+                assemble({0x1F}, true);
                 return true;
             }
             if (mnemonic == "RLD") {
-                assemble({0xED, 0x6F});
+                assemble({0xED, 0x6F}, true);
                 return true;
             }
             if (mnemonic == "RRD") {
-                assemble({0xED, 0x67});
+                assemble({0xED, 0x67}, true);
                 return true;
             }
             if (mnemonic == "DAA") {
-                assemble({0x27});
+                assemble({0x27}, true);
                 return true;
             }
             if (mnemonic == "CPL") {
-                assemble({0x2F});
+                assemble({0x2F}, true);
                 return true;
             }
             if (mnemonic == "SCF") {
-                assemble({0x37});
+                assemble({0x37}, true);
                 return true;
             }
             if (mnemonic == "CCF") {
-                assemble({0x3F});
+                assemble({0x3F}, true);
                 return true;
             }
             if (mnemonic == "LDI") {
-                assemble({0xED, 0xA0});
+                assemble({0xED, 0xA0}, true);
                 return true;
             }
             if (mnemonic == "CPI") {
-                assemble({0xED, 0xA1});
+                assemble({0xED, 0xA1}, true);
                 return true;
             }
             if (mnemonic == "INI") {
-                assemble({0xED, 0xA2});
+                assemble({0xED, 0xA2}, true);
                 return true;
             }
             if (mnemonic == "OUTI") {
-                assemble({0xED, 0xA3});
+                assemble({0xED, 0xA3}, true);
                 return true;
             }
             if (mnemonic == "LDD") {
-                assemble({0xED, 0xA8});
+                assemble({0xED, 0xA8}, true);
                 return true;
             }
             if (mnemonic == "CPD") {
-                assemble({0xED, 0xA9});
+                assemble({0xED, 0xA9}, true);
                 return true;
             }
             if (mnemonic == "IND") {
-                assemble({0xED, 0xAA});
+                assemble({0xED, 0xAA}, true);
                 return true;
             }
             if (mnemonic == "OUTD") {
-                assemble({0xED, 0xAB});
+                assemble({0xED, 0xAB}, true);
                 return true;
             }
             if (mnemonic == "LDIR") {
-                assemble({0xED, 0xB0});
+                assemble({0xED, 0xB0}, true);
                 return true;
             }
             if (mnemonic == "NEG") {
-                assemble({0xED, 0x44});
+                assemble({0xED, 0x44}, true);
                 return true;
             }
             if (mnemonic == "CPIR") {
-                assemble({0xED, 0xB1});
+                assemble({0xED, 0xB1}, true);
                 return true;
             }
             if (mnemonic == "INIR") {
-                assemble({0xED, 0xB2});
+                assemble({0xED, 0xB2}, true);
                 return true;
             }
             if (mnemonic == "OTIR") {
-                assemble({0xED, 0xB3});
+                assemble({0xED, 0xB3}, true);
                 return true;
             }
             if (mnemonic == "LDDR") {
-                assemble({0xED, 0xB8});
+                assemble({0xED, 0xB8}, true);
                 return true;
             }
             if (mnemonic == "CPDR") {
-                assemble({0xED, 0xB9});
+                assemble({0xED, 0xB9}, true);
                 return true;
             }
             if (mnemonic == "INDR") {
-                assemble({0xED, 0xBA});
+                assemble({0xED, 0xBA}, true);
                 return true;
             }
             if (mnemonic == "OTDR") {
-                assemble({0xED, 0xBB});
+                assemble({0xED, 0xBB}, true);
                 return true;
             }
             if (check_z80n() && mnemonic == "LDIRSCALE") {
-                assemble({0xED, 0xB6});
+                assemble({0xED, 0xB6}, true);
                 return true;
             }
             if (check_z80n()) {
                 if (mnemonic == "SWAPNIB") {
-                    assemble({0xED, 0x23});
+                    assemble({0xED, 0x23}, true);
                     return true;
                 }
                 if (mnemonic == "MIRROR") {
-                    assemble({0xED, 0x24});
+                    assemble({0xED, 0x24}, true);
                     return true;
                 }
                 if (mnemonic == "OUTINB") {
-                    assemble({0xED, 0x90});
+                    assemble({0xED, 0x90}, true);
                     return true;
                 }
                 if (mnemonic == "PIXELAD") {
-                    assemble({0xED, 0x93});
+                    assemble({0xED, 0x93}, true);
                     return true;
                 }
                 if (mnemonic == "PIXELDN") {
-                    assemble({0xED, 0x94});
+                    assemble({0xED, 0x94}, true);
                     return true;
                 }
                 if (mnemonic == "SETAE") {
-                    assemble({0xED, 0x95});
+                    assemble({0xED, 0x95}, true);
                     return true;
                 }
                 if (mnemonic == "LDIX") {
-                    assemble({0xED, 0xA4});
+                    assemble({0xED, 0xA4}, true);
                     return true;
                 }
                 if (mnemonic == "LDWS") {
-                    assemble({0xED, 0xA5});
+                    assemble({0xED, 0xA5}, true);
                     return true;
                 }
                 if (mnemonic == "LDDX") {
-                    assemble({0xED, 0xAC});
+                    assemble({0xED, 0xAC}, true);
                     return true;
                 }
                 if (mnemonic == "LDIRX") {
-                    assemble({0xED, 0xB4});
+                    assemble({0xED, 0xB4}, true);
                     return true;
                 }
                 if (mnemonic == "LDPIRX") {
-                    assemble({0xED, 0xB7});
+                    assemble({0xED, 0xB7}, true);
                     return true;
                 }
                 if (mnemonic == "LDDRX") {
-                    assemble({0xED, 0xBC});
+                    assemble({0xED, 0xBC}, true);
                     return true;
                 }
             }
@@ -4247,76 +4248,76 @@ protected:
         bool encode_one_operand(const std::string& mnemonic, const typename Operands::Operand& op) {
             if (mnemonic == "PUSH" && this->match_reg16(op)) {
                 if (reg16_af_map().count(op.str_val)) {
-                    assemble({(uint8_t)(0xC5 | (reg16_af_map().at(op.str_val) << 4))});
+                    assemble({(uint8_t)(0xC5 | (reg16_af_map().at(op.str_val) << 4))}, true);
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble({0xDD, 0xE5});
+                    assemble({0xDD, 0xE5}, true);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble({0xFD, 0xE5});
+                    assemble({0xFD, 0xE5}, true);
                     return true;
                 }
             }
             if (mnemonic == "POP" && this->match_reg16(op)) {
                 if (reg16_af_map().count(op.str_val)) {
-                    assemble({(uint8_t)(0xC1 | (reg16_af_map().at(op.str_val) << 4))});
+                    assemble({(uint8_t)(0xC1 | (reg16_af_map().at(op.str_val) << 4))}, true);
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble({0xDD, 0xE1});
+                    assemble({0xDD, 0xE1}, true);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble({0xFD, 0xE1});
+                    assemble({0xFD, 0xE1}, true);
                     return true;
                 }
             }
             if (mnemonic == "PUSH" && this->match_imm16(op)) {
                 if (!check_z80n())
                     return false;
-                assemble({0xED, 0x8A, (uint8_t)(op.num_val >> 8), (uint8_t)(op.num_val & 0xFF)});
+                assemble({0xED, 0x8A, (uint8_t)(op.num_val >> 8), (uint8_t)(op.num_val & 0xFF)}, true);
                 return true;
             }
             if (mnemonic == "INC" && this->match_reg16(op)) {
                 if (reg16_map().count(op.str_val)) {
-                    assemble({(uint8_t)(0x03 | (reg16_map().at(op.str_val) << 4))});
+                    assemble({(uint8_t)(0x03 | (reg16_map().at(op.str_val) << 4))}, true);
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble({0xDD, 0x23});
+                    assemble({0xDD, 0x23}, true);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble({0xFD, 0x23});
+                    assemble({0xFD, 0x23}, true);
                     return true;
                 }
             }
             if (mnemonic == "DEC" && this->match_reg16(op)) {
                 if (reg16_map().count(op.str_val)) {
-                    assemble({(uint8_t)(0x0B | (reg16_map().at(op.str_val) << 4))});
+                    assemble({(uint8_t)(0x0B | (reg16_map().at(op.str_val) << 4))}, true);
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble({0xDD, 0x2B});
+                    assemble({0xDD, 0x2B}, true);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble({0xFD, 0x2B});
+                    assemble({0xFD, 0x2B}, true);
                     return true;
                 }
             }
             if (mnemonic == "INC" && this->match_mem_reg16(op) && op.str_val == "HL") {
-                assemble({0x34});
+                assemble({0x34}, true);
                 return true;
             }
             if (mnemonic == "SUB" && this->match_imm8(op)) {
-                assemble({0xD6, (uint8_t)op.num_val});
+                assemble({0xD6, (uint8_t)op.num_val}, true);
                 return true;
             }
             if (mnemonic == "DEC" && this->match_mem_reg16(op) && op.str_val == "HL") {
-                assemble({0x35});
+                assemble({0x35}, true);
                 return true;
             }
             if ((mnemonic == "INC" || mnemonic == "DEC") && this->match_mem_indexed(op)) {
@@ -4328,7 +4329,7 @@ protected:
                 else
                     return false;
                 uint8_t opcode = (mnemonic == "INC") ? 0x34 : 0x35;
-                assemble({prefix, opcode, (uint8_t)((int8_t)op.offset)});
+                assemble({prefix, opcode, (uint8_t)((int8_t)op.offset)}, true);
                 return true;
             }
             if (mnemonic == "INC" && this->match_reg8(op)) {
@@ -4337,10 +4338,10 @@ protected:
                         return false;
                     uint8_t prefix = (op.str_val.find("IX") != std::string::npos) ? 0xDD : 0xFD;
                     uint8_t opcode = (op.str_val.back() == 'H') ? 0x24 : 0x2C; // INC H or INC L
-                    assemble({prefix, opcode});
+                    assemble({prefix, opcode}, true);
                     return true;
                 }
-                assemble({(uint8_t)(0x04 | (reg8_map().at(op.str_val) << 3))});
+                assemble({(uint8_t)(0x04 | (reg8_map().at(op.str_val) << 3))}, true);
                 return true;
             }
             if (mnemonic == "DEC" && this->match_reg8(op)) {
@@ -4349,34 +4350,34 @@ protected:
                         return false;
                     uint8_t prefix = (op.str_val.find("IX") != std::string::npos) ? 0xDD : 0xFD;
                     uint8_t opcode = (op.str_val.back() == 'H') ? 0x25 : 0x2D; // DEC H or DEC L
-                    assemble({prefix, opcode});
+                    assemble({prefix, opcode}, true);
                     return true;
                 }
-                assemble({(uint8_t)(0x05 | (reg8_map().at(op.str_val) << 3))});
+                assemble({(uint8_t)(0x05 | (reg8_map().at(op.str_val) << 3))}, true);
                 return true;
             }
             if (mnemonic == "JP" && this->match_imm16(op)) {
                 int32_t target_addr = op.num_val;
-                assemble({0xC3, (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
+                assemble({0xC3, (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)}, true);
                 return true;
             }
             if (mnemonic == "JP" && this->match_mem_reg16(op) && op.str_val == "C") {
                 if (!check_z80n())
                     return false;
-                assemble({0xED, 0x98});
+                assemble({0xED, 0x98}, true);
                 return true;
             }
             if (mnemonic == "JP" && this->match(op, Operands::Operand::Type::MEM_REG16)) {
                 if (op.str_val == "HL") {
-                    assemble({0xE9});
+                    assemble({0xE9}, true);
                     return true;
                 }
                 if (op.str_val == "IX") {
-                    assemble({0xDD, 0xE9});
+                    assemble({0xDD, 0xE9}, true);
                     return true;
                 }
                 if (op.str_val == "IY") {
-                    assemble({0xFD, 0xE9});
+                    assemble({0xFD, 0xE9}, true);
                     return true;
                 }
             }
@@ -4389,35 +4390,35 @@ protected:
                     if (offset < -128 || offset > 127)
                         this->m_policy.on_jump_out_of_range(mnemonic, offset);
                 }
-                assemble({0x18, (uint8_t)(offset)});
+                assemble({0x18, (uint8_t)(offset)}, true);
                 return true;
             }
             if (mnemonic == "ADD" && this->match_imm8(op)) {
-                assemble({0xC6, (uint8_t)op.num_val});
+                assemble({0xC6, (uint8_t)op.num_val}, true);
                 return true;
             }
             if (mnemonic == "ADC" && this->match_imm8(op)) {
-                assemble({0xCE, (uint8_t)op.num_val});
+                assemble({0xCE, (uint8_t)op.num_val}, true);
                 return true;
             }
             if (mnemonic == "SBC" && this->match_imm8(op)) {
-                assemble({0xDE, (uint8_t)op.num_val});
+                assemble({0xDE, (uint8_t)op.num_val}, true);
                 return true;
             }
             if (mnemonic == "AND" && this->match_imm8(op)) {
-                assemble({0xE6, (uint8_t)op.num_val});
+                assemble({0xE6, (uint8_t)op.num_val}, true);
                 return true;
             }
             if (mnemonic == "XOR" && this->match_imm8(op)) {
-                assemble({0xEE, (uint8_t)op.num_val});
+                assemble({0xEE, (uint8_t)op.num_val}, true);
                 return true;
             }
             if (mnemonic == "OR" && this->match_imm8(op)) {
-                assemble({0xF6, (uint8_t)op.num_val});
+                assemble({0xF6, (uint8_t)op.num_val}, true);
                 return true;
             }
             if (mnemonic == "CP" && this->match_imm8(op)) {
-                assemble({0xFE, (uint8_t)op.num_val});
+                assemble({0xFE, (uint8_t)op.num_val}, true);
                 return true;
             }
             if (mnemonic == "DJNZ" && this->match_imm16(op)) {
@@ -4429,7 +4430,7 @@ protected:
                     if (offset < -128 || offset > 127)
                         this->m_policy.on_jump_out_of_range(mnemonic, offset);
                 }
-                assemble({0x10, (uint8_t)(offset)});
+                assemble({0x10, (uint8_t)(offset)}, true);
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
@@ -4452,13 +4453,13 @@ protected:
                 else if (mnemonic == "CP")
                     base_opcode = 0xBE;
                 if (op.base_reg == "IX")
-                    assemble({0xDD, base_opcode, (uint8_t)((int8_t)op.offset)});
+                    assemble({0xDD, base_opcode, (uint8_t)((int8_t)op.offset)}, true);
                 else if (op.base_reg == "IY")
-                    assemble({0xFD, base_opcode, (uint8_t)((int8_t)op.offset)});
+                    assemble({0xFD, base_opcode, (uint8_t)((int8_t)op.offset)}, true);
                 return true;
             }
             if (mnemonic == "CALL" && this->match_imm16(op)) {
-                assemble({0xCD, (uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8)});
+                assemble({0xCD, (uint8_t)(op.num_val & 0xFF), (uint8_t)(op.num_val >> 8)}, true);
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
@@ -4493,56 +4494,56 @@ protected:
                 else if (op.str_val.find("IY") != std::string::npos)
                     prefix = 0xFD;
                 if (prefix)
-                    assemble({prefix, (uint8_t)(base_opcode | reg_code)});
+                    assemble({prefix, (uint8_t)(base_opcode | reg_code)}, true);
                 else
-                    assemble({(uint8_t)(base_opcode | reg_code)});
+                    assemble({(uint8_t)(base_opcode | reg_code)}, true);
                 return true;
             }
             if (mnemonic == "RET" && this->match_condition(op)) {
                 if (condition_map().count(op.str_val)) {
                     uint8_t cond_code = condition_map().at(op.str_val);
-                    assemble({(uint8_t)(0xC0 | (cond_code << 3))});
+                    assemble({(uint8_t)(0xC0 | (cond_code << 3))}, true);
                     return true;
                 }
             }
             if (mnemonic == "IM" && this->match_imm8(op)) {
                 switch (op.num_val) {
                 case 0:
-                    assemble({0xED, 0x46});
+                    assemble({0xED, 0x46}, true);
                     return true;
                 case 1:
-                    assemble({0xED, 0x56});
+                    assemble({0xED, 0x56}, true);
                     return true;
                 case 2:
-                    assemble({0xED, 0x5E});
+                    assemble({0xED, 0x5E}, true);
                     return true;
                 }
             }
             if (mnemonic == "RST" && this->match_imm8(op)) {
                 switch (op.num_val) {
                     case 0x00:
-                        assemble({0xC7});
+                        assemble({0xC7}, true);
                         return true;
                     case 0x08:
-                        assemble({0xCF});
+                        assemble({0xCF}, true);
                         return true;
                     case 0x10:
-                        assemble({0xD7});
+                        assemble({0xD7}, true);
                         return true;
                     case 0x18:
-                        assemble({0xDF});
+                        assemble({0xDF}, true);
                         return true;
                     case 0x20:
-                        assemble({0xE7});
+                        assemble({0xE7}, true);
                         return true;
                     case 0x28:
-                        assemble({0xEF});
+                        assemble({0xEF}, true);
                         return true;
                     case 0x30:
-                        assemble({0xF7});
+                        assemble({0xF7}, true);
                         return true;
                     case 0x38:
-                        assemble({0xFF});
+                        assemble({0xFF}, true);
                         return true;
                 }
             }
@@ -4560,23 +4561,23 @@ protected:
                         reg_code = reg8_map().at("(HL)");
                     else
                         reg_code = reg8_map().at(op.str_val);
-                    assemble({0xCB, (uint8_t)(base_opcode | reg_code)});
+                    assemble({0xCB, (uint8_t)(base_opcode | reg_code)}, true);
                     return true;
                 }
                 if (this->match_mem_indexed(op)) {
                     uint8_t base_opcode = rotate_shift_map.at(mnemonic);
                     uint8_t prefix = (op.base_reg == "IX") ? 0xDD : 0xFD;
-                    assemble({prefix, 0xCB, (uint8_t)((int8_t)op.offset), (uint8_t)(base_opcode | 6)});
+                    assemble({prefix, 0xCB, (uint8_t)((int8_t)op.offset), (uint8_t)(base_opcode | 6)}, true);
                     return true;
                 }
             }
             if (mnemonic == "IN" && op.type == Operands::Operand::Type::MEM_REG16 && op.str_val == "C") {
-                assemble({0xED, 0x70});
+                assemble({0xED, 0x70}, true);
                 return true;
             }
             if (check_z80n()) {
                 if (mnemonic == "TEST" && this->match_imm8(op)) {
-                    assemble({0xED, 0x27, (uint8_t)op.num_val});
+                    assemble({0xED, 0x27, (uint8_t)op.num_val}, true);
                     return true;
                 }
             }
@@ -4584,41 +4585,41 @@ protected:
         }
         bool encode_two_operands(const std::string& mnemonic, const typename Operands::Operand& op1, const typename Operands::Operand& op2) {
             if (mnemonic == "EX" && op1.str_val == "AF" && op2.str_val == "AF'") {
-                assemble({0x08});
+                assemble({0x08}, true);
                 return true;
             }
             if (mnemonic == "EX" && op1.str_val == "DE" && op2.str_val == "HL") {
-                assemble({0xEB});
+                assemble({0xEB}, true);
                 return true;
             }
             if (mnemonic == "EX" && this->match_mem_reg16(op1) && op1.str_val == "SP" && this->match_reg16(op2)) {
                 if (op2.str_val == "HL") {
-                    assemble({0xE3});
+                    assemble({0xE3}, true);
                     return true;
                 }
                 if (op2.str_val == "IX") {
-                    assemble({0xDD, 0xE3});
+                    assemble({0xDD, 0xE3}, true);
                     return true;
                 }
                 if (op2.str_val == "IY") {
-                    assemble({0xFD, 0xE3});
+                    assemble({0xFD, 0xE3}, true);
                     return true;
                 }
             }
             if (mnemonic == "LD" && op1.str_val == "I" && op2.str_val == "A") {
-                assemble({0xED, 0x47});
+                assemble({0xED, 0x47}, true);
                 return true;
             }
             if (mnemonic == "LD" && op1.str_val == "R" && op2.str_val == "A") {
-                assemble({0xED, 0x4F});
+                assemble({0xED, 0x4F}, true);
                 return true;
             }
             if (mnemonic == "LD" && op1.str_val == "A" && op2.str_val == "I") {
-                assemble({0xED, 0x57});
+                assemble({0xED, 0x57}, true);
                 return true;
             }
             if (mnemonic == "LD" && op1.str_val == "A" && op2.str_val == "R") {
-                assemble({0xED, 0x5F});
+                assemble({0xED, 0x5F}, true);
                 return true;
             }
             if (mnemonic == "ADD" && this->match_reg16(op1) && this->match_reg16(op2)) {
@@ -4641,9 +4642,9 @@ protected:
                 if (reg16_map().count(effective_source_reg_for_opcode)) {
                     uint8_t opcode_suffix = (uint8_t)(0x09 | (reg16_map().at(effective_source_reg_for_opcode) << 4));
                     if (prefix)
-                        assemble({prefix, opcode_suffix});
+                        assemble({prefix, opcode_suffix}, true);
                     else
-                        assemble({opcode_suffix});
+                        assemble({opcode_suffix}, true);
                     return true;
                 }
             }
@@ -4651,11 +4652,11 @@ protected:
                 if (!check_z80n())
                     return false;
                 if (op1.str_val == "HL")
-                    assemble({0xED, 0x31});
+                    assemble({0xED, 0x31}, true);
                 else if (op1.str_val == "DE")
-                    assemble({0xED, 0x32});
+                    assemble({0xED, 0x32}, true);
                 else if (op1.str_val == "BC")
-                    assemble({0xED, 0x33});
+                    assemble({0xED, 0x33}, true);
                 else
                     return false;
                 return true;
@@ -4672,13 +4673,13 @@ protected:
                     opcode = 0x36;
                 else
                     return false;
-                assemble({0xED, opcode, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                assemble({0xED, opcode, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                 return true;
             }
             if ((mnemonic == "ADC" || mnemonic == "SBC") && op1.str_val == "HL" && this->match_reg16(op2)) {
                 uint8_t base_opcode = (mnemonic == "ADC") ? 0x4A : 0x42;
                 if (reg16_map().count(op2.str_val)) {
-                    assemble({0xED, (uint8_t)(base_opcode | (reg16_map().at(op2.str_val) << 4))});
+                    assemble({0xED, (uint8_t)(base_opcode | (reg16_map().at(op2.str_val) << 4))}, true);
                     return true;
                 }
             }
@@ -4696,10 +4697,10 @@ protected:
                     if ((op1.str_val.find("IX") != std::string::npos && op2.str_val.find("IY") != std::string::npos) ||
                         (op1.str_val.find("IY") != std::string::npos && op2.str_val.find("IX") != std::string::npos))
                         throw std::runtime_error("Cannot mix IX and IY register parts");
-                    assemble({prefix, (uint8_t)(0x40 | (dest_code << 3) | src_code)});
+                    assemble({prefix, (uint8_t)(0x40 | (dest_code << 3) | src_code)}, true);
                     return true;
                 }
-                assemble({(uint8_t)(0x40 | (dest_code << 3) | src_code)});
+                assemble({(uint8_t)(0x40 | (dest_code << 3) | src_code)}, true);
                 return true;
             }
             if (mnemonic == "LD" && (op1.str_val == "IXH" || op1.str_val == "IXL" || op1.str_val == "IYH" || op1.str_val == "IYL") && this->match_imm8(op2)) {
@@ -4710,61 +4711,61 @@ protected:
                     opcode = 0x26; // LD H, n
                 else // IXL or IYL
                     opcode = 0x2E; // LD L, n
-                assemble({prefix, opcode, (uint8_t)op2.num_val});
+                assemble({prefix, opcode, (uint8_t)op2.num_val}, true);
                 return true;    
             }
             if (mnemonic == "LD" && this->match_reg8(op1) && this->match_imm8(op2)) {
                 uint8_t dest_code = reg8_map().at(op1.str_val);
-                assemble({(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val});
+                assemble({(uint8_t)(0x06 | (dest_code << 3)), (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "LD" && this->match_reg16(op1) && this->match_imm16(op2)) {
                 if (reg16_map().count(op1.str_val)) {
-                    assemble({(uint8_t)(0x01 | (reg16_map().at(op1.str_val) << 4)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                    assemble({(uint8_t)(0x01 | (reg16_map().at(op1.str_val) << 4)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                     return true;
                 }
                 if (op1.str_val == "IX") {
-                    assemble({0xDD, 0x21, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                    assemble({0xDD, 0x21, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                     return true;
                 }
                 if (op1.str_val == "IY") {
-                    assemble({0xFD, 0x21, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                    assemble({0xFD, 0x21, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                     return true;
                 }
             }
             if (mnemonic == "LD" && this->match_reg16(op1) && this->match_mem_imm16(op2)) {
                 if (op1.str_val == "HL") {
-                    assemble({0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                    assemble({0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                     return true;
                 }
                 if (op1.str_val == "BC") {
-                    assemble({0xED, 0x4B, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                    assemble({0xED, 0x4B, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                     return true;
                 }
                 if (op1.str_val == "DE") {
-                    assemble({0xED, 0x5B, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                    assemble({0xED, 0x5B, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                     return true;
                 }
                 if (op1.str_val == "SP") {
-                    assemble({0xED, 0x7B, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                    assemble({0xED, 0x7B, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                     return true;
                 }
                 if (op1.str_val == "IX") {
-                    assemble({0xDD, 0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                    assemble({0xDD, 0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                     return true;
                 }
                 if (op1.str_val == "IY") {
-                    assemble({0xFD, 0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                    assemble({0xFD, 0x2A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                     return true;
                 }
             }
             if (mnemonic == "LD" && this->match_mem_reg16(op1) && op2.str_val == "A") {
                 if (op1.str_val == "BC") {
-                    assemble({0x02});
+                    assemble({0x02}, true);
                     return true;
                 }
                 if (op1.str_val == "DE") {
-                    assemble({0x12});
+                    assemble({0x12}, true);
                     return true;
                 }
                 if (op1.str_val == "SP")
@@ -4772,145 +4773,145 @@ protected:
             }
             if (mnemonic == "LD" && this->match_reg8(op1) && this->match_mem_reg16(op2) && op2.str_val == "HL") {
                 uint8_t dest_code = reg8_map().at(op1.str_val);
-                assemble({(uint8_t)(0x40 | (dest_code << 3) | 6)}); // 6 is code for (HL)
+                assemble({(uint8_t)(0x40 | (dest_code << 3) | 6)}, true); // 6 is code for (HL)
                 return true;
             }
             if (mnemonic == "LD" && this->match_mem_reg16(op1) && op1.str_val == "HL" && this->match_reg8(op2)) {
                 uint8_t src_code = reg8_map().at(op2.str_val);
-                assemble({(uint8_t)(0x70 | src_code)});
+                assemble({(uint8_t)(0x70 | src_code)}, true);
                 return true;
             }
             if (mnemonic == "LD" && this->match_mem_reg16(op1) && op1.str_val == "HL" && this->match_imm8(op2)) {
-                assemble({0x36, (uint8_t)op2.num_val});
+                assemble({0x36, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "LD" && op1.str_val == "A" && this->match_mem_reg16(op2)) {
                 if (op2.str_val == "BC") {
-                    assemble({0x0A});
+                    assemble({0x0A}, true);
                     return true;
                 }
                 if (op2.str_val == "DE") {
-                    assemble({0x1A});
+                    assemble({0x1A}, true);
                     return true;
                 }
                 if (op2.str_val == "SP")
                     return false;
             }
             if (mnemonic == "LD" && this->match_mem_imm16(op1) && op2.str_val == "A") {
-                assemble({0x32, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                assemble({0x32, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)}, true);
                 return true;
             }
             if (mnemonic == "LD" && op1.str_val == "A" && this->match_mem_imm16(op2)) {
-                assemble({0x3A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                assemble({0x3A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                 return true;
             }
             if (mnemonic == "LD" && this->match_mem_imm16(op1) && this->match_reg16(op2)) {
                 if (op2.str_val == "IX") {
-                    assemble({0xDD, 0x22, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    assemble({0xDD, 0x22, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)}, true);
                     return true;
                 }
                 if (op2.str_val == "IY") {
-                    assemble({0xFD, 0x22, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    assemble({0xFD, 0x22, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)}, true);
                     return true;
                 }
                 if (op2.str_val == "HL") {
-                    assemble({0x22, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    assemble({0x22, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)}, true);
                     return true;
                 }
                 if (op2.str_val == "BC") {
-                    assemble({0xED, 0x43, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    assemble({0xED, 0x43, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)}, true);
                     return true;
                 }
                 if (op2.str_val == "DE") {
-                    assemble({0xED, 0x53, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    assemble({0xED, 0x53, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)}, true);
                     return true;
                 }
                 if (op2.str_val == "SP") {
-                    assemble({0xED, 0x73, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)});
+                    assemble({0xED, 0x73, (uint8_t)(op1.num_val & 0xFF), (uint8_t)(op1.num_val >> 8)}, true);
                     return true;
                 }
             }
             if (mnemonic == "LD" && op1.str_val == "SP" && this->match_reg16(op2)) {
                 if (op2.str_val == "HL") {
-                    assemble({0xF9});
+                    assemble({0xF9}, true);
                     return true;
                 }
                 if (op2.str_val == "IX") {
-                    assemble({0xDD, 0xF9});
+                    assemble({0xDD, 0xF9}, true);
                     return true;
                 }
                 if (op2.str_val == "IY") {
-                    assemble({0xFD, 0xF9});
+                    assemble({0xFD, 0xF9}, true);
                     return true;
                 }
             }
             if (mnemonic == "LD" && op1.str_val == "A" && this->match_mem_imm16(op2)) {
-                assemble({0x3A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                assemble({0x3A, (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                 return true;
             }
             if (mnemonic == "IN" && op1.str_val == "A" && this->match_mem_imm16(op2)) {
                 if (op2.num_val > 0xFF)
                     this->m_policy.context().assembler.report_error("Port for IN instruction must be 8-bit");
-                assemble({0xDB, (uint8_t)op2.num_val});
+                assemble({0xDB, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "OUT" && this->match_mem_imm16(op1) && op2.str_val == "A" && op1.num_val <= 0xFF) {
                 if (op1.num_val > 0xFF)
                     this->m_policy.context().assembler.report_error("Port for OUT instruction must be 8-bit");
-                assemble({0xD3, (uint8_t)op1.num_val});
+                assemble({0xD3, (uint8_t)op1.num_val}, true);
                 return true;
             }
             if (mnemonic == "LD" && this->match_mem_reg16(op1) && this->match_imm8(op2)) {
                 if (op1.str_val == "HL") {
                     uint8_t reg_code = reg8_map().at("(HL)");
-                    assemble({(uint8_t)(0x06 | (reg_code << 3)), (uint8_t)op2.num_val});
+                    assemble({(uint8_t)(0x06 | (reg_code << 3)), (uint8_t)op2.num_val}, true);
                     return true;
                 }
             }
             if (mnemonic == "LD" && this->match_mem_indexed(op1) && this->match_imm8(op2)) {
-                assemble({prefix, 0x36, (uint8_t)((int8_t)op1.offset), (uint8_t)op2.num_val});
+                assemble({prefix, 0x36, (uint8_t)((int8_t)op1.offset), (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "LD" && this->match_reg8(op1) && this->match_mem_indexed(op2)) {
                 uint8_t reg_code = reg8_map().at(op1.str_val);
-                assemble({prefix, (uint8_t)(0x46 | (reg_code << 3)), (uint8_t)((int8_t)op2.offset)});
+                assemble({prefix, (uint8_t)(0x46 | (reg_code << 3)), (uint8_t)((int8_t)op2.offset)}, true);
                 return true;
             }
             if (mnemonic == "LD" && this->match_mem_indexed(op1) && this->match_reg8(op2)) {
                 uint8_t reg_code = reg8_map().at(op2.str_val);
-                assemble({prefix, (uint8_t)(0x70 | reg_code), (uint8_t)((int8_t)op1.offset)});
+                assemble({prefix, (uint8_t)(0x70 | reg_code), (uint8_t)((int8_t)op1.offset)}, true);
                 return true;
             }
             if (mnemonic == "ADD" && op1.str_val == "A" && this->match_imm8(op2)) {
-                assemble({0xC6, (uint8_t)op2.num_val});
+                assemble({0xC6, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "ADC" && op1.str_val == "A" && this->match_imm8(op2)) {
-                assemble({0xCE, (uint8_t)op2.num_val});
+                assemble({0xCE, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "SBC" && op1.str_val == "A" && this->match_imm8(op2)) {
-                assemble({0xDE, (uint8_t)op2.num_val});
+                assemble({0xDE, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "SUB" && op1.str_val == "A" && this->match_imm8(op2)) {
-                assemble({0xD6, (uint8_t)op2.num_val});
+                assemble({0xD6, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "AND" && op1.str_val == "A" && this->match_imm8(op2)) {
-                assemble({0xE6, (uint8_t)op2.num_val});
+                assemble({0xE6, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "XOR" && op1.str_val == "A" && this->match_imm8(op2)) {
-                assemble({0xEE, (uint8_t)op2.num_val});
+                assemble({0xEE, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "OR" && op1.str_val == "A" && this->match_imm8(op2)) {
-                assemble({0xF6, (uint8_t)op2.num_val});
+                assemble({0xF6, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if (mnemonic == "CP" && op1.str_val == "A" && this->match_imm8(op2)) {
-                assemble({0xFE, (uint8_t)op2.num_val});
+                assemble({0xFE, (uint8_t)op2.num_val}, true);
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
@@ -4941,9 +4942,9 @@ protected:
                 else 
                     reg_code = reg8_map().at(op2.str_val);
                 if (prefix)
-                    assemble({prefix, (uint8_t)(base_opcode | reg_code)});
+                    assemble({prefix, (uint8_t)(base_opcode | reg_code)}, true);
                 else
-                    assemble({(uint8_t)(base_opcode | reg_code)});
+                    assemble({(uint8_t)(base_opcode | reg_code)}, true);
                 return true;
             }
             if ((mnemonic == "ADD" || mnemonic == "ADC" || mnemonic == "SUB" || mnemonic == "SBC" ||
@@ -4967,15 +4968,15 @@ protected:
                 else if (mnemonic == "CP")
                     base_opcode = 0xBE;
                 if (op2.base_reg == "IX") {
-                    assemble({0xDD, base_opcode, (uint8_t)((int8_t)op2.offset)});
+                    assemble({0xDD, base_opcode, (uint8_t)((int8_t)op2.offset)}, true);
                 } else if (op2.base_reg == "IY")
-                    assemble({0xFD, base_opcode, (uint8_t)((int8_t)op2.offset)});
+                    assemble({0xFD, base_opcode, (uint8_t)((int8_t)op2.offset)}, true);
                 return true;
             }
             if (mnemonic == "JP" && this->match_condition(op1) && this->match_imm16(op2)) {
                 int32_t target_addr = op2.num_val;
                 uint8_t cond_code = condition_map().at(op1.str_val);
-                assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)});
+                assemble({(uint8_t)(0xC2 | (cond_code << 3)), (uint8_t)(target_addr & 0xFF), (uint8_t)(target_addr >> 8)}, true);
                 return true;
             }
             if (mnemonic == "JR" && this->match_condition(op1) && this->match_imm16(op2)) {
@@ -4988,35 +4989,35 @@ protected:
                         if (offset < -128 || offset > 127)
                             this->m_policy.on_jump_out_of_range(mnemonic + " " + op1.str_val, offset);
                     }
-                    assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)});
+                    assemble({relative_jump_condition_map().at(op1.str_val), (uint8_t)(offset)}, true);
                     return true;
                 }
             }
             if (mnemonic == "CALL" && this->match_condition(op1) && this->match_imm16(op2)) {
                 uint8_t cond_code = condition_map().at(op1.str_val);
-                assemble({(uint8_t)(0xC4 | (cond_code << 3)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)});
+                assemble({(uint8_t)(0xC4 | (cond_code << 3)), (uint8_t)(op2.num_val & 0xFF), (uint8_t)(op2.num_val >> 8)}, true);
                 return true;
             }
             if (mnemonic == "IN" && this->match_reg8(op1) && this->match_mem_reg16(op2) && op2.str_val == "C") {
                 if (op1.str_val == "F") {
-                    assemble({0xED, 0x70});
+                    assemble({0xED, 0x70}, true);
                     return true;
                 }
                 uint8_t reg_code = reg8_map().at(op1.str_val);
-                assemble({0xED, (uint8_t)(0x40 | (reg_code << 3))});
+                assemble({0xED, (uint8_t)(0x40 | (reg_code << 3))}, true);
                 return true;
             }
             if (mnemonic == "OUT" && this->match_mem_reg16(op1) && op1.str_val == "C" && (this->match_reg8(op2) || (this->match_imm8(op2) && op2.num_val == 0))) {
                 if (this->match_imm8(op2) && op2.num_val == 0) {
                     if (!check_undocumented())
                         return false;
-                    assemble({0xED, 0x71});
+                    assemble({0xED, 0x71}, true);
                     return true;
                 }
                 uint8_t reg_code = reg8_map().at(op2.str_val);
                 if (op2.str_val == "(HL)")
                     this->m_policy.context().assembler.report_error("OUT (C), (HL) is not a valid instruction");
-                assemble({0xED, (uint8_t)(0x41 | (reg_code << 3))});
+                assemble({0xED, (uint8_t)(0x41 | (reg_code << 3))}, true);
                 return true;
             }
             if (mnemonic == "BIT" && this->match_imm8(op1) && (this->match_reg8(op2) || (this->match_mem_reg16(op2) && op2.str_val == "HL"))) {
@@ -5028,7 +5029,7 @@ protected:
                     reg_code = reg8_map().at("(HL)");
                 else
                     reg_code = reg8_map().at(op2.str_val);
-                assemble({0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code)});
+                assemble({0xCB, (uint8_t)(0x40 | (bit << 3) | reg_code)}, true);
                 return true;
             }
             if (mnemonic == "SET" && this->match_imm8(op1) && (this->match_reg8(op2) || (this->match_mem_reg16(op2) && op2.str_val == "HL"))) {
@@ -5040,7 +5041,7 @@ protected:
                     reg_code = reg8_map().at("(HL)");
                 else
                     reg_code = reg8_map().at(op2.str_val);
-                assemble({0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code)});
+                assemble({0xCB, (uint8_t)(0xC0 | (bit << 3) | reg_code)}, true);
                 return true;
             }
             if (mnemonic == "RES" && this->match_imm8(op1) && (this->match_reg8(op2) || (this->match_mem_reg16(op2) && op2.str_val == "HL"))) {
@@ -5052,7 +5053,7 @@ protected:
                     reg_code = reg8_map().at("(HL)");
                 else
                     reg_code = reg8_map().at(op2.str_val);
-                assemble({0xCB, (uint8_t)(0x80 | (bit << 3) | reg_code)});
+                assemble({0xCB, (uint8_t)(0x80 | (bit << 3) | reg_code)}, true);
                 return true;
             }
             if ((mnemonic == "SLL" || mnemonic == "SLI") && this->match_reg8(op1)) {
@@ -5061,7 +5062,7 @@ protected:
                 if (op1.num_val > 7)
                     this->m_policy.context().assembler.report_error("SLL bit index must be 0-7");
                 uint8_t reg_code = reg8_map().at(op1.str_val);
-                assemble({0xCB, (uint8_t)(0x30 | reg_code)});
+                assemble({0xCB, (uint8_t)(0x30 | reg_code)}, true);
                 return true;
             }
             if ((mnemonic == "BIT" || mnemonic == "SET" || mnemonic == "RES") && this->match_imm8(op1) && this->match_mem_indexed(op2)) {
@@ -5077,9 +5078,9 @@ protected:
                     base_opcode = 0xC0;
                 uint8_t final_opcode = base_opcode | (bit << 3) | 6; // 6 is the code for (HL)
                 if (op2.base_reg == "IX") {
-                    assemble({0xDD, 0xCB, (uint8_t)((int8_t)op2.offset), final_opcode});
+                    assemble({0xDD, 0xCB, (uint8_t)((int8_t)op2.offset), final_opcode}, true);
                 } else if (op2.base_reg == "IY") {
-                    assemble({0xFD, 0xCB, (uint8_t)((int8_t)op2.offset), final_opcode});
+                    assemble({0xFD, 0xCB, (uint8_t)((int8_t)op2.offset), final_opcode}, true);
                 } else
                     return false;
                 return true;
@@ -5094,23 +5095,23 @@ protected:
                     uint8_t base_opcode = rotate_shift_map.at(mnemonic);
                     uint8_t prefix = (op1.base_reg == "IX") ? 0xDD : 0xFD;
                     uint8_t reg_code = reg8_map().at(op2.str_val);
-                    assemble({prefix, 0xCB, (uint8_t)((int8_t)op1.offset), (uint8_t)(base_opcode | reg_code)});
+                    assemble({prefix, 0xCB, (uint8_t)((int8_t)op1.offset), (uint8_t)(base_opcode | reg_code)}, true);
                     return true;
                 }
             }
             if (check_z80n()) {
                 if (mnemonic == "NEXTREG" && this->match_imm8(op1)) {
                     if (this->match_imm8(op2)) {
-                        assemble({0xED, 0x91, (uint8_t)op1.num_val, (uint8_t)op2.num_val});
+                        assemble({0xED, 0x91, (uint8_t)op1.num_val, (uint8_t)op2.num_val}, true);
                         return true;
                     }
                     if (this->match_reg8(op2) && op2.str_val == "A") {
-                        assemble({0xED, 0x92, (uint8_t)op1.num_val});
+                        assemble({0xED, 0x92, (uint8_t)op1.num_val}, true);
                         return true;
                     }
                 }
                 if (mnemonic == "MUL" && this->match_reg8(op1) && op1.str_val == "D" && this->match_reg8(op2) && op2.str_val == "E") {
-                    assemble({0xED, 0x30});
+                    assemble({0xED, 0x30}, true);
                     return true;
                 }
                 if ((mnemonic == "BSLA" || mnemonic == "BSRA" || mnemonic == "BSRL" || mnemonic == "BSRF" || mnemonic == "BRLC") &&
@@ -5121,7 +5122,7 @@ protected:
                     else if (mnemonic == "BSRL") opcode = 0x2A;
                     else if (mnemonic == "BSRF") opcode = 0x2B;
                     else if (mnemonic == "BRLC") opcode = 0x2C;
-                    assemble({0xED, opcode});
+                    assemble({0xED, opcode}, true);
                     return true;
                 }
             }
@@ -5137,7 +5138,7 @@ protected:
 
                 uint8_t reg_code = reg8_map().at(op3.str_val);
                 uint8_t prefix = (op2.base_reg == "IX") ? 0xDD : 0xFD;
-                assemble({prefix, 0xCB, (uint8_t)((int8_t)op2.offset), (uint8_t)(base_opcode | (bit << 3) | reg_code)});
+                assemble({prefix, 0xCB, (uint8_t)((int8_t)op2.offset), (uint8_t)(base_opcode | (bit << 3) | reg_code)}, true);
                 return true;
             }
             return false;
