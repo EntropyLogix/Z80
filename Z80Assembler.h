@@ -442,7 +442,7 @@ public:
             int max_while_iterations = 10000;
             bool enable_optimization = true;
             bool enable_undocumented = true;
-            bool enable_z80n = false;
+            bool enable_z80n = true;
         } compilation;
     };
     static const Config& get_default_config() {
@@ -876,7 +876,8 @@ protected:
                                 if (first != std::string::npos) {
                                     size_t last = arg_str.find_last_not_of(" \t");
                                     args.emplace_back(arg_str.substr(first, last - first + 1));
-                                }
+                                } else
+                                    args.emplace_back("");
                                 start = i + 1;
                             }
                         }
@@ -5227,21 +5228,51 @@ protected:
             const auto& defines_map = m_policy.context().defines.map;
             if (defines_map.empty())
                 return;
+            std::string input_line = m_tokens.get_original_string();
             std::string rebuilt_line;
-            for (size_t i = 0; i < m_tokens.count(); ++i) {
-                std::string token_str = m_tokens[i].original();
-                if (!(token_str.length() > 1 && token_str.front() == '"' && token_str.back() == '"')) {
-                    std::set<std::string> visited;
-                    while (defines_map.count(token_str)) {
-                        if (visited.count(token_str))
-                            m_policy.context().assembler.report_error("Circular DEFINE reference detected for '" + token_str + "'");
-                        visited.insert(token_str);
-                        token_str = defines_map.at(token_str);
+            rebuilt_line.reserve(input_line.length());
+            char quote_char = 0;
+            size_t pos = 0;
+            const size_t len = input_line.length();
+            while (pos < len) {
+                char c = input_line[pos];
+                if (quote_char) {
+                    rebuilt_line += c;
+                    pos++;
+                    if (c == '\\' && pos < len) {
+                        rebuilt_line += input_line[pos];
+                        pos++;
+                    } else if (c == quote_char)
+                        quote_char = 0;
+                } else {
+                    if (c == '"' || c == '\'') {
+                        quote_char = c;
+                        rebuilt_line += c;
+                        pos++;
+                    } else if (Strings::is_label_char(c) && !isdigit(c)) {
+                        size_t start = pos;
+                        while (pos < len && Strings::is_label_char(input_line[pos]))
+                            pos++;
+                        std::string word = input_line.substr(start, pos - start);   
+                        if (defines_map.count(word)) {
+                            std::string replacement = word;
+                            std::set<std::string> visited;
+                            while (defines_map.count(replacement)) {
+                                if (visited.count(replacement)) {
+                                    m_policy.context().assembler.report_error("Circular DEFINE reference detected for '" + replacement + "'");
+                                    break;
+                                }
+                                visited.insert(replacement);
+                                replacement = defines_map.at(replacement);
+                            }
+                            rebuilt_line += replacement;
+                        } else
+                            rebuilt_line += word;
+                    } else {
+                        rebuilt_line += c;
+                        pos++;
                     }
                 }
-                if (!rebuilt_line.empty())
-                    rebuilt_line += " ";
-                rebuilt_line += token_str;
             }
             m_tokens.process(rebuilt_line);
         }
