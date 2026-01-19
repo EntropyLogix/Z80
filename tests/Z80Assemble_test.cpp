@@ -4995,6 +4995,72 @@ TEST_CASE(SingleCharStringAsNumberContexts) {
     ASSERT_CODE("DQ \"A\"", {0x41, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
 }
 
+TEST_CASE(Constants64Bit) {
+    // Test defining and using a 64-bit constant
+    // 0x1122334455667788
+    ASSERT_CODE(R"(
+        BIG_VAL EQU 0x1122334455667788
+        DQ BIG_VAL
+    )", {0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11});
+
+    // Test arithmetic with 64-bit constants
+    ASSERT_CODE(R"(
+        VAL1 EQU 0x100000000000000 ; 2^56 (1 followed by 14 zeros, 15 digits total)
+        VAL2 EQU 0x0000000000000001
+        RESULT EQU VAL1 + VAL2
+        DQ RESULT
+    )", {0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01});
+}
+
+TEST_CASE(StringConversion64Bit) {
+    // Test STR() with a large number
+    // 1234567890123456789
+    std::string code = R"(
+        VAL EQU 1234567890123456789
+        DB STR(VAL)
+    )";
+    // Expected bytes are the ASCII characters of the number
+    std::string num_str = "1234567890123456789";
+    std::vector<uint8_t> expected(num_str.begin(), num_str.end());
+    ASSERT_CODE(code, expected);
+}
+
+TEST_CASE(Rand64Bit) {
+    // Test RAND with a range exceeding 32 bits
+    // We can't easily predict the value, but we can ensure it compiles and runs without crashing/truncating arguments
+    ASSERT_RAND_IN_RANGE("DB RAND(0x100000000, 0x100000005) & 0xFF", 0, 5);
+}
+
+TEST_CASE(ValFunction64Bit) {
+    ASSERT_CODE(R"(
+        DEFINE VAL_STR "1234567890123456789"
+        VAL_NUM EQU VAL(VAL_STR)
+        DQ VAL_NUM
+    )", {0x15, 0x81, 0xE9, 0x7D, 0xF4, 0x10, 0x22, 0x11}); // 0x112210F47DE98115
+}
+
+TEST_CASE(AbsFunction64Bit) {
+    ASSERT_CODE(R"(
+        VAL_NEG EQU -1234567890123456789
+        VAL_POS EQU ABS(VAL_NEG)
+        DQ VAL_POS
+    )", {0x15, 0x81, 0xE9, 0x7D, 0xF4, 0x10, 0x22, 0x11});
+}
+
+TEST_CASE(MinMax64Bit) {
+    ASSERT_CODE(R"(
+        V1 EQU 0x100000000
+        V2 EQU 0x200000000
+        RES_MIN EQU MIN(V1, V2)
+        RES_MAX EQU MAX(V1, V2)
+        DQ RES_MIN
+        DQ RES_MAX
+    )", {
+        0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, // 0x100000000
+        0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00  // 0x200000000
+    });
+}
+
 TEST_CASE(EscapeSequences) {
     // Test string escapes
     ASSERT_CODE("DB \"\\\"\"", {'"'}); // "\"" -> "

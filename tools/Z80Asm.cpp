@@ -86,7 +86,10 @@ void write_map_file(const std::string& file_path, const std::map<std::string, Z8
         throw std::runtime_error("Cannot open map file for writing: " + file_path);
     for (const auto& symbol : symbols) {
         std::stringstream ss;
-        ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<uint16_t>(symbol.second.value);
+        if (symbol.second.value > 0xFFFF || symbol.second.value < -0x8000)
+             ss << std::hex << std::uppercase << std::setw(16) << std::setfill('0') << static_cast<uint64_t>(symbol.second.value);
+        else
+             ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<uint16_t>(symbol.second.value);
         file << ss.str()
              << " " // Add a space separator
              << std::setw(16) << std::left << std::setfill(' ') << symbol.first
@@ -183,7 +186,11 @@ int main(int argc, char* argv[]) {
             std::cout << "--- Calculated Symbols ---" << std::endl;
             for (const auto& symbol : symbols) {
                 std::stringstream hex_val;
-                hex_val << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<uint16_t>(symbol.second.value);
+                if (symbol.second.value > 0xFFFF || symbol.second.value < -0x8000) {
+                    hex_val << "0x" << std::hex << std::uppercase << std::setw(16) << std::setfill('0') << static_cast<uint64_t>(symbol.second.value);
+                } else {
+                    hex_val << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << static_cast<uint16_t>(symbol.second.value);
+                }
                 std::cout << std::setw(20) << std::left << std::setfill(' ') << symbol.first << " = " << hex_val.str() << " (" << std::dec << symbol.second.value << ")" << std::endl;
             }
             std::cout << std::endl;

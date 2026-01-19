@@ -364,6 +364,7 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <functional>
 #include <random>
@@ -525,7 +526,7 @@ public:
     };
     struct SymbolInfo {
         std::string name;
-        int32_t value;
+        int64_t value;
         bool label;
     };
     struct BlockInfo {
@@ -950,7 +951,7 @@ protected:
             struct Symbol {
                 bool redefinable;
                 int index;
-                std::vector<int32_t> value;
+                std::vector<int64_t> value;
                 std::vector<bool> undefined;
                 bool used;
                 bool label;
@@ -1278,7 +1279,7 @@ protected:
                     operand.str_val = value.s_val;
                     operand.type = Operand::Type::STRING;
                     if (value.s_val.length() == 1)
-                        operand.num_val = (int32_t)(unsigned char)value.s_val[0];
+                        operand.num_val = (int64_t)(unsigned char)value.s_val[0];
                 } else {
                     operand.num_val = value.n_val.asInt();
                     operand.type = Operand::Type::IMMEDIATE;
@@ -1646,7 +1647,7 @@ protected:
              if (args[0].type != Value::Type::STRING)
                 ctx.assembler.report_error("Argument to DEFINED must be a symbol name.");
             const std::string& symbol_name = args[0].s_val;
-            int32_t dummy;
+            int64_t dummy;
             if (ctx.defines.map.count(symbol_name) || (ctx.current_phase && ctx.current_phase->on_symbol_resolve(symbol_name, dummy)))
                 return Value{Value::Type::IMMEDIATE, 1};
             return Value{Value::Type::IMMEDIATE, 0};
@@ -1773,7 +1774,7 @@ protected:
             return Value{Value::Type::IMMEDIATE, 0};
         }
         static Value func_str(Context& context, const std::vector<Value>& args) {
-            return Value{Value::Type::STRING, Immediate(0), std::to_string((int32_t)get_numeric_value(context, args[0], "STR").asInt())};
+            return Value{Value::Type::STRING, Immediate(0), std::to_string(get_numeric_value(context, args[0], "STR").asInt())};
         }
         static Value func_val(Context& context, const std::vector<Value>& args) {
             if (args[0].type != Value::Type::STRING)
@@ -1785,7 +1786,7 @@ protected:
             return Value{Value::Type::IMMEDIATE, 0};
         }
         static Value func_chr(Context& context, const std::vector<Value>& args) {
-            char c = (char)((int32_t)get_numeric_value(context, args[0], "CHR").asInt());
+            char c = (char)(get_numeric_value(context, args[0], "CHR").asInt());
             return Value{Value::Type::STRING, Immediate(0), std::string(1, c)};
         }
         static Value func_asc(Context& context, const std::vector<Value>& args) {
@@ -1866,7 +1867,7 @@ protected:
             return Value{Value::Type::STRING, Immediate(0), s};
         }
         static Value func_mem(Context& context, const std::vector<Value>& args) {
-            uint16_t addr = (uint16_t)((int32_t)get_numeric_value(context, args[0], "MEM").asInt());
+            uint16_t addr = (uint16_t)(get_numeric_value(context, args[0], "MEM").asInt());
             return Value{Value::Type::IMMEDIATE, (int64_t)context.memory->peek(addr)};
         }
         static Value func_filesize(Context& context, const std::vector<Value>& args) {
@@ -1941,7 +1942,12 @@ protected:
             return Value{Value::Type::IMMEDIATE, atanh(get_numeric_value(ctx, args[0], "ATANH").asDouble())};
         }
         static Value func_abs(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::IMMEDIATE, fabs(get_numeric_value(ctx, args[0], "ABS").asDouble())};
+            Immediate v = get_numeric_value(ctx, args[0], "ABS");
+            if (v.isInt()) {
+                int64_t i = v.asInt();
+                return Value{Value::Type::IMMEDIATE, i < 0 ? -i : i};
+            }
+            return Value{Value::Type::IMMEDIATE, std::abs(v.asDouble())};
         }
         static Value func_pow(Context& ctx, const std::vector<Value>& args) {
             return Value{Value::Type::IMMEDIATE, pow(get_numeric_value(ctx, args[0], "POW").asDouble(), get_numeric_value(ctx, args[1], "POW").asDouble())};
@@ -1970,9 +1976,9 @@ protected:
             return Value{Value::Type::IMMEDIATE, exp(get_numeric_value(ctx, args[0], "EXP").asDouble())};
         }
         static Value func_rand(Context& ctx, const std::vector<Value>& args) {
-            static std::mt19937 gen(0);
-            std::uniform_int_distribution<> distrib((int)get_numeric_value(ctx, args[0], "RAND").asInt(), (int)get_numeric_value(ctx, args[1], "RAND").asInt());
-            return Value{Value::Type::IMMEDIATE, (int64_t)distrib(gen)};
+            static std::mt19937_64 gen(0);
+            std::uniform_int_distribution<int64_t> distrib(get_numeric_value(ctx, args[0], "RAND").asInt(), get_numeric_value(ctx, args[1], "RAND").asInt());
+            return Value{Value::Type::IMMEDIATE, distrib(gen)};
         }
         static Value func_rnd(Context&, const std::vector<Value>& args) {
             static std::mt19937 gen(1);
@@ -1980,9 +1986,9 @@ protected:
             return Value{Value::Type::IMMEDIATE, distrib(gen)};
         }
         static Value func_rrnd(Context& ctx, const std::vector<Value>& args) {
-            static std::mt19937 gen(0);
-            std::uniform_int_distribution<> distrib((int)get_numeric_value(ctx, args[0], "RRND").asInt(), (int)get_numeric_value(ctx, args[1], "RRND").asInt());
-            return Value{Value::Type::IMMEDIATE, (int64_t)distrib(gen)};
+            static std::mt19937_64 gen(0);
+            std::uniform_int_distribution<int64_t> distrib(get_numeric_value(ctx, args[0], "RRND").asInt(), get_numeric_value(ctx, args[1], "RRND").asInt());
+            return Value{Value::Type::IMMEDIATE, distrib(gen)};
         }
         static Value func_floor(Context& ctx, const std::vector<Value>& args) {
             return Value{Value::Type::IMMEDIATE, floor(get_numeric_value(ctx, args[0], "FLOOR").asDouble())};
@@ -2116,8 +2122,16 @@ protected:
                         return true;
                     }
                     j = i;
-                    while (j < expr.length() && isdigit(expr[j]))
-                        j++;
+                    if (options.allow_hex_prefix_0x && (expr.substr(i, 2) == "0x" || expr.substr(i, 2) == "0X")) {
+                        j += 2;
+                        while (j < expr.length() && isxdigit(expr[j]))
+                            j++;
+                    } else {
+                        while (j < expr.length() && isdigit(expr[j]))
+                            j++;
+                        if (j < expr.length() && expr[j] == '.' && !has_dot)
+                             while (++j < expr.length() && isdigit(expr[j]));
+                    }
                 }
                 std::string num_str = expr.substr(i, j - i);
                 size_t processed = 0;
@@ -2322,7 +2336,7 @@ protected:
                     }
                     val_stack.push_back({Value::Type::STRING, Immediate(0), s});
                 } else if (token.type == Token::Type::SYMBOL) {
-                    int32_t sum_val;
+                    int64_t sum_val;
                     if (!m_policy.on_symbol_resolve(token.s_val, sum_val))
                         return false;
                     val_stack.push_back({Value::Type::IMMEDIATE, (int64_t)sum_val});
@@ -2460,7 +2474,7 @@ protected:
         virtual bool on_pass_end() = 0;
         virtual void on_pass_next() = 0;
 
-        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) = 0;
+        virtual bool on_symbol_resolve(const std::string& symbol, int64_t& out_value) = 0;
         virtual void on_label_definition(const std::string& label) = 0;
         virtual void on_equ_directive(const std::string& label, const std::string& value) = 0;
         virtual void on_set_directive(const std::string& label, const std::string& value) = 0;
@@ -2565,7 +2579,7 @@ protected:
         }
         virtual bool on_pass_end() override { return true; }
         virtual void on_pass_next() override {}
-        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {            
+        virtual bool on_symbol_resolve(const std::string& symbol, int64_t& out_value) override {            
             if (symbol == "$" || symbol == "@") {
                 out_value = this->m_context.address.current_logical;
                 return true;
@@ -2798,7 +2812,7 @@ protected:
         virtual void on_ifdef_directive(const std::string& symbol) override {
             bool parent_active = this->m_context.source.parser->is_in_active_block();
             bool is_defined_in_symbols = false;
-            int32_t dummy;
+            int64_t dummy;
             is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
             bool is_defined_in_defines = m_context.defines.map.count(symbol) > 0;
             bool condition_result = parent_active && (is_defined_in_symbols || is_defined_in_defines);
@@ -2815,7 +2829,7 @@ protected:
         virtual void on_ifndef_directive(const std::string& symbol) override {
             bool parent_active = this->m_context.source.parser->is_in_active_block();
             bool is_defined_in_symbols = false;
-            int32_t dummy;
+            int64_t dummy;
             is_defined_in_symbols = on_symbol_resolve(symbol, dummy);
             bool is_defined_in_defines = m_context.defines.map.count(symbol) > 0;
             bool condition_result = parent_active && !is_defined_in_symbols && !is_defined_in_defines;
@@ -3308,7 +3322,7 @@ protected:
             }
             this->reset_symbols_index();
         }
-        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
+        virtual bool on_symbol_resolve(const std::string& symbol, int64_t& out_value) override {
             if (BasePolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             bool resolved = false;
@@ -3389,7 +3403,7 @@ protected:
             int64_t num_val = 0;
             Expressions expression(*this);
             bool evaluated = expression.evaluate(value, num_val);
-            update_symbol(label, (int32_t)num_val, !evaluated, redefinable, false);
+            update_symbol(label, num_val, !evaluated, redefinable, false);
         };
         bool all_used_symbols_defined() const {
             bool all_used_defined = true;
@@ -3404,7 +3418,7 @@ protected:
             }
             return all_used_defined;
         }
-        void update_symbol(const std::string& name, int32_t value, bool undefined, bool redefinable, bool label) {
+        void update_symbol(const std::string& name, int64_t value, bool undefined, bool redefinable, bool label) {
             std::string actual_name = this->get_absolute_symbol_name(name);
             auto it = this->m_context.symbols.map.find(actual_name);
             if (it == this->m_context.symbols.map.end()) {
@@ -3464,7 +3478,7 @@ protected:
             this->m_context.results.blocks_table = m_blocks;
             return true;
         }
-        virtual bool on_symbol_resolve(const std::string& symbol, int32_t& out_value) override {
+        virtual bool on_symbol_resolve(const std::string& symbol, int64_t& out_value) override {
             if (BasePolicy::on_symbol_resolve(symbol, out_value))
                 return true;
             std::string actual_symbol_name = this->get_absolute_symbol_name(symbol);
