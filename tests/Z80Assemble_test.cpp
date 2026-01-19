@@ -3918,7 +3918,7 @@ TEST_CASE(CustomOperators) {
             false, // is_unary
             true, // right_assoc for power operator
             [](TestAssembler::Context& ctx, const std::vector<TestAssembler::Value>& args) {
-                return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, pow(args[0].n_val, args[1].n_val)};
+                return TestAssembler::Value{TestAssembler::Value::Type::IMMEDIATE, pow(args[0].n_val, args[1].n_val)};
             }
         };
         assembler.public_add_custom_operator("**", power_op_info);
@@ -3934,7 +3934,7 @@ TEST_CASE(CustomOperators) {
         TestAssembler assembler(&bus, &file_provider);
 
         assembler.public_add_custom_operator("SQR", {100, true, false, [](TestAssembler::Context&, const std::vector<TestAssembler::Value>& args) {
-            return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, args[0].n_val * args[0].n_val};
+            return TestAssembler::Value{TestAssembler::Value::Type::IMMEDIATE, args[0].n_val * args[0].n_val};
         }});
         ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB SQR 9", {81});
     }
@@ -3961,7 +3961,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
         TestAssembler::FunctionInfo double_func_info = {
             1, // Number of arguments
             [](TestAssembler::Context&, const std::vector<TestAssembler::Value>& args) {
-                return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, args[0].n_val * 2};
+                return TestAssembler::Value{TestAssembler::Value::Type::IMMEDIATE, args[0].n_val * 2};
             }
         };
         assembler.public_add_custom_function("DOUBLE", double_func_info);
@@ -3986,7 +3986,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
         TestAssembler::FunctionInfo get_seven_func = {
             0, // No arguments
             [](TestAssembler::Context&, const std::vector<TestAssembler::Value>& args) {
-                return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, 7.0};
+                return TestAssembler::Value{TestAssembler::Value::Type::IMMEDIATE, 7.0};
             }
         };
         assembler.public_add_custom_function("GET_SEVEN", get_seven_func);
@@ -4007,7 +4007,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
                 for(const auto& arg : args) {
                     sum += arg.n_val;
                 }
-                return TestAssembler::Value{TestAssembler::Value::Type::NUMBER, sum};
+                return TestAssembler::Value{TestAssembler::Value::Type::IMMEDIATE, sum};
             }
         };
         assembler.public_add_custom_function("SUM", sum_func);

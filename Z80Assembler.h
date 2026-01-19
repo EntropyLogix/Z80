@@ -357,6 +357,7 @@
 #include <cctype>
 #include <charconv>
 #include <cmath>
+#include <cstring>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -375,6 +376,7 @@
 #include <system_error>
 #include <utility>
 #include <optional>
+#include <variant>
 #include <vector>
 
 class IFileProvider {
@@ -1307,13 +1309,150 @@ protected:
         }
         IPhasePolicy& m_policy;
     };
+    class Immediate {
+        std::variant<int64_t, double> data;
+    public:
+        Immediate() : data(int64_t(0)) {}
+        Immediate(int64_t v) : data(v) {}
+        Immediate(int v) : data(static_cast<int64_t>(v)) {}
+        Immediate(uint64_t v) : data(static_cast<int64_t>(v)) {}
+        Immediate(double v) : data(v) {}
+        Immediate(bool v) : data(static_cast<int64_t>(v ? 1 : 0)) {}
+        bool isInt() const { return std::holds_alternative<int64_t>(data); }
+        bool isFloat() const { return std::holds_alternative<double>(data); }
+        int64_t asInt() const {
+            if (isInt())
+                return std::get<int64_t>(data);
+            return static_cast<int64_t>(std::get<double>(data));
+        }
+        double asDouble() const {
+            if (isInt())
+                return static_cast<double>(std::get<int64_t>(data));
+            return std::get<double>(data);
+        }
+        uint64_t getRawBytes() const {
+            if (isInt())
+                return static_cast<uint64_t>(std::get<int64_t>(data));
+            double d = std::get<double>(data);
+            uint64_t raw;
+            std::memcpy(&raw, &d, sizeof(double));
+            return raw;
+        }
+        explicit operator int64_t() const { return asInt(); }
+        explicit operator double() const { return asDouble(); }
+        explicit operator bool() const { return asInt() != 0 || asDouble() != 0.0; }
+        Immediate operator+(const Immediate& r) const {
+            if (isInt() && r.isInt())
+                return Immediate(asInt() + r.asInt());
+            return Immediate(asDouble() + r.asDouble());
+        }
+        Immediate operator-(const Immediate& r) const {
+            if (isInt() && r.isInt())
+                return Immediate(asInt() - r.asInt());
+            return Immediate(asDouble() - r.asDouble());
+        }
+        Immediate operator*(const Immediate& r) const {
+            if (isInt() && r.isInt())
+                return Immediate(asInt() * r.asInt());
+            return Immediate(asDouble() * r.asDouble());
+        }
+        Immediate operator/(const Immediate& r) const {
+            if (r.asDouble() == 0.0)
+                throw std::runtime_error("Division by zero");
+            if (isInt() && r.isInt())
+                return Immediate(asInt() / r.asInt());
+            return Immediate(asDouble() / r.asDouble());
+        }
+        Immediate operator%(const Immediate& r) const {
+            if (isInt() && r.isInt()) {
+                if (r.asInt() == 0)
+                    throw std::runtime_error("Modulo by zero");
+                return Immediate(asInt() % r.asInt());
+            }
+            return Immediate(std::fmod(asDouble(), r.asDouble()));
+        }
+        Immediate operator-() const {
+            if (isInt())
+                return Immediate(-asInt());
+            return Immediate(-asDouble());
+        }
+        Immediate operator&(const Immediate& r) const {
+            if (!isInt() || !r.isInt())
+                throw std::runtime_error("Bitwise AND requires integers");
+            return Immediate(asInt() & r.asInt());
+        }
+        Immediate operator|(const Immediate& r) const {
+            if (!isInt() || !r.isInt())
+                throw std::runtime_error("Bitwise OR requires integers");
+            return Immediate(asInt() | r.asInt());
+        }
+        Immediate operator^(const Immediate& r) const {
+            if (!isInt() || !r.isInt())
+                throw std::runtime_error("Bitwise XOR requires integers");
+            return Immediate(asInt() ^ r.asInt());
+        }
+        Immediate operator<<(const Immediate& r) const {
+            if (!isInt() || !r.isInt())
+                throw std::runtime_error("Bitwise Shift requires integers");
+            return Immediate(asInt() << r.asInt());
+        }
+        Immediate operator>>(const Immediate& r) const {
+            if (!isInt() || !r.isInt())
+                throw std::runtime_error("Bitwise Shift requires integers");
+            return Immediate(asInt() >> r.asInt());
+        }
+        Immediate operator~() const {
+            if (!isInt())
+                throw std::runtime_error("Bitwise NOT requires integer");
+            return Immediate(~asInt());
+        }
+        bool operator==(const Immediate& r) const {
+            if (isInt() && r.isInt())
+                return asInt() == r.asInt();
+            return std::abs(asDouble() - r.asDouble()) < 1e-12;
+        }
+        bool operator!=(const Immediate& r) const {
+            return !(*this == r);
+        }
+        bool operator<(const Immediate& r) const {
+            if (isInt() && r.isInt())
+                return asInt() < r.asInt();
+            return asDouble() < r.asDouble();
+        }
+        bool operator>(const Immediate& r) const {
+            return r < *this;
+        }
+        bool operator<=(const Immediate& r) const {
+            return !(*this > r);
+        }
+        bool operator>=(const Immediate& r) const {
+            return !(*this < r);
+        }
+        Immediate operator&&(const Immediate& r) const {
+            return Immediate(static_cast<int64_t>((bool)*this && (bool)r));
+        }
+        Immediate operator||(const Immediate& r) const {
+            return Immediate(static_cast<int64_t>((bool)*this || (bool)r));
+        }
+        Immediate operator!() const {
+            return Immediate(static_cast<int64_t>(!(bool)*this));
+        }
+        friend std::ostream& operator<<(std::ostream& os, const Immediate& v) {
+            if (v.isInt())
+                os << v.asInt();
+            else
+                os << v.asDouble();
+            return os;
+        }
+    };
     class Expressions {
     public:
         struct Value {
-        enum class Type { NUMBER, STRING, TERNARY_SKIP };
-            Type type = Type::NUMBER;
+        enum class Type { IMMEDIATE, STRING };
+            Type type = Type::IMMEDIATE;
             double n_val = 0.0;
             std::string s_val;
+            bool is_ternary_skip = false;
         };
         struct OperatorInfo {
             int precedence;
@@ -1349,7 +1488,7 @@ protected:
             if (!m_policy.context().assembler.m_config.expressions.enabled) {
                 int32_t num_val;
                 if (Strings::is_number(s, num_val, m_policy.context().assembler.m_config.numbers)) {
-                    out_value = { Value::Type::NUMBER, (double)num_val };
+                    out_value = { Value::Type::IMMEDIATE, (double)num_val };
                     return true;
                 }
                 return false;
@@ -1476,7 +1615,11 @@ protected:
         }
     private:
         static double get_numeric_value(Context& ctx, const Value& v, const std::string& error_context = "") {
-            if (v.type == Value::Type::NUMBER)
+            if (v.is_ternary_skip) {
+                ctx.assembler.report_error("Invalid use of ternary operator result (missing ':')");
+                return 0.0;
+            }
+            if (v.type == Value::Type::IMMEDIATE)
                 return v.n_val;
             if (v.type == Value::Type::STRING && v.s_val.length() == 1)
                 return (double)(unsigned char)v.s_val[0];
@@ -1488,13 +1631,13 @@ protected:
             return 0.0;
         }
         static Value op_unary_minus(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, -get_numeric_value(ctx, args[0], "unary -")};
+            return Value{Value::Type::IMMEDIATE, -get_numeric_value(ctx, args[0], "unary -")};
         }
         static Value op_bitwise_not(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)(~(int32_t)get_numeric_value(ctx, args[0], "bitwise NOT"))};
+            return Value{Value::Type::IMMEDIATE, (double)(~(int32_t)get_numeric_value(ctx, args[0], "bitwise NOT"))};
         }
         static Value op_logical_not(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)(!get_numeric_value(ctx, args[0], "logical NOT"))};
+            return Value{Value::Type::IMMEDIATE, (double)(!get_numeric_value(ctx, args[0], "logical NOT"))};
         }
         static Value op_defined(Context& ctx, const std::vector<Value>& args) {
              if (args[0].type != Value::Type::STRING)
@@ -1502,59 +1645,59 @@ protected:
             const std::string& symbol_name = args[0].s_val;
             int32_t dummy;
             if (ctx.defines.map.count(symbol_name) || (ctx.current_phase && ctx.current_phase->on_symbol_resolve(symbol_name, dummy)))
-                return Value{Value::Type::NUMBER, 1.0};
-            return Value{Value::Type::NUMBER, 0.0};
+                return Value{Value::Type::IMMEDIATE, 1.0};
+            return Value{Value::Type::IMMEDIATE, 0.0};
         }
         static Value op_mul(Context& ctx, const std::vector<Value>& args) {
             double v2 = get_numeric_value(ctx, args[1], "*");
-            return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "*") * v2};
+            return Value{Value::Type::IMMEDIATE, get_numeric_value(ctx, args[0], "*") * v2};
         }
         static Value op_div(Context& ctx, const std::vector<Value>& args) {
             double v2 = get_numeric_value(ctx, args[1], "/");
             if (std::abs(v2) < 1e-12) throw std::runtime_error("Division by zero.");
-            return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "/") / v2};
+            return Value{Value::Type::IMMEDIATE, get_numeric_value(ctx, args[0], "/") / v2};
         }
         static Value op_mod(Context& ctx, const std::vector<Value>& args) {
             int32_t v2 = (int32_t)get_numeric_value(ctx, args[1], "%");
             if (v2 == 0) throw std::runtime_error("Division by zero.");
-            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "%") % v2)};
+            return Value{Value::Type::IMMEDIATE, (double)((int32_t)get_numeric_value(ctx, args[0], "%") % v2)};
         }
         static Value op_add(Context& ctx, const std::vector<Value>& args) {
             bool s1 = args[0].type == Value::Type::STRING;
             bool s2 = args[1].type == Value::Type::STRING;
             if (s1 && s2)
                 return Value{Value::Type::STRING, 0.0, args[0].s_val + args[1].s_val};
-            return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "+") + get_numeric_value(ctx, args[1], "+")};
+            return Value{Value::Type::IMMEDIATE, get_numeric_value(ctx, args[0], "+") + get_numeric_value(ctx, args[1], "+")};
         }
         static Value op_sub(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, get_numeric_value(ctx, args[0], "-") - get_numeric_value(ctx, args[1], "-")};
+            return Value{Value::Type::IMMEDIATE, get_numeric_value(ctx, args[0], "-") - get_numeric_value(ctx, args[1], "-")};
         }
         static Value op_shl(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "<<") << (int32_t)get_numeric_value(ctx, args[1], "<<"))};
+            return Value{Value::Type::IMMEDIATE, (double)((int32_t)get_numeric_value(ctx, args[0], "<<") << (int32_t)get_numeric_value(ctx, args[1], "<<"))};
         }
         static Value op_shr(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], ">>") >> (int32_t)get_numeric_value(ctx, args[1], ">>"))};
+            return Value{Value::Type::IMMEDIATE, (double)((int32_t)get_numeric_value(ctx, args[0], ">>") >> (int32_t)get_numeric_value(ctx, args[1], ">>"))};
         }
         static Value op_gt(Context& ctx, const std::vector<Value>& args) { 
-            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], ">") > get_numeric_value(ctx, args[1], ">"))}; 
+            return Value{Value::Type::IMMEDIATE, (double)(get_numeric_value(ctx, args[0], ">") > get_numeric_value(ctx, args[1], ">"))}; 
         }
         static Value op_lt(Context& ctx, const std::vector<Value>& args) { 
-            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "<") < get_numeric_value(ctx, args[1], "<"))}; 
+            return Value{Value::Type::IMMEDIATE, (double)(get_numeric_value(ctx, args[0], "<") < get_numeric_value(ctx, args[1], "<"))}; 
         }
         static Value op_ge(Context& ctx, const std::vector<Value>& args) { 
-            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], ">=") >= get_numeric_value(ctx, args[1], ">="))}; 
+            return Value{Value::Type::IMMEDIATE, (double)(get_numeric_value(ctx, args[0], ">=") >= get_numeric_value(ctx, args[1], ">="))}; 
         }
         static Value op_le(Context& ctx, const std::vector<Value>& args) { 
-            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "<=") <= get_numeric_value(ctx, args[1], "<="))}; 
+            return Value{Value::Type::IMMEDIATE, (double)(get_numeric_value(ctx, args[0], "<=") <= get_numeric_value(ctx, args[1], "<="))}; 
         }
         static Value op_eq(Context& ctx, const std::vector<Value>& args) {
             if (args[0].type == args[1].type) {
                 if (args[0].type == Value::Type::STRING)
-                    return Value{Value::Type::NUMBER, (double)(args[0].s_val == args[1].s_val)};
-                return Value{Value::Type::NUMBER, (double)(args[0].n_val == args[1].n_val)};
+                    return Value{Value::Type::IMMEDIATE, (double)(args[0].s_val == args[1].s_val)};
+                return Value{Value::Type::IMMEDIATE, (double)(args[0].n_val == args[1].n_val)};
             }
             auto try_get_val = [](const Value& v) -> std::optional<double> {
-                if (v.type == Value::Type::NUMBER)
+                if (v.type == Value::Type::IMMEDIATE)
                     return v.n_val;
                 if (v.type == Value::Type::STRING && v.s_val.length() == 1)
                     return (double)(unsigned char)v.s_val[0];
@@ -1563,17 +1706,17 @@ protected:
             auto v1 = try_get_val(args[0]);
             auto v2 = try_get_val(args[1]);
             if (v1 && v2)
-                return Value{Value::Type::NUMBER, (double)(*v1 == *v2)};
-            return Value{Value::Type::NUMBER, 0.0};
+                return Value{Value::Type::IMMEDIATE, (double)(*v1 == *v2)};
+            return Value{Value::Type::IMMEDIATE, 0.0};
         }
         static Value op_ne(Context& ctx, const std::vector<Value>& args) {
             if (args[0].type == args[1].type) {
                 if (args[0].type == Value::Type::STRING)
-                    return Value{Value::Type::NUMBER, (double)(args[0].s_val != args[1].s_val)};
-                return Value{Value::Type::NUMBER, (double)(args[0].n_val != args[1].n_val)};
+                    return Value{Value::Type::IMMEDIATE, (double)(args[0].s_val != args[1].s_val)};
+                return Value{Value::Type::IMMEDIATE, (double)(args[0].n_val != args[1].n_val)};
             }
             auto try_get_val = [](const Value& v) -> std::optional<double> {
-                if (v.type == Value::Type::NUMBER)
+                if (v.type == Value::Type::IMMEDIATE)
                     return v.n_val;
                 if (v.type == Value::Type::STRING && v.s_val.length() == 1)
                     return (double)(unsigned char)v.s_val[0];
@@ -1582,47 +1725,49 @@ protected:
             auto v1 = try_get_val(args[0]);
             auto v2 = try_get_val(args[1]);
             if (v1 && v2)
-                return Value{Value::Type::NUMBER, (double)(*v1 != *v2)};
-            return Value{Value::Type::NUMBER, 1.0};
+                return Value{Value::Type::IMMEDIATE, (double)(*v1 != *v2)};
+            return Value{Value::Type::IMMEDIATE, 1.0};
         }
         static Value op_and(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "&") & (int32_t)get_numeric_value(ctx, args[1], "&"))};
+            return Value{Value::Type::IMMEDIATE, (double)((int32_t)get_numeric_value(ctx, args[0], "&") & (int32_t)get_numeric_value(ctx, args[1], "&"))};
         }
         static Value op_xor(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "^") ^ (int32_t)get_numeric_value(ctx, args[1], "^"))};
+            return Value{Value::Type::IMMEDIATE, (double)((int32_t)get_numeric_value(ctx, args[0], "^") ^ (int32_t)get_numeric_value(ctx, args[1], "^"))};
         }
         static Value op_or(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "|") | (int32_t)get_numeric_value(ctx, args[1], "|"))};
+            return Value{Value::Type::IMMEDIATE, (double)((int32_t)get_numeric_value(ctx, args[0], "|") | (int32_t)get_numeric_value(ctx, args[1], "|"))};
         }
         static Value op_land(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "&&") && get_numeric_value(ctx, args[1], "&&"))};
+            return Value{Value::Type::IMMEDIATE, (double)(get_numeric_value(ctx, args[0], "&&") && get_numeric_value(ctx, args[1], "&&"))};
         }
         static Value op_lor(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)(get_numeric_value(ctx, args[0], "||") || get_numeric_value(ctx, args[1], "||"))};
+            return Value{Value::Type::IMMEDIATE, (double)(get_numeric_value(ctx, args[0], "||") || get_numeric_value(ctx, args[1], "||"))};
         }
         static Value op_ternary(Context& ctx, const std::vector<Value>& args) {
             double val = get_numeric_value(ctx, args[0], "ternary condition");
             if (val != 0)
                 return args[1];
-            return Value{Value::Type::TERNARY_SKIP};
+            Value v;
+            v.is_ternary_skip = true;
+            return v;
         }
         static Value op_colon(Context& ctx, const std::vector<Value>& args) {
-            return (args[0].type == Value::Type::TERNARY_SKIP) ? args[1] : args[0];
+            return (args[0].is_ternary_skip) ? args[1] : args[0];
         }
         static Value func_isstring(Context& context, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (args[0].type == Value::Type::STRING) ? 1.0 : 0.0};
+            return Value{Value::Type::IMMEDIATE, (args[0].type == Value::Type::STRING) ? 1.0 : 0.0};
         }
         static Value func_isnumber(Context& context, const std::vector<Value>& args) {
-            if (args[0].type == Value::Type::NUMBER)
-                return Value{Value::Type::NUMBER, 1.0};
+            if (args[0].type == Value::Type::IMMEDIATE)
+                return Value{Value::Type::IMMEDIATE, 1.0};
             if (args[0].type == Value::Type::STRING) {
                 if (args[0].s_val.length() == 1)
-                    return Value{Value::Type::NUMBER, 1.0};
+                    return Value{Value::Type::IMMEDIATE, 1.0};
                 int32_t dummy;
                 if (Strings::is_number(args[0].s_val, dummy, context.assembler.m_config.numbers))
-                    return Value{Value::Type::NUMBER, 1.0};
+                    return Value{Value::Type::IMMEDIATE, 1.0};
             }
-            return Value{Value::Type::NUMBER, 0.0};
+            return Value{Value::Type::IMMEDIATE, 0.0};
         }
         static Value func_str(Context& context, const std::vector<Value>& args) {
             return Value{Value::Type::STRING, 0.0, std::to_string((int32_t)get_numeric_value(context, args[0], "STR"))};
@@ -1632,9 +1777,9 @@ protected:
                 context.assembler.report_error("Argument to VAL must be a string.");
             int32_t num_val;
             if (Strings::is_number(args[0].s_val, num_val, context.assembler.m_config.numbers))
-                return Value{Value::Type::NUMBER, (double)num_val};
+                return Value{Value::Type::IMMEDIATE, (double)num_val};
             context.assembler.report_error("VAL argument is not a valid number: \"" + args[0].s_val + "\"");
-            return Value{Value::Type::NUMBER, 0.0};
+            return Value{Value::Type::IMMEDIATE, 0.0};
         }
         static Value func_chr(Context& context, const std::vector<Value>& args) {
             char c = (char)((int32_t)get_numeric_value(context, args[0], "CHR"));
@@ -1645,7 +1790,7 @@ protected:
                 context.assembler.report_error("Argument to ASC must be a string.");
             if (args[0].s_val.empty())
                 context.assembler.report_error("ASC argument cannot be an empty string.");
-            return Value{Value::Type::NUMBER, (double)(unsigned char)args[0].s_val[0]};
+            return Value{Value::Type::IMMEDIATE, (double)(unsigned char)args[0].s_val[0]};
         }
         static Value func_chars(Context& context, const std::vector<Value>& args) {
             if (args[0].type != Value::Type::STRING)
@@ -1656,15 +1801,15 @@ protected:
             uint32_t val = 0;
             for (size_t i = 0; i < s.length(); ++i)
                 val |= ((uint32_t)(unsigned char)s[i]) << (i * 8);
-            return Value{Value::Type::NUMBER, (double)val};
+            return Value{Value::Type::IMMEDIATE, (double)val};
         }
         static Value func_int(Context& context, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(context, args[0], "INT"))};
+            return Value{Value::Type::IMMEDIATE, (double)((int32_t)get_numeric_value(context, args[0], "INT"))};
         }
         static Value func_strlen(Context& context, const std::vector<Value>& args) {
             if (args[0].type != Value::Type::STRING)
                 context.assembler.report_error("Argument to STRLEN must be a string.");
-            return Value{Value::Type::NUMBER, (double)args[0].s_val.length()};
+            return Value{Value::Type::IMMEDIATE, (double)args[0].s_val.length()};
         }
         static Value func_substr(Context& context, const std::vector<Value>& args) {
             if (args[0].type != Value::Type::STRING)
@@ -1687,8 +1832,8 @@ protected:
             const std::string& sub = args[1].s_val;
             size_t pos = str.find(sub);
             if (pos == std::string::npos)
-                return Value{Value::Type::NUMBER, 0.0};
-            return Value{Value::Type::NUMBER, (double)(pos + 1)};
+                return Value{Value::Type::IMMEDIATE, 0.0};
+            return Value{Value::Type::IMMEDIATE, (double)(pos + 1)};
         }
         static Value func_replace(Context& context, const std::vector<Value>& args) {
             if (args[0].type != Value::Type::STRING)
@@ -1719,7 +1864,7 @@ protected:
         }
         static Value func_mem(Context& context, const std::vector<Value>& args) {
             uint16_t addr = (uint16_t)((int32_t)get_numeric_value(context, args[0], "MEM"));
-            return Value{Value::Type::NUMBER, (double)context.memory->peek(addr)};
+            return Value{Value::Type::IMMEDIATE, (double)context.memory->peek(addr)};
         }
         static Value func_filesize(Context& context, const std::vector<Value>& args) {
             if (args[0].type != Value::Type::STRING)
@@ -1727,13 +1872,13 @@ protected:
             const std::string& filename = args[0].s_val;
             if (!context.source_provider->exists(filename))
                 context.assembler.report_error("File not found for FILESIZE: " + filename);
-            return Value{Value::Type::NUMBER, (double)context.source_provider->file_size(filename)};
+            return Value{Value::Type::IMMEDIATE, (double)context.source_provider->file_size(filename)};
         }
         static Value func_high(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)(((int32_t)get_numeric_value(ctx, args[0], "HIGH") >> 8) & 0xFF)};
+            return Value{Value::Type::IMMEDIATE, (double)(((int32_t)get_numeric_value(ctx, args[0], "HIGH") >> 8) & 0xFF)};
         }
         static Value func_low(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, (double)((int32_t)get_numeric_value(ctx, args[0], "LOW") & 0xFF)};
+            return Value{Value::Type::IMMEDIATE, (double)((int32_t)get_numeric_value(ctx, args[0], "LOW") & 0xFF)};
         }
         static Value func_min(Context& ctx, const std::vector<Value>& args) {
             if (args.size() < 2)
@@ -1741,7 +1886,7 @@ protected:
             double result = get_numeric_value(ctx, args[0], "MIN");
             for (size_t i = 1; i < args.size(); ++i)
                 result = std::min(result, get_numeric_value(ctx, args[i], "MIN"));
-            return Value{Value::Type::NUMBER, result};
+            return Value{Value::Type::IMMEDIATE, result};
         }
         static Value func_max(Context& ctx, const std::vector<Value>& args) {
             if (args.size() < 2)
@@ -1749,106 +1894,106 @@ protected:
             double result = get_numeric_value(ctx, args[0], "MAX");
             for (size_t i = 1; i < args.size(); ++i)
                 result = std::max(result, get_numeric_value(ctx, args[i], "MAX"));
-            return Value{Value::Type::NUMBER, result};
+            return Value{Value::Type::IMMEDIATE, result};
         }
         static Value func_sin(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, sin(get_numeric_value(ctx, args[0], "SIN"))};
+            return Value{Value::Type::IMMEDIATE, sin(get_numeric_value(ctx, args[0], "SIN"))};
         }
         static Value func_cos(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, cos(get_numeric_value(ctx, args[0], "COS"))};
+            return Value{Value::Type::IMMEDIATE, cos(get_numeric_value(ctx, args[0], "COS"))};
         }
         static Value func_tan(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, tan(get_numeric_value(ctx, args[0], "TAN"))};
+            return Value{Value::Type::IMMEDIATE, tan(get_numeric_value(ctx, args[0], "TAN"))};
         }
         static Value func_asin(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, asin(get_numeric_value(ctx, args[0], "ASIN"))};
+            return Value{Value::Type::IMMEDIATE, asin(get_numeric_value(ctx, args[0], "ASIN"))};
         }
         static Value func_acos(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, acos(get_numeric_value(ctx, args[0], "ACOS"))};
+            return Value{Value::Type::IMMEDIATE, acos(get_numeric_value(ctx, args[0], "ACOS"))};
         }
         static Value func_atan(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, atan(get_numeric_value(ctx, args[0], "ATAN"))};
+            return Value{Value::Type::IMMEDIATE, atan(get_numeric_value(ctx, args[0], "ATAN"))};
         }
         static Value func_atan2(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, atan2(get_numeric_value(ctx, args[0], "ATAN2"), get_numeric_value(ctx, args[1], "ATAN2"))};
+            return Value{Value::Type::IMMEDIATE, atan2(get_numeric_value(ctx, args[0], "ATAN2"), get_numeric_value(ctx, args[1], "ATAN2"))};
         }
         static Value func_sinh(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, sinh(get_numeric_value(ctx, args[0], "SINH"))};
+            return Value{Value::Type::IMMEDIATE, sinh(get_numeric_value(ctx, args[0], "SINH"))};
         }
         static Value func_cosh(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, cosh(get_numeric_value(ctx, args[0], "COSH"))};
+            return Value{Value::Type::IMMEDIATE, cosh(get_numeric_value(ctx, args[0], "COSH"))};
         }
         static Value func_tanh(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, tanh(get_numeric_value(ctx, args[0], "TANH"))};
+            return Value{Value::Type::IMMEDIATE, tanh(get_numeric_value(ctx, args[0], "TANH"))};
         }
         static Value func_asinh(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, asinh(get_numeric_value(ctx, args[0], "ASINH"))};
+            return Value{Value::Type::IMMEDIATE, asinh(get_numeric_value(ctx, args[0], "ASINH"))};
         }
         static Value func_acosh(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, acosh(get_numeric_value(ctx, args[0], "ACOSH"))};
+            return Value{Value::Type::IMMEDIATE, acosh(get_numeric_value(ctx, args[0], "ACOSH"))};
         }
         static Value func_atanh(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, atanh(get_numeric_value(ctx, args[0], "ATANH"))};
+            return Value{Value::Type::IMMEDIATE, atanh(get_numeric_value(ctx, args[0], "ATANH"))};
         }
         static Value func_abs(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, fabs(get_numeric_value(ctx, args[0], "ABS"))};
+            return Value{Value::Type::IMMEDIATE, fabs(get_numeric_value(ctx, args[0], "ABS"))};
         }
         static Value func_pow(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, pow(get_numeric_value(ctx, args[0], "POW"), get_numeric_value(ctx, args[1], "POW"))};
+            return Value{Value::Type::IMMEDIATE, pow(get_numeric_value(ctx, args[0], "POW"), get_numeric_value(ctx, args[1], "POW"))};
         }
         static Value func_hypot(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, hypot(get_numeric_value(ctx, args[0], "HYPOT"), get_numeric_value(ctx, args[1], "HYPOT"))};
+            return Value{Value::Type::IMMEDIATE, hypot(get_numeric_value(ctx, args[0], "HYPOT"), get_numeric_value(ctx, args[1], "HYPOT"))};
         }
         static Value func_fmod(Context& ctx, const std::vector<Value>& args) {
             double v2 = get_numeric_value(ctx, args[1], "FMOD");
             if (std::abs(v2) < 1e-12)
                 throw std::runtime_error("FMOD by zero.");
-            return Value{Value::Type::NUMBER, fmod(get_numeric_value(ctx, args[0], "FMOD"), v2)};
+            return Value{Value::Type::IMMEDIATE, fmod(get_numeric_value(ctx, args[0], "FMOD"), v2)};
         }
         static Value func_sqrt(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, sqrt(get_numeric_value(ctx, args[0], "SQRT"))};
+            return Value{Value::Type::IMMEDIATE, sqrt(get_numeric_value(ctx, args[0], "SQRT"))};
         }
         static Value func_log(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, log(get_numeric_value(ctx, args[0], "LOG"))}; }
+            return Value{Value::Type::IMMEDIATE, log(get_numeric_value(ctx, args[0], "LOG"))}; }
         static Value func_log10(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, log10(get_numeric_value(ctx, args[0], "LOG10"))};
+            return Value{Value::Type::IMMEDIATE, log10(get_numeric_value(ctx, args[0], "LOG10"))};
         }
         static Value func_log2(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, log2(get_numeric_value(ctx, args[0], "LOG2"))};
+            return Value{Value::Type::IMMEDIATE, log2(get_numeric_value(ctx, args[0], "LOG2"))};
         }
         static Value func_exp(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, exp(get_numeric_value(ctx, args[0], "EXP"))};
+            return Value{Value::Type::IMMEDIATE, exp(get_numeric_value(ctx, args[0], "EXP"))};
         }
         static Value func_rand(Context& ctx, const std::vector<Value>& args) {
             static std::mt19937 gen(0);
             std::uniform_int_distribution<> distrib((int)get_numeric_value(ctx, args[0], "RAND"), (int)get_numeric_value(ctx, args[1], "RAND"));
-            return Value{Value::Type::NUMBER, (double)distrib(gen)};
+            return Value{Value::Type::IMMEDIATE, (double)distrib(gen)};
         }
         static Value func_rnd(Context&, const std::vector<Value>& args) {
             static std::mt19937 gen(1);
             std::uniform_real_distribution<> distrib(0.0, 1.0);
-            return Value{Value::Type::NUMBER, distrib(gen)};
+            return Value{Value::Type::IMMEDIATE, distrib(gen)};
         }
         static Value func_rrnd(Context& ctx, const std::vector<Value>& args) {
             static std::mt19937 gen(0);
             std::uniform_int_distribution<> distrib((int)get_numeric_value(ctx, args[0], "RRND"), (int)get_numeric_value(ctx, args[1], "RRND"));
-            return Value{Value::Type::NUMBER, (double)distrib(gen)};
+            return Value{Value::Type::IMMEDIATE, (double)distrib(gen)};
         }
         static Value func_floor(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, floor(get_numeric_value(ctx, args[0], "FLOOR"))};
+            return Value{Value::Type::IMMEDIATE, floor(get_numeric_value(ctx, args[0], "FLOOR"))};
         }
         static Value func_ceil(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, ceil(get_numeric_value(ctx, args[0], "CEIL"))};
+            return Value{Value::Type::IMMEDIATE, ceil(get_numeric_value(ctx, args[0], "CEIL"))};
         }
         static Value func_round(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, round(get_numeric_value(ctx, args[0], "ROUND"))};
+            return Value{Value::Type::IMMEDIATE, round(get_numeric_value(ctx, args[0], "ROUND"))};
         }
         static Value func_trunc(Context& ctx, const std::vector<Value>& args) {
-            return Value{Value::Type::NUMBER, trunc(get_numeric_value(ctx, args[0], "TRUNC"))};
+            return Value{Value::Type::IMMEDIATE, trunc(get_numeric_value(ctx, args[0], "TRUNC"))};
         }
         static Value func_sgn(Context& ctx, const std::vector<Value>& args) {
             double val = get_numeric_value(ctx, args[0], "SGN");
-            return Value{Value::Type::NUMBER, (double)((val > 0) - (val < 0))};
+            return Value{Value::Type::IMMEDIATE, (double)((val > 0) - (val < 0))};
         }
         bool parse_string(const std::string& expr, size_t& i, std::vector<Token>& tokens) const {
             char quote = expr[i];
@@ -2163,7 +2308,7 @@ protected:
             std::vector<Value> val_stack;
             for (const auto& token : rpn) {
                 if (token.type == Token::Type::NUMBER) {
-                    val_stack.push_back({Value::Type::NUMBER, token.n_val});
+                    val_stack.push_back({Value::Type::IMMEDIATE, token.n_val});
                 } else if (token.type == Token::Type::STRING) {
                     std::string s = token.s_val;
                     if (s.length() >= 2 && ((s.front() == '"' && s.back() == '"') || (s.front() == '\'' && s.back() == '\''))) {
@@ -2175,7 +2320,7 @@ protected:
                     int32_t sum_val;
                     if (!m_policy.on_symbol_resolve(token.s_val, sum_val))
                         return false;
-                    val_stack.push_back({Value::Type::NUMBER, (double)sum_val});
+                    val_stack.push_back({Value::Type::IMMEDIATE, (double)sum_val});
                 } else if (token.type == Token::Type::FUNCTION) {
                     const FunctionInfo* func_info_ptr = nullptr;
                     auto builtin_it = get_function_map().find(token.s_val);
@@ -2215,7 +2360,7 @@ protected:
                             m_policy.context().assembler.report_error("Invalid memory access expression {}.");
                         Value addr_val = val_stack.back();
                         val_stack.pop_back();
-                        val_stack.push_back({Value::Type::NUMBER, (double)m_policy.context().memory->peek((uint16_t)addr_val.n_val)});
+                        val_stack.push_back({Value::Type::IMMEDIATE, (double)m_policy.context().memory->peek((uint16_t)addr_val.n_val)});
                         continue;
                     }
                     const OperatorInfo* op_info_ptr = find_operator(token.s_val);
@@ -2237,15 +2382,6 @@ protected:
                     Value v1 = val_stack.back();
                     val_stack.pop_back();
                     val_stack.push_back(op_info.apply(m_policy.context(), {v1, v2}));
-                } else if (token.type == Token::Type::OPERATOR) {
-                    if (token.s_val == "{}") {
-                        if (val_stack.empty())
-                            m_policy.context().assembler.report_error("Invalid memory access expression {}.");
-                        Value addr_val = val_stack.back();
-                        val_stack.pop_back();
-                        val_stack.push_back({Value::Type::NUMBER, (double)m_policy.context().memory->peek((uint16_t)addr_val.n_val)});
-                        continue;
-                    }
                 }
             }
             if (val_stack.size() != 1) {
