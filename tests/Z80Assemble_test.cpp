@@ -3897,7 +3897,7 @@ public:
             static_cast<TestAssembler&>(policy.context().assembler).report_error("FILL requires 2 arguments: count and value");
         }
         Expressions expr_eval(policy);
-        int32_t count, value;
+        int64_t count, value;
         if (!expr_eval.evaluate(args[0].original(), count) || !expr_eval.evaluate(args[1].original(), value)) {
             static_cast<TestAssembler&>(policy.context().assembler).report_error("Invalid arguments for FILL");
         }
@@ -3918,7 +3918,7 @@ TEST_CASE(CustomOperators) {
             false, // is_unary
             true, // right_assoc for power operator
             [](TestAssembler::Context& ctx, const std::vector<TestAssembler::Value>& args) {
-                return TestAssembler::Value{TestAssembler::Value::Type::IMMEDIATE, pow(args[0].n_val, args[1].n_val)};
+                return TestAssembler::Value{TestAssembler::Value::Type::IMMEDIATE, pow(args[0].n_val.asDouble(), args[1].n_val.asDouble())};
             }
         };
         assembler.public_add_custom_operator("**", power_op_info);
@@ -4005,7 +4005,7 @@ TEST_CASE(CustomFunctionsAndConstants) {
             [](TestAssembler::Context&, const std::vector<TestAssembler::Value>& args) {
                 double sum = 0;
                 for(const auto& arg : args) {
-                    sum += arg.n_val;
+                    sum += arg.n_val.asDouble();
                 }
                 return TestAssembler::Value{TestAssembler::Value::Type::IMMEDIATE, sum};
             }
