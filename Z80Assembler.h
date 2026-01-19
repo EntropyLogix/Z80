@@ -538,6 +538,7 @@ public:
         std::string file_path;
         size_t line_number;
         std::string content;
+        std::string original_text;
     };
     struct ListingLine {
         SourceLine source_line;
@@ -1114,7 +1115,9 @@ protected:
             std::string current_macro_name;
             typename Context::Macros::Macro current_macro;
             while (std::getline(source_stream, line)) {
-                m_context.source.source_location = new SourceLine{identifier, line_number, ""};
+                std::string original_line = line;
+                SourceLine temp_line{identifier, line_number, "", original_line};
+                m_context.source.source_location = &temp_line;
                 line_number++;
                 if (m_context.assembler.m_config.comments.enabled)
                     line = remove_comments(line, in_block_comment);
@@ -1181,9 +1184,13 @@ protected:
                         continue;
                     }
                 }
-                output_source.push_back({identifier, line_number, line});
+                output_source.push_back({identifier, line_number, line, original_line});
             }
             if (in_block_comment) {
+                if (!output_source.empty())
+                    m_context.source.source_location = &output_source.back();
+                else
+                    m_context.source.source_location = nullptr;
                 if (m_context.assembler.m_config.comments.allow_block)
                     m_context.assembler.report_error("Unterminated block comment");
             }
@@ -3546,7 +3553,9 @@ protected:
             BasePolicy::on_while_directive(expression, true);
         }
         virtual void on_align_directive(const std::string& boundary) override {
+            m_suppress_listing = true;
             BasePolicy::on_align_directive(boundary, true);
+            m_suppress_listing = false;
         }
         virtual void on_assemble(std::vector<uint8_t> bytes, bool is_code) override {
             uint16_t current_addr = this->m_context.address.current_physical;
@@ -3570,17 +3579,16 @@ protected:
                 m_blocks.push_back({current_addr, (uint16_t)bytes.size(), is_code});
             } else
                 m_blocks.back().size += bytes.size();
+            if (!m_suppress_listing)
+                m_current_line_bytes.insert(m_current_line_bytes.end(), bytes.begin(), bytes.end());
         }
         virtual void on_source_line_begin() override {
             m_line_start_address = this->m_context.address.current_logical;
+            m_current_line_bytes.clear();
         }
         virtual void on_source_line_end() override {
             if (this->m_context.source.source_location) {
-                uint16_t end_addr = this->m_context.address.current_logical;
-                std::vector<uint8_t> bytes;
-                for(uint16_t i = m_line_start_address; i < end_addr; ++i)
-                    bytes.push_back(this->m_context.memory->peek(i));
-                this->m_context.results.listing.push_back({*this->m_context.source.source_location, m_line_start_address, bytes});
+                this->m_context.results.listing.push_back({*this->m_context.source.source_location, m_line_start_address, m_current_line_bytes});
             }
         }
     private:
@@ -3596,6 +3604,8 @@ protected:
         };
         std::vector<BlockInfo> m_blocks;
         uint16_t m_line_start_address = 0;
+        std::vector<uint8_t> m_current_line_bytes;
+        bool m_suppress_listing = false;
     };
     class Keywords {
     public:

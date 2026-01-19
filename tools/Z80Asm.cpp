@@ -133,27 +133,113 @@ std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
     return ss.str();
 }
 
-void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler<Z80StandardBus>::ListingLine>& listing) {
+std::string generate_memory_map_summary(const std::vector<uint8_t>& map) {
+    if (map.empty()) return "";
+    std::stringstream ss;
+    ss << "Memory Map Summary:\n";
+    ss << "--------------------------------------------------\n";
+    ss << "Start   End     Size    Type\n";
+    ss << "--------------------------------------------------\n";
+
+    size_t start = 0;
+    int current_type = 0; // 0: Free, 1: Code, 2: Data
+
+    auto get_type = [&](size_t idx) {
+        uint8_t val = map[idx];
+        using Map = Z80Assembler<Z80StandardBus>::Map;
+        if (val == (uint8_t)Map::None) return 0;
+        if ((val & (uint8_t)Map::Opcode) || (val & (uint8_t)Map::Operand)) return 1;
+        if (val & (uint8_t)Map::Data) return 2;
+        return 0;
+    };
+
+    current_type = get_type(0);
+
+    for (size_t i = 1; i < map.size(); ++i) {
+        int type = get_type(i);
+        if (type != current_type) {
+            if (current_type != 0) {
+                ss << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << start 
+                   << "  0x" << std::setw(4) << (i - 1)
+                   << "  " << std::dec << std::setw(6) << std::setfill(' ') << (i - start)
+                   << "  " << (current_type == 1 ? "Code" : "Data") << "\n";
+            }
+            start = i;
+            current_type = type;
+        }
+    }
+    if (current_type != 0) {
+         ss << "0x" << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << start 
+            << "  0x" << std::setw(4) << (map.size() - 1)
+            << "  " << std::dec << std::setw(6) << std::setfill(' ') << (map.size() - start)
+            << "  " << (current_type == 1 ? "Code" : "Data") << "\n";
+    }
+    ss << "--------------------------------------------------\n\n";
+    return ss.str();
+}
+
+void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler<Z80StandardBus>::ListingLine>& listing, const std::vector<uint8_t>* memory_map = nullptr) {
     std::ofstream file(file_path);
     if (!file)
         throw std::runtime_error("Cannot open listing file for writing: " + file_path);
-    file << std::left << std::setw(7) << "Line" << std::setw(7) << "Addr" << std::setw(18) << "Hex Code" << "Source Code\n";
+    
+    if (memory_map) {
+        file << generate_memory_map_summary(*memory_map);
+    }
+
+    file << std::left << std::setw(7) << "Line" << std::setw(7) << "Addr" << std::setw(24) << "Hex Code" << "Source Code\n";
     file << std::string(80, '-') << '\n';
     for (const auto& line : listing) {
+        std::string source_text = (line.source_line.original_text.empty() ? line.source_line.content : line.source_line.original_text);
         file << std::setw(5) << std::left << line.source_line.line_number << "  ";
-        bool is_label_only = line.bytes.empty() && !line.source_line.content.empty() && std::all_of(line.source_line.content.begin(), line.source_line.content.end(), [](char c){ return isspace(c) || c == ':'; });
-        bool has_address = !line.bytes.empty() || is_label_only || (line.source_line.content.find("PROC") != std::string::npos);
+        bool has_content = !line.source_line.content.empty() && !std::all_of(line.source_line.content.begin(), line.source_line.content.end(), [](unsigned char c){ return std::isspace(c); });
+        bool has_address = !line.bytes.empty() || has_content;
+        
+        size_t bytes_per_line = 8;
+        size_t total_bytes = line.bytes.size();
+        size_t printed_bytes = 0;
+        uint16_t current_addr = line.address;
+
         if (has_address) {
             std::stringstream addr_ss;
-            addr_ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << line.address;
+            addr_ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << current_addr;
             file << std::setw(7) << std::left << addr_ss.str();
         } else
             file << std::setw(7) << " ";
-        if (!line.bytes.empty())
-            file << std::setw(18) << std::left << format_bytes_str(line.bytes, true);
-        else
-            file << std::setw(18) << " ";
-        file << line.source_line.content << '\n';
+        
+        if (total_bytes > 0) {
+            size_t chunk_size = std::min(bytes_per_line, total_bytes);
+            std::vector<uint8_t> chunk(line.bytes.begin(), line.bytes.begin() + chunk_size);
+            file << std::setw(24) << std::left << format_bytes_str(chunk, true);
+            printed_bytes += chunk_size;
+            current_addr += chunk_size;
+        } else {
+            file << std::setw(24) << " ";
+        }
+        file << source_text << '\n';
+
+        int max_extra_lines = 1;
+        int extra_lines = 0;
+        while (printed_bytes < total_bytes) {
+            if (extra_lines >= max_extra_lines) {
+                file << std::setw(14) << " " << "... (" << (total_bytes - printed_bytes) << " bytes more)\n";
+                break;
+            }
+            file << std::setw(7) << " ";
+            std::stringstream addr_ss;
+            addr_ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << current_addr;
+            file << std::setw(7) << std::left << addr_ss.str();
+            
+            size_t remaining = total_bytes - printed_bytes;
+            size_t chunk_size = std::min(bytes_per_line, remaining);
+            std::vector<uint8_t> chunk(line.bytes.begin() + printed_bytes, line.bytes.begin() + printed_bytes + chunk_size);
+            file << std::setw(24) << std::left << format_bytes_str(chunk, true);
+            file << '\n';
+            
+            printed_bytes += chunk_size;
+            current_addr += chunk_size;
+            extra_lines++;
+        }
     }
 }
 
@@ -178,9 +264,10 @@ int main(int argc, char* argv[]) {
     Z80StandardBus bus;
     FileSystemSourceProvider source_provider;
     Z80Assembler<Z80StandardBus> assembler(&bus, &source_provider);
+    std::vector<uint8_t> memory_map;
     try {
         std::cout << "Assembling source code from: " << input_file << std::endl;
-        if (assembler.compile(input_file, 0x0000)) {
+        if (assembler.compile(input_file, 0x0000, nullptr, nullptr, &memory_map)) {
             std::cout << "\n--- Assembly Successful ---\n" << std::endl;
             const auto& symbols = assembler.get_symbols();
             std::cout << "--- Calculated Symbols ---" << std::endl;
@@ -200,8 +287,9 @@ int main(int argc, char* argv[]) {
             std::cout << "Binary code written to " << output_bin_file << std::endl;
             write_map_file(output_map_file, symbols);
             std::cout << "Symbols written to " << output_map_file << std::endl;
-            write_lst_file(output_lst_file, listing);
+            write_lst_file(output_lst_file, listing, &memory_map);
             std::cout << "Listing written to " << output_lst_file << std::endl;
+            std::cout << "\n" << generate_memory_map_summary(memory_map);
         }
     } catch (const std::exception& e) {
         std::cerr << "Assembly error: " << e.what() << std::endl;
