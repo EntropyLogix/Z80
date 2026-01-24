@@ -5,7 +5,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Asm.cpp
-// Verson: 1.0
+// Verson: 1.0.0
 //
 // This file contains a command-line utility for assembling Z80 code.
 // It serves as an example of how to use the Z80Assembler class.
@@ -182,11 +182,6 @@ void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler
     std::ofstream file(file_path);
     if (!file)
         throw std::runtime_error("Cannot open listing file for writing: " + file_path);
-    
-    if (memory_map) {
-        file << generate_memory_map_summary(*memory_map);
-    }
-
     file << std::left << std::setw(7) << "Line" << std::setw(7) << "Addr" << std::setw(24) << "Hex Code" << "Source Code\n";
     file << std::string(80, '-') << '\n';
     for (const auto& line : listing) {
@@ -194,30 +189,25 @@ void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler
         file << std::setw(5) << std::left << line.source_line.line_number << "  ";
         bool has_content = !line.source_line.content.empty() && !std::all_of(line.source_line.content.begin(), line.source_line.content.end(), [](unsigned char c){ return std::isspace(c); });
         bool has_address = !line.bytes.empty() || has_content;
-        
         size_t bytes_per_line = 8;
         size_t total_bytes = line.bytes.size();
         size_t printed_bytes = 0;
         uint16_t current_addr = line.address;
-
         if (has_address) {
             std::stringstream addr_ss;
             addr_ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << current_addr;
             file << std::setw(7) << std::left << addr_ss.str();
         } else
             file << std::setw(7) << " ";
-        
         if (total_bytes > 0) {
             size_t chunk_size = std::min(bytes_per_line, total_bytes);
             std::vector<uint8_t> chunk(line.bytes.begin(), line.bytes.begin() + chunk_size);
             file << std::setw(24) << std::left << format_bytes_str(chunk, true);
             printed_bytes += chunk_size;
             current_addr += chunk_size;
-        } else {
+        } else
             file << std::setw(24) << " ";
-        }
         file << source_text << '\n';
-
         int max_extra_lines = 1;
         int extra_lines = 0;
         while (printed_bytes < total_bytes) {
@@ -229,13 +219,11 @@ void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler
             std::stringstream addr_ss;
             addr_ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << current_addr;
             file << std::setw(7) << std::left << addr_ss.str();
-            
             size_t remaining = total_bytes - printed_bytes;
             size_t chunk_size = std::min(bytes_per_line, remaining);
             std::vector<uint8_t> chunk(line.bytes.begin() + printed_bytes, line.bytes.begin() + printed_bytes + chunk_size);
             file << std::setw(24) << std::left << format_bytes_str(chunk, true);
             file << '\n';
-            
             printed_bytes += chunk_size;
             current_addr += chunk_size;
             extra_lines++;

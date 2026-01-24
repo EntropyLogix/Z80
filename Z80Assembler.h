@@ -1177,6 +1177,7 @@ protected:
                     if (tokens.count() == 2 && tokens[0].upper() == "INCLUDE") {
                         const auto& filename_token = tokens[1];
                         if (filename_token.original().length() > 1 && filename_token.original().front() == '"' && filename_token.original().back() == '"') {
+                            output_source.push_back({identifier, line_number, line, original_line});
                             std::string include_filename = filename_token.original().substr(1, filename_token.original().length() - 2);
                             process_file(include_filename, output_source, included_files, line_number);
                         } else
@@ -5819,6 +5820,9 @@ protected:
                 return false;
             const auto& directive_token = m_tokens[0];
             const std::string& directive_upper = directive_token.upper();
+            if (m_policy.context().assembler.m_config.directives.allow_includes && directive_upper == "INCLUDE") {
+                return true;
+            }
             if (m_policy.context().assembler.m_config.directives.allow_org && directive_upper == "ORG") {
                 if (m_tokens.count() <= 1)
                     m_policy.context().assembler.report_error("ORG directive requires an address argument.");

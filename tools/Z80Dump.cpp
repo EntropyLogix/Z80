@@ -6,7 +6,7 @@
 //   ▄██      ██▀  ▀██  ██    ██
 //  ███▄▄▄▄▄  ▀██▄▄██▀   ██▄▄██
 //  ▀▀▀▀▀▀▀▀    ▀▀▀▀      ▀▀▀▀   Dump.cpp
-// Verson: 1.0
+// Verson: 1.0.0
 //
 // This file contains a command-line utility for dumping memory, registers,
 // and disassembling code from Z80 binary files and snapshots.
