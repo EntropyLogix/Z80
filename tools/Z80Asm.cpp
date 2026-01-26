@@ -208,13 +208,7 @@ void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler
         } else
             file << std::setw(24) << " ";
         file << source_text << '\n';
-        int max_extra_lines = 1;
-        int extra_lines = 0;
         while (printed_bytes < total_bytes) {
-            if (extra_lines >= max_extra_lines) {
-                file << std::setw(14) << " " << "... (" << (total_bytes - printed_bytes) << " bytes more)\n";
-                break;
-            }
             file << std::setw(7) << " ";
             std::stringstream addr_ss;
             addr_ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << current_addr;
@@ -226,7 +220,6 @@ void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler
             file << '\n';
             printed_bytes += chunk_size;
             current_addr += chunk_size;
-            extra_lines++;
         }
     }
 }

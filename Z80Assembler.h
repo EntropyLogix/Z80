@@ -987,6 +987,7 @@ protected:
             int unique_id_counter = 0;
             bool in_expansion = false;
             bool is_exiting = false;
+            bool in_definition = false;
         } macros;
         struct Source {
             enum class ControlType {
@@ -1155,6 +1156,7 @@ protected:
                         } else
                             current_macro.body.push_back(line);
                     }
+                    output_source.push_back({identifier, line_number, line, original_line});
                     continue;
                 }
                 if (tokens.count() >= 2 && tokens[1].upper() == "MACRO") {
@@ -1171,6 +1173,7 @@ protected:
                         for (const auto& arg_token : arg_tokens)
                             current_macro.arg_names.push_back(arg_token.original());
                     }
+                    output_source.push_back({identifier, line_number, line, original_line});
                     continue;
                 }
                 if (m_context.assembler.m_config.directives.allow_includes) {
@@ -2557,6 +2560,8 @@ protected:
         virtual void on_finalize() override {
             if (m_context.macros.in_expansion)
                 m_context.assembler.report_error("Unterminated macro expansion at end of file.");
+            if (m_context.macros.in_definition)
+                m_context.assembler.report_error("Unterminated macro definition at end of file.");
             if (!m_context.source.control_stack.empty()) {
                 switch (m_context.source.control_stack.back()) {
                     case Context::Source::ControlType::CONDITIONAL:
@@ -2574,6 +2579,7 @@ protected:
             m_context.address.current_logical = m_context.address.start;
             m_context.address.current_physical = m_context.address.start;
             m_context.macros.unique_id_counter = 0;
+            m_context.macros.in_definition = false;
             m_context.source.conditional_stack.clear();
             m_context.source.control_stack.clear();
             m_context.defines.map.clear();
@@ -5368,6 +5374,10 @@ protected:
                     is_initial_line = false;
                     continue;
                 }
+                if (process_macro_definition_structure()) {
+                    is_initial_line = false;
+                    continue;
+                }
                 apply_defines();
                 if (is_in_active_block() && process_loops()) {
                     is_initial_line = false;
@@ -5416,6 +5426,28 @@ protected:
         bool is_in_repeat_block() const { return !m_policy.context().repeat.stack.empty(); }
         bool is_in_while_block() const { return !m_policy.context().while_loop.stack.empty(); }
     private:
+        bool process_macro_definition_structure() {
+             if (m_policy.context().macros.in_definition) {
+                 auto is_macro_end = [](const std::string& s) { return s == "ENDM" || s == "MEND"; };
+                 if (m_tokens.count() > 0) {
+                     if (is_macro_end(m_tokens[0].upper())) {
+                         m_policy.context().macros.in_definition = false;
+                         return true; 
+                     } else if (m_tokens.count() > 1 && is_macro_end(m_tokens[1].upper())) {
+                         m_policy.context().macros.in_definition = false;
+                         return true;
+                     }
+                 }
+                 return true;
+             }
+             if (m_tokens.count() >= 2 && m_tokens[1].upper() == "MACRO") {
+                 if (m_policy.context().assembler.m_config.directives.allow_macros) {
+                     m_policy.context().macros.in_definition = true;
+                     return true;
+                 }
+             }
+             return false;
+        }
         bool expand_macro() {
             if (m_policy.context().macros.in_expansion) {
                 m_policy.on_macro_line();
