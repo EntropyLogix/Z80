@@ -5344,38 +5344,72 @@ protected:
             m_policy.on_source_line_begin();
             m_policy.context().source.lines_stack.clear();
             m_policy.context().source.lines_stack.push_back(initial_line);
+            bool is_initial_line = true;
+            const SourceLine* original_location = m_policy.context().source.source_location;
+            SourceLine temp_line;
+            if (original_location)
+                temp_line = *original_location;
             while (!m_policy.context().source.lines_stack.empty() || m_policy.context().macros.in_expansion) {
                 if (expand_macro())
                     continue;
+                if (!is_initial_line) {
+                    m_policy.on_source_line_end();
+                    m_policy.on_source_line_begin();
+                    if (original_location && !m_policy.context().source.lines_stack.empty()) {
+                        temp_line.content = "+" + m_policy.context().source.lines_stack.back();
+                        temp_line.original_text = temp_line.content;
+                        m_policy.context().source.source_location = &temp_line;
+                    }
+                }
                 m_line = m_policy.context().source.lines_stack.back();
                 m_policy.context().source.lines_stack.pop_back();
                 m_tokens.process(m_line);
-                if (m_tokens.count() == 0)
+                if (m_tokens.count() == 0) {
+                    is_initial_line = false;
                     continue;
+                }
                 apply_defines();
-                if (is_in_active_block() && process_loops())
+                if (is_in_active_block() && process_loops()) {
+                    is_initial_line = false;
                     continue;
-                if (process_recordings())
+                }
+                if (process_recordings()) {
+                    is_initial_line = false;
                     continue;
-                if (process_conditional_directives())
+                }
+                if (process_conditional_directives()) {
+                    is_initial_line = false;
                     continue;
+                }
                 if (is_in_active_block()) {
-                    if (process_defines())
+                    if (process_defines()) {
+                        is_initial_line = false;
                         continue;
-                    if (process_macro())
+                    }
+                    if (process_macro()) {
+                        is_initial_line = false;
                         continue;
-                    if (process_label())
+                    }
+                    if (process_label()) {
+                        is_initial_line = false;
                         continue;
-                    if (process_non_conditional_directives())
+                    }
+                    if (process_non_conditional_directives()) {
+                        is_initial_line = false;
                         continue;
-                    if (process_option_directive())
+                    }
+                    if (process_option_directive()) {
+                        is_initial_line = false;
                         continue;
+                    }
                     if (m_end_of_source)
                         return false;
                     process_instruction();
                 }
+                is_initial_line = false;
             }
             m_policy.on_source_line_end();
+            m_policy.context().source.source_location = original_location;
             return true;
         }
         bool is_in_active_block() const { return m_policy.context().source.conditional_stack.empty() || m_policy.context().source.conditional_stack.back().is_active; }
