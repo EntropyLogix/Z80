@@ -3633,6 +3633,7 @@ protected:
         bool is_directive(const std::string& s) const { return is_in_set(s, directives()) || m_context.assembler.custom_directives.count(s); }
         bool is_register(const std::string& s) const { return is_in_set(s, registers()); }
         bool is_reserved(const std::string& s) const { return is_mnemonic(s) || is_directive(s) || is_register(s); }
+        bool is_assignment_directive(const std::string& s) const { return s == "EQU" || s == "SET" || s == "DEFL" || s == "="; }
         bool is_valid_label_name(const std::string& s) const {
             if (s.empty() || is_reserved(s))
                 return false;
@@ -5643,13 +5644,15 @@ protected:
                 if (!m_policy.context().assembler.m_keywords.is_reserved(first_token.upper())) {
                     if (m_tokens.count() > 1) {
                         const std::string& next_token_upper = m_tokens[1].upper();
-                        if (next_token_upper != "EQU" && next_token_upper != "SET" && next_token_upper != "DEFL" && next_token_upper != "=" && next_token_upper != "PROC" && next_token_upper != "ENDP")
+                        if (!m_policy.context().assembler.m_keywords.is_assignment_directive(next_token_upper) && next_token_upper != "PROC" && next_token_upper != "ENDP")
                             is_label = true;
                     } else
                         is_label = true;
                 }
             }
             if (is_label) {
+                if (m_tokens.count() > 1 && m_policy.context().assembler.m_keywords.is_assignment_directive(m_tokens[1].upper()))
+                    return false;
                 if (!m_policy.context().assembler.m_keywords.is_valid_label_name(label_str))
                     m_policy.context().assembler.report_error("Invalid label name: '" + label_str + "'");
                 m_policy.on_label_definition(label_str);
@@ -5739,27 +5742,22 @@ protected:
                 m_policy.on_undefine_directive(m_tokens[1].original());
                 return true;
             }
-            if (m_tokens.count() >= 3 && m_tokens[1].original() == "=") {
-                const std::string& label = m_tokens[0].original();
-                if (m_policy.context().assembler.m_keywords.is_valid_label_name(label)) {
-                    m_tokens.merge(2, m_tokens.count() - 1);
-                    const std::string& value = m_tokens[2].original();
-                    if (!const_opts.assignments_as_set && const_opts.allow_equ)
-                        m_policy.on_equ_directive(label, value);
-                    else if (const_opts.allow_set)
-                        m_policy.on_set_directive(label, value);
-                    return true;
-                }
-            }
             if (m_tokens.count() >= 3) {
                 const std::string& directive = m_tokens[1].upper();
-                if (directive == "EQU" || directive == "SET" || directive == "DEFL") {
-                    const std::string& label = m_tokens[0].original();
+                if (m_policy.context().assembler.m_keywords.is_assignment_directive(directive)) {
+                    std::string label = m_tokens[0].original();
+                    if (label.length() > 1 && label.back() == ':')
+                        label.pop_back();
                     if (!m_policy.context().assembler.m_keywords.is_valid_label_name(label))
                         m_policy.context().assembler.report_error("Invalid label name for directive: '" + label + "'");
                     m_tokens.merge(2, m_tokens.count() - 1);
                     const std::string& value = m_tokens[2].original();
-                    if ((directive == "SET" || directive == "DEFL") && const_opts.allow_set)
+                    if (directive == "=") {
+                        if (!const_opts.assignments_as_set && const_opts.allow_equ)
+                            m_policy.on_equ_directive(label, value);
+                        else if (const_opts.allow_set)
+                            m_policy.on_set_directive(label, value);
+                    } else if ((directive == "SET" || directive == "DEFL") && const_opts.allow_set)
                         m_policy.on_set_directive(label, value);
                     else if (directive == "EQU" && const_opts.allow_equ)
                         m_policy.on_equ_directive(label, value);

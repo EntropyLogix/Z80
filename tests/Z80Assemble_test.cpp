@@ -1238,6 +1238,32 @@ TEST_CASE(EQUAndSETDirectives) {
     )");
 }
 
+TEST_CASE(LabelWithColonAndAssignment) {
+    // EQU with colon
+    ASSERT_CODE(R"(
+        MY_CONST: EQU 0x55
+        LD A, MY_CONST
+    )", {0x3E, 0x55});
+
+    // SET with colon
+    ASSERT_CODE(R"(
+        MY_VAR: SET 0xAA
+        LD B, MY_VAR
+    )", {0x06, 0xAA});
+
+    // = with colon
+    ASSERT_CODE(R"(
+        MY_VAL: = 0x33
+        LD C, MY_VAL
+    )", {0x0E, 0x33});
+
+    // DEFL with colon
+    ASSERT_CODE(R"(
+        MY_DEFL: DEFL 0x44
+        LD D, MY_DEFL
+    )", {0x16, 0x44});
+}
+
 TEST_CASE(SETDirective) {
     // Basic SET
     ASSERT_CODE(R"(
