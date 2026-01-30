@@ -5,6 +5,12 @@ project(Z80 VERSION 0.1.0 LANGUAGES C CXX)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
 set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native")
 
+option(ENABLE_COVERAGE "Enable code coverage generation" OFF)
+if(ENABLE_COVERAGE)
+    add_compile_options(-g --coverage)
+    add_link_options(--coverage)
+endif()
+
 include(FetchContent)
 
 FetchContent_Declare(

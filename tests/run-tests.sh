@@ -2,9 +2,28 @@
 set -e
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 
-./build.sh
+if [ "$1" = "--coverage" ]; then
+    "$SCRIPT_DIR/build.sh" --coverage
+else
+    "$SCRIPT_DIR/build.sh"
+fi
+
 "$SCRIPT_DIR/build/zex-tests" "$SCRIPT_DIR/zexdoc.com"
 "$SCRIPT_DIR/build/zex-tests" "$SCRIPT_DIR/zexall.com"
 "$SCRIPT_DIR/build/json-tests" "$SCRIPT_DIR/zexdoc.com"
 "$SCRIPT_DIR/build/Z80Assemble_test"
-"$SCRIPT_DIR/build/Z80Analyze_test"
+"$SCRIPT_DIR/build/Z80Decode_test"
+"$SCRIPT_DIR/build/Z80Next_test"
+
+if [ "$1" = "--coverage" ]; then
+    if command -v lcov >/dev/null 2>&1; then
+        echo "--- Generating coverage report ---"
+        lcov --capture --directory "$SCRIPT_DIR/build" --output-file "$SCRIPT_DIR/build/coverage.info" --ignore-errors mismatch
+        # Usuwamy z raportu pliki systemowe oraz same pliki testów, aby skupić się na kodzie źródłowym
+        lcov --remove "$SCRIPT_DIR/build/coverage.info" '/usr/*' '*/tests/*' --output-file "$SCRIPT_DIR/build/coverage.info"
+        genhtml "$SCRIPT_DIR/build/coverage.info" --output-directory "$SCRIPT_DIR/coverage_report"
+        echo "Report generated at: $SCRIPT_DIR/coverage_report/index.html"
+    else
+        echo "Warning: lcov not found. Coverage report skipped."
+    fi
+fi
