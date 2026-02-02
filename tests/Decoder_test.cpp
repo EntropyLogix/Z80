@@ -12,7 +12,7 @@
 // Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
-#include "Z80Decoder.h"
+#include <Z80/Decoder.h>
 #include <iostream>
 #include <vector>
 #include <cassert>

@@ -12,7 +12,7 @@
 // Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
-#include "Z80Assembler.h"
+#include <Z80/Assembler.h>
 #include <cassert>
 #include <iostream>
 #include <iomanip>

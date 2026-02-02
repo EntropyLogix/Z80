@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <nlohmann/json.hpp>
-#include "Z80.h"
+#include <Z80/CPU.h>
 
 using Z80TestProcessor = Z80::CPU<class TestBus>;
 

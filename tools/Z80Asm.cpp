@@ -13,8 +13,8 @@
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 
-#include "Z80Assembler.h"
-#include "Z80Decoder.h"
+#include <Z80/Assembler.h>
+#include <Z80/Decoder.h>
 #include <cstdint>
 #include <fstream>
 #include <sstream>

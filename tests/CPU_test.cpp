@@ -13,7 +13,7 @@
 // MIT License
 
 #define Z80_ENABLE_NEXT
-#include "Z80.h"
+#include <Z80/CPU.h>
 #include <iostream>
 #include <vector>
 #include <cassert>

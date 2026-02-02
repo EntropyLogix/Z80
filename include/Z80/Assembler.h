@@ -349,10 +349,10 @@
 // - Undocumented: SLL (alias SLI), OUT (C), etc.
 // - Z80N Extensions: SWAPNIB, MIRROR, NEXTREG, PIXELAD, PIXELDN, SETAE, LDIX, LDWS, LDIRX, LDDX, LDDRX, LDPIRX, OUTINB, MUL, ADD rr,A/nn, PUSH nn, BSLA, BSRA, BSRL, BSRF, BRLC, TEST, LDIRSCALE
 
-#ifndef __Z80ASSEMBLE_H__
-#define __Z80ASSEMBLE_H__
+#ifndef __Z80_ASSEMBLER_H__
+#define __Z80_ASSEMBLER_H__
 
-#include "Z80.h"
+#include <Z80/CPU.h>
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -5933,4 +5933,4 @@ protected:
 };
 }
 
-#endif //__Z80ASSEMBLE_H__
+#endif //__Z80_ASSEMBLER_H__

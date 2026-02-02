@@ -13,10 +13,10 @@
 // Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
-#ifndef __Z80DECODE_H__
-#define __Z80DECODE_H__
+#ifndef __Z80_DECODER_H__
+#define __Z80_DECODER_H__
 
-#include "Z80.h"
+#include <Z80/CPU.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -2772,4 +2772,4 @@ protected:
 };
 }
 
-#endif //__Z80DECODE_H__
+#endif //__Z80_DECODER_H__

@@ -13,8 +13,8 @@
 // Copyright (c) 2025-2026 Adam Szulc 
 // MIT License
 
-#ifndef __Z80_H__
-#define __Z80_H__
+#ifndef __Z80_CPU_H__
+#define __Z80_CPU_H__
 
 #include <algorithm>
 #include <climits>
@@ -8048,4 +8048,4 @@ public:
 };
 }
 
-#endif //__Z80_H__
+#endif //__Z80_CPU_H__

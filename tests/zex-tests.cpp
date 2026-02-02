@@ -4,7 +4,7 @@
 #include <vector>
 #include <iostream>
 #include <chrono>
-#include "Z80.h"
+#include <Z80/CPU.h>
 
 using Z80Processor = Z80::CPU<class Bus, class Z80::StandardEvents, class Z80::StandardDebugger>;
 

@@ -1,5 +1,8 @@
 # **Z80 CPU Emulator Core**
 
+![Build Status](https://github.com/EntropyLogix/Z80/actions/workflows/build.yml/badge.svg)
+![Code Coverage](https://img.shields.io/badge/coverage-85%25-green)
+
 This repository contains a high-performance, **header-only C++ template** implementation of the **Zilog Z80 microprocessor** emulator core. 
 
 The design emphasizes decoupling the CPU logic from external components (Bus, Events, and Debugger) using C++ templates, making it highly flexible and easy to integrate into various retro-computing projects or emulators (e.g., ZX Spectrum, Amstrad CPC, TRS-80, MSX, Sega Master System, or CP/M-based machines).
@@ -8,8 +11,8 @@ The design emphasizes decoupling the CPU logic from external components (Bus, Ev
 
 In addition to the core Z80 emulator, this repository provides a suite of powerful header-only libraries for code analysis and assembly.
 
-*   **`Z80Decoder.h`**: A comprehensive library for disassembling Z80 machine code, dumping memory, and inspecting CPU state. It includes support for loading symbol maps to produce human-readable output.
-*   **`Z80Assembler.h`**: A full-featured, two-pass Z80 assembler capable of converting assembly source files into machine code, handling labels, directives, and expressions.
+*   **`Z80/Decoder.h`**: A comprehensive library for disassembling Z80 machine code, dumping memory, and inspecting CPU state. It includes support for loading symbol maps to produce human-readable output.
+*   **`Z80/Assembler.h`**: A full-featured, two-pass Z80 assembler capable of converting assembly source files into machine code, handling labels, directives, and expressions.
 
 These libraries are used to build the `Z80Dump` and `Z80Asm` command-line tools, which serve as ready-to-use utilities and practical examples of how to integrate the libraries into your own projects.
 
@@ -18,7 +21,7 @@ These libraries are used to build the `Z80Dump` and `Z80Asm` command-line tools,
 ## ✨ **Features**
 
 * **Header-Only Design:** Easy inclusion and integration into any C++ project.  
-* **Template-Based Architecture:** The core logic (`Z80<TBus, TEvents, TDebugger>`) is completely decoupled from system specifics, promoting clean separation of concerns.  
+* **Template-Based Architecture:** The core logic (`Z80::CPU<TBus, TEvents, TDebugger>`) is completely decoupled from system specifics, promoting clean separation of concerns.  
 * **Cycle-Accurate Timing:** Includes granular cycle tracking and integration with a user-defined event system (TEvents).  
 * **Comprehensive Instruction Set:** Implements the core Z80 instruction set, including standard opcodes, extended instruction sets (prefixed opcodes like CB, ED, DD, and FD), and Z80N (ZX Spectrum Next) extensions.  
 * **State Management:** Provides utility functions (save\_state, load\_state) for easy serialization and save-state functionality.
@@ -27,17 +30,17 @@ These libraries are used to build the `Z80Dump` and `Z80Asm` command-line tools,
 
 ## 🧩 **Usage and Integration**
 
-The `Z80` class is a template that can be configured with up to three external interface classes to handle system interactions: `TBus`, `TEvents`, and `TDebugger`. This design allows for maximum flexibility by separating the CPU core logic from the system-specific hardware it interacts with.
+The `Z80::CPU` class is a template that can be configured with up to three external interface classes to handle system interactions: `TBus`, `TEvents`, and `TDebugger`. This design allows for maximum flexibility by separating the CPU core logic from the system-specific hardware it interacts with.
 
 ```cpp
 template <
-    typename TBus = Z80StandardBus, 
-    typename TEvents = Z80StandardEvents, 
-    typename TDebugger = Z80StandardDebugger
+    typename TBus = Z80::StandardBus, 
+    typename TEvents = Z80::StandardEvents, 
+    typename TDebugger = Z80::StandardDebugger
 >
-class Z80 {
+class CPU {
 public:
-    Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr);
+    CPU(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr);
     
     // ... public methods like run(), step(), reset() ...
 };
@@ -45,19 +48,19 @@ public:
 
 ### Constructor and Ownership
 
-The `Z80` constructor manages the lifecycle of its `TBus`, `TEvents`, and `TDebugger` dependencies through a flexible ownership model.
+The `Z80::CPU` constructor manages the lifecycle of its `TBus`, `TEvents`, and `TDebugger` dependencies through a flexible ownership model.
 
 ```cpp
-Z80(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr);
+CPU(TBus* bus = nullptr, TEvents* events = nullptr, TDebugger* debugger = nullptr);
 ```
 
-*   **Passing a Pointer (External Ownership):** If you provide a valid pointer to an existing object, the `Z80` core will use that object. In this case, the `Z80` instance does **not** take ownership, and you are responsible for managing the object's memory (i.e., creating and deleting it). This is useful for sharing a single bus or event system across multiple components.
+*   **Passing a Pointer (External Ownership):** If you provide a valid pointer to an existing object, the `Z80::CPU` core will use that object. In this case, the `Z80::CPU` instance does **not** take ownership, and you are responsible for managing the object's memory (i.e., creating and deleting it). This is useful for sharing a single bus or event system across multiple components.
 
-*   **Passing `nullptr` (Internal Ownership):** If you pass `nullptr` or omit the argument, the `Z80` core will attempt to internally create a new instance of the corresponding template type (e.g., `new TBus()`). The `Z80` core then **takes ownership** and will automatically `delete` the object in its destructor. This is convenient for self-contained setups.
+*   **Passing `nullptr` (Internal Ownership):** If you pass `nullptr` or omit the argument, the `Z80::CPU` core will attempt to internally create a new instance of the corresponding template type (e.g., `new TBus()`). The `Z80::CPU` core then **takes ownership** and will automatically `delete` the object in its destructor. This is convenient for self-contained setups.
 
     > **⚠️ Warning:** This automatic creation only works if the template type (e.g., `TBus`) is **default-constructible**. If it is not, the internal pointer will be initialized to `nullptr`, which will likely cause a runtime error if the CPU attempts to access it.
 
-This model gives you the choice between dependency injection (you control the lifetime) and composition (the `Z80` object controls the lifetime).
+This model gives you the choice between dependency injection (you control the lifetime) and composition (the `Z80::CPU` object controls the lifetime).
 
 ### **Public API Reference**
 
@@ -108,7 +111,7 @@ The API provides a comprehensive set of getter and setter methods for all Z80 re
 
 ##### **Flags Register (F)**
 
-The `F` register is accessed via a helper class `Z80::Flags` that provides a convenient interface for flag manipulation.
+The `F` register is accessed via a helper class `Z80::CPU::Flags` that provides a convenient interface for flag manipulation.
 
 *   `Flags get_F() const`: Returns the `Flags` object.
 *   `void set_F(Flags value)`: Sets the entire flags register.
@@ -139,22 +142,22 @@ When compiled with `Z80_ENABLE_EXEC_API`, the emulator exposes a set of public m
 
 The power of the emulator comes from its template-based design, which allows you to customize its interaction with the outside world by providing your own implementations for three core interfaces: `TBus`, `TEvents`, and `TDebugger`.
 
-For each interface, you can either use the provided default for simplicity or pass a pointer to your own custom class in the `Z80` constructor to achieve specialized behavior.
+For each interface, you can either use the provided default for simplicity or pass a pointer to your own custom class in the `Z80::CPU` constructor to achieve specialized behavior.
 
 #### `TBus` Interface
 Responsible for all communication with memory and I/O ports.
 
 | Method | Description |
 | :--- | :--- |
-| `void connect(Z80<...>* cpu)` | Called by the Z80 constructor to pass a pointer to the CPU instance. This allows the bus to have backward access to the processor, e.g., to trigger an interrupt. |
+| `void connect(Z80::CPU<...>* cpu)` | Called by the Z80 constructor to pass a pointer to the CPU instance. This allows the bus to have backward access to the processor, e.g., to trigger an interrupt. |
 | `uint8_t read(uint16_t address)` | Reads a single byte from the 16-bit memory address space. This can have side effects (e.g., handling memory-mapped I/O). |
 | `void write(uint16_t address, uint8_t value)` | Writes a single byte to the 16-bit memory address space. |
-| `uint8_t peek(uint16_t address) const` | Reads a single byte from memory without any side effects. This is primarily used by tools like the disassembler (`Z80Analyzer`). |
+| `uint8_t peek(uint16_t address) const` | Reads a single byte from memory without any side effects. This is primarily used by tools like the disassembler (`Z80::Decoder`). |
 | `uint8_t in(uint16_t port)` | Reads a single byte from the 16-bit I/O port address space. |
 | `void out(uint16_t port, uint8_t value)` | Writes a single byte to the 16-bit I/O port address space. |
 | `void reset()` | Resets the bus state (e.g., clears RAM, resets connected devices). |
 
-**Default Implementation (`Z80StandardBus`):**
+**Default Implementation (`Z80::StandardBus`):**
 Provides a simple 64KB RAM space (`std::vector<uint8_t>`). `read`/`write` operations access this internal RAM, `in` operations always return `0xFF`, and `out` operations do nothing. This is useful for basic testing.
 
 #### `TEvents` Interface
@@ -162,12 +165,12 @@ Manages cycle-dependent events, which are crucial for precise, hardware-accurate
 
 | Method | Description |
 | :--- | :--- |
-| `void connect(const Z80<...>* cpu)` | Called by the Z80 constructor. It passes a constant pointer to the CPU, allowing the event system to read its state (like the cycle counter) without modifying it. |
+| `void connect(const Z80::CPU<...>* cpu)` | Called by the Z80 constructor. It passes a constant pointer to the CPU, allowing the event system to read its state (like the cycle counter) without modifying it. |
 | `long long get_event_limit() const` | Returns the absolute cycle count (`m_ticks`) at which the next event should occur. The CPU core compares its internal cycle counter against this value. |
 | `void handle_event(long long tick)` | A callback function invoked by the CPU when its cycle counter reaches the value returned by `get_event_limit()`. Used to handle timing-based events (e.g., video frame interrupts). |
 | `void reset()` | Resets the state of the event system. |
 
-**Default Implementation (`Z80StandardEvents`):**
+**Default Implementation (`Z80::StandardEvents`):**
 A minimal event handler that effectively disables the event system for maximum performance. The next event is scheduled for the maximum possible cycle count (`LLONG_MAX`), so `handle_event` is never called.
 
 #### `TDebugger` Interface
@@ -175,14 +178,14 @@ Provides hooks that allow an external tool to be attached to monitor and trace c
 
 | Method | Description |
 | :--- | :--- |
-| `void connect(const Z80<...>* cpu)` | Called by the Z80 constructor, passing a constant pointer to the CPU instance to allow the debugger to inspect registers and processor state. |
+| `void connect(const Z80::CPU<...>* cpu)` | Called by the Z80 constructor, passing a constant pointer to the CPU instance to allow the debugger to inspect registers and processor state. |
 | `void before_step()` | Hook called just before each instruction is executed. |
 | `void after_step(...)` | Hook called after each instruction is executed. If `Z80_DEBUGGER_OPCODES` is defined, this method receives the instruction's byte sequence as an argument (`void after_step(const std::vector<uint8_t>& opcodes)`). Otherwise, it is parameterless (`void after_step()`). |
 | `void before_IRQ()` / `void after_IRQ()` | Hooks called just before and after handling a maskable interrupt (IRQ). |
 | `void before_NMI()` / `void after_NMI()` | Hooks called just before and after handling a non-maskable interrupt (NMI). |
 | `void reset()` | Resets the internal state of the debugger. |
 
-**Default Implementation (`Z80StandardDebugger`):**
+**Default Implementation (`Z80::StandardDebugger`):**
 A stub implementation with empty methods. All debugger hooks are no-ops and will be optimized out by the compiler, ensuring zero performance overhead when debugging is not needed.
 
 ### **Example Implementation Snippets**
@@ -190,15 +193,15 @@ A stub implementation with empty methods. All debugger hooks are no-ops and will
 The following snippets demonstrate how to initialize and use the Z80 core in various configurations.
 
 #### 1. Using Default Implementations
-The simplest way to get the CPU running, perfect for basic tests. It uses `Z80StandardBus` (with 64KB RAM), `Z80StandardEvents` (no events), and `Z80StandardDebugger` (no debugging).
+The simplest way to get the CPU running, perfect for basic tests. It uses `Z80::StandardBus` (with 64KB RAM), `Z80::StandardEvents` (no events), and `Z80::StandardDebugger` (no debugging).
 
 ```cpp
-#include "Z80.h"
+#include <Z80/CPU.h>
 #include <iostream>
 
 int main() {
     // Initializes the CPU with default components.
-    Z80<> cpu;
+    Z80::CPU<> cpu;
 
     // Write a simple program to memory (LD A, 0x42; HALT)
     cpu.get_bus()->write(0x0000, 0x3E);
@@ -218,12 +221,12 @@ int main() {
 This example shows how to integrate a custom bus, for instance, to handle a specific memory map or I/O devices.
 
 ```cpp
-#include "Z80.h"
+#include <Z80/CPU.h>
 
 class CustomBus {
     // ... implement read, write, in, out, reset, connect ...
 public:
-    void connect(Z80<CustomBus>* cpu) { /* ... */ }
+    void connect(Z80::CPU<CustomBus>* cpu) { /* ... */ }
     void reset() { /* ... */ }
     uint8_t read(uint16_t address) { return m_ram[address]; }
     void write(uint16_t address, uint8_t value) { m_ram[address] = value; }
@@ -235,7 +238,7 @@ private:
 
 int main() {
     CustomBus my_bus;
-    Z80<CustomBus> cpu(&my_bus); // Pass a pointer to the custom bus
+    Z80::CPU<CustomBus> cpu(&my_bus); // Pass a pointer to the custom bus
     cpu.run(100);
     return 0;
 }
@@ -245,13 +248,13 @@ int main() {
 Ideal when you need precise timing, such as for synchronizing with a video chip emulation.
 
 ```cpp
-#include "Z80.h"
+#include <Z80/CPU.h>
 #include <iostream>
 
 class CustomEvents {
     // ... implement get_event_limit, handle_event, reset, connect ...
 public:
-    void connect(const Z80<Z80StandardBus, CustomEvents>* cpu) { /* ... */ }
+    void connect(const Z80::CPU<Z80::StandardBus, CustomEvents>* cpu) { /* ... */ }
     void reset() { /* ... */ }
     long long get_event_limit() const { return 20000; } // Trigger event every 20000 ticks
     void handle_event(long long tick) {
@@ -263,7 +266,7 @@ public:
 int main() {
     CustomEvents my_events;
     // Use the default bus (nullptr) and a custom event system
-    Z80<Z80StandardBus, CustomEvents> cpu(nullptr, &my_events);
+    Z80::CPU<Z80::StandardBus, CustomEvents> cpu(nullptr, &my_events);
     cpu.run(100000);
     return 0;
 }
@@ -273,7 +276,7 @@ int main() {
 A full-featured setup for a complex project, like a complete computer emulator.
 
 ```cpp
-#include "Z80.h"
+#include <Z80/CPU.h>
 
 class MyBus { /* ... */ };
 class MyEvents { /* ... */ };
@@ -286,7 +289,7 @@ int main() {
     MyDebugger debugger;
 
     // 2. Initialize the Z80 core, passing pointers to all components
-    Z80<MyBus, MyEvents, MyDebugger> cpu(&bus, &events, &debugger);
+    Z80::CPU<MyBus, MyEvents, MyDebugger> cpu(&bus, &events, &debugger);
 
     // 3. Run the emulation
     long long ticks_per_frame = 4000000;
@@ -302,12 +305,12 @@ This advanced example demonstrates how to execute single instructions directly w
 **Note:** This requires the `Z80_ENABLE_EXEC_API` macro to be defined during compilation (e.g., `g++ -DZ80_ENABLE_EXEC_API ...`).
 
 ```cpp
-#include "Z80.h"
+#include <Z80/CPU.h>
 #include <iostream>
 #include <iomanip>
 
 int main() {
-    Z80<> cpu;
+    Z80::CPU<> cpu;
 
     // The exec_* API still uses the bus to fetch operands if needed.
     // Let's prepare memory for LD A, 0x12 and LD B, 0x34
@@ -343,7 +346,7 @@ The following macros can be added to your C++ compiler flags in your build syste
 | `Z80_BIG_ENDIAN` | By default, the emulator assumes the host system is little-endian for register pairs (AF, BC, etc.). Define this macro if you are compiling on a big-endian architecture to ensure correct mapping of 8-bit to 16-bit registers. |
 | `Z80_DEBUGGER_OPCODES` | Enables collecting instruction bytes (opcode and operands) and passing them to the `TDebugger` implementation in the `before_step` and `after_step` methods. Useful for creating detailed debugging and tracing tools. |
 | `Z80_ENABLE_EXEC_API` | Exposes the public `exec_*` API, which allows executing individual Z80 instructions by calling dedicated methods (e.g., `cpu.exec_NOP()`, `cpu.exec_LD_A_n()`). This can be useful for testing or specific scenarios but is disabled by default to keep the public interface clean. |
-| `Z80_ENABLE_Z80N` | Enables support for Z80N (ZX Spectrum Next) instructions in the CPU core. |
+| `Z80_ENABLE_NEXT` | Enables support for Z80N (ZX Spectrum Next) instructions in the CPU core. |
 
 ### Build Options (CMake)
 
@@ -355,16 +358,18 @@ Below are examples of `CMakeLists.txt` configurations for your project.
 
 #### Example 1: Library Downloaded Manually
 
-In this scenario, we assume you have downloaded the library and placed it in a `lib/Z80` subdirectory within your project.
+In this scenario, we assume you have downloaded the library and placed it in a `lib/Z80` subdirectory within your project, preserving the `include/Z80` structure.
 
 Project structure:
 ```
 my_project/
 ├── lib/
 │   └── Z80/
-│       ├── Z80.h
-│       ├── Z80Decoder.h
-│       └── Z80Assembler.h
+│       └── include/
+│           └── Z80/
+│               ├── CPU.h
+│               ├── Decoder.h
+│               └── Assembler.h
 ├── CMakeLists.txt
 └── main.cpp
 ```
@@ -384,7 +389,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Add the Z80 library directory to the include paths
 # This tells the compiler where to find the header files.
-target_include_directories(my_project PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/lib")
+target_include_directories(my_project PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/lib/Z80/include")
 
 # Add the executable
 add_executable(my_project main.cpp)
@@ -394,7 +399,7 @@ add_executable(my_project main.cpp)
 
 In your `main.cpp` file, you can now include the library like this:
 ```cpp
-#include "Z80/Z80.h"
+#include <Z80/CPU.h>
 ```
 
 ---
@@ -433,27 +438,27 @@ add_executable(my_project main.cpp)
 
 # Add the include directories from the fetched library to your target
 # The "Z80" target is created by FetchContent_MakeAvailable
-target_include_directories(my_project PRIVATE ${Z80_SOURCE_DIR})
+target_include_directories(my_project PRIVATE ${Z80_SOURCE_DIR}/include)
 ```
 
 In your `main.cpp` file, you include the headers in the same way:
 ```cpp
-#include "Z80/Z80.h"
+#include <Z80/CPU.h>
 ```
 
 ---
 
 ## 🛠️ **Library Components**
 
-### **Assembler (`Z80Assembler`)**
-The Z80Assembler class is a powerful, two-pass assembler that converts Z80 assembly source code into machine code. It is designed for flexibility, with built-in support for labels, directives, expressions, and forward references.
+### **Assembler (`Z80::Assembler`)**
+The `Z80::Assembler` class is a powerful, two-pass assembler that converts Z80 assembly source code into machine code. It is designed for flexibility, with built-in support for labels, directives, expressions, and forward references.
 
 #### **Usage and Initialization**
-To use the assembler, you must initialize it by passing a pointer to a memory object (which implements peek() and poke()) and a pointer to a source code provider (`IFileProvider`).
+To use the assembler, you must initialize it by passing a pointer to a memory object (which implements peek() and poke()) and a pointer to a source code provider (`Z80::IFileProvider`).
  
-`Z80Assembler(TBus* bus, IFileProvider* source_provider, const Config& config = ...)`
+`Assembler(TMemory* memory, Z80::IFileProvider* source_provider, const Config& config = ...)`
  
-`IFileProvider` is an interface you must implement to allow the assembler to load source files. This enables loading code from the file system, memory, or any other source. It requires three methods:
+`Z80::IFileProvider` is an interface you must implement to allow the assembler to load source files. This enables loading code from the file system, memory, or any other source. It requires three methods:
 *   `read_file(identifier, data)`: Reads file content into a vector of bytes.
 *   `exists(identifier)`: Checks if a file exists.
 *   `file_size(identifier)`: Returns the size of a file.
@@ -461,12 +466,13 @@ To use the assembler, you must initialize it by passing a pointer to a memory ob
 **Simple `IFileProvider` Implementation:**
 
 ```cpp
+#include <Z80/Assembler.h>
 #include <map>
 #include <string>
 #include <vector>
 #include <cstdint>
 
-class MemorySourceProvider : public IFileProvider {
+class MemorySourceProvider : public Z80::IFileProvider {
 public:
     bool read_file(const std::string& identifier, std::vector<uint8_t>& data) override {
         if (m_sources.count(identifier)) {
@@ -498,12 +504,12 @@ private:
 **Example:**
 
 ```cpp
-#include "Z80.h"
-#include "Z80Assembler.h"
+#include <Z80/CPU.h>
+#include <Z80/Assembler.h>
 #include <iostream>
 
 int main() {
-    Z80StandardBus bus;
+    Z80::StandardBus bus;
     MemorySourceProvider source_provider;
 
     // Add source code to the provider
@@ -518,7 +524,7 @@ int main() {
     source_provider.add_source("main.asm", code);
 
     // Create an assembler instance
-    Z80Assembler<Z80StandardBus> assembler(&bus, &source_provider);
+    Z80::Assembler<Z80::StandardBus> assembler(&bus, &source_provider);
 
     try {
         // Compile the code
@@ -556,20 +562,20 @@ This approach allows you to encapsulate your custom logic and create a reusable,
 
 **Example of a Custom Assembler Class:**
 ```cpp
-#include "Z80Assembler.h"
+#include <Z80/Assembler.h>
 #include <cmath> // For std::pow
 
-// 1. Create a class that inherits from Z80Assembler
+// 1. Create a class that inherits from Z80::Assembler
 template <typename TMemory>
-class MyCustomAssembler : public Z80Assembler<TMemory> {
+class MyCustomAssembler : public Z80::Assembler<TMemory> {
 public:
     // The constructor calls the base constructor and then adds custom elements
-    MyCustomAssembler(TMemory* memory, IFileProvider* source_provider)
-        : Z80Assembler<TMemory>(memory, source_provider) {
+    MyCustomAssembler(TMemory* memory, Z80::IFileProvider* source_provider)
+        : Z80::Assembler<TMemory>(memory, source_provider) {
         
         // Add a custom directive
         this->add_custom_directive("MY_DIRECTIVE", 
-            [](typename Z80Assembler<TMemory>::IPhasePolicy& policy, const std::vector<typename Z80Assembler<TMemory>::Strings::Tokens::Token>& args) {
+            [](typename Z80::Assembler<TMemory>::IPhasePolicy& policy, const std::vector<typename Z80::Assembler<TMemory>::Strings::Tokens::Token>& args) {
                 // Directive logic here. For example, emit a NOP for each argument.
                 for(const auto& arg : args) {
                     policy.on_assemble({0x00}); // NOP
@@ -579,13 +585,13 @@ public:
         // Add a custom function
         this->add_custom_function("MY_FUNC", {
             1, // Number of arguments
-            [](typename Z80Assembler<TMemory>::Context&, const std::vector<typename Z80Assembler<TMemory>::Expressions::Value>& args) {
-                if (args.size() != 1 || args.type != Z80Assembler<TMemory>::Expressions::Value::Type::NUMBER) {
+            [](typename Z80::Assembler<TMemory>::Context&, const std::vector<typename Z80::Assembler<TMemory>::Expressions::Value>& args) {
+                if (args.size() != 1 || args.type != Z80::Assembler<TMemory>::Expressions::Value::Type::NUMBER) {
                     // Error handling can be done by throwing an exception
                     throw std::runtime_error("MY_FUNC expects one numeric argument.");
                 }
                 // Double the argument
-                return typename Z80Assembler<TMemory>::Expressions::Value{Z80Assembler<TMemory>::Expressions::Value::Type::NUMBER, args.n_val * 2};
+                return typename Z80::Assembler<TMemory>::Expressions::Value{Z80::Assembler<TMemory>::Expressions::Value::Type::NUMBER, args.n_val * 2};
             }
         });
 
@@ -594,9 +600,9 @@ public:
             95,    // Precedence (higher than multiply)
             false, // is_unary
             false, // left_assoc (right-associative for exponentiation)
-            [](typename Z80Assembler<TMemory>::Context&, const std::vector<typename Z80Assembler<TMemory>::Expressions::Value>& args) -> typename Z80Assembler<TMemory>::Expressions::Value {
-                return typename Z80Assembler<TMemory>::Expressions::Value{
-                    Z80Assembler<TMemory>::Expressions::Value::Type::NUMBER,
+            [](typename Z80::Assembler<TMemory>::Context&, const std::vector<typename Z80::Assembler<TMemory>::Expressions::Value>& args) -> typename Z80::Assembler<TMemory>::Expressions::Value {
+                return typename Z80::Assembler<TMemory>::Expressions::Value{
+                    Z80::Assembler<TMemory>::Expressions::Value::Type::NUMBER,
                     std::pow(args[0].n_val, args[1].n_val)
                 };
             }
@@ -605,11 +611,11 @@ public:
 };
 
 int main() {
-    Z80StandardBus bus;
+    Z80::StandardBus bus;
     MemorySourceProvider source_provider;
 
     // 2. Instantiate your custom assembler class
-    MyCustomAssembler<Z80StandardBus> assembler(&bus, &source_provider);
+    MyCustomAssembler<Z80::StandardBus> assembler(&bus, &source_provider);
 
     // 3. Use the assembler as usual
     // assembler.compile("source.asm");
@@ -676,26 +682,26 @@ if (assembler.compile("main.asm")) {
     }
 }
 ```
-### **Decoder (`Z80Decoder`)**
+### **Decoder (`Z80::Decoder`)**
 
-The `Z80Decoder` class provides a powerful toolkit for disassembling Z80 machine code. It is designed to work with any object that provides a memory-peeking interface (`peek()`) and can integrate with a label provider (`ILabels`) to produce more readable, symbolic disassembly output.
+The `Z80::Decoder` class provides a powerful toolkit for disassembling Z80 machine code. It is designed to work with any object that provides a memory-peeking interface (`peek()`) and can integrate with a label provider (`Z80::ILabels`) to produce more readable, symbolic disassembly output.
 
 #### **Usage and Initialization**
 
 To use the decoder, you need to instantiate it by passing a pointer to a memory object from which it can read code and data.
 
-`Z80Decoder(TMemory* memory, ILabels* labels = nullptr)`
+`Decoder(TMemory* memory, Z80::ILabels* labels = nullptr)`
 
 **Example:**
 
 ```cpp
-#include "Z80.h"
-#include "Z80Decoder.h"
+#include <Z80/CPU.h>
+#include <Z80/Decoder.h>
 #include <iostream>
 #include <iomanip>
 
 int main() {
-    Z80StandardBus bus;
+    Z80::StandardBus bus;
 
     // Load some machine code into the bus
     // ORG 0x8000
@@ -713,7 +719,7 @@ int main() {
     bus.poke(0x8007, 0x80);
 
     // Create a decoder instance
-    Z80Decoder<Z80StandardBus> decoder(&bus);
+    Z80::Decoder<Z80::StandardBus> decoder(&bus);
 
     // Disassemble 5 lines of code starting at 0x8000
     std::cout << "--- Disassembly ---" << std::endl;
@@ -732,7 +738,7 @@ int main() {
              if (!op.s_val.empty()) {
                  std::cout << op.s_val;
              } else {
-                 if (op.type == Z80Decoder<Z80StandardBus>::CodeLine::Operand::MEM_IMM16) {
+                 if (op.type == Z80::Decoder<Z80::StandardBus>::CodeLine::Operand::MEM_IMM16) {
                      std::cout << "(0x" << std::hex << op.num_val << ")";
                  } else {
                      std::cout << "0x" << std::hex << op.num_val;

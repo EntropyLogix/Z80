@@ -1,16 +1,3 @@
-cmake_minimum_required(VERSION 3.14)
-cmake_policy(VERSION 3.14)
-project(Z80 VERSION 0.1.0 LANGUAGES C CXX)
-
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
-set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -march=native")
-
-option(ENABLE_COVERAGE "Enable code coverage generation" OFF)
-if(ENABLE_COVERAGE)
-    add_compile_options(-g --coverage)
-    add_link_options(--coverage)
-endif()
-
 include(FetchContent)
 
 FetchContent_Declare(
@@ -30,54 +17,20 @@ FetchContent_MakeAvailable(z80_tests)
 add_executable(json-tests
     json-tests.cpp
 )
-set_target_properties(json-tests PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 target_link_libraries(json-tests PRIVATE nlohmann_json::nlohmann_json)
 target_compile_definitions(json-tests PRIVATE Z80_TESTS_DIR="${z80_tests_SOURCE_DIR}/v1")
-target_include_directories(json-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
 add_executable(zex-tests
     zex-tests.cpp
 )
-set_target_properties(zex-tests PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 target_link_libraries(zex-tests PRIVATE nlohmann_json::nlohmann_json)
-target_include_directories(zex-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
 
-add_executable(Z80Next_test Z80Next_test.cpp)
-set_target_properties(Z80Next_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-target_include_directories(Z80Next_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
-add_test(NAME Z80Test COMMAND Z80Next_test)
+add_executable(CPU_test CPU_test.cpp)
+add_test(NAME CPU_test COMMAND CPU_test)
 
 set_source_files_properties(../tools/Z80Asm.cpp PROPERTIES COMPILE_DEFINITIONS Z80ASM_TEST_BUILD)
-add_executable(Z80Assemble_test Z80Assemble_test.cpp ../tools/Z80Asm.cpp)
-set_target_properties(Z80Assemble_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-target_include_directories(Z80Assemble_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
-add_test(NAME AssembleTest COMMAND Z80Assemble_test)
+add_executable(Assembler_test Assembler_test.cpp ../tools/Z80Asm.cpp)
+add_test(NAME Assembler_test COMMAND Assembler_test)
 
-add_executable(Z80Decode_test Z80Decode_test.cpp)
-set_target_properties(Z80Decode_test PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-target_include_directories(Z80Decode_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/..)
-add_test(NAME DecodeTest COMMAND Z80Decode_test)
-
-option(ENABLE_PGO "Enable Profile-Guided Optimization (PGO)" OFF)
-if(ENABLE_PGO)
-    if(NOT PGO_MODE)
-        message(FATAL_ERROR "PGO_MODE must be set to 'GENERATE' or 'USE' when ENABLE_PGO is ON.")
-    endif()
-    if("${PGO_MODE}" STREQUAL "GENERATE")
-        message(STATUS "PGO: Configuration for Instrumentation (GENERATE profile)")
-        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-            set(PGO_FLAGS "-fprofile-generate")
-        endif()
-    elseif("${PGO_MODE}" STREQUAL "USE")
-        message(STATUS "PGO: Configuration for Optimization (USE profile)")
-        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-            set(PGO_FLAGS "-fprofile-use" "-Wno-missing-profile") 
-        endif()
-    else()
-        message(FATAL_ERROR "Unknown PGO_MODE: ${PGO_MODE}. Use 'GENERATE' or 'USE'.")
-    endif()
-    target_compile_options(json-tests PUBLIC ${PGO_FLAGS})
-    target_link_options(json-tests PUBLIC ${PGO_FLAGS})
-    target_compile_options(zex-tests PUBLIC ${PGO_FLAGS})
-    target_link_options(zex-tests PUBLIC ${PGO_FLAGS})
-endif()
+add_executable(Decoder_test Decoder_test.cpp)
+add_test(NAME Decoder_test COMMAND Decoder_test)

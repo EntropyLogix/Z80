@@ -14,8 +14,8 @@
 // Copyright (c) 2025 Adam Szulc
 // MIT License
 
-#include "Z80Decoder.h"
-#include "Z80.h"
+#include <Z80/Decoder.h>
+#include <Z80/CPU.h>
 #include <algorithm>
 #include <cctype>
 #include <cstring>
