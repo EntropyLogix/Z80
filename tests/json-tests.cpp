@@ -9,7 +9,7 @@
 #include <nlohmann/json.hpp>
 #include "Z80.h"
 
-using Z80TestProcessor = Z80<class TestBus>;
+using Z80TestProcessor = Z80::CPU<class TestBus>;
 
 const std::string RED_TEXT = "\033[1;31m";
 const std::string GREEN_TEXT = "\033[1;32m";
@@ -17,7 +17,7 @@ const std::string RESET_TEXT = "\033[0m";
 
 bool show_details = false;
 
-class TestBus : public Z80StandardBus {
+class TestBus : public Z80::StandardBus {
 public:
     uint8_t in(uint16_t port) {
         if (m_ports.count(port)) {
@@ -28,9 +28,9 @@ public:
     void out(uint16_t port, uint8_t value) {
     }
     template <typename TEvents, typename TDebugger>
-    void connect(Z80<TestBus, TEvents, TDebugger>* cpu) {}
+    void connect(Z80::CPU<TestBus, TEvents, TDebugger>* cpu) {}
     void reset() {
-        Z80StandardBus::reset();
+        Z80::StandardBus::reset();
         m_ports.clear();
     }
     std::map<uint16_t, uint8_t> m_ports;

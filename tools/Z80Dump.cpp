@@ -64,7 +64,7 @@ std::vector<uint8_t> read_file(const std::string& path) {
     return buffer;
 }
 
-bool load_bin_file(Z80StandardBus& bus, const std::vector<uint8_t>& data, uint16_t load_addr) {
+bool load_bin_file(Z80::StandardBus& bus, const std::vector<uint8_t>& data, uint16_t load_addr) {
     for (size_t i = 0; i < data.size(); ++i) {
         if (load_addr + i > 0xFFFF) {
             std::cerr << "Warning: Binary file too large, truncated at 0xFFFF." << std::endl;
@@ -75,12 +75,12 @@ bool load_bin_file(Z80StandardBus& bus, const std::vector<uint8_t>& data, uint16
     return true;
 }
 
-bool load_sna_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
+bool load_sna_file(Z80::CPU<>& cpu, const std::vector<uint8_t>& data) {
     if (data.size() != 49179) {
         std::cerr << "Error: Invalid 48K SNA file size." << std::endl;
         return false;
     }
-    Z80<>::State state;
+    Z80::CPU<>::State state;
     state.m_I = data[0];
     state.m_HLp.w = (data[2] << 8) | data[1];
     state.m_DEp.w = (data[4] << 8) | data[3];
@@ -105,12 +105,12 @@ bool load_sna_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
     return true;
 }
 
-bool load_z80_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
+bool load_z80_file(Z80::CPU<>& cpu, const std::vector<uint8_t>& data) {
     if (data.size() < 30) {
         std::cerr << "Error: Z80 file is too small." << std::endl;
         return false;
     }
-    Z80<>::State state;
+    Z80::CPU<>::State state;
     memset(&state, 0, sizeof(state));
     state.m_AF.h = data[0];
     state.m_AF.l = data[1];
@@ -181,7 +181,7 @@ bool load_z80_file(Z80<>& cpu, const std::vector<uint8_t>& data) {
     return true;
 }
 
-uint16_t resolve_address(const std::string& addr_str, const Z80<>& cpu) {
+uint16_t resolve_address(const std::string& addr_str, const Z80::CPU<>& cpu) {
     if (addr_str.empty())
         throw std::runtime_error("Address argument is empty.");
     try {
@@ -212,7 +212,7 @@ std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
     }
     return ss.str();
 }
-class DumpLabelHandler : public ILabels {
+class DumpLabelHandler : public Z80::ILabels {
 public:
     void load_map(const std::string& content) {
         std::stringstream file(content);
@@ -232,7 +232,7 @@ private:
     std::map<uint16_t, std::string> m_labels;
 };
 
-using Decoder = Z80Decoder<Z80StandardBus>;
+using Decoder = Z80::Decoder<Z80::StandardBus>;
 
 std::string format_operands(const std::vector<Decoder::CodeLine::Operand>& operands) {
     if (operands.empty())
@@ -319,7 +319,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: Could not read file or file is empty '" << file_path << "'." << std::endl;
         return 1;
     }
-    Z80<> cpu;
+    Z80::CPU<> cpu;
     DumpLabelHandler label_handler;
     Decoder decoder(cpu.get_bus(), &label_handler);
     std::string map_file_path = file_path;

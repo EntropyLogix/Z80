@@ -35,7 +35,7 @@ void print_usage() {
               << "Generates <input_file>.bin, <input_file>.map, and <input_file>.lst\n";
 }
 
-class FileSystemSourceProvider : public IFileProvider {
+class FileSystemSourceProvider : public Z80::IFileProvider {
 public:
     bool read_file(const std::string& identifier, std::vector<uint8_t>& data) override {
         std::filesystem::path file_path = m_current_path_stack.empty() ? 
@@ -80,7 +80,7 @@ private:
     std::vector<std::filesystem::path> m_current_path_stack;
 };
 
-void write_map_file(const std::string& file_path, const std::map<std::string, Z80Assembler<Z80StandardBus>::SymbolInfo>& symbols) {
+void write_map_file(const std::string& file_path, const std::map<std::string, Z80::Assembler<Z80::StandardBus>::SymbolInfo>& symbols) {
     std::ofstream file(file_path);
     if (!file)
         throw std::runtime_error("Cannot open map file for writing: " + file_path);
@@ -98,7 +98,7 @@ void write_map_file(const std::string& file_path, const std::map<std::string, Z8
     }
 }
 
-void write_bin_file(const std::string& file_path, const Z80StandardBus& bus, const std::vector<Z80Assembler<Z80StandardBus>::BlockInfo>& blocks) {
+void write_bin_file(const std::string& file_path, const Z80::StandardBus& bus, const std::vector<Z80::Assembler<Z80::StandardBus>::BlockInfo>& blocks) {
     if (blocks.empty())
         return;
     uint16_t min_addr = blocks[0].start_address;
@@ -146,7 +146,7 @@ std::string generate_memory_map_summary(const std::vector<uint8_t>& map) {
 
     auto get_type = [&](size_t idx) {
         uint8_t val = map[idx];
-        using Map = Z80Assembler<Z80StandardBus>::Map;
+        using Map = Z80::Assembler<Z80::StandardBus>::Map;
         if (val == (uint8_t)Map::None) return 0;
         if ((val & (uint8_t)Map::Opcode) || (val & (uint8_t)Map::Operand)) return 1;
         if (val & (uint8_t)Map::Data) return 2;
@@ -178,7 +178,7 @@ std::string generate_memory_map_summary(const std::vector<uint8_t>& map) {
     return ss.str();
 }
 
-void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler<Z80StandardBus>::ListingLine>& listing, const std::vector<uint8_t>* memory_map = nullptr) {
+void write_lst_file(const std::string& file_path, const std::vector<Z80::Assembler<Z80::StandardBus>::ListingLine>& listing, const std::vector<uint8_t>* memory_map = nullptr) {
     std::ofstream file(file_path);
     if (!file)
         throw std::runtime_error("Cannot open listing file for writing: " + file_path);
@@ -212,6 +212,11 @@ void write_lst_file(const std::string& file_path, const std::vector<Z80Assembler
             file << std::setw(7) << " ";
             std::stringstream addr_ss;
             addr_ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << current_addr;
+     
+         
+         
+         
+         
             file << std::setw(7) << std::left << addr_ss.str();
             size_t remaining = total_bytes - printed_bytes;
             size_t chunk_size = std::min(bytes_per_line, remaining);
@@ -241,10 +246,10 @@ int main(int argc, char* argv[]) {
     std::string output_bin_file = input_path.replace_extension(".bin").string();
     std::string output_map_file = input_path.replace_extension(".map").string();
     std::string output_lst_file = input_path.replace_extension(".lst").string();
-    Z80<> cpu;
-    Z80StandardBus bus;
+    Z80::CPU<> cpu;
+    Z80::StandardBus bus;
     FileSystemSourceProvider source_provider;
-    Z80Assembler<Z80StandardBus> assembler(&bus, &source_provider);
+    Z80::Assembler<Z80::StandardBus> assembler(&bus, &source_provider);
     std::vector<uint8_t> memory_map;
     try {
         std::cout << "Assembling source code from: " << input_file << std::endl;

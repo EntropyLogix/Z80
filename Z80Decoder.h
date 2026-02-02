@@ -50,12 +50,13 @@
 #define Z80_POP_PACK()
 #endif
 
+namespace Z80 {
 class ILabels {
 public:
     virtual ~ILabels() = default;
     virtual std::string get_label(uint16_t address) const = 0;
 };
-template <typename TMemory> class Z80Decoder {
+template <typename TMemory> class Decoder {
 public:
     struct CodeLine {
         enum Type : uint32_t {
@@ -98,8 +99,8 @@ public:
 
         bool has_flag(Type t) const { return (type & t) != 0; }
     };
-    Z80Decoder(TMemory* memory, ILabels* labels = nullptr) : m_memory(memory), m_labels(labels) {}
-    virtual ~Z80Decoder() = default;
+    Decoder(TMemory* memory, ILabels* labels = nullptr) : m_memory(memory), m_labels(labels) {}
+    virtual ~Decoder() = default;
     
     struct Options {
         bool z80n = false;
@@ -2769,5 +2770,6 @@ protected:
     IndexMode m_index_mode;
     Options m_options;
 };
+}
 
 #endif //__Z80DECODE_H__

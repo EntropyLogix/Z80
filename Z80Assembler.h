@@ -380,6 +380,7 @@
 #include <variant>
 #include <vector>
 
+namespace Z80 {
 class IFileProvider {
 public:
 	virtual ~IFileProvider() = default;
@@ -387,7 +388,7 @@ public:
 	virtual size_t file_size(const std::string& identifier) = 0;
 	virtual bool exists(const std::string& identifier) = 0;
 };
-template <typename TMemory> class Z80Assembler {
+template <typename TMemory> class Assembler {
 public:
     enum class Map : uint8_t {
         None = 0,
@@ -545,7 +546,7 @@ public:
         uint16_t address;
         std::vector<uint8_t> bytes;
     };
-    Z80Assembler(TMemory* memory, IFileProvider* source_provider, const Config& config = get_default_config()) : m_config(config), m_context(*this), m_keywords(m_context) {
+    Assembler(TMemory* memory, IFileProvider* source_provider, const Config& config = get_default_config()) : m_config(config), m_context(*this), m_keywords(m_context) {
         m_context.memory = memory;
         m_context.source_provider = source_provider;
         const auto& op_map = Expressions::get_operator_map();
@@ -555,7 +556,7 @@ public:
                 max_operator_len = pair.first.length();
         }
     }
-    virtual ~Z80Assembler() {}
+    virtual ~Assembler() {}
     virtual bool compile(const std::string& main_file_path, uint16_t start_addr = 0x0000, const InstructionOptions* options = nullptr, const OptimizationOptions* optimizations = nullptr, std::vector<uint8_t>* memory_map = nullptr) {
         if (options)
             m_context.initial_instruction_options = *options;
@@ -933,12 +934,12 @@ protected:
             };
     };
     struct Context {
-        Context(Z80Assembler<TMemory>& assembler) : assembler(assembler) {}
+        Context(Assembler<TMemory>& assembler) : assembler(assembler) {}
 
         Context(const Context& other) = delete;
         Context& operator=(const Context& other) = delete;
 
-        Z80Assembler<TMemory>& assembler;
+        Assembler<TMemory>& assembler;
         TMemory* memory = nullptr;
         IFileProvider* source_provider = nullptr;
         IPhasePolicy* current_phase = nullptr;
@@ -1006,7 +1007,7 @@ protected:
             const SourceLine* source_location = nullptr;
             std::vector<std::string> lines_stack;
             std::vector<ConditionalState> conditional_stack;
-            typename Z80Assembler<TMemory>::Source* parser = nullptr;
+            typename Assembler<TMemory>::Source* parser = nullptr;
         } source;
         struct Repeat {
             struct State {
@@ -2472,9 +2473,6 @@ protected:
     }
     class IPhasePolicy {
     public:
-        using Operand = typename Operands::Operand;
-        using OperandType = typename Operands::Operand::Type;
-
         virtual ~IPhasePolicy() = default;
         virtual Context& context() = 0;
 
@@ -2525,7 +2523,7 @@ protected:
         virtual void on_undefine_directive(const std::string& key) = 0;
         virtual void on_macro_line() = 0;
         virtual void on_unknown_operand(const std::string& operand) = 0;
-        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) = 0;
+        virtual bool on_operand_not_matching(const typename Operands::Operand& operand, typename Operands::Operand::Type expected) = 0;
         virtual void on_source_line_begin() = 0;
         virtual void on_source_line_end() = 0;
         virtual void on_assemble(std::vector<uint8_t> bytes, bool is_code) = 0;
@@ -2539,9 +2537,6 @@ protected:
     }
     class BasePolicy : public IPhasePolicy {
     public:
-        using Operand = typename IPhasePolicy::Operand;
-        using OperandType = typename IPhasePolicy::OperandType;
-
         BasePolicy(Context& context) : m_context(context) {}
         virtual ~BasePolicy() {}
 
@@ -2821,7 +2816,7 @@ protected:
                 }
             }
         }
-        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override { return false; }
+        virtual bool on_operand_not_matching(const typename Operands::Operand& operand, typename Operands::Operand::Type expected) override { return false; }
         virtual void on_jump_out_of_range(const std::string& mnemonic, int16_t offset) override {}
         virtual void on_ifdef_directive(const std::string& symbol) override {
             bool parent_active = this->m_context.source.parser->is_in_active_block();
@@ -3274,9 +3269,6 @@ protected:
     };
     class SymbolsPhase : public BasePolicy {
     public:
-        using Operand = typename Operands::Operand;
-        using OperandType = typename Operands::Operand::Type;
-
         SymbolsPhase(Context& context, int max_pass) : BasePolicy(context), m_max_pass(max_pass) {}
         virtual ~SymbolsPhase() {}
 
@@ -3390,9 +3382,9 @@ protected:
         virtual void on_dephase_directive() override {
             this->m_context.address.current_logical = this->m_context.address.current_physical;
         }
-        virtual bool on_operand_not_matching(const Operand& operand, OperandType expected) override {
-            if (operand.type == OperandType::UNKNOWN)
-                return expected == OperandType::IMMEDIATE || expected == OperandType::MEM_IMMEDIATE;
+        virtual bool on_operand_not_matching(const typename Operands::Operand& operand, typename Operands::Operand::Type expected) override {
+            if (operand.type == Operands::Operand::Type::UNKNOWN)
+                return expected == Operands::Operand::Type::IMMEDIATE || expected == Operands::Operand::Type::MEM_IMMEDIATE;
             return false;
         }
         virtual void on_if_directive(const std::string& expression) override {
@@ -3468,9 +3460,6 @@ protected:
     };
     class AssemblyPhase : public BasePolicy {
     public:
-        using Operand = typename Operands::Operand;
-        using OperandType = typename Operands::Operand::Type;
-        
         AssemblyPhase(Context& context) : BasePolicy(context) {}
         virtual ~AssemblyPhase() = default;
         
@@ -4007,12 +3996,11 @@ protected:
             } else if (!this->m_policy.context().assembler.m_keywords.is_mnemonic(mnemonic))
                 this->m_policy.context().assembler.report_error("Unknown mnemonic: " + mnemonic);
             Optimizer optimizer(this->m_policy);
-            using OptResult = typename Optimizer::Result;
-            OptResult opt_res = optimizer.optimize(mnemonic, operands);
-            if (opt_res.action == OptResult::Action::DONE)
+            typename Optimizer::Result opt_res = optimizer.optimize(mnemonic, operands);
+            if (opt_res.action == Optimizer::Result::Action::DONE)
                 return true;
-            const std::string& final_mnemonic = (opt_res.action == OptResult::Action::REPLACE) ? opt_res.mnemonic : mnemonic;
-            const std::vector<typename Operands::Operand>& final_operands = (opt_res.action == OptResult::Action::REPLACE) ? opt_res.operands : operands;
+            const std::string& final_mnemonic = (opt_res.action == Optimizer::Result::Action::REPLACE) ? opt_res.mnemonic : mnemonic;
+            const std::vector<typename Operands::Operand>& final_operands = (opt_res.action == Optimizer::Result::Action::REPLACE) ? opt_res.operands : operands;
             switch (final_operands.size()) {
             case 0:
                 if (encode_no_operand(final_mnemonic))
@@ -5943,5 +5931,6 @@ protected:
     const Config m_config;
     Context m_context;
 };
+}
 
 #endif //__Z80ASSEMBLE_H__

@@ -6,7 +6,7 @@
 #include <chrono>
 #include "Z80.h"
 
-using Z80Processor = Z80<class Bus, class Z80StandardEvents, class Z80StandardDebugger>;
+using Z80Processor = Z80::CPU<class Bus, class Z80::StandardEvents, class Z80::StandardDebugger>;
 
 class Bus {
 public:

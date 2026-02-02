@@ -45,7 +45,7 @@ public:
 };
 
 // Mock Labels implementation
-class TestLabels : public ILabels {
+class TestLabels : public Z80::ILabels {
 public:
     std::map<uint16_t, std::string> labels;
 
@@ -65,7 +65,7 @@ public:
 int tests_passed = 0;
 int tests_failed = 0;
 
-void check_inst(Z80Decoder<TestMemory>& analyzer, TestMemory& memory, 
+void check_inst(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory, 
                 const std::vector<uint8_t>& bytes, 
                 const std::string& expected_mnemonic, 
                 const std::vector<std::string>& expected_ops) {
@@ -82,25 +82,25 @@ void check_inst(Z80Decoder<TestMemory>& analyzer, TestMemory& memory,
             std::string op_str;
             const auto& op = line.operands[i];
             switch (op.type) {
-                case Z80Decoder<TestMemory>::CodeLine::Operand::REG8:
-                case Z80Decoder<TestMemory>::CodeLine::Operand::REG16:
-                case Z80Decoder<TestMemory>::CodeLine::Operand::CONDITION:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::REG8:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::REG16:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::CONDITION:
                     op_str = op.s_val;
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::IMM8:
-                case Z80Decoder<TestMemory>::CodeLine::Operand::PORT_IMM8:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::IMM8:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::PORT_IMM8:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::IMM16:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::IMM16:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_REG16:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::MEM_REG16:
                     op_str = "(" + op.s_val + ")";
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_IMM16:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::MEM_IMM16:
                     { std::stringstream ss; ss << "(0x" << std::hex << std::uppercase << op.num_val << ")"; op_str = ss.str(); }
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_INDEXED:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::MEM_INDEXED:
                     { 
                         std::stringstream ss; 
                         ss << "(" << op.base_reg << (op.offset >= 0 ? "+" : "") << std::dec << (int)op.offset << ")"; 
@@ -132,25 +132,25 @@ void check_inst(Z80Decoder<TestMemory>& analyzer, TestMemory& memory,
             std::string op_str;
             const auto& op = line.operands[i];
             switch (op.type) {
-                case Z80Decoder<TestMemory>::CodeLine::Operand::REG8:
-                case Z80Decoder<TestMemory>::CodeLine::Operand::REG16:
-                case Z80Decoder<TestMemory>::CodeLine::Operand::CONDITION:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::REG8:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::REG16:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::CONDITION:
                     op_str = op.s_val;
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::IMM8:
-                case Z80Decoder<TestMemory>::CodeLine::Operand::PORT_IMM8:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::IMM8:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::PORT_IMM8:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::IMM16:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::IMM16:
                     { std::stringstream ss; ss << "0x" << std::hex << std::uppercase << op.num_val; op_str = ss.str(); }
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_REG16:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::MEM_REG16:
                     op_str = "(" + op.s_val + ")";
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_IMM16:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::MEM_IMM16:
                     { std::stringstream ss; ss << "(0x" << std::hex << std::uppercase << op.num_val << ")"; op_str = ss.str(); }
                     break;
-                case Z80Decoder<TestMemory>::CodeLine::Operand::MEM_INDEXED:
+                case Z80::Decoder<TestMemory>::CodeLine::Operand::MEM_INDEXED:
                     { 
                         std::stringstream ss; 
                         ss << "(" << op.base_reg << (op.offset >= 0 ? "+" : "") << std::dec << (int)op.offset << ")"; 
@@ -169,7 +169,7 @@ void check_inst(Z80Decoder<TestMemory>& analyzer, TestMemory& memory,
 void run_tests() {
     TestMemory memory;
     TestLabels labels;
-    Z80Decoder<TestMemory> analyzer(&memory, &labels);
+    Z80::Decoder<TestMemory> analyzer(&memory, &labels);
 
     std::cout << "Running Z80Analyzer tests...\n";
 
@@ -986,7 +986,7 @@ void run_tests() {
 
     // --- Instruction Types ---
     {
-        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
+        using Type = Z80::Decoder<TestMemory>::CodeLine::Type;
         
         // LD -> LOAD
         memory.set_data(0x7010, {0x01, 0x34, 0x12}); // LD BC, 1234
@@ -1059,7 +1059,7 @@ void run_tests() {
 
     // --- Instruction Types (Extended) ---
     {
-        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
+        using Type = Z80::Decoder<TestMemory>::CodeLine::Type;
 
         // RST -> CALL | STACK
         memory.set_data(0x7200, {0xC7}); // RST 00
@@ -1138,7 +1138,7 @@ void run_tests() {
 
     // --- Instruction Types (Block & Misc) ---
     {
-        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
+        using Type = Z80::Decoder<TestMemory>::CodeLine::Type;
 
         // LDI -> BLOCK | LOAD
         memory.set_data(0x7500, {0xED, 0xA0});
@@ -1235,7 +1235,7 @@ void run_tests() {
 
     // --- Instruction Types (Bit, Shift, Control, Misc) ---
     {
-        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
+        using Type = Z80::Decoder<TestMemory>::CodeLine::Type;
 
         // BIT 0, A -> BIT | ALU
         memory.set_data(0x7600, {0xCB, 0x47});
@@ -1286,7 +1286,7 @@ void run_tests() {
 
     // --- More Instruction Types ---
     {
-        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
+        using Type = Z80::Decoder<TestMemory>::CodeLine::Type;
 
         // DJNZ -> JUMP | ALU
         memory.set_data(0x8100, {0x10, 0xFE});
@@ -1317,7 +1317,7 @@ void run_tests() {
 
     // --- Instruction Types (Comprehensive) ---
     {
-        using Type = Z80Decoder<TestMemory>::CodeLine::Type;
+        using Type = Z80::Decoder<TestMemory>::CodeLine::Type;
 
         // IM 0 -> CPU_CONTROL
         memory.set_data(0x8200, {0xED, 0x46});

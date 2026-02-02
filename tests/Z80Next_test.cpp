@@ -12,7 +12,7 @@
 // Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
-#define Z80_ENABLE_Z80N
+#define Z80_ENABLE_NEXT
 #include "Z80.h"
 #include <iostream>
 #include <vector>
@@ -22,7 +22,7 @@
 #include <sstream>
 
 // Simple Bus for testing
-class TestBus : public Z80StandardBus {
+class TestBus : public Z80::StandardBus {
 public:
     struct IOWrite {
         uint16_t port;
@@ -70,7 +70,7 @@ void check(bool condition, const std::string& name) {
 }
 
 void test_z80n_swapnib() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
     
     // SWAPNIB opcode: ED 23
@@ -105,7 +105,7 @@ void test_z80n_swapnib() {
 }
 
 void test_z80n_mirror() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // MIRROR opcode: ED 24
@@ -139,7 +139,7 @@ void test_z80n_mirror() {
 }
 
 void test_z80n_mul() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // MUL D, E opcode: ED 30
@@ -159,7 +159,7 @@ void test_z80n_mul() {
 }
 
 void test_z80n_add_hl_a() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // ADD HL, A opcode: ED 31
@@ -173,7 +173,7 @@ void test_z80n_add_hl_a() {
 }
 
 void test_z80n_bsla() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // BSLA DE, B opcode: ED 28
@@ -187,7 +187,7 @@ void test_z80n_bsla() {
 }
 
 void test_z80n_nextreg() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
     
     // NEXTREG n, n (ED 91 reg val)
@@ -224,7 +224,7 @@ void test_z80n_nextreg() {
 }
 
 void test_z80n_nextreg_readback() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // 1. Write to Next Register using NEXTREG instruction
@@ -252,7 +252,7 @@ void test_z80n_nextreg_readback() {
 }
 
 void test_z80n_ldix() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
     
     // LDIX opcode: ED A4
@@ -265,7 +265,7 @@ void test_z80n_ldix() {
     cpu.set_DE(dst);
     cpu.set_BC(1);
     cpu.get_bus()->write(src, 0x55);
-    cpu.set_F(Z80<TestBus>::Flags::N); // Set N to ensure it gets cleared
+    cpu.set_F(Z80::CPU<TestBus>::Flags::N); // Set N to ensure it gets cleared
     
     cpu.step();
     
@@ -273,13 +273,13 @@ void test_z80n_ldix() {
     check(cpu.get_HL() == src + 1, "LDIX HL increment");
     check(cpu.get_DE() == dst + 1, "LDIX DE increment");
     check(cpu.get_BC() == 0, "LDIX BC decrement");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) == 0, "LDIX PV flag (BC=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "LDIX clears N");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) == 0, "LDIX clears H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) == 0, "LDIX PV flag (BC=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "LDIX clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) == 0, "LDIX clears H");
 }
 
 void test_z80n_ldws() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // LDWS opcode: ED A5
@@ -302,7 +302,7 @@ void test_z80n_ldws() {
 }
 
 void test_z80n_ldirx() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // LDIRX opcode: ED B4
@@ -317,7 +317,7 @@ void test_z80n_ldirx() {
     cpu.get_bus()->write(src + 0, 0x11);
     cpu.get_bus()->write(src + 1, 0x22);
     cpu.get_bus()->write(src + 2, 0x33);
-    cpu.set_F(Z80<TestBus>::Flags::H); // Set H to ensure it gets cleared
+    cpu.set_F(Z80::CPU<TestBus>::Flags::H); // Set H to ensure it gets cleared
 
     // Run until PC moves past the instruction (0x0002)
     int steps = 0;
@@ -333,20 +333,20 @@ void test_z80n_ldirx() {
     check(cpu.get_BC() == 0, "LDIRX BC=0");
     check(cpu.get_HL() == src + 3, "LDIRX HL updated");
     check(cpu.get_DE() == dst + 3, "LDIRX DE updated");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) == 0, "LDIRX PV flag (BC=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) == 0, "LDIRX clears H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) == 0, "LDIRX PV flag (BC=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) == 0, "LDIRX clears H");
 
     // Test PV flag when BC != 0 (single step)
     cpu.set_PC(0);
     cpu.set_BC(2);
-    cpu.set_F(Z80<TestBus>::Flags::H); // Set H again
+    cpu.set_F(Z80::CPU<TestBus>::Flags::H); // Set H again
     cpu.step();
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) != 0, "LDIRX PV flag (BC!=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) == 0, "LDIRX step clears H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) != 0, "LDIRX PV flag (BC!=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) == 0, "LDIRX step clears H");
 }
 
 void test_z80n_shifts() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // BSRA DE, B (ED 29)
@@ -386,7 +386,7 @@ void test_z80n_shifts() {
 }
 
 void test_z80n_alu_misc() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // TEST n (ED 27 n)
@@ -396,30 +396,30 @@ void test_z80n_alu_misc() {
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x27); cpu.get_bus()->write(0x0002, 0x00);
     cpu.step();
     check(cpu.get_A() == 0xFF, "TEST n preserves A");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) != 0, "TEST 0 sets Z flag");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) != 0, "TEST 0 sets H flag");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "TEST 0 clears N flag");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) == 0, "TEST 0 clears C flag");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) != 0, "TEST 0 sets Z flag");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) != 0, "TEST 0 sets H flag");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "TEST 0 clears N flag");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) == 0, "TEST 0 clears C flag");
 
     // ADD DE, A (ED 32)
     cpu.set_PC(0);
     cpu.set_DE(0x1000);
     cpu.set_A(0x20);
-    cpu.set_F(Z80<TestBus>::Flags::C); // Set C to check preservation
+    cpu.set_F(Z80::CPU<TestBus>::Flags::C); // Set C to check preservation
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x32);
     cpu.step();
     check(cpu.get_DE() == 0x1020, "ADD DE, A");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) == 0, "ADD DE, A updates C flag (clears)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) == 0, "ADD DE, A updates C flag (clears)");
 
     // ADD HL, nn (ED 34)
     cpu.set_PC(0);
     cpu.set_HL(0x1000);
-    cpu.set_F(Z80<TestBus>::Flags::Z); // Set Z to check preservation
+    cpu.set_F(Z80::CPU<TestBus>::Flags::Z); // Set Z to check preservation
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x34);
     cpu.get_bus()->write(0x0002, 0x55); cpu.get_bus()->write(0x0003, 0x00); // 0x0055
     cpu.step();
     check(cpu.get_HL() == 0x1055, "ADD HL, nn");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) != 0, "ADD HL, nn preserves Z flag");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) != 0, "ADD HL, nn preserves Z flag");
 
     // ADD BC, A (ED 33)
     cpu.set_PC(0);
@@ -428,7 +428,7 @@ void test_z80n_alu_misc() {
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x33);
     cpu.step();
     check(cpu.get_BC() == 0x2010, "ADD BC, A");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) == 0, "ADD BC, A updates Z flag (clears)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) == 0, "ADD BC, A updates Z flag (clears)");
 
     // ADD DE, nn (ED 35)
     cpu.set_PC(0);
@@ -472,7 +472,7 @@ void test_z80n_alu_misc() {
 }
 
 void test_z80n_test_flags() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // TEST n (ED 27 n)
@@ -489,12 +489,12 @@ void test_z80n_test_flags() {
     cpu.step();
 
     check(cpu.get_A() == 0xFF, "TEST 0 preserves A");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) != 0, "TEST 0 sets Z");
-    check((cpu.get_F() & Z80<TestBus>::Flags::S) == 0, "TEST 0 clears S");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) != 0, "TEST 0 sets P/V (parity even)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) != 0, "TEST 0 sets H");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "TEST 0 clears N");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) == 0, "TEST 0 clears C");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) != 0, "TEST 0 sets Z");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::S) == 0, "TEST 0 clears S");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) != 0, "TEST 0 sets P/V (parity even)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) != 0, "TEST 0 sets H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "TEST 0 clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) == 0, "TEST 0 clears C");
 
     // Case 2: Result 0x80 (S set, Z clear, P/V clear (odd parity))
     cpu.set_PC(0x0000);
@@ -504,12 +504,12 @@ void test_z80n_test_flags() {
     cpu.step();
 
     check(cpu.get_A() == 0xFF, "TEST 0x80 preserves A");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) == 0, "TEST 0x80 clears Z");
-    check((cpu.get_F() & Z80<TestBus>::Flags::S) != 0, "TEST 0x80 sets S");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) == 0, "TEST 0x80 clears P/V (parity odd)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) != 0, "TEST 0x80 sets H");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "TEST 0x80 clears N");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) == 0, "TEST 0x80 clears C");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) == 0, "TEST 0x80 clears Z");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::S) != 0, "TEST 0x80 sets S");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) == 0, "TEST 0x80 clears P/V (parity odd)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) != 0, "TEST 0x80 sets H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "TEST 0x80 clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) == 0, "TEST 0x80 clears C");
 
     // Case 3: Result 0x03 (S clear, Z clear, P/V set (even parity))
     cpu.set_PC(0x0000);
@@ -518,16 +518,16 @@ void test_z80n_test_flags() {
     cpu.get_bus()->write(0x0002, 0x03); // n = 0x03
     cpu.step();
 
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) == 0, "TEST 0x03 clears Z");
-    check((cpu.get_F() & Z80<TestBus>::Flags::S) == 0, "TEST 0x03 clears S");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) != 0, "TEST 0x03 sets P/V (parity even)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) != 0, "TEST 0x03 sets H");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "TEST 0x03 clears N");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) == 0, "TEST 0x03 clears C");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) == 0, "TEST 0x03 clears Z");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::S) == 0, "TEST 0x03 clears S");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) != 0, "TEST 0x03 sets P/V (parity even)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) != 0, "TEST 0x03 sets H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "TEST 0x03 clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) == 0, "TEST 0x03 clears C");
 }
 
 void test_z80n_stack_jump() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // PUSH nn (ED 8A h l) - Big Endian in instruction!
@@ -551,7 +551,7 @@ void test_z80n_stack_jump() {
 }
 
 void test_z80n_io_misc() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // OUTINB (ED 90)
@@ -583,7 +583,7 @@ void test_z80n_io_misc() {
 }
 
 void test_z80n_ldirscale_scaling() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // LDIRSCALE (ED B6)
@@ -657,7 +657,7 @@ void test_z80n_ldirscale_scaling() {
 }
 
 void test_z80n_ldirscale_z_flag() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // LDIRSCALE (ED B6)
@@ -678,26 +678,26 @@ void test_z80n_ldirscale_z_flag() {
     cpu.step();
     
     check(cpu.get_BC() == 0, "LDIRSCALE BC=0");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) != 0, "LDIRSCALE sets Z flag when finished");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) == 0, "LDIRSCALE clears P/V flag when finished");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) != 0, "LDIRSCALE sets Z flag when finished");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) == 0, "LDIRSCALE clears P/V flag when finished");
     
     // Case 2: Continue (BC != 0)
     cpu.set_HL(0x1000);
     cpu.set_DE(0x2000);
     cpu.set_BC(2);
     cpu.set_BCp(1);
-    cpu.set_F(Z80<TestBus>::Flags::Z); // Set Z initially to see if it gets cleared
+    cpu.set_F(Z80::CPU<TestBus>::Flags::Z); // Set Z initially to see if it gets cleared
     cpu.set_PC(0);
     
     cpu.step();
     
     check(cpu.get_BC() == 1, "LDIRSCALE BC=1");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) == 0, "LDIRSCALE clears Z flag when not finished");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) != 0, "LDIRSCALE sets P/V flag when not finished");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) == 0, "LDIRSCALE clears Z flag when not finished");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) != 0, "LDIRSCALE sets P/V flag when not finished");
 }
 
 void test_z80n_ldpirx_masking() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // LDPIRX (ED B7)
@@ -730,7 +730,7 @@ void test_z80n_ldpirx_masking() {
     cpu.get_bus()->write(0x0000, 0xED);
     cpu.get_bus()->write(0x0001, 0xB7);
     cpu.set_PC(0x0000);
-    cpu.set_F(Z80<TestBus>::Flags::N); // Set N to ensure it gets cleared
+    cpu.set_F(Z80::CPU<TestBus>::Flags::N); // Set N to ensure it gets cleared
 
     // Execute
     int steps = 0;
@@ -747,7 +747,7 @@ void test_z80n_ldpirx_masking() {
 }
 
 void test_z80n_lddx_decrement() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // LDDX (ED AC)
@@ -772,14 +772,14 @@ void test_z80n_lddx_decrement() {
     cpu.set_PC(0x0000);
     
     // Step 1
-    cpu.set_F(Z80<TestBus>::Flags::N); // Set N to ensure it gets cleared
+    cpu.set_F(Z80::CPU<TestBus>::Flags::N); // Set N to ensure it gets cleared
     cpu.step();
     check(cpu.get_bus()->read(0x2002) == 0xAA, "LDDX step 1 copy");
     check(cpu.get_HL() == 0x1001, "LDDX step 1 HL dec");
     check(cpu.get_DE() == 0x2001, "LDDX step 1 DE dec");
     check(cpu.get_BC() == 2, "LDDX step 1 BC dec");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) != 0, "LDDX step 1 PV set (BC!=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "LDDX step 1 clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) != 0, "LDDX step 1 PV set (BC!=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "LDDX step 1 clears N");
     
     // Step 2
     cpu.set_PC(0x0000); // Reset PC to re-execute instruction
@@ -788,7 +788,7 @@ void test_z80n_lddx_decrement() {
     check(cpu.get_HL() == 0x1000, "LDDX step 2 HL dec");
     check(cpu.get_DE() == 0x2000, "LDDX step 2 DE dec");
     check(cpu.get_BC() == 1, "LDDX step 2 BC dec");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) != 0, "LDDX step 2 PV set (BC!=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) != 0, "LDDX step 2 PV set (BC!=0)");
 
     // Step 3
     cpu.set_PC(0x0000);
@@ -797,11 +797,11 @@ void test_z80n_lddx_decrement() {
     check(cpu.get_HL() == 0x0FFF, "LDDX step 3 HL dec");
     check(cpu.get_DE() == 0x1FFF, "LDDX step 3 DE dec");
     check(cpu.get_BC() == 0, "LDDX step 3 BC dec");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) == 0, "LDDX step 3 PV clear (BC=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) == 0, "LDDX step 3 PV clear (BC=0)");
 }
 
 void test_z80n_block_ext() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // LDDX (ED AC)
@@ -810,14 +810,14 @@ void test_z80n_block_ext() {
     cpu.set_BC(1);
     cpu.get_bus()->write(0x1001, 0x88);
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0xAC);
-    cpu.set_F(Z80<TestBus>::Flags::N); // Set N to ensure it gets cleared
+    cpu.set_F(Z80::CPU<TestBus>::Flags::N); // Set N to ensure it gets cleared
     cpu.step();
     check(cpu.get_bus()->read(0x2001) == 0x88, "LDDX copy");
     check(cpu.get_HL() == 0x1000, "LDDX HL dec");
     check(cpu.get_DE() == 0x2000, "LDDX DE dec");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) == 0, "LDDX PV flag (BC=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "LDDX clears N");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) == 0, "LDDX clears H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) == 0, "LDDX PV flag (BC=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "LDDX clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) == 0, "LDDX clears H");
 
     // LDIRSCALE (ED B6)
     cpu.set_BCp(0x0010);
@@ -827,14 +827,14 @@ void test_z80n_block_ext() {
     cpu.get_bus()->write(0x1000, 0x99);
     cpu.set_PC(0);
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0xB6);
-    cpu.set_F(Z80<TestBus>::Flags::N); // Set N to ensure it gets cleared
+    cpu.set_F(Z80::CPU<TestBus>::Flags::N); // Set N to ensure it gets cleared
     cpu.step();
     check(cpu.get_bus()->read(0x2000) == 0x99, "LDIRSCALE copy");
     check(cpu.get_DE() == 0x2001, "LDIRSCALE DE inc");
     check(cpu.get_HL() == 0x1010, "LDIRSCALE HL += BC'");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) == 0, "LDIRSCALE PV flag (BC=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "LDIRSCALE clears N");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) == 0, "LDIRSCALE clears H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) == 0, "LDIRSCALE PV flag (BC=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "LDIRSCALE clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) == 0, "LDIRSCALE clears H");
 
     // LDDRX (ED BC)
     cpu.set_HL(0x1002);
@@ -845,7 +845,7 @@ void test_z80n_block_ext() {
     cpu.get_bus()->write(0x1000, 0x33);
     cpu.set_PC(0);
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0xBC);
-    cpu.set_F(Z80<TestBus>::Flags::N); // Set N to ensure it gets cleared
+    cpu.set_F(Z80::CPU<TestBus>::Flags::N); // Set N to ensure it gets cleared
     
     int steps = 0;
     while (cpu.get_PC() == 0x0000 && steps < 100) {
@@ -857,17 +857,17 @@ void test_z80n_block_ext() {
     check(cpu.get_bus()->read(0x2001) == 0x22, "LDDRX byte 1");
     check(cpu.get_bus()->read(0x2000) == 0x33, "LDDRX byte 2");
     check(cpu.get_BC() == 0, "LDDRX BC=0");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) == 0, "LDDRX PV flag (BC=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "LDDRX clears N");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) == 0, "LDDRX clears H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) == 0, "LDDRX PV flag (BC=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "LDDRX clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) == 0, "LDDRX clears H");
 
     // Test PV flag when BC != 0
     cpu.set_PC(0);
     cpu.set_BC(2);
-    cpu.set_F(Z80<TestBus>::Flags::N); // Set N again
+    cpu.set_F(Z80::CPU<TestBus>::Flags::N); // Set N again
     cpu.step();
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) != 0, "LDDRX PV flag (BC!=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "LDDRX step clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) != 0, "LDDRX PV flag (BC!=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "LDDRX step clears N");
 
     // LDPIRX (ED B7)
     cpu.set_HL(0x3000);
@@ -893,21 +893,21 @@ void test_z80n_block_ext() {
     check(cpu.get_bus()->read(0x4000) == 0x11, "LDPIRX byte 0 (copy)");
     check(cpu.get_bus()->read(0x4001) == 0x00, "LDPIRX byte 1 (skip)");
     check(cpu.get_bus()->read(0x4002) == 0x33, "LDPIRX byte 2 (copy)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) == 0, "LDPIRX PV flag (BC=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "LDPIRX clears N");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) == 0, "LDPIRX clears H");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) == 0, "LDPIRX PV flag (BC=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "LDPIRX clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) == 0, "LDPIRX clears H");
 
     // Test PV flag when BC != 0
     cpu.set_PC(0);
     cpu.set_BC(2);
-    cpu.set_F(Z80<TestBus>::Flags::N); // Set N again
+    cpu.set_F(Z80::CPU<TestBus>::Flags::N); // Set N again
     cpu.step();
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) != 0, "LDPIRX PV flag (BC!=0)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "LDPIRX step clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) != 0, "LDPIRX PV flag (BC!=0)");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "LDPIRX step clears N");
 }
 
 void test_z80n_pixel_ops() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // PIXELAD (ED 93)
@@ -962,7 +962,7 @@ void test_z80n_pixel_ops() {
 }
 
 void test_z80n_setae_mask() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // SETAE (ED 95)
@@ -1002,20 +1002,20 @@ void test_z80n_setae_mask() {
 }
 
 void test_z80n_add_rr_a_flags() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // ADD DE, A (ED 32)
     // Should update C, Z, H, N=0
     cpu.set_DE(0xFFFF);
     cpu.set_A(1);
-    cpu.set_F(Z80<TestBus>::Flags::N); // Set N to ensure it gets cleared
+    cpu.set_F(Z80::CPU<TestBus>::Flags::N); // Set N to ensure it gets cleared
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x32);
     cpu.step();
     check(cpu.get_DE() == 0x0000, "ADD DE, A result");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) != 0, "ADD DE, A sets Carry");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) != 0, "ADD DE, A sets Zero");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "ADD DE, A clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) != 0, "ADD DE, A sets Carry");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) != 0, "ADD DE, A sets Zero");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "ADD DE, A clears N");
 
     // ADD BC, A (ED 33)
     cpu.set_PC(0);
@@ -1025,24 +1025,24 @@ void test_z80n_add_rr_a_flags() {
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x33);
     cpu.step();
     check(cpu.get_BC() == 0x1000, "ADD BC, A result");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) != 0, "ADD BC, A sets Half Carry");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) != 0, "ADD BC, A sets Half Carry");
 }
 
 void test_z80n_add_rr_nn_flags() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // ADD HL, nn (ED 34)
     // Should behave like ADD HL, BC (updates C, N=0, H; preserves Z, S, PV)
     cpu.set_HL(0xFFFF);
-    cpu.set_F(Z80<TestBus>::Flags::Z | Z80<TestBus>::Flags::N); // Set Z and N
+    cpu.set_F(Z80::CPU<TestBus>::Flags::Z | Z80::CPU<TestBus>::Flags::N); // Set Z and N
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x34);
     cpu.get_bus()->write(0x0002, 0x01); cpu.get_bus()->write(0x0003, 0x00); // nn = 1
     cpu.step();
     check(cpu.get_HL() == 0x0000, "ADD HL, nn result");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) != 0, "ADD HL, nn sets Carry");
-    check((cpu.get_F() & Z80<TestBus>::Flags::N) == 0, "ADD HL, nn clears N");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) != 0, "ADD HL, nn preserves Z");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) != 0, "ADD HL, nn sets Carry");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::N) == 0, "ADD HL, nn clears N");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) != 0, "ADD HL, nn preserves Z");
 
     // ADD DE, nn (ED 35)
     cpu.set_PC(0);
@@ -1052,7 +1052,7 @@ void test_z80n_add_rr_nn_flags() {
     cpu.get_bus()->write(0x0002, 0x01); cpu.get_bus()->write(0x0003, 0x00); // nn = 1
     cpu.step();
     check(cpu.get_DE() == 0x1000, "ADD DE, nn result");
-    check((cpu.get_F() & Z80<TestBus>::Flags::H) != 0, "ADD DE, nn sets Half Carry");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::H) != 0, "ADD DE, nn sets Half Carry");
 
     // ADD BC, nn (ED 36)
     cpu.set_PC(0);
@@ -1062,11 +1062,11 @@ void test_z80n_add_rr_nn_flags() {
     cpu.get_bus()->write(0x0002, 0x01); cpu.get_bus()->write(0x0003, 0x00); // nn = 1
     cpu.step();
     check(cpu.get_BC() == 0x1001, "ADD BC, nn result");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) == 0, "ADD BC, nn clears Carry");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) == 0, "ADD BC, nn clears Carry");
 }
 
 void test_z80n_shifts_edge_cases() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // BSRA DE, B (ED 29) - Shift by 16
@@ -1112,18 +1112,18 @@ void test_z80n_shifts_edge_cases() {
 }
 
 void test_z80n_extended_cases() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // 1. MUL D, E - Zero and Carry
     cpu.set_D(0);
     cpu.set_E(50);
-    cpu.set_F(Z80<TestBus>::Flags::C); // Set Carry
+    cpu.set_F(Z80::CPU<TestBus>::Flags::C); // Set Carry
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x30);
     cpu.step();
     check(cpu.get_DE() == 0, "MUL D, E (0 * 50 = 0)");
     // Note: Z80N MUL usually clears C.
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) == 0, "MUL D, E clears Carry");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) == 0, "MUL D, E clears Carry");
 
     // MUL D, E - Carry set (Result > 255)
     cpu.set_PC(0);
@@ -1132,7 +1132,7 @@ void test_z80n_extended_cases() {
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x30);
     cpu.step();
     check(cpu.get_DE() == 400, "MUL D, E (2 * 200 = 400)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) != 0, "MUL D, E sets Carry if > 255");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) != 0, "MUL D, E sets Carry if > 255");
 
     // 2. ADD HL, A - Overflow
     cpu.set_PC(0);
@@ -1142,8 +1142,8 @@ void test_z80n_extended_cases() {
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x31);
     cpu.step();
     check(cpu.get_HL() == 0x0000, "ADD HL, A (0xFFFF + 1 = 0x0000)");
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) != 0, "ADD HL, A sets Carry on overflow");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) != 0, "ADD HL, A sets Zero");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) != 0, "ADD HL, A sets Carry on overflow");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) != 0, "ADD HL, A sets Zero");
 
     // 3. BSLA DE, B - Edge cases
     // Shift by 0
@@ -1193,7 +1193,7 @@ void test_z80n_extended_cases() {
 }
 
 void test_z80n_flags_preservation() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     // LDIX (ED A4)
@@ -1203,32 +1203,32 @@ void test_z80n_flags_preservation() {
     cpu.set_BC(1);
     cpu.get_bus()->write(0x1000, 0x55);
     // Set flags to check preservation
-    cpu.set_F(Z80<TestBus>::Flags::C | Z80<TestBus>::Flags::Z | Z80<TestBus>::Flags::S);
+    cpu.set_F(Z80::CPU<TestBus>::Flags::C | Z80::CPU<TestBus>::Flags::Z | Z80::CPU<TestBus>::Flags::S);
     
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0xA4);
     cpu.step();
     
-    check((cpu.get_F() & Z80<TestBus>::Flags::C) != 0, "LDIX preserves C");
-    check((cpu.get_F() & Z80<TestBus>::Flags::Z) != 0, "LDIX preserves Z");
-    check((cpu.get_F() & Z80<TestBus>::Flags::S) != 0, "LDIX preserves S");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::C) != 0, "LDIX preserves C");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::Z) != 0, "LDIX preserves Z");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::S) != 0, "LDIX preserves S");
 
     // ADD HL, A (ED 31)
     // Updates C, Z, H, N. Should preserve S, PV.
     cpu.set_PC(0);
     cpu.set_HL(0x1000);
     cpu.set_A(0x01);
-    cpu.set_F(Z80<TestBus>::Flags::S | Z80<TestBus>::Flags::PV);
+    cpu.set_F(Z80::CPU<TestBus>::Flags::S | Z80::CPU<TestBus>::Flags::PV);
     
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x31);
     cpu.step();
     
     check(cpu.get_HL() == 0x1001, "ADD HL, A result");
-    check((cpu.get_F() & Z80<TestBus>::Flags::S) != 0, "ADD HL, A preserves S");
-    check((cpu.get_F() & Z80<TestBus>::Flags::PV) != 0, "ADD HL, A preserves PV");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::S) != 0, "ADD HL, A preserves S");
+    check((cpu.get_F() & Z80::CPU<TestBus>::Flags::PV) != 0, "ADD HL, A preserves PV");
 }
 
 void test_z80n_no_flag_changes() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
 
     auto run_check = [&](const std::string& name, const std::vector<uint8_t>& opcodes) {
@@ -1278,20 +1278,72 @@ void test_z80n_no_flag_changes() {
 }
 
 void test_z80n_mul_flags() {
-    Z80<TestBus> cpu;
+    Z80::CPU<TestBus> cpu;
     cpu.reset();
     
     // MUL D, E (ED 30)
     // Updates C, clears N. Preserves S, Z, H, P/V.
     cpu.set_D(2); cpu.set_E(10);
-    cpu.set_F(Z80<TestBus>::Flags::S | Z80<TestBus>::Flags::Z | Z80<TestBus>::Flags::H | Z80<TestBus>::Flags::PV | Z80<TestBus>::Flags::N);
+    cpu.set_F(Z80::CPU<TestBus>::Flags::S | Z80::CPU<TestBus>::Flags::Z | Z80::CPU<TestBus>::Flags::H | Z80::CPU<TestBus>::Flags::PV | Z80::CPU<TestBus>::Flags::N);
     cpu.get_bus()->write(0x0000, 0xED); cpu.get_bus()->write(0x0001, 0x30);
     cpu.step();
     
     uint8_t f = cpu.get_F();
-    check((f & Z80<TestBus>::Flags::C) == 0, "MUL D, E clears C");
-    check((f & Z80<TestBus>::Flags::N) == 0, "MUL D, E clears N");
-    check((f & (Z80<TestBus>::Flags::S | Z80<TestBus>::Flags::Z | Z80<TestBus>::Flags::H | Z80<TestBus>::Flags::PV)) == (Z80<TestBus>::Flags::S | Z80<TestBus>::Flags::Z | Z80<TestBus>::Flags::H | Z80<TestBus>::Flags::PV), "MUL D, E preserves S, Z, H, PV");
+    check((f & Z80::CPU<TestBus>::Flags::C) == 0, "MUL D, E clears C");
+    check((f & Z80::CPU<TestBus>::Flags::N) == 0, "MUL D, E clears N");
+    check((f & (Z80::CPU<TestBus>::Flags::S | Z80::CPU<TestBus>::Flags::Z | Z80::CPU<TestBus>::Flags::H | Z80::CPU<TestBus>::Flags::PV)) == (Z80::CPU<TestBus>::Flags::S | Z80::CPU<TestBus>::Flags::Z | Z80::CPU<TestBus>::Flags::H | Z80::CPU<TestBus>::Flags::PV), "MUL D, E preserves S, Z, H, PV");
+}
+
+void test_z80n_disabled() {
+    std::cout << "Running Z80N Disabled Tests...\n";
+    // Explicitly disable Z80N via template parameter
+    Z80::CPU<TestBus, Z80::StandardEvents, Z80::StandardDebugger, false> cpu;
+    cpu.reset();
+
+    // 1. SWAPNIB (ED 23) - Should be NOP
+    cpu.get_bus()->write(0x0000, 0xED);
+    cpu.get_bus()->write(0x0001, 0x23);
+    cpu.set_A(0x12);
+    cpu.step();
+    check(cpu.get_A() == 0x12, "Disabled SWAPNIB: A unchanged");
+    check(cpu.get_PC() == 0x0002, "Disabled SWAPNIB: PC advanced by 2");
+    check(cpu.get_ticks() == 8, "Disabled SWAPNIB: 8 T-states");
+
+    // 2. MUL D, E (ED 30) - Should be NOP
+    cpu.set_PC(0);
+    cpu.set_ticks(0);
+    cpu.get_bus()->write(0x0000, 0xED);
+    cpu.get_bus()->write(0x0001, 0x30);
+    cpu.set_DE(0x0203);
+    cpu.step();
+    check(cpu.get_DE() == 0x0203, "Disabled MUL: DE unchanged");
+    check(cpu.get_PC() == 0x0002, "Disabled MUL: PC advanced by 2");
+
+    // 3. NEXTREG (ED 91 n n) - Should be 2-byte NOP, not consuming operands
+    cpu.set_PC(0);
+    cpu.set_ticks(0);
+    cpu.get_bus()->write(0x0000, 0xED);
+    cpu.get_bus()->write(0x0001, 0x91);
+    cpu.get_bus()->write(0x0002, 0x00); // NOP
+    cpu.get_bus()->write(0x0003, 0x00); // NOP
+    cpu.step();
+    check(cpu.get_PC() == 0x0002, "Disabled NEXTREG: PC advanced by 2 (operands not consumed)");
+    
+    // 4. LDIX (ED A4) - Should be NOP
+    cpu.set_PC(0);
+    cpu.set_ticks(0);
+    cpu.get_bus()->write(0x0000, 0xED);
+    cpu.get_bus()->write(0x0001, 0xA4);
+    cpu.set_HL(0x1000);
+    cpu.set_DE(0x2000);
+    cpu.set_BC(1);
+    cpu.get_bus()->write(0x1000, 0x55);
+    cpu.get_bus()->write(0x2000, 0x00);
+    cpu.step();
+    check(cpu.get_bus()->read(0x2000) == 0x00, "Disabled LDIX: No memory write");
+    check(cpu.get_HL() == 0x1000, "Disabled LDIX: HL unchanged");
+    check(cpu.get_DE() == 0x2000, "Disabled LDIX: DE unchanged");
+    check(cpu.get_BC() == 1, "Disabled LDIX: BC unchanged");
 }
 
 int main() {
@@ -1326,6 +1378,7 @@ int main() {
     test_z80n_flags_preservation();
     test_z80n_no_flag_changes();
     test_z80n_mul_flags();
+    test_z80n_disabled();
 
     std::cout << "Tests passed: " << tests_passed << "\n";
     std::cout << "Tests failed: " << tests_failed << "\n";
