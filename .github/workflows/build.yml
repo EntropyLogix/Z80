@@ -1,9 +1,7 @@
 name: Build and Package
 
 on:
-  push:
-    branches: [ main, develop ]
-    tags: [ 'v*' ]
+  workflow_dispatch:
   pull_request:
     branches: [ main, develop ]
 
@@ -32,7 +30,7 @@ jobs:
       run: cpack -C Release
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Z80-package
         path: ${{github.workspace}}/build/Z80-*.tar.gz
