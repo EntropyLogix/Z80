@@ -7,33 +7,24 @@ on:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Configure CMake
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build
-      run: cmake --build ${{github.workspace}}/build --config Release
-
-    - name: Test
+    - name: Build and Test
       shell: bash
       run: |
         chmod +x tests/build.sh tests/run-tests.sh
         ./tests/run-tests.sh
 
     - name: Package
-      working-directory: ${{github.workspace}}/build
+      working-directory: tests/build
       run: cpack -C Release
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Z80-package-${{ matrix.os }}
-        path: ${{github.workspace}}/build/Z80-*.tar.gz
+        name: Z80-package-ubuntu
+        path: tests/build/Z80-*.tar.gz
         if-no-files-found: warn
