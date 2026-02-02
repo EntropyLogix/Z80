@@ -22,8 +22,10 @@ jobs:
       run: cmake --build ${{github.workspace}}/build --config Release
 
     - name: Test
-      working-directory: ${{github.workspace}}/build
-      run: ctest -C Release --output-on-failure
+      shell: bash
+      run: |
+        chmod +x tests/build.sh tests/run-tests.sh
+        ./tests/run-tests.sh
 
     - name: Package
       working-directory: ${{github.workspace}}/build
