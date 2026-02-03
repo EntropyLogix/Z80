@@ -12,7 +12,6 @@
 // Copyright (c) 2025-2026 Adam Szulc
 // MIT License
 
-#define Z80_ENABLE_NEXT
 #include <Z80/CPU.h>
 #include <iostream>
 #include <vector>
@@ -57,6 +56,8 @@ public:
     }
 };
 
+using TestCPU = Z80::CPU<TestBus, Z80::StandardEvents, Z80::StandardDebugger, true>;
+
 int tests_passed = 0;
 int tests_failed = 0;
 
@@ -70,7 +71,7 @@ void check(bool condition, const std::string& name) {
 }
 
 void test_z80n_swapnib() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
     
     // SWAPNIB opcode: ED 23
@@ -105,7 +106,7 @@ void test_z80n_swapnib() {
 }
 
 void test_z80n_mirror() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // MIRROR opcode: ED 24
@@ -139,7 +140,7 @@ void test_z80n_mirror() {
 }
 
 void test_z80n_mul() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // MUL D, E opcode: ED 30
@@ -159,7 +160,7 @@ void test_z80n_mul() {
 }
 
 void test_z80n_add_hl_a() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // ADD HL, A opcode: ED 31
@@ -173,7 +174,7 @@ void test_z80n_add_hl_a() {
 }
 
 void test_z80n_bsla() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // BSLA DE, B opcode: ED 28
@@ -187,7 +188,7 @@ void test_z80n_bsla() {
 }
 
 void test_z80n_nextreg() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
     
     // NEXTREG n, n (ED 91 reg val)
@@ -224,7 +225,7 @@ void test_z80n_nextreg() {
 }
 
 void test_z80n_nextreg_readback() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // 1. Write to Next Register using NEXTREG instruction
@@ -252,7 +253,7 @@ void test_z80n_nextreg_readback() {
 }
 
 void test_z80n_ldix() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
     
     // LDIX opcode: ED A4
@@ -279,7 +280,7 @@ void test_z80n_ldix() {
 }
 
 void test_z80n_ldws() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // LDWS opcode: ED A5
@@ -302,7 +303,7 @@ void test_z80n_ldws() {
 }
 
 void test_z80n_ldirx() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // LDIRX opcode: ED B4
@@ -346,7 +347,7 @@ void test_z80n_ldirx() {
 }
 
 void test_z80n_shifts() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // BSRA DE, B (ED 29)
@@ -386,7 +387,7 @@ void test_z80n_shifts() {
 }
 
 void test_z80n_alu_misc() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // TEST n (ED 27 n)
@@ -472,7 +473,7 @@ void test_z80n_alu_misc() {
 }
 
 void test_z80n_test_flags() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // TEST n (ED 27 n)
@@ -527,7 +528,7 @@ void test_z80n_test_flags() {
 }
 
 void test_z80n_stack_jump() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // PUSH nn (ED 8A h l) - Big Endian in instruction!
@@ -551,7 +552,7 @@ void test_z80n_stack_jump() {
 }
 
 void test_z80n_io_misc() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // OUTINB (ED 90)
@@ -583,7 +584,7 @@ void test_z80n_io_misc() {
 }
 
 void test_z80n_ldirscale_scaling() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // LDIRSCALE (ED B6)
@@ -657,7 +658,7 @@ void test_z80n_ldirscale_scaling() {
 }
 
 void test_z80n_ldirscale_z_flag() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // LDIRSCALE (ED B6)
@@ -697,7 +698,7 @@ void test_z80n_ldirscale_z_flag() {
 }
 
 void test_z80n_ldpirx_masking() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // LDPIRX (ED B7)
@@ -747,7 +748,7 @@ void test_z80n_ldpirx_masking() {
 }
 
 void test_z80n_lddx_decrement() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // LDDX (ED AC)
@@ -801,7 +802,7 @@ void test_z80n_lddx_decrement() {
 }
 
 void test_z80n_block_ext() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // LDDX (ED AC)
@@ -907,7 +908,7 @@ void test_z80n_block_ext() {
 }
 
 void test_z80n_pixel_ops() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // PIXELAD (ED 93)
@@ -962,7 +963,7 @@ void test_z80n_pixel_ops() {
 }
 
 void test_z80n_setae_mask() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // SETAE (ED 95)
@@ -1002,7 +1003,7 @@ void test_z80n_setae_mask() {
 }
 
 void test_z80n_add_rr_a_flags() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // ADD DE, A (ED 32)
@@ -1029,7 +1030,7 @@ void test_z80n_add_rr_a_flags() {
 }
 
 void test_z80n_add_rr_nn_flags() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // ADD HL, nn (ED 34)
@@ -1066,7 +1067,7 @@ void test_z80n_add_rr_nn_flags() {
 }
 
 void test_z80n_shifts_edge_cases() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // BSRA DE, B (ED 29) - Shift by 16
@@ -1112,7 +1113,7 @@ void test_z80n_shifts_edge_cases() {
 }
 
 void test_z80n_extended_cases() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // 1. MUL D, E - Zero and Carry
@@ -1193,7 +1194,7 @@ void test_z80n_extended_cases() {
 }
 
 void test_z80n_flags_preservation() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     // LDIX (ED A4)
@@ -1228,7 +1229,7 @@ void test_z80n_flags_preservation() {
 }
 
 void test_z80n_no_flag_changes() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
 
     auto run_check = [&](const std::string& name, const std::vector<uint8_t>& opcodes) {
@@ -1278,7 +1279,7 @@ void test_z80n_no_flag_changes() {
 }
 
 void test_z80n_mul_flags() {
-    Z80::CPU<TestBus> cpu;
+    TestCPU cpu;
     cpu.reset();
     
     // MUL D, E (ED 30)
@@ -1344,6 +1345,11 @@ void test_z80n_disabled() {
     check(cpu.get_HL() == 0x1000, "Disabled LDIX: HL unchanged");
     check(cpu.get_DE() == 0x2000, "Disabled LDIX: DE unchanged");
     check(cpu.get_BC() == 1, "Disabled LDIX: BC unchanged");
+
+    // Test exec API when disabled
+    cpu.set_ticks(0);
+    cpu.exec_SWAPNIB();
+    check(cpu.get_ticks() == 8, "Disabled exec_SWAPNIB: 8 T-states");
 }
 
 int main() {

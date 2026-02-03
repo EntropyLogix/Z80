@@ -1,7 +1,7 @@
 # **Z80 CPU Emulator Core**
 
 ![Build Status](https://github.com/EntropyLogix/Z80/actions/workflows/build.yml/badge.svg)
-![Code Coverage](https://img.shields.io/badge/coverage-85%25-green)
+[![codecov](https://codecov.io/gh/EntropyLogix/Z80/graph/badge.svg)](https://codecov.io/gh/EntropyLogix/Z80)
 
 This repository contains a high-performance, **header-only C++ template** implementation of the **Zilog Z80 microprocessor** emulator core. 
 
@@ -121,7 +121,7 @@ The `F` register is accessed via a helper class `Z80::CPU::Flags` that provides 
 
 #### **Direct Instruction Execution (`exec_*` API)**
 
-When compiled with `Z80_ENABLE_EXEC_API`, the emulator exposes a set of public methods for executing individual instructions directly. This is useful for unit testing or building specialized tools. The methods follow the Z80 instruction naming convention.
+The emulator exposes a set of public methods for executing individual instructions directly. This is useful for unit testing or building specialized tools. The methods follow the Z80 instruction naming convention. This API is enabled by default; to disable it, define `Z80_DISABLE_EXEC_API`.
 
 **Note:** These methods do not perform a fetch-decode cycle. They execute the corresponding instruction's logic directly but will still perform memory reads/writes via the bus if the instruction requires an operand (e.g., `LD A, n`).
 
@@ -302,7 +302,7 @@ int main() {
 #### 5. Using the `exec_*` API for Direct Instruction Execution
 This advanced example demonstrates how to execute single instructions directly without a full fetch-decode-execute cycle from memory. This is useful for unit testing instruction implementations or for building custom tools.
 
-**Note:** This requires the `Z80_ENABLE_EXEC_API` macro to be defined during compilation (e.g., `g++ -DZ80_ENABLE_EXEC_API ...`).
+**Note:** This API is enabled by default. To disable it, define the `Z80_DISABLE_EXEC_API` macro during compilation.
 
 ```cpp
 #include <Z80/CPU.h>
@@ -345,7 +345,7 @@ The following macros can be added to your C++ compiler flags in your build syste
 | :--- | :--- |
 | `Z80_BIG_ENDIAN` | By default, the emulator assumes the host system is little-endian for register pairs (AF, BC, etc.). Define this macro if you are compiling on a big-endian architecture to ensure correct mapping of 8-bit to 16-bit registers. |
 | `Z80_DEBUGGER_OPCODES` | Enables collecting instruction bytes (opcode and operands) and passing them to the `TDebugger` implementation in the `before_step` and `after_step` methods. Useful for creating detailed debugging and tracing tools. |
-| `Z80_ENABLE_EXEC_API` | Exposes the public `exec_*` API, which allows executing individual Z80 instructions by calling dedicated methods (e.g., `cpu.exec_NOP()`, `cpu.exec_LD_A_n()`). This can be useful for testing or specific scenarios but is disabled by default to keep the public interface clean. |
+| `Z80_DISABLE_EXEC_API` | Disables the public `exec_*` API, which allows executing individual Z80 instructions by calling dedicated methods (e.g., `cpu.exec_NOP()`, `cpu.exec_LD_A_n()`). This API is enabled by default. |
 | `Z80_ENABLE_NEXT` | Enables support for Z80N (ZX Spectrum Next) instructions in the CPU core. |
 
 ### Build Options (CMake)

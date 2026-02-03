@@ -144,15 +144,7 @@ public:
     virtual void set_PC(uint16_t value) = 0;
 };
 
-#ifdef Z80_ENABLE_NEXT
-    #define Z80_DEFAULT_ENABLE_NEXT true
-#elif defined(Z80_ENABLE_Z80N)
-    #define Z80_DEFAULT_ENABLE_NEXT true
-#else
-    #define Z80_DEFAULT_ENABLE_NEXT false
-#endif
-
-template <typename TBus = StandardBus, typename TEvents = StandardEvents, typename TDebugger = StandardDebugger, bool EnableNext = Z80_DEFAULT_ENABLE_NEXT>
+template <typename TBus = StandardBus, typename TEvents = StandardEvents, typename TDebugger = StandardDebugger, bool EnableNext = false>
 class CPU : public ICPU {
 public:
     // Constructors, destructors and assignment operators
@@ -4506,7 +4498,7 @@ private:
     }
 
 // Public execution API
-#ifdef Z80_ENABLE_EXEC_API
+#ifndef Z80_DISABLE_EXEC_API
 private:
     template <auto HandleFunc> void exec_helper() {
         add_ticks(4);
@@ -7981,6 +7973,38 @@ public:
     void exec_SET_7_IY_d_ptr_A(int8_t offset) {
         exec_FDCB_helper(offset, 0xFF);
     }
+
+    // --- Z80N Extensions ---
+    void exec_SWAPNIB() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x23_SWAPNIB>(); else add_ticks(8); }
+    void exec_MIRROR() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x24_MIRROR>(); else add_ticks(8); }
+    void exec_TEST_n() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x27_TEST_n>(); else add_ticks(8); }
+    void exec_BSLA_DE_B() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x28_BSLA_DE_B>(); else add_ticks(8); }
+    void exec_BSRA_DE_B() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x29_BSRA_DE_B>(); else add_ticks(8); }
+    void exec_BSRL_DE_B() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x2A_BSRL_DE_B>(); else add_ticks(8); }
+    void exec_BSRF_DE_B() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x2B_BSRF_DE_B>(); else add_ticks(8); }
+    void exec_BRLC_DE_B() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x2C_BRLC_DE_B>(); else add_ticks(8); }
+    void exec_MUL_D_E() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x30_MUL_D_E>(); else add_ticks(8); }
+    void exec_ADD_HL_A() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x31_ADD_HL_A>(); else add_ticks(8); }
+    void exec_ADD_DE_A() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x32_ADD_DE_A>(); else add_ticks(8); }
+    void exec_ADD_BC_A() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x33_ADD_BC_A>(); else add_ticks(8); }
+    void exec_ADD_HL_nn() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x34_ADD_HL_nn>(); else add_ticks(8); }
+    void exec_ADD_DE_nn() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x35_ADD_DE_nn>(); else add_ticks(8); }
+    void exec_ADD_BC_nn() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x36_ADD_BC_nn>(); else add_ticks(8); }
+    void exec_PUSH_nn() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x8A_PUSH_nn>(); else add_ticks(8); }
+    void exec_OUTINB() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x90_OUTINB>(); else add_ticks(8); }
+    void exec_NEXTREG_n_n() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x91_NEXTREG_n_n>(); else add_ticks(8); }
+    void exec_NEXTREG_n_A() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x92_NEXTREG_n_A>(); else add_ticks(8); }
+    void exec_PIXELAD() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x93_PIXELAD>(); else add_ticks(8); }
+    void exec_PIXELDN() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x94_PIXELDN>(); else add_ticks(8); }
+    void exec_SETAE() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x95_SETAE>(); else add_ticks(8); }
+    void exec_JP_C() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0x98_JP_C>(); else add_ticks(8); }
+    void exec_LDIX() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0xA4_LDIX>(); else add_ticks(8); }
+    void exec_LDWS() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0xA5_LDWS>(); else add_ticks(8); }
+    void exec_LDDX() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0xAC_LDDX>(); else add_ticks(8); }
+    void exec_LDIRX() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0xB4_LDIRX>(); else add_ticks(8); }
+    void exec_LDIRSCALE() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0xB6_LDIRSCALE>(); else add_ticks(8); }
+    void exec_LDPIRX() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0xB7_LDPIRX>(); else add_ticks(8); }
+    void exec_LDDRX() { if constexpr (EnableNext) exec_ED_helper<&CPU::handle_opcode_0xED_0xBC_LDDRX>(); else add_ticks(8); }
 #endif
 };
 class StandardBus {
