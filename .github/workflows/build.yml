@@ -35,11 +35,11 @@ jobs:
 
     - name: Package
       working-directory: tests/build
-      run: cpack -C Release
+      run: cpack -G TGZ -C Release
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: Z80-package-ubuntu
-        path: tests/build/Z80-*.tar.gz
+        path: tests/build/*.tar.gz
         if-no-files-found: warn
