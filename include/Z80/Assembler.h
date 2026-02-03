@@ -1178,14 +1178,18 @@ protected:
                     continue;
                 }
                 if (m_context.assembler.m_config.directives.allow_includes) {
-                    if (tokens.count() == 2 && tokens[0].upper() == "INCLUDE") {
-                        const auto& filename_token = tokens[1];
-                        if (filename_token.original().length() > 1 && filename_token.original().front() == '"' && filename_token.original().back() == '"') {
-                            output_source.push_back({identifier, line_number, line, original_line});
-                            std::string include_filename = filename_token.original().substr(1, filename_token.original().length() - 2);
-                            process_file(include_filename, output_source, included_files, line_number);
-                        } else
-                            m_context.assembler.report_error("Malformed INCLUDE directive");
+                    if (tokens.count() > 0 && tokens[0].upper() == "INCLUDE") {
+                        if (tokens.count() == 2) {
+                            const auto& filename_token = tokens[1];
+                            if (filename_token.original().length() > 1 && filename_token.original().front() == '"' && filename_token.original().back() == '"') {
+                                output_source.push_back({identifier, line_number, line, original_line});
+                                std::string include_filename = filename_token.original().substr(1, filename_token.original().length() - 2);
+                                process_file(include_filename, output_source, included_files, line_number);
+                            } else
+                                m_context.assembler.report_error("Malformed INCLUDE directive: filename must be quoted.");
+                        } else {
+                            m_context.assembler.report_error("INCLUDE directive requires exactly one argument.");
+                        }
                         continue;
                     }
                 }

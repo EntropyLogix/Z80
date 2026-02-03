@@ -21,6 +21,11 @@
 #include <string>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
+#include <cstdio>
+
+#define Z80DUMP_TEST_BUILD
+#include "../tools/Z80Dump.cpp"
 
 // Mock Memory implementation
 class TestMemory {
@@ -166,13 +171,7 @@ void check_inst(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory,
     }
 }
 
-void run_tests() {
-    TestMemory memory;
-    TestLabels labels;
-    Z80::Decoder<TestMemory> analyzer(&memory, &labels);
-
-    std::cout << "Running Z80Analyzer tests...\n";
-
+void test_basic_ops(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     // --- 8-bit Loads ---
     check_inst(analyzer, memory, {0x78}, "LD", {"A", "B"});
     check_inst(analyzer, memory, {0x06, 0x55}, "LD", {"B", "0x55"});
@@ -230,7 +229,9 @@ void run_tests() {
     check_inst(analyzer, memory, {0xED, 0x78}, "IN", {"A", "(C)"});
     check_inst(analyzer, memory, {0xED, 0x79}, "OUT", {"(C)", "A"});
     
-    // --- Extended (ED) ---
+}
+
+void test_extended_ops(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     check_inst(analyzer, memory, {0xED, 0xB0}, "LDIR", {});
     check_inst(analyzer, memory, {0xED, 0x45}, "RETN", {});
     check_inst(analyzer, memory, {0xED, 0x46}, "IM", {"0x0"});
@@ -254,7 +255,9 @@ void run_tests() {
     check_inst(analyzer, memory, {0xDD, 0xCB, 0x05, 0x46}, "BIT", {"0x0", "(IX+5)"});
     check_inst(analyzer, memory, {0xFD, 0xCB, 0x10, 0xCE}, "SET", {"0x1", "(IY+16)"});
 
-    // --- Additional Control Flow Tests ---
+}
+
+void test_control_flow(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         // Jumps with conditions
         check_inst(analyzer, memory, {0xC2, 0x00, 0x10}, "JP", {"NZ", "0x1000"});
@@ -305,8 +308,9 @@ void run_tests() {
         check_inst(analyzer, memory, {0xF7}, "RST", {"0x30"});
         check_inst(analyzer, memory, {0xFF}, "RST", {"0x38"});
     }
+}
 
-    // --- Stack & 16-bit Arithmetic Tests ---
+void test_stack_arithmetic(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         // PUSH/POP
         check_inst(analyzer, memory, {0xC5}, "PUSH", {"BC"});
@@ -334,8 +338,9 @@ void run_tests() {
         check_inst(analyzer, memory, {0xDD, 0xF9}, "LD", {"SP", "IX"});
         check_inst(analyzer, memory, {0xFD, 0xF9}, "LD", {"SP", "IY"});
     }
+}
 
-    // --- Parse Instruction Edge Cases & Missing Groups ---
+void test_edge_cases(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         // Exchange
         check_inst(analyzer, memory, {0xEB}, "EX", {"DE", "HL"});
@@ -384,8 +389,9 @@ void run_tests() {
         check_inst(analyzer, memory, {0xED, 0xAB}, "OUTD", {});
         check_inst(analyzer, memory, {0xED, 0xBB}, "OTDR", {});
     }
+}
 
-    // --- Undocumented Instructions ---
+void test_undocumented(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         // SLL (Shift Left Logical) - CB 30-37
         check_inst(analyzer, memory, {0xCB, 0x37}, "SLL", {"A"});
@@ -408,8 +414,9 @@ void run_tests() {
         // DD 24 -> INC IXH
         check_inst(analyzer, memory, {0xDD, 0x24}, "INC", {"IXH"});
     }
+}
 
-    // --- Accumulator & Flags ---
+void test_misc_ops(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         check_inst(analyzer, memory, {0x07}, "RLCA", {});
         check_inst(analyzer, memory, {0x0F}, "RRCA", {});
@@ -417,8 +424,9 @@ void run_tests() {
         check_inst(analyzer, memory, {0x1F}, "RRA", {});
         check_inst(analyzer, memory, {0xD9}, "EXX", {});
     }
+}
 
-    // --- Direct Addressing (16-bit & 8-bit) ---
+void test_addressing_io(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         check_inst(analyzer, memory, {0x3A, 0x34, 0x12}, "LD", {"A", "(0x1234)"});
         check_inst(analyzer, memory, {0x32, 0x34, 0x12}, "LD", {"(0x1234)", "A"});
@@ -461,8 +469,9 @@ void run_tests() {
         check_inst(analyzer, memory, {0xED, 0x69}, "OUT", {"(C)", "L"});
         check_inst(analyzer, memory, {0xED, 0x71}, "OUT", {"(C)", "0x0"});
     }
+}
 
-    // --- Extended 16-bit Arithmetic (ED prefix) ---
+void test_extended_arithmetic_hl(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         check_inst(analyzer, memory, {0xED, 0x42}, "SBC", {"HL", "BC"});
         check_inst(analyzer, memory, {0xED, 0x52}, "SBC", {"HL", "DE"});
@@ -534,8 +543,9 @@ void run_tests() {
         check_inst(analyzer, memory, {0xCB, 0xC6}, "SET", {"0x0", "(HL)"});
         check_inst(analyzer, memory, {0xCB, 0xFE}, "SET", {"0x7", "(HL)"});
     }
+}
 
-    // --- Misc Instructions ---
+void test_directives_and_shifts(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         check_inst(analyzer, memory, {0x08}, "EX AF, AF'", {});
     }
@@ -598,8 +608,9 @@ void run_tests() {
         // SLA (IX+0), IXH
         check_inst(analyzer, memory, {0xDD, 0xCB, 0x00, 0x24}, "SLA", {"(IX+0)", "IXH"});
     }
+}
 
-    // --- Missing Basic Instructions ---
+void test_missing_basic(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         // LD A, (DE)
         check_inst(analyzer, memory, {0x1A}, "LD", {"A", "(DE)"});
@@ -891,8 +902,9 @@ void run_tests() {
         check_inst(analyzer, memory, {0xED, 0x6D}, "RETN", {});
         check_inst(analyzer, memory, {0xED, 0x75}, "RETN", {});
     }
+}
 
-    // --- Labels Integration ---
+void test_labels_integration(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory, TestLabels& labels) {
     {
         labels.add_label(0x8000, "ENTRY_POINT");
         memory.set_data(0x8000, {0x3E, 0x01}); // LD A, 1
@@ -935,8 +947,9 @@ void run_tests() {
              tests_failed++;
         } else tests_passed++;
     }
+}
 
-    // --- Wrapping Instruction ---
+void test_instruction_properties(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         // LD A, 0x55 at 0xFFFF
         // 0xFFFF: 3E
@@ -1180,8 +1193,9 @@ void run_tests() {
         else if (!(line.type & Type::STACK)) { std::cout << "FAIL: EX (SP), HL type (STACK)\n"; tests_failed++; }
         else tests_passed++;
     }
+}
 
-    // --- Negative Index Displacements ---
+void test_index_displacements_and_prefixes(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         // LD A, (IX-16)
         check_inst(analyzer, memory, {0xDD, 0x7E, 0xF0}, "LD", {"A", "(IX-16)"});
@@ -1469,8 +1483,9 @@ void run_tests() {
         // RL is 0x10 base. C is 1. -> 0x11.
         check_inst(analyzer, memory, {0xDD, 0xCB, 0x00, 0x11}, "RL", {"(IX+0)", "C"});
     }
+}
 
-    // --- More Indirect HL Loads/Stores ---
+void test_more_indirect_hl(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         // LD r, (HL)
         check_inst(analyzer, memory, {0x4E}, "LD", {"C", "(HL)"});
@@ -1486,8 +1501,9 @@ void run_tests() {
         check_inst(analyzer, memory, {0x74}, "LD", {"(HL)", "H"});
         check_inst(analyzer, memory, {0x75}, "LD", {"(HL)", "L"});
     }
+}
 
-    // --- Z80N Instructions ---
+void test_z80n(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     {
         analyzer.set_options({.z80n = true});
 
@@ -1545,11 +1561,561 @@ void run_tests() {
         // PUSH nn (ED 8A) -> NOP 0xED, 0x8A
         check_inst(analyzer, memory, {0xED, 0x8A, 0x12, 0x34}, "NOP", {"0xED", "0x8A"});
     }
+}
+
+void run_tests() {
+    TestMemory memory;
+    TestLabels labels;
+    Z80::Decoder<TestMemory> analyzer(&memory, &labels);
+
+    std::cout << "Running Z80Analyzer tests...\n";
+
+    test_basic_ops(analyzer, memory);
+    test_extended_ops(analyzer, memory);
+    test_control_flow(analyzer, memory);
+    test_stack_arithmetic(analyzer, memory);
+    test_edge_cases(analyzer, memory);
+    test_undocumented(analyzer, memory);
+    test_misc_ops(analyzer, memory);
+    test_addressing_io(analyzer, memory);
+    test_extended_arithmetic_hl(analyzer, memory);
+    test_directives_and_shifts(analyzer, memory);
+    test_missing_basic(analyzer, memory);
+    test_labels_integration(analyzer, memory, labels);
+    test_instruction_properties(analyzer, memory);
+    test_index_displacements_and_prefixes(analyzer, memory);
+    test_more_indirect_hl(analyzer, memory);
+    test_z80n(analyzer, memory);
 
     std::cout << "Tests passed: " << tests_passed << ", Failed: " << tests_failed << "\n";
 }
 
+void test_z80dump_utils() {
+    std::cout << "Running Z80Dump utils tests...\n";
+    
+    // Test get_file_extension
+    if (get_file_extension("test.bin") != "bin") { std::cout << "FAIL: get_file_extension(test.bin)\n"; tests_failed++; } else tests_passed++;
+    if (get_file_extension("TEST.Z80") != "z80") { std::cout << "FAIL: get_file_extension(TEST.Z80)\n"; tests_failed++; } else tests_passed++;
+    if (get_file_extension("noext") != "") { std::cout << "FAIL: get_file_extension(noext)\n"; tests_failed++; } else tests_passed++;
+
+    // Test resolve_address
+    Z80::CPU<> cpu; // Dummy CPU required by signature
+    try {
+        if (resolve_address("0x1000", cpu) != 0x1000) { std::cout << "FAIL: resolve_address(0x1000)\n"; tests_failed++; } else tests_passed++;
+        if (resolve_address("4096", cpu) != 4096) { std::cout << "FAIL: resolve_address(4096)\n"; tests_failed++; } else tests_passed++;
+        if (resolve_address("1000H", cpu) != 0x1000) { std::cout << "FAIL: resolve_address(1000H)\n"; tests_failed++; } else tests_passed++;
+        if (resolve_address("0XFFFF", cpu) != 0xFFFF) { std::cout << "FAIL: resolve_address(0XFFFF)\n"; tests_failed++; } else tests_passed++;
+    } catch (...) {
+        std::cout << "FAIL: resolve_address threw exception\n";
+        tests_failed++;
+    }
+
+    try {
+        resolve_address("INVALID", cpu);
+        std::cout << "FAIL: resolve_address(INVALID) did not throw\n";
+        tests_failed++;
+    } catch (const std::runtime_error&) {
+        tests_passed++;
+    }
+}
+
+void test_z80dump_integration() {
+    std::cout << "Running Z80Dump integration test...\n";
+    
+    // 1. Create a temporary binary file
+    std::string bin_filename = "test_dump_integration.bin";
+    {
+        std::ofstream bin_file(bin_filename, std::ios::binary);
+        if (!bin_file) {
+            std::cout << "FAIL: Could not create temp file\n";
+            tests_failed++;
+            return;
+        }
+        // Code: LD A, 0x55; HALT
+        uint8_t code[] = { 0x3E, 0x55, 0x76 };
+        bin_file.write(reinterpret_cast<char*>(code), sizeof(code));
+    }
+
+    // 2. Prepare arguments for Z80Dump
+    // Z80Dump <file> -dasm 0 2
+    std::vector<std::string> args_str = { "Z80Dump", bin_filename, "-dasm", "0", "2" };
+    std::vector<char*> argv;
+    for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+    // 3. Capture stdout
+    std::stringstream buffer;
+    std::streambuf* old_cout = std::cout.rdbuf(buffer.rdbuf());
+
+    // 4. Run Z80Dump logic
+    int result = run_z80dump(argv.size(), argv.data());
+
+    // 5. Restore stdout
+    std::cout.rdbuf(old_cout);
+
+    // 6. Verify results
+    if (result != 0) {
+        std::cout << "FAIL: run_z80dump returned " << result << "\n";
+        tests_failed++;
+    } else {
+        std::string output = buffer.str();
+        // Check if output contains expected disassembly
+        // Z80Dump aligns output, so we check for mnemonic and operands separately or allow for extra spaces
+        if (output.find("LD") != std::string::npos && output.find("A, 0x55") != std::string::npos && output.find("HALT") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cout << "FAIL: Output mismatch. Got:\n" << output << "\n";
+            tests_failed++;
+        }
+    }
+
+    // 7. Cleanup
+    std::remove(bin_filename.c_str());
+}
+
+void test_z80dump_mem_integration() {
+    std::cout << "Running Z80Dump -mem integration test...\n";
+    
+    // 1. Create a temporary binary file
+    std::string bin_filename = "test_dump_mem.bin";
+    {
+        std::ofstream bin_file(bin_filename, std::ios::binary);
+        if (!bin_file) {
+            std::cout << "FAIL: Could not create temp file\n";
+            tests_failed++;
+            return;
+        }
+        // Write 16 bytes: 0x10, 0x11, ... 0x1F
+        for (uint8_t i = 0; i < 16; ++i) {
+            uint8_t val = 0x10 + i;
+            bin_file.write(reinterpret_cast<char*>(&val), 1);
+        }
+    }
+
+    // 2. Prepare arguments for Z80Dump
+    // Z80Dump <file> -mem 0 16
+    std::vector<std::string> args_str = { "Z80Dump", bin_filename, "-mem", "0", "16" };
+    std::vector<char*> argv;
+    for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+    // 3. Capture stdout
+    std::stringstream buffer;
+    std::streambuf* old_cout = std::cout.rdbuf(buffer.rdbuf());
+
+    // 4. Run Z80Dump logic
+    int result = run_z80dump(argv.size(), argv.data());
+
+    // 5. Restore stdout
+    std::cout.rdbuf(old_cout);
+
+    // 6. Verify results
+    if (result != 0) {
+        std::cout << "FAIL: run_z80dump returned " << result << "\n";
+        tests_failed++;
+    } else {
+        std::string output = buffer.str();
+        // Check if output contains expected hex dump
+        // Z80Dump output format: "0x0000: 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F"
+        if (output.find("0x0000: 10 11 12 13 14 15 16 17 18 19 1A 1B 1C 1D 1E 1F") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cout << "FAIL: Output mismatch. Got:\n" << output << "\n";
+            tests_failed++;
+        }
+    }
+
+    // 7. Cleanup
+    std::remove(bin_filename.c_str());
+}
+
+void test_z80dump_sna_integration() {
+    std::cout << "Running Z80Dump .sna integration test...\n";
+    
+    // 1. Create a temporary .sna file
+    std::string sna_filename = "test_dump.sna";
+    {
+        // 49179 bytes for 48K SNA (27 bytes header + 49152 bytes RAM)
+        std::vector<uint8_t> sna_data(49179, 0);
+        
+        // RAM starts at offset 27, mapping to address 0x4000.
+        // We place "LD A, 0x55" (3E 55) at 0x4000.
+        sna_data[27] = 0x3E;
+        sna_data[28] = 0x55;
+
+        std::ofstream file(sna_filename, std::ios::binary);
+        if (!file) {
+            std::cout << "FAIL: Could not create temp file\n";
+            tests_failed++;
+            return;
+        }
+        file.write(reinterpret_cast<char*>(sna_data.data()), sna_data.size());
+    }
+
+    // 2. Prepare arguments for Z80Dump
+    // Z80Dump <file> -dasm 0x4000 1
+    std::vector<std::string> args_str = { "Z80Dump", sna_filename, "-dasm", "0x4000", "1" };
+    std::vector<char*> argv;
+    for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+    // 3. Capture stdout
+    std::stringstream buffer;
+    std::streambuf* old_cout = std::cout.rdbuf(buffer.rdbuf());
+
+    // 4. Run Z80Dump logic
+    int result = run_z80dump(argv.size(), argv.data());
+
+    // 5. Restore stdout
+    std::cout.rdbuf(old_cout);
+
+    // 6. Verify results
+    if (result != 0) {
+        std::cout << "FAIL: run_z80dump returned " << result << "\n";
+        tests_failed++;
+    } else {
+        std::string output = buffer.str();
+        // Check if output contains expected disassembly
+        if (output.find("LD") != std::string::npos && output.find("A, 0x55") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cout << "FAIL: Output mismatch for SNA. Got:\n" << output << "\n";
+            tests_failed++;
+        }
+    }
+
+    // 7. Cleanup
+    std::remove(sna_filename.c_str());
+}
+
+void test_z80dump_z80_integration() {
+    std::cout << "Running Z80Dump .z80 integration test...\n";
+    
+    // 1. Create a temporary .z80 file (Version 1, uncompressed)
+    std::string z80_filename = "test_dump.z80";
+    {
+        // 30 bytes header + 49152 bytes RAM (48K)
+        std::vector<uint8_t> z80_data(30 + 49152, 0);
+        
+        // Set PC to 0x8000 (Header offset 6 and 7)
+        z80_data[6] = 0x00;
+        z80_data[7] = 0x80;
+
+        // Byte 12: Flags 1. Bit 5 is compression. 0 = uncompressed.
+        z80_data[12] = 0; 
+
+        // RAM starts at offset 30.
+        // It saves 48K starting from 0x4000.
+        // 0x4000-0x7FFF (16K) -> offset 30
+        // 0x8000-0xBFFF (16K) -> offset 30 + 16384
+        // 0xC000-0xFFFF (16K) -> offset 30 + 32768
+        
+        // We place "LD A, 0x55" (3E 55) at 0x8000.
+        size_t code_offset = 30 + 16384;
+        z80_data[code_offset] = 0x3E;
+        z80_data[code_offset + 1] = 0x55;
+
+        std::ofstream file(z80_filename, std::ios::binary);
+        if (!file) {
+            std::cout << "FAIL: Could not create temp file\n";
+            tests_failed++;
+            return;
+        }
+        file.write(reinterpret_cast<char*>(z80_data.data()), z80_data.size());
+    }
+
+    // 2. Prepare arguments for Z80Dump
+    // Z80Dump <file> -dasm 0x8000 1
+    std::vector<std::string> args_str = { "Z80Dump", z80_filename, "-dasm", "0x8000", "1" };
+    std::vector<char*> argv;
+    for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+    // 3. Capture stdout
+    std::stringstream buffer;
+    std::streambuf* old_cout = std::cout.rdbuf(buffer.rdbuf());
+
+    // 4. Run Z80Dump logic
+    int result = run_z80dump(argv.size(), argv.data());
+
+    // 5. Restore stdout
+    std::cout.rdbuf(old_cout);
+
+    // 6. Verify results
+    if (result != 0) {
+        std::cout << "FAIL: run_z80dump returned " << result << "\n";
+        tests_failed++;
+    } else {
+        std::string output = buffer.str();
+        // Check if output contains expected disassembly
+        if (output.find("LD") != std::string::npos && output.find("A, 0x55") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cout << "FAIL: Output mismatch for Z80. Got:\n" << output << "\n";
+            tests_failed++;
+        }
+    }
+
+    // 7. Cleanup
+    std::remove(z80_filename.c_str());
+}
+
+void test_z80dump_map_integration() {
+    std::cout << "Running Z80Dump map integration test...\n";
+    
+    // 1. Create a temporary binary file
+    std::string bin_filename = "test_dump_map.bin";
+    std::string map_filename = "test_dump_map.map";
+    {
+        std::ofstream bin_file(bin_filename, std::ios::binary);
+        if (!bin_file) {
+            std::cout << "FAIL: Could not create temp bin file\n";
+            tests_failed++;
+            return;
+        }
+        // Code: JP 0x1234 (C3 34 12)
+        uint8_t code[] = { 0xC3, 0x34, 0x12 };
+        bin_file.write(reinterpret_cast<char*>(code), sizeof(code));
+    }
+
+    // 2. Create a temporary map file
+    {
+        std::ofstream map_file(map_filename);
+        if (!map_file) {
+            std::cout << "FAIL: Could not create temp map file\n";
+            tests_failed++;
+            return;
+        }
+        // Format: Address Label ; type
+        // 1234 MY_TARGET ; label
+        map_file << "1234 MY_TARGET ; label\n";
+    }
+
+    // 3. Prepare arguments for Z80Dump
+    // Z80Dump <file> -dasm 0 1
+    std::vector<std::string> args_str = { "Z80Dump", bin_filename, "-dasm", "0", "1" };
+    std::vector<char*> argv;
+    for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+    // 4. Capture stdout
+    std::stringstream buffer;
+    std::streambuf* old_cout = std::cout.rdbuf(buffer.rdbuf());
+
+    // 5. Run Z80Dump logic
+    int result = run_z80dump(argv.size(), argv.data());
+
+    // 6. Restore stdout
+    std::cout.rdbuf(old_cout);
+
+    // 7. Verify results
+    if (result != 0) {
+        std::cout << "FAIL: run_z80dump returned " << result << "\n";
+        tests_failed++;
+    } else {
+        std::string output = buffer.str();
+        // Check if output contains the label from the map file
+        if (output.find("MY_TARGET") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cout << "FAIL: Output mismatch. Label 'MY_TARGET' not found. Got:\n" << output << "\n";
+            tests_failed++;
+        }
+    }
+
+    // 8. Cleanup
+    std::remove(bin_filename.c_str());
+    std::remove(map_filename.c_str());
+}
+
+void test_z80dump_error_handling() {
+    std::cout << "Running Z80Dump error handling test...\n";
+
+    // 1. Test non-existent file
+    std::string non_existent_file = "non_existent_file_XYZ.bin";
+    
+    // Prepare arguments
+    std::vector<std::string> args_str = { "Z80Dump", non_existent_file };
+    std::vector<char*> argv;
+    for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+    // Capture stderr (Z80Dump writes errors to cerr)
+    std::stringstream buffer_err;
+    std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+    
+    // Also capture stdout to keep test output clean
+    std::stringstream buffer_out;
+    std::streambuf* old_cout = std::cout.rdbuf(buffer_out.rdbuf());
+
+    // Run Z80Dump logic
+    int result = run_z80dump(argv.size(), argv.data());
+
+    // Restore streams
+    std::cerr.rdbuf(old_cerr);
+    std::cout.rdbuf(old_cout);
+
+    // Verify results
+    if (result == 0) {
+        std::cout << "FAIL: run_z80dump returned 0 for non-existent file\n";
+        tests_failed++;
+    } else {
+        std::string output = buffer_err.str();
+        if (output.find("Error: Could not read file") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cout << "FAIL: Error message mismatch. Got:\n" << output << "\n";
+            tests_failed++;
+        }
+    }
+}
+
+void test_z80dump_empty_file() {
+    std::cout << "Running Z80Dump empty file test...\n";
+
+    // 1. Create an empty file
+    std::string empty_filename = "test_empty.bin";
+    {
+        std::ofstream file(empty_filename, std::ios::binary);
+        // Just create it, don't write anything
+    }
+
+    // 2. Prepare arguments
+    std::vector<std::string> args_str = { "Z80Dump", empty_filename };
+    std::vector<char*> argv;
+    for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+    // 3. Capture stderr
+    std::stringstream buffer_err;
+    std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+    
+    // Capture stdout to keep output clean
+    std::stringstream buffer_out;
+    std::streambuf* old_cout = std::cout.rdbuf(buffer_out.rdbuf());
+
+    // 4. Run Z80Dump logic
+    int result = run_z80dump(argv.size(), argv.data());
+
+    // 5. Restore streams
+    std::cerr.rdbuf(old_cerr);
+    std::cout.rdbuf(old_cout);
+
+    // 6. Verify results
+    if (result == 0) {
+        std::cout << "FAIL: run_z80dump returned 0 for empty file\n";
+        tests_failed++;
+    } else {
+        std::string output = buffer_err.str();
+        if (output.find("Error: Could not read file or file is empty") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cout << "FAIL: Error message mismatch. Got:\n" << output << "\n";
+            tests_failed++;
+        }
+    }
+
+    // 7. Cleanup
+    std::remove(empty_filename.c_str());
+}
+
+void test_z80dump_invalid_args() {
+    std::cout << "Running Z80Dump invalid args test...\n";
+
+    // 1. -mem with missing arguments
+    {
+        std::vector<std::string> args_str = { "Z80Dump", "dummy.bin", "-mem", "0" }; // Missing size
+        std::vector<char*> argv;
+        for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+        std::stringstream buffer_err;
+        std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+        std::stringstream buffer_out;
+        std::streambuf* old_cout = std::cout.rdbuf(buffer_out.rdbuf());
+
+        int result = run_z80dump(argv.size(), argv.data());
+
+        std::cerr.rdbuf(old_cerr);
+        std::cout.rdbuf(old_cout);
+
+        if (result == 0) {
+            std::cout << "FAIL: run_z80dump returned 0 for incomplete -mem args\n";
+            tests_failed++;
+        } else {
+            std::string output = buffer_err.str();
+            if (output.find("Error: Incomplete argument for '-mem'") != std::string::npos) {
+                tests_passed++;
+            } else {
+                std::cout << "FAIL: Error message mismatch for -mem. Got:\n" << output << "\n";
+                tests_failed++;
+            }
+        }
+    }
+
+    // 2. -dasm with missing arguments
+    {
+        std::vector<std::string> args_str = { "Z80Dump", "dummy.bin", "-dasm" }; // Missing addr and lines
+        std::vector<char*> argv;
+        for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+        std::stringstream buffer_err;
+        std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+        std::stringstream buffer_out;
+        std::streambuf* old_cout = std::cout.rdbuf(buffer_out.rdbuf());
+
+        int result = run_z80dump(argv.size(), argv.data());
+
+        std::cerr.rdbuf(old_cerr);
+        std::cout.rdbuf(old_cout);
+
+        if (result == 0) {
+            std::cout << "FAIL: run_z80dump returned 0 for incomplete -dasm args\n";
+            tests_failed++;
+        } else {
+            std::string output = buffer_err.str();
+            if (output.find("Error: -dasm requires at least <address> and <lines>") != std::string::npos) {
+                tests_passed++;
+            } else {
+                std::cout << "FAIL: Error message mismatch for -dasm. Got:\n" << output << "\n";
+                tests_failed++;
+            }
+        }
+    }
+
+    // 3. Unknown argument
+    {
+        std::vector<std::string> args_str = { "Z80Dump", "dummy.bin", "-unknown" };
+        std::vector<char*> argv;
+        for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+        std::stringstream buffer_err;
+        std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+        std::stringstream buffer_out;
+        std::streambuf* old_cout = std::cout.rdbuf(buffer_out.rdbuf());
+
+        int result = run_z80dump(argv.size(), argv.data());
+
+        std::cerr.rdbuf(old_cerr);
+        std::cout.rdbuf(old_cout);
+
+        if (result == 0) {
+            std::cout << "FAIL: run_z80dump returned 0 for unknown arg\n";
+            tests_failed++;
+        } else {
+            std::string output = buffer_err.str();
+            if (output.find("Error: Unknown or incomplete argument '-unknown'") != std::string::npos) {
+                tests_passed++;
+            } else {
+                std::cout << "FAIL: Error message mismatch for unknown arg. Got:\n" << output << "\n";
+                tests_failed++;
+            }
+        }
+    }
+}
+
 int main() {
     run_tests();
+    test_z80dump_utils();
+    test_z80dump_integration();
+    test_z80dump_mem_integration();
+    test_z80dump_sna_integration();
+    test_z80dump_z80_integration();
+    test_z80dump_map_integration();
+    test_z80dump_error_handling();
+    test_z80dump_empty_file();
+    test_z80dump_invalid_args();
     return (tests_failed > 0) ? 1 : 0;
 }

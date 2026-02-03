@@ -30,7 +30,7 @@ template <typename T> std::string format_hex(T value, int width) {
     return ss.str();
 }
 
-void print_usage() {
+inline void print_usage() {
     std::cerr << "Usage: Z80Asm <input_file>\n"
               << "Generates <input_file>.bin, <input_file>.map, and <input_file>.lst\n";
 }
@@ -80,7 +80,7 @@ private:
     std::vector<std::filesystem::path> m_current_path_stack;
 };
 
-void write_map_file(const std::string& file_path, const std::map<std::string, Z80::Assembler<Z80::StandardBus>::SymbolInfo>& symbols) {
+inline void write_map_file(const std::string& file_path, const std::map<std::string, Z80::Assembler<Z80::StandardBus>::SymbolInfo>& symbols) {
     std::ofstream file(file_path);
     if (!file)
         throw std::runtime_error("Cannot open map file for writing: " + file_path);
@@ -98,7 +98,7 @@ void write_map_file(const std::string& file_path, const std::map<std::string, Z8
     }
 }
 
-void write_bin_file(const std::string& file_path, const Z80::StandardBus& bus, const std::vector<Z80::Assembler<Z80::StandardBus>::BlockInfo>& blocks) {
+inline void write_bin_file(const std::string& file_path, const Z80::StandardBus& bus, const std::vector<Z80::Assembler<Z80::StandardBus>::BlockInfo>& blocks) {
     if (blocks.empty())
         return;
     uint16_t min_addr = blocks[0].start_address;
@@ -120,7 +120,7 @@ void write_bin_file(const std::string& file_path, const Z80::StandardBus& bus, c
     file.write(reinterpret_cast<const char*>(image.data()), image.size());
 }
 
-std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
+inline std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
     std::stringstream ss;
     for (size_t i = 0; i < bytes.size(); ++i) {
         if (hex)
@@ -133,7 +133,7 @@ std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
     return ss.str();
 }
 
-std::string generate_memory_map_summary(const std::vector<uint8_t>& map) {
+inline std::string generate_memory_map_summary(const std::vector<uint8_t>& map) {
     if (map.empty()) return "";
     std::stringstream ss;
     ss << "Memory Map Summary:\n";
@@ -178,7 +178,7 @@ std::string generate_memory_map_summary(const std::vector<uint8_t>& map) {
     return ss.str();
 }
 
-void write_lst_file(const std::string& file_path, const std::vector<Z80::Assembler<Z80::StandardBus>::ListingLine>& listing, const std::vector<uint8_t>* memory_map = nullptr) {
+inline void write_lst_file(const std::string& file_path, const std::vector<Z80::Assembler<Z80::StandardBus>::ListingLine>& listing, const std::vector<uint8_t>* memory_map = nullptr) {
     std::ofstream file(file_path);
     if (!file)
         throw std::runtime_error("Cannot open listing file for writing: " + file_path);
@@ -213,10 +213,6 @@ void write_lst_file(const std::string& file_path, const std::vector<Z80::Assembl
             std::stringstream addr_ss;
             addr_ss << std::hex << std::uppercase << std::setw(4) << std::setfill('0') << current_addr;
      
-         
-         
-         
-         
             file << std::setw(7) << std::left << addr_ss.str();
             size_t remaining = total_bytes - printed_bytes;
             size_t chunk_size = std::min(bytes_per_line, remaining);
@@ -229,9 +225,7 @@ void write_lst_file(const std::string& file_path, const std::vector<Z80::Assembl
     }
 }
 
-#ifndef Z80ASM_TEST_BUILD
-
-int main(int argc, char* argv[]) {
+inline int run_z80asm(int argc, char* argv[]) {
     if (argc < 2) {
         print_usage();
         return 1;
@@ -281,5 +275,10 @@ int main(int argc, char* argv[]) {
         std::cerr << "Assembly error: " << e.what() << std::endl;
     }
     return 0;
+}
+
+#ifndef Z80ASM_TEST_BUILD
+int main(int argc, char* argv[]) {
+    return run_z80asm(argc, argv);
 }
 #endif//Z80ASM_TEST_BUILD

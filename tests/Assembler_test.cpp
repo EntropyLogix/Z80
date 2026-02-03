@@ -18,6 +18,9 @@
 #include <iomanip>
 #include <chrono>
 
+#define Z80ASM_TEST_BUILD
+#include "../tools/Z80Asm.cpp"
+
 int tests_passed = 0;
 int tests_failed = 0;
 
@@ -5538,6 +5541,213 @@ TEST_CASE(MemoryMapPhaseDephase) {
     }
 
     if (ok) tests_passed++; else tests_failed++;
+}
+
+TEST_CASE(Z80Asm_Utils) {
+    // Test format_hex
+    if (format_hex(0x1A, 2) != "0x1A") {
+        std::cerr << "format_hex(0x1A, 2) failed. Got: " << format_hex(0x1A, 2) << "\n";
+        tests_failed++;
+    } else {
+        tests_passed++;
+    }
+    
+    if (format_hex(0x1234, 4) != "0x1234") {
+        std::cerr << "format_hex(0x1234, 4) failed. Got: " << format_hex(0x1234, 4) << "\n";
+        tests_failed++;
+    } else {
+        tests_passed++;
+    }
+
+    // Test generate_memory_map_summary
+    // Create a fake map: 0-15 Code, 16-31 Data, 32-47 None
+    std::vector<uint8_t> map(48, (uint8_t)Z80::Assembler<Z80::StandardBus>::Map::None);
+    for(int i=0; i<16; ++i) map[i] = (uint8_t)Z80::Assembler<Z80::StandardBus>::Map::Opcode;
+    for(int i=16; i<32; ++i) map[i] = (uint8_t)Z80::Assembler<Z80::StandardBus>::Map::Data;
+
+    std::string summary = generate_memory_map_summary(map);
+    // Check if summary contains expected strings
+    if (summary.find("0x0000  0x000F      16  Code") == std::string::npos ||
+        summary.find("0x0010  0x001F      16  Data") == std::string::npos) {
+        std::cerr << "generate_memory_map_summary failed. Output:\n" << summary << "\n";
+        tests_failed++;
+    } else {
+        tests_passed++;
+    }
+}
+
+TEST_CASE(Z80Asm_Integration) {
+    // Use a unique filename to avoid conflicts
+    std::string base_name = "test_integration_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+    std::string asm_filename = base_name + ".asm";
+    std::string bin_filename = base_name + ".bin";
+    std::string map_filename = base_name + ".map";
+
+    // 1. Create source file
+    {
+        std::ofstream asm_file(asm_filename);
+        if (!asm_file) {
+            std::cerr << "Failed to create temp asm file: " << asm_filename << "\n";
+            tests_failed++;
+            return;
+        }
+        asm_file << "  ORG 0x1000\n";
+        asm_file << "LABEL: LD A, 0x55\n";
+        asm_file << "  HALT\n";
+    }
+
+    // 2. Setup Assembler with FileSystemSourceProvider (from Z80Asm.cpp)
+    Z80::StandardBus bus;
+    FileSystemSourceProvider source_provider; 
+    Z80::Assembler<Z80::StandardBus> assembler(&bus, &source_provider);
+
+    // 3. Compile
+    bool success = false;
+    try {
+        success = assembler.compile(asm_filename);
+    } catch (const std::exception& e) {
+        std::cerr << "Integration test compilation failed: " << e.what() << "\n";
+    }
+
+    if (!success) {
+        tests_failed++;
+        std::cerr << "Assembler::compile returned false\n";
+    } else {
+        // 4. Generate Output files using Z80Asm functions
+        auto blocks = assembler.get_blocks();
+        auto symbols = assembler.get_symbols();
+        
+        write_bin_file(bin_filename, bus, blocks);
+        write_map_file(map_filename, symbols);
+
+        // 5. Verify BIN file content
+        std::ifstream bin_file(bin_filename, std::ios::binary);
+        if (!bin_file) {
+            tests_failed++;
+            std::cerr << "Failed to open generated bin file: " << bin_filename << "\n";
+        } else {
+            std::vector<uint8_t> content((std::istreambuf_iterator<char>(bin_file)), std::istreambuf_iterator<char>());
+            std::vector<uint8_t> expected = {0x3E, 0x55, 0x76};
+            
+            if (content == expected) {
+                tests_passed++;
+            } else {
+                tests_failed++;
+                std::cerr << "BIN file content mismatch\n";
+                std::cerr << "Expected size: " << expected.size() << ", Got: " << content.size() << "\n";
+            }
+        }
+
+        // 6. Verify MAP file content (basic check)
+        std::ifstream map_file(map_filename);
+        if (!map_file) {
+            tests_failed++;
+            std::cerr << "Failed to open generated map file: " << map_filename << "\n";
+        } else {
+            std::string content((std::istreambuf_iterator<char>(map_file)), std::istreambuf_iterator<char>());
+            if (content.find("LABEL") != std::string::npos && content.find("1000") != std::string::npos) {
+                tests_passed++;
+            } else {
+                tests_failed++;
+                std::cerr << "MAP file content mismatch (missing LABEL or address)\n";
+            }
+        }
+    }
+
+    // 7. Cleanup
+    std::error_code ec;
+    std::filesystem::remove(asm_filename, ec);
+    std::filesystem::remove(bin_filename, ec);
+    std::filesystem::remove(map_filename, ec);
+}
+
+TEST_CASE(DirectiveErrorHandling) {
+    // ORG
+    ASSERT_COMPILE_FAILS("ORG");
+    
+    // ALIGN
+    ASSERT_COMPILE_FAILS("ALIGN");
+    
+    // INCLUDE
+    ASSERT_COMPILE_FAILS("INCLUDE");
+    ASSERT_COMPILE_FAILS("INCLUDE \"file1\", \"file2\"");
+    
+    // INCBIN
+    ASSERT_COMPILE_FAILS("INCBIN");
+    
+    // DS / DEFS
+    ASSERT_COMPILE_FAILS("DS");
+    ASSERT_COMPILE_FAILS("DEFS");
+    
+    // EQU / SET
+    ASSERT_COMPILE_FAILS("LABEL EQU");
+    ASSERT_COMPILE_FAILS("EQU 10");
+    ASSERT_COMPILE_FAILS("LABEL SET");
+    
+    // PHASE / DEPHASE
+    ASSERT_COMPILE_FAILS("PHASE");
+    ASSERT_COMPILE_FAILS("DEPHASE 100");
+    
+    // IF / ENDIF
+    ASSERT_COMPILE_FAILS("IF");
+    ASSERT_COMPILE_FAILS("IF 1\nELSE\nELSE\nENDIF");
+    ASSERT_COMPILE_FAILS("ENDIF");
+    
+    // MACRO
+    ASSERT_COMPILE_FAILS("MACRO");
+    
+    // PROC / ENDP
+    ASSERT_COMPILE_FAILS("ENDP");
+}
+
+TEST_CASE(Z80Asm_CLI) {
+    // Test no arguments
+    {
+        std::vector<std::string> args_str = { "Z80Asm" };
+        std::vector<char*> argv;
+        for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+        
+        std::stringstream buffer_err;
+        std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+        
+        int result = run_z80asm(argv.size(), argv.data());
+        
+        std::cerr.rdbuf(old_cerr);
+        
+        if (result != 1) {
+            std::cerr << "FAIL: Z80Asm should fail with no arguments\n";
+            tests_failed++;
+        } else if (buffer_err.str().find("Usage:") == std::string::npos) {
+            std::cerr << "FAIL: Z80Asm no args output mismatch\n";
+            tests_failed++;
+        } else {
+            tests_passed++;
+        }
+    }
+
+    // Test too many arguments
+    {
+        std::vector<std::string> args_str = { "Z80Asm", "file.asm", "extra" };
+        std::vector<char*> argv;
+        for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+        std::stringstream buffer_err;
+        std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+
+        int result = run_z80asm(argv.size(), argv.data());
+
+        std::cerr.rdbuf(old_cerr);
+
+        if (result != 1) {
+            std::cerr << "FAIL: Z80Asm should fail with too many arguments\n";
+            tests_failed++;
+        } else if (buffer_err.str().find("Error: Too many arguments") == std::string::npos) {
+            std::cerr << "FAIL: Z80Asm too many args output mismatch\n";
+            tests_failed++;
+        } else {
+            tests_passed++;
+        }
+    }
 }
 
 int main() {

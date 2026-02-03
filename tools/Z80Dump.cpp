@@ -31,7 +31,7 @@ template <typename T> std::string format_hex(T value, int width) {
     return ss.str();
 }
 
-void print_usage() {
+inline void print_usage() {
     std::cerr << "Usage: Z80Dump <file_path> [options]\n"
               << "File formats supported: .bin, .sna, .z80\n\n"
               << "Options:\n"
@@ -44,7 +44,7 @@ void print_usage() {
               ;
 }
 
-std::string get_file_extension(const std::string& filename) {
+inline std::string get_file_extension(const std::string& filename) {
     size_t dot_pos = filename.rfind('.');
     if (dot_pos == std::string::npos)
         return "";
@@ -53,7 +53,7 @@ std::string get_file_extension(const std::string& filename) {
     return ext;
 }
 
-std::vector<uint8_t> read_file(const std::string& path) {
+inline std::vector<uint8_t> read_file(const std::string& path) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file)
         return {};
@@ -64,7 +64,7 @@ std::vector<uint8_t> read_file(const std::string& path) {
     return buffer;
 }
 
-bool load_bin_file(Z80::StandardBus& bus, const std::vector<uint8_t>& data, uint16_t load_addr) {
+inline bool load_bin_file(Z80::StandardBus& bus, const std::vector<uint8_t>& data, uint16_t load_addr) {
     for (size_t i = 0; i < data.size(); ++i) {
         if (load_addr + i > 0xFFFF) {
             std::cerr << "Warning: Binary file too large, truncated at 0xFFFF." << std::endl;
@@ -75,7 +75,7 @@ bool load_bin_file(Z80::StandardBus& bus, const std::vector<uint8_t>& data, uint
     return true;
 }
 
-bool load_sna_file(Z80::CPU<>& cpu, const std::vector<uint8_t>& data) {
+inline bool load_sna_file(Z80::CPU<>& cpu, const std::vector<uint8_t>& data) {
     if (data.size() != 49179) {
         std::cerr << "Error: Invalid 48K SNA file size." << std::endl;
         return false;
@@ -105,7 +105,7 @@ bool load_sna_file(Z80::CPU<>& cpu, const std::vector<uint8_t>& data) {
     return true;
 }
 
-bool load_z80_file(Z80::CPU<>& cpu, const std::vector<uint8_t>& data) {
+inline bool load_z80_file(Z80::CPU<>& cpu, const std::vector<uint8_t>& data) {
     if (data.size() < 30) {
         std::cerr << "Error: Z80 file is too small." << std::endl;
         return false;
@@ -181,7 +181,7 @@ bool load_z80_file(Z80::CPU<>& cpu, const std::vector<uint8_t>& data) {
     return true;
 }
 
-uint16_t resolve_address(const std::string& addr_str, const Z80::CPU<>& cpu) {
+inline uint16_t resolve_address(const std::string& addr_str, const Z80::CPU<>& cpu) {
     if (addr_str.empty())
         throw std::runtime_error("Address argument is empty.");
     try {
@@ -200,7 +200,7 @@ uint16_t resolve_address(const std::string& addr_str, const Z80::CPU<>& cpu) {
     }
 }
 
-std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
+inline std::string format_bytes_str(const std::vector<uint8_t>& bytes, bool hex) {
     std::stringstream ss;
     for (size_t i = 0; i < bytes.size(); ++i) {
         if (hex)
@@ -234,7 +234,7 @@ private:
 
 using Decoder = Z80::Decoder<Z80::StandardBus>;
 
-std::string format_operands(const std::vector<Decoder::CodeLine::Operand>& operands) {
+inline std::string format_operands(const std::vector<Decoder::CodeLine::Operand>& operands) {
     if (operands.empty())
         return "";
     std::stringstream ss;
@@ -281,7 +281,7 @@ std::string format_operands(const std::vector<Decoder::CodeLine::Operand>& opera
     return ss.str();
 }
 
-int main(int argc, char* argv[]) {
+inline int run_z80dump(int argc, char* argv[]) {
     if (argc < 2) {
         print_usage();
         return 1;
@@ -405,3 +405,9 @@ int main(int argc, char* argv[]) {
     }
     return 0;
 }
+
+#ifndef Z80DUMP_TEST_BUILD
+int main(int argc, char* argv[]) {
+    return run_z80dump(argc, argv);
+}
+#endif // Z80DUMP_TEST_BUILD
