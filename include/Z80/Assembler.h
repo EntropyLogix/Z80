@@ -373,7 +373,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <sys/types.h>
 #include <system_error>
 #include <utility>
 #include <optional>
@@ -1674,12 +1673,14 @@ protected:
         }
         static Value op_div(Context& ctx, const std::vector<Value>& args) {
             Immediate v2 = get_numeric_value(ctx, args[1], "/");
-            if (v2.asDouble() == 0.0) throw std::runtime_error("Division by zero.");
+            if (v2.asDouble() == 0.0)
+                ctx.assembler.report_error("Division by zero.");
             return Value{Value::Type::IMMEDIATE, get_numeric_value(ctx, args[0], "/") / v2};
         }
         static Value op_mod(Context& ctx, const std::vector<Value>& args) {
             Immediate v2 = get_numeric_value(ctx, args[1], "%");
-            if (v2.asInt() == 0 && v2.isInt()) throw std::runtime_error("Division by zero.");
+            if (v2.asInt() == 0 && v2.isInt())
+                ctx.assembler.report_error("Division by zero.");
             return Value{Value::Type::IMMEDIATE, get_numeric_value(ctx, args[0], "%") % v2};
         }
         static Value op_add(Context& ctx, const std::vector<Value>& args) {
@@ -1902,7 +1903,7 @@ protected:
         }
         static Value func_min(Context& ctx, const std::vector<Value>& args) {
             if (args.size() < 2)
-                throw std::runtime_error("MIN requires at least two arguments.");
+                ctx.assembler.report_error("MIN requires at least two arguments.");
             Immediate result = get_numeric_value(ctx, args[0], "MIN");
             for (size_t i = 1; i < args.size(); ++i)
                 if (get_numeric_value(ctx, args[i], "MIN") < result)
@@ -1911,7 +1912,7 @@ protected:
         }
         static Value func_max(Context& ctx, const std::vector<Value>& args) {
             if (args.size() < 2)
-                throw std::runtime_error("MAX requires at least two arguments.");
+                ctx.assembler.report_error("MAX requires at least two arguments.");
             Immediate result = get_numeric_value(ctx, args[0], "MAX");
             for (size_t i = 1; i < args.size(); ++i)
                 if (get_numeric_value(ctx, args[i], "MAX") > result)
@@ -1974,7 +1975,7 @@ protected:
         static Value func_fmod(Context& ctx, const std::vector<Value>& args) {
             double v2 = get_numeric_value(ctx, args[1], "FMOD").asDouble();
             if (std::abs(v2) < 1e-12)
-                throw std::runtime_error("FMOD by zero.");
+                ctx.assembler.report_error("FMOD by zero.");
             return Value{Value::Type::IMMEDIATE, fmod(get_numeric_value(ctx, args[0], "FMOD").asDouble(), v2)};
         }
         static Value func_sqrt(Context& ctx, const std::vector<Value>& args) {
