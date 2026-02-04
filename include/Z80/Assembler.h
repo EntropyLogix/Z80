@@ -2536,7 +2536,6 @@ protected:
         virtual void on_exitm_directive() = 0;
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) = 0;
         virtual void on_undefine_directive(const std::string& key) = 0;
-        virtual void on_macro_line() = 0;
         virtual void on_unknown_operand(const std::string& operand) = 0;
         virtual bool on_operand_not_matching(const typename Operands::Operand& operand, typename Operands::Operand::Type expected) = 0;
         virtual void on_source_line_begin() = 0;
@@ -3106,9 +3105,6 @@ protected:
             m_context.macros.stack.push_back({macro, name, parameters, 0});
             m_context.macros.in_expansion = true;
             m_context.macros.is_exiting = false;
-        }
-        virtual void on_macro_line() override {
-            // Handled by Source::get_next_line
         }
     protected:
         void clear_symbols() {
