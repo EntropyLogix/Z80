@@ -5835,6 +5835,35 @@ TEST_CASE(Z80Asm_FileSystemSourceProvider) {
         std::cerr << "FAIL: FileSystemSourceProvider::exists returned true for non-existent file\n";
         tests_failed++;
     }
+
+    // Test read_file exception for non-existent file
+    try {
+        std::vector<uint8_t> dummy;
+        provider.read_file("non_existent_file_exception.txt", dummy);
+        std::cerr << "FAIL: FileSystemSourceProvider::read_file did not throw for non-existent file\n";
+        tests_failed++;
+    } catch (const std::runtime_error& e) {
+        std::string msg = e.what();
+        if (msg.find("File not found") == std::string::npos) {
+             std::cerr << "FAIL: FileSystemSourceProvider::read_file threw wrong message: " << msg << "\n";
+             tests_failed++;
+        }
+    } catch (...) {
+        std::cerr << "FAIL: FileSystemSourceProvider::read_file threw wrong exception type\n";
+        tests_failed++;
+    }
+
+    // Test file_size exception for non-existent file
+    try {
+        provider.file_size("non_existent_file_size.txt");
+        std::cerr << "FAIL: FileSystemSourceProvider::file_size did not throw for non-existent file\n";
+        tests_failed++;
+    } catch (const std::filesystem::filesystem_error&) {
+        // Expected
+    } catch (...) {
+        std::cerr << "FAIL: FileSystemSourceProvider::file_size threw wrong exception type\n";
+        tests_failed++;
+    }
     
     std::filesystem::remove(test_filename);
     tests_passed++;
@@ -5856,6 +5885,13 @@ TEST_CASE(Z80Asm_FormatBytesStr) {
         std::cerr << "FAIL: format_bytes_str dec mismatch. Got: '" << dec_str << "'\n";
         tests_failed++;
     }
+
+    // Empty
+    if (format_bytes_str({}, true) != "") {
+        std::cerr << "FAIL: format_bytes_str empty mismatch\n";
+        tests_failed++;
+    }
+
     tests_passed++;
 }
 
@@ -5886,11 +5922,19 @@ TEST_CASE(Z80Asm_WriteLstFile) {
             content.find("LD A, 0x55") == std::string::npos) {
             std::cerr << "FAIL: LST file content mismatch. Got:\n" << content << "\n";
             tests_failed++;
-        } else {
-            tests_passed++;
         }
     }
     std::filesystem::remove(lst_filename);
+
+    // Failure case
+    try {
+        write_lst_file("/non_existent_directory_for_test/test.lst", listing);
+        std::cerr << "FAIL: write_lst_file did not throw for invalid path\n";
+        tests_failed++;
+    } catch (const std::runtime_error&) {
+        // Expected
+    }
+    tests_passed++;
 }
 
 TEST_CASE(Z80Asm_FullRun_Integration) {
@@ -6325,6 +6369,93 @@ TEST_CASE(ComplexNestedStructures_Block3) {
     };
 
     ASSERT_CODE(code, expected);
+}
+
+TEST_CASE(ExitR_Inside_While) {
+    std::string code = R"(
+        REPT 1
+            WHILE 1
+                EXITR ; Should exit REPT, popping WHILE context
+            ENDW
+        ENDR
+        DB 0xAA
+    )";
+    ASSERT_CODE(code, {0xAA});
+}
+
+TEST_CASE(ExitW_Inside_Rept) {
+    std::string code = R"(
+        count SET 0
+        WHILE 1
+            REPT 1
+                EXITW ; Should exit WHILE, popping REPT context
+            ENDR
+            count SET count + 1
+            IF count > 1
+                BREAK
+            ENDIF
+        ENDW
+        DB 0xBB
+    )";
+    ASSERT_CODE(code, {0xBB});
+}
+
+TEST_CASE(ExitW_Outside_While) {
+    ASSERT_COMPILE_FAILS("EXITW");
+}
+
+TEST_CASE(ExitM_Directive) {
+    std::string code = R"(
+TEST_MACRO MACRO val
+            IF {val} == 0
+                EXITM
+            ENDIF
+            DB 0xFF
+        ENDM
+        TEST_MACRO 0
+        TEST_MACRO 1
+    )";
+    ASSERT_CODE(code, {0xFF});
+}
+
+TEST_CASE(ExitM_Outside_Macro) {
+    ASSERT_COMPILE_FAILS("EXITM");
+}
+
+TEST_CASE(Align_Invalid_Expression) {
+    ASSERT_COMPILE_FAILS("ALIGN invalid_symbol");
+}
+
+TEST_CASE(Phase_Expression_Stable) {
+    std::string code = R"(
+        VAL EQU 0x8000
+        PHASE VAL
+        DB 0
+        DEPHASE
+    )";
+    ASSERT_CODE(code, {0x00});
+}
+
+TEST_CASE(Org_Invalid_Expression) {
+    ASSERT_COMPILE_FAILS("ORG invalid_symbol");
+}
+
+TEST_CASE(Phase_Invalid_Expression) {
+    ASSERT_COMPILE_FAILS("PHASE invalid_symbol");
+}
+
+TEST_CASE(Undocumented_Bit_Ops_Three_Operands) {
+    Z80::Assembler<Z80::StandardBus>::Config config;
+    config.compilation.enable_undocumented = true;
+
+    // SET 1, (IX+0), B -> DD CB 00 C8
+    ASSERT_CODE_WITH_OPTS("SET 1, (IX+0), B", {0xDD, 0xCB, 0x00, 0xC8}, config);
+
+    // RES 2, (IY+5), C -> FD CB 05 91
+    ASSERT_CODE_WITH_OPTS("RES 2, (IY+5), C", {0xFD, 0xCB, 0x05, 0x91}, config);
+
+    // Error case: Bit > 7
+    ASSERT_COMPILE_FAILS_WITH_OPTS("SET 8, (IX+0), B", config);
 }
 
 int main() {

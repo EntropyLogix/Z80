@@ -987,6 +987,7 @@ protected:
                 std::string name;
                 std::vector<std::string> parameters;
                 size_t next_line_index;
+                size_t initial_control_stack_depth;
             };
             std::vector<ExpansionState> stack;
             std::map<std::string, Macro> definitions;
@@ -3089,6 +3090,30 @@ protected:
                 return;
             }
             auto& macro_state = m_context.macros.stack.back();
+            
+            // Automatycznie zamknij bloki otwarte wewnątrz makra (IF, WHILE, REPT, PROC)
+            while (m_context.source.control_stack.size() > macro_state.initial_control_stack_depth) {
+                auto type = m_context.source.control_stack.back();
+                m_context.source.control_stack.pop_back();
+                
+                if (type == Context::Source::ControlType::CONDITIONAL) {
+                    if (!m_context.source.conditional_stack.empty())
+                        m_context.source.conditional_stack.pop_back();
+                } else if (type == Context::Source::ControlType::REPEAT) {
+                    if (!m_context.repeat.stack.empty())
+                        m_context.repeat.stack.pop_back();
+                } else if (type == Context::Source::ControlType::WHILE) {
+                    if (!m_context.while_loop.stack.empty()) {
+                         size_t start_index = m_context.while_loop.stack.back().start_index;
+                         m_context.while_loop.loop_counters.erase(start_index);
+                         m_context.while_loop.stack.pop_back();
+                    }
+                } else if (type == Context::Source::ControlType::PROCEDURE) {
+                     if (!m_context.symbols.scope_stack.empty())
+                         m_context.symbols.scope_stack.pop_back();
+                }
+            }
+            
             macro_state.next_line_index = macro_state.macro.body.size();
         }
         virtual void on_macro(const std::string& name, const std::vector<std::string>& parameters) {
@@ -3102,7 +3127,7 @@ protected:
                     }
                 }
             }                
-            m_context.macros.stack.push_back({macro, name, parameters, 0});
+            m_context.macros.stack.push_back({macro, name, parameters, 0, m_context.source.control_stack.size()});
             m_context.macros.in_expansion = true;
             m_context.macros.is_exiting = false;
         }
