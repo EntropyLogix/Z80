@@ -307,6 +307,7 @@
 //   ENDR      | EDUP    | ENDR         | Ends a REPT block.
 //   WHILE     |         | WHILE <expr> | Repeats a block of code as long as the expression is true.
 //   ENDW      |         | ENDW         | Ends a WHILE block.
+//   EXITW     |         | EXITW        | Exits the current WHILE loop.
 //   EXITR     |         | EXITR        | Exits the current REPT loop.
 //   BREAK     |         | BREAK        | Exits the current loop (REPT or WHILE).
 //
