@@ -2106,6 +2106,203 @@ void test_z80dump_invalid_args() {
     }
 }
 
+void test_z80dump_format_operands_coverage() {
+    std::cout << "Running Z80Dump format_operands coverage test...\n";
+    
+    // Use the Decoder alias from Z80Dump.cpp which is Z80::Decoder<Z80::StandardBus>
+    using Op = Decoder::CodeLine::Operand;
+    std::vector<Op> ops;
+    
+    // REG8
+    ops.push_back(Op(Op::REG8, "A"));
+    
+    // IMM8
+    ops.push_back(Op(Op::IMM8, 0x42));
+    
+    // IMM16 with label
+    // Note: None of the constructors seem to take a label directly based on the error output.
+    // We'll use the int32_t constructor and set the label manually if accessible, 
+    // or assume the test needs adjustment if label isn't a constructor param.
+    // Based on previous errors, struct members are public.
+    {
+        Op op(Op::IMM16, 0x1234);
+        op.label = "LABEL";
+        ops.push_back(op);
+    }
+    
+    // MEM_IMM16
+    ops.push_back(Op(Op::MEM_IMM16, 0x5678));
+    
+    // MEM_INDEXED
+    ops.push_back(Op(Op::MEM_INDEXED, "", 5, "IX"));
+    
+    // PORT_IMM8
+    ops.push_back(Op(Op::PORT_IMM8, 0x10));
+    
+    // STRING
+    ops.push_back(Op(Op::STRING, "hello"));
+    
+    // CHAR_LITERAL
+    ops.push_back(Op(Op::CHAR_LITERAL, 'X'));
+    
+    // UNKNOWN
+    ops.push_back(Op(Op::UNKNOWN, ""));
+
+    std::string result = format_operands(ops);
+    std::string expected = "A, 0x42, LABEL, (0x5678), (IX+5), (0x10), \"hello\", 'X', ?";
+    
+    if (result != expected) {
+        std::cout << "FAIL: format_operands mismatch.\nExpected: " << expected << "\nGot:      " << result << "\n";
+        tests_failed++;
+    } else {
+        tests_passed++;
+    }
+}
+
+void test_z80dump_resolve_address_exceptions() {
+    std::cout << "Running Z80Dump resolve_address exception tests...\n";
+    Z80::CPU<> cpu;
+    
+    try {
+        resolve_address("", cpu);
+        std::cout << "FAIL: resolve_address(\"\") did not throw\n";
+        tests_failed++;
+    } catch (const std::runtime_error& e) {
+        if (std::string(e.what()) != "Address argument is empty.") {
+             std::cout << "FAIL: Wrong exception message for empty address: " << e.what() << "\n";
+             tests_failed++;
+        } else tests_passed++;
+    }
+
+    try {
+        resolve_address("ZZ", cpu);
+        std::cout << "FAIL: resolve_address(\"ZZ\") did not throw\n";
+        tests_failed++;
+    } catch (const std::runtime_error& e) {
+         if (std::string(e.what()).find("Invalid address format") == std::string::npos) {
+             std::cout << "FAIL: Wrong exception message for invalid format: " << e.what() << "\n";
+             tests_failed++;
+         } else tests_passed++;
+    }
+
+    try {
+        resolve_address("99999999999999999999", cpu);
+        std::cout << "FAIL: resolve_address(out_of_range) did not throw\n";
+        tests_failed++;
+    } catch (const std::runtime_error& e) {
+         if (std::string(e.what()).find("Address value out of range") == std::string::npos) {
+             std::cout << "FAIL: Wrong exception message for out of range: " << e.what() << "\n";
+             tests_failed++;
+         } else tests_passed++;
+    }
+}
+
+void test_z80dump_load_z80_compressed() {
+    std::cout << "Running Z80Dump load_z80_file compressed tests...\n";
+    Z80::CPU<> cpu;
+
+    // 1. Valid compressed data
+    {
+        std::vector<uint8_t> data(30, 0);
+        data[12] = 0x20; // Compressed
+        data[6] = 0x00; data[7] = 0x01; // PC != 0
+        // ED ED 05 AA -> 5 * AA
+        data.push_back(0xED); data.push_back(0xED); data.push_back(0x05); data.push_back(0xAA);
+        // Literal BB
+        data.push_back(0xBB);
+
+        cpu.reset();
+        bool res = load_z80_file(cpu, data);
+        if (!res) {
+            std::cout << "FAIL: load_z80_file failed for valid compressed data\n";
+            tests_failed++;
+        } else {
+            bool ok = true;
+            for(int i=0; i<5; ++i) if (cpu.get_bus()->peek(0x4000+i) != 0xAA) ok = false;
+            if (cpu.get_bus()->peek(0x4005) != 0xBB) ok = false;
+            
+            if (ok) tests_passed++;
+            else {
+                std::cout << "FAIL: Compressed data verification failed\n";
+                tests_failed++;
+            }
+        }
+    }
+
+    // 2. Corrupted sequence
+    {
+        std::vector<uint8_t> data(30, 0);
+        data[12] = 0x20;
+        data[6] = 0x01;
+        // ED ED 05 (missing value)
+        data.push_back(0xED); data.push_back(0xED); data.push_back(0x05);
+        
+        cpu.reset();
+        // Should return true but stop processing
+        load_z80_file(cpu, data);
+        tests_passed++;
+    }
+
+    // 3. Uncompressed size mismatch
+    {
+        std::vector<uint8_t> data(30 + 10, 0);
+        data[12] = 0x00; // Uncompressed
+        data[6] = 0x01;
+
+        std::stringstream buffer_err;
+        std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+        bool res = load_z80_file(cpu, data);
+        std::cerr.rdbuf(old_cerr);
+
+        if (res) {
+            std::cout << "FAIL: load_z80_file succeeded for wrong uncompressed size\n";
+            tests_failed++;
+        } else if (buffer_err.str().find("Invalid uncompressed 48K Z80 file size") == std::string::npos) {
+            std::cout << "FAIL: Wrong error message for uncompressed size\n";
+            tests_failed++;
+        } else {
+            tests_passed++;
+        }
+    }
+}
+
+void test_z80dump_load_errors_check() {
+    std::cout << "Running Z80Dump load error checks...\n";
+    Z80::CPU<> cpu;
+
+    // load_bin_file too large
+    {
+        std::vector<uint8_t> data(0x10001, 0);
+        Z80::StandardBus bus;
+        std::stringstream buffer_err;
+        std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+        load_bin_file(bus, data, 0);
+        std::cerr.rdbuf(old_cerr);
+        
+        if (buffer_err.str().find("Warning: Binary file too large") == std::string::npos) {
+            std::cout << "FAIL: load_bin_file warning missing\n";
+            tests_failed++;
+        } else tests_passed++;
+    }
+
+    // load_sna_file invalid size
+    {
+        std::vector<uint8_t> data(10, 0);
+        std::stringstream buffer_err;
+        std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+        bool res = load_sna_file(cpu, data);
+        std::cerr.rdbuf(old_cerr);
+
+        if (res) {
+            std::cout << "FAIL: load_sna_file succeeded with wrong size\n";
+            tests_failed++;
+        } else if (buffer_err.str().find("Invalid 48K SNA file size") == std::string::npos) {
+            std::cout << "FAIL: load_sna_file error missing\n";
+            tests_failed++;
+        } else tests_passed++;
+    }
+}
+
 int main() {
     run_tests();
     test_z80dump_utils();
@@ -2117,5 +2314,9 @@ int main() {
     test_z80dump_error_handling();
     test_z80dump_empty_file();
     test_z80dump_invalid_args();
+    test_z80dump_format_operands_coverage();
+    test_z80dump_resolve_address_exceptions();
+    test_z80dump_load_z80_compressed();
+    test_z80dump_load_errors_check();
     return (tests_failed > 0) ? 1 : 0;
 }

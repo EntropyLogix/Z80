@@ -20,7 +20,7 @@ if [ "$1" = "--coverage" ]; then
         echo "--- Generating coverage report ---"
         lcov --capture --directory "$SCRIPT_DIR/build" --output-file "$SCRIPT_DIR/build/coverage.info" --ignore-errors mismatch
         # Usuwamy z raportu pliki systemowe oraz same pliki testów, aby skupić się na kodzie źródłowym
-        lcov --remove "$SCRIPT_DIR/build/coverage.info" '/usr/*' '*/tests/*' --output-file "$SCRIPT_DIR/build/coverage.info"
+        lcov --remove "$SCRIPT_DIR/build/coverage.info" '/usr/*' "${SCRIPT_DIR}/*" --output-file "$SCRIPT_DIR/build/coverage.info"
         genhtml "$SCRIPT_DIR/build/coverage.info" --output-directory "$SCRIPT_DIR/coverage_report"
         echo "Report generated at: $SCRIPT_DIR/coverage_report/index.html"
     else
