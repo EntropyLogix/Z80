@@ -3933,6 +3933,51 @@ public:
         std::vector<uint8_t> bytes(count, (uint8_t)value);
         policy.on_assemble(bytes, false);
     }
+
+    static void run_internal_tests() {
+        // Immediate tests
+        {
+            using Immediate = Z80::Assembler<Z80::StandardBus>::Immediate;
+            Immediate i(10);
+            if (i.getRawBytes() != 10) throw std::runtime_error("Immediate::getRawBytes failed for int");
+            Immediate d(1.5);
+            uint64_t raw;
+            double v = 1.5;
+            std::memcpy(&raw, &v, sizeof(double));
+            if (d.getRawBytes() != raw) throw std::runtime_error("Immediate::getRawBytes failed for double");
+            
+            // Exceptions
+            try { auto x = i / Immediate(0); (void)x; throw std::runtime_error("Division by zero failed to throw"); } catch (const std::runtime_error&) {}
+            try { auto x = i % Immediate(0); (void)x; throw std::runtime_error("Modulo by zero failed to throw"); } catch (const std::runtime_error&) {}
+            try { auto x = i & d; (void)x; throw std::runtime_error("Bitwise AND float failed to throw"); } catch (const std::runtime_error&) {}
+            try { auto x = i | d; (void)x; throw std::runtime_error("Bitwise OR float failed to throw"); } catch (const std::runtime_error&) {}
+            try { auto x = i ^ d; (void)x; throw std::runtime_error("Bitwise XOR float failed to throw"); } catch (const std::runtime_error&) {}
+            try { auto x = i << d; (void)x; throw std::runtime_error("Bitwise SHL float failed to throw"); } catch (const std::runtime_error&) {}
+            try { auto x = i >> d; (void)x; throw std::runtime_error("Bitwise SHR float failed to throw"); } catch (const std::runtime_error&) {}
+            try { auto x = ~d; (void)x; throw std::runtime_error("Bitwise NOT float failed to throw"); } catch (const std::runtime_error&) {}
+            
+            std::stringstream ss;
+            ss << i;
+            if (ss.str() != "10") throw std::runtime_error("Immediate operator<< int failed");
+            ss.str("");
+            ss << d;
+            if (ss.str() != "1.5") throw std::runtime_error("Immediate operator<< double failed");
+        }
+        
+        // Tokens tests
+        {
+            using Token = typename Strings::Tokens::Token;
+            Token t("123");
+            int64_t val;
+            if (!t.to_number(val)) throw std::runtime_error("Token::to_number failed");
+            if (val != 123) throw std::runtime_error("Token::to_number wrong value");
+            
+            if (!t.matches([](char c){ return isdigit(c); })) throw std::runtime_error("Token::matches failed");
+            
+            std::regex re("\\d+");
+            if (!t.matches_regex(re)) throw std::runtime_error("Token::matches_regex failed");
+        }
+    }
 };
 
 TEST_CASE(CustomOperators) {
@@ -5748,6 +5793,345 @@ TEST_CASE(Z80Asm_CLI) {
             tests_passed++;
         }
     }
+}
+
+TEST_CASE(Z80Asm_FileSystemSourceProvider) {
+    std::string test_filename = "test_fs_provider.txt";
+    std::string content = "Hello Z80";
+    {
+        std::ofstream f(test_filename);
+        f << content;
+    }
+
+    FileSystemSourceProvider provider;
+    
+    // Test exists
+    if (!provider.exists(test_filename)) {
+        std::cerr << "FAIL: FileSystemSourceProvider::exists returned false for existing file\n";
+        tests_failed++;
+    }
+
+    // Test file_size
+    if (provider.file_size(test_filename) != content.size()) {
+        std::cerr << "FAIL: FileSystemSourceProvider::file_size mismatch\n";
+        tests_failed++;
+    }
+
+    // Test read_file
+    std::vector<uint8_t> data;
+    if (!provider.read_file(test_filename, data)) {
+        std::cerr << "FAIL: FileSystemSourceProvider::read_file returned false\n";
+        tests_failed++;
+    } else {
+        std::string read_content(data.begin(), data.end());
+        if (read_content != content) {
+            std::cerr << "FAIL: FileSystemSourceProvider::read_file content mismatch\n";
+            tests_failed++;
+        }
+    }
+
+    // Test non-existent
+    if (provider.exists("non_existent_file.txt")) {
+        std::cerr << "FAIL: FileSystemSourceProvider::exists returned true for non-existent file\n";
+        tests_failed++;
+    }
+    
+    std::filesystem::remove(test_filename);
+    tests_passed++;
+}
+
+TEST_CASE(Z80Asm_FormatBytesStr) {
+    std::vector<uint8_t> bytes = {0x12, 0xAB, 0x00};
+    
+    // Hex
+    std::string hex_str = format_bytes_str(bytes, true);
+    if (hex_str != "12 AB 00") {
+        std::cerr << "FAIL: format_bytes_str hex mismatch. Got: '" << hex_str << "'\n";
+        tests_failed++;
+    }
+
+    // Decimal
+    std::string dec_str = format_bytes_str(bytes, false);
+    if (dec_str != "18 171 0") {
+        std::cerr << "FAIL: format_bytes_str dec mismatch. Got: '" << dec_str << "'\n";
+        tests_failed++;
+    }
+    tests_passed++;
+}
+
+TEST_CASE(Z80Asm_WriteLstFile) {
+    std::string lst_filename = "test_output.lst";
+    
+    std::vector<Z80::Assembler<Z80::StandardBus>::ListingLine> listing;
+    Z80::Assembler<Z80::StandardBus>::ListingLine line;
+    line.source_line.line_number = 1;
+    line.source_line.content = "LD A, 0x55";
+    line.address = 0x1000;
+    line.bytes = {0x3E, 0x55};
+    listing.push_back(line);
+
+    write_lst_file(lst_filename, listing);
+
+    std::ifstream f(lst_filename);
+    if (!f) {
+        std::cerr << "FAIL: write_lst_file failed to create file\n";
+        tests_failed++;
+    } else {
+        std::stringstream buffer;
+        buffer << f.rdbuf();
+        std::string content = buffer.str();
+        
+        if (content.find("1000") == std::string::npos || 
+            content.find("3E 55") == std::string::npos || 
+            content.find("LD A, 0x55") == std::string::npos) {
+            std::cerr << "FAIL: LST file content mismatch. Got:\n" << content << "\n";
+            tests_failed++;
+        } else {
+            tests_passed++;
+        }
+    }
+    std::filesystem::remove(lst_filename);
+}
+
+TEST_CASE(Z80Asm_FullRun_Integration) {
+    std::string base_name = "test_full_run_" + std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+    std::string asm_filename = base_name + ".asm";
+    std::string bin_filename = base_name + ".bin";
+    std::string map_filename = base_name + ".map";
+    std::string lst_filename = base_name + ".lst";
+
+    {
+        std::ofstream f(asm_filename);
+        f << "  ORG 0x1000\n";
+        f << "START: LD A, 10\n";
+        f << "  HALT\n";
+    }
+
+    std::vector<std::string> args_str = { "Z80Asm", asm_filename };
+    std::vector<char*> argv;
+    for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+
+    std::stringstream buffer_out, buffer_err;
+    std::streambuf* old_cout = std::cout.rdbuf(buffer_out.rdbuf());
+    std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+
+    int result = run_z80asm(argv.size(), argv.data());
+
+    std::cout.rdbuf(old_cout);
+    std::cerr.rdbuf(old_cerr);
+
+    if (result != 0) {
+        std::cerr << "FAIL: run_z80asm returned non-zero: " << result << "\n";
+        std::cerr << "Stderr: " << buffer_err.str() << "\n";
+        tests_failed++;
+    } else {
+        bool ok = true;
+        if (!std::filesystem::exists(bin_filename)) { std::cerr << "FAIL: .bin file not created\n"; ok = false; }
+        if (!std::filesystem::exists(map_filename)) { std::cerr << "FAIL: .map file not created\n"; ok = false; }
+        if (!std::filesystem::exists(lst_filename)) { std::cerr << "FAIL: .lst file not created\n"; ok = false; }
+
+        if (ok) {
+            std::ifstream f(lst_filename);
+            std::string content((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            if (content.find("1000") == std::string::npos || content.find("3E 0A") == std::string::npos) {
+                 std::cerr << "FAIL: .lst file content mismatch\n";
+                 ok = false;
+            }
+        }
+        if (ok) tests_passed++; else tests_failed++;
+    }
+
+    std::filesystem::remove(asm_filename);
+    std::filesystem::remove(bin_filename);
+    std::filesystem::remove(map_filename);
+    std::filesystem::remove(lst_filename);
+}
+
+TEST_CASE(AssemblerInternalCoverage) {
+    TestAssembler::run_internal_tests();
+    tests_passed++;
+}
+
+TEST_CASE(OptimizationOptionsSpeed) {
+    Z80::Assembler<Z80::StandardBus>::Config config;
+    // OPTIMIZE SPEED disables branch_short (JP -> JR optimization)
+    // Default behavior (SIZE/Balanced) enables branch_short.
+    
+    // With SIZE (enables branch_short): JP target -> JR target (2 bytes) + NOP (1 byte) = 3 bytes
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE SIZE\nJP target\ntarget: NOP", {0x18, 0x00, 0x00}, config);
+
+    // With SPEED: JP target -> JP target (3 bytes) + NOP (1 byte) = 4 bytes
+    ASSERT_CODE_WITH_OPTS("OPTIMIZE SPEED\nJP target\ntarget: NOP", {0xC3, 0x03, 0x00, 0x00}, config);
+}
+
+TEST_CASE(ExpressionFunctionsCoverage) {
+    // DEFINED operator
+    ASSERT_CODE("DEF_SYM EQU 1\nDB DEFINED \"DEF_SYM\", DEFINED \"UNDEF_SYM\"", {1, 0});
+    
+    // ISNUMBER
+    ASSERT_CODE("DB ISNUMBER(123), ISNUMBER(\"123\"), ISNUMBER(\"abc\")", {1, 1, 0});
+    
+    // VAL error handling
+    ASSERT_COMPILE_FAILS("DB VAL(\"abc\")");
+    
+    // ASC
+    ASSERT_CODE("DB ASC(\"A\"), ASC(\"Hello\")", {65, 72});
+    
+    // CHARS
+    ASSERT_CODE("DD CHARS(\"AB\")", {0x41, 0x42, 0x00, 0x00}); // Little endian 0x41, 0x42 -> 0x4241
+    
+    // INT
+    ASSERT_CODE("DB INT(3.14), INT(-3.9)", {3, (uint8_t)-3});
+    
+    // STRLEN
+    ASSERT_CODE("DB STRLEN(\"Hello\")", {5});
+    
+    // STRIN
+    ASSERT_CODE("DB STRIN(\"Hello\", \"el\"), STRIN(\"Hello\", \"z\")", {2, 0});
+    
+    // REPLACE
+    // "Hello" -> replace "l" with "L" -> "HeLLo"
+    ASSERT_CODE("DM REPLACE(\"Hello\", \"l\", \"L\")", {'H', 'e', 'L', 'L', 'o'});
+    
+    // LCASE / UCASE
+    ASSERT_CODE("DM LCASE(\"AbC\")", {'a', 'b', 'c'});
+    ASSERT_CODE("DM UCASE(\"AbC\")", {'A', 'B', 'C'});
+    
+    // MEM
+    // We need to pre-populate memory for this test.
+    Z80::StandardBus bus;
+    bus.poke(0x100, 0x55);
+    MockFileProvider file_provider;
+    TestAssembler assembler(&bus, &file_provider);
+    ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB MEM(0x100)", {0x55});
+    
+    // FILESIZE
+    // MockFileProvider implements file_size.
+    file_provider.add_source("data.bin", "123");
+    ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, "DB FILESIZE(\"data.bin\")", {3});
+    
+    // Math functions
+    ASSERT_CODE("DB ROUND(ASINH(0))", {0});
+    ASSERT_CODE("DB ROUND(ACOSH(1))", {0});
+    ASSERT_CODE("DB ROUND(ATANH(0))", {0});
+    ASSERT_CODE("DB ROUND(HYPOT(3, 4))", {5});
+    ASSERT_CODE("DB ROUND(FMOD(5.5, 2.0) * 10)", {15}); // 1.5 * 10 = 15
+    
+    // Ternary operator
+    ASSERT_CODE("DB 1 ? 10 : 20", {10});
+    ASSERT_CODE("DB 0 ? 10 : 20", {20});
+}
+
+TEST_CASE(DirectivesCoverage) {
+    // IFEXIST
+    MockFileProvider file_provider;
+    file_provider.add_source("existing.asm", "");
+    Z80::StandardBus bus;
+    TestAssembler assembler(&bus, &file_provider);
+    
+    ASSERT_CODE_WITH_ASSEMBLER(bus, assembler, file_provider, R"(
+        IFEXIST "existing.asm"
+            DB 1
+        ELSE
+            DB 0
+        ENDIF
+        IFEXIST "missing.asm"
+            DB 1
+        ELSE
+            DB 0
+        ENDIF
+    )", {1, 0});
+    
+    // UNDEFINE
+    ASSERT_CODE(R"(
+        DEFINE SYM 1
+        UNDEFINE SYM
+        IFDEF SYM
+            DB 1
+        ELSE
+            DB 0
+        ENDIF
+    )", {0});
+    
+    // DISPLAY
+    // Just ensure it doesn't crash
+    ASSERT_CODE("DISPLAY \"Hello\", 123", {});
+    
+    // EXITW
+    ASSERT_CODE(R"(
+        CNT SET 0
+        WHILE 1
+            CNT SET CNT + 1
+            IF CNT == 3
+                EXITW
+            ENDIF
+            DB CNT
+        ENDW
+    )", {1, 2});
+    
+    // BREAK (in WHILE)
+    ASSERT_CODE(R"(
+        CNT SET 0
+        WHILE 1
+            CNT SET CNT + 1
+            IF CNT == 3
+                BREAK
+            ENDIF
+            DB CNT
+        ENDW
+    )", {1, 2});
+    
+    // EXITR
+    ASSERT_CODE(R"(
+        CNT SET 0
+        REPT 5
+            CNT SET CNT + 1
+            IF CNT == 3
+                EXITR
+            ENDIF
+            DB CNT
+        ENDR
+    )", {1, 2});
+    
+    // BREAK (in REPT)
+    ASSERT_CODE(R"(
+        CNT SET 0
+        REPT 5
+            CNT SET CNT + 1
+            IF CNT == 3
+                BREAK
+            ENDIF
+            DB CNT
+        ENDR
+    )", {1, 2});
+    
+    // ERROR
+    ASSERT_COMPILE_FAILS("ERROR \"Fail\"");
+    
+    // ASSERT
+    ASSERT_COMPILE_FAILS("ASSERT 0");
+    ASSERT_CODE("ASSERT 1", {});
+    
+    // EXITM with arguments (Error)
+    ASSERT_COMPILE_FAILS(R"(
+        M MACRO
+            EXITM 1
+        ENDM
+        M
+    )");
+}
+
+TEST_CASE(TryGetValCoverage) {
+    // try_get_val is a lambda inside op_eq/op_ne used to handle mixed types safely.
+    // It returns nullopt if the value is not IMMEDIATE or single-char STRING.
+    // We can trigger this by comparing a number with a multi-char string.
+    
+    // "AB" is a string > 1 char, so try_get_val returns nullopt.
+    // op_eq should return false (0).
+    ASSERT_CODE("DB 65 == \"AB\"", {0});
+    
+    // op_ne should return true (1).
+    ASSERT_CODE("DB 65 != \"AB\"", {1});
 }
 
 int main() {
