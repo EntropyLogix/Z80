@@ -6492,6 +6492,315 @@ TEST_CASE(MacroParamHint) {
     }
 }
 
+TEST_CASE(Z80Asm_Coverage_FileSystemSourceProvider) {
+    std::filesystem::path old_cwd = std::filesystem::current_path();
+    std::filesystem::path dir = old_cwd / "test_fs_cov";
+    
+    if (std::filesystem::exists(dir)) std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    std::filesystem::current_path(dir);
+
+    std::filesystem::path subdir = "sub";
+    std::filesystem::create_directories(subdir);
+    
+    std::string main_asm = "main.asm";
+    std::string inc_asm = (subdir / "inc.asm").string();
+    // Create exists.asm in the root (CWD) so IFEXIST "exists.asm" finds it
+    // because FileSystemSourceProvider checks relative to CWD.
+    std::string exists_asm = "exists.asm";
+    
+    {
+        std::ofstream f(main_asm);
+        f << "INCLUDE \"sub/inc.asm\"\n";
+    }
+    {
+        std::ofstream f(inc_asm);
+        f << "IFEXIST \"exists.asm\"\n";
+        f << "  DB 1\n";
+        f << "ELSE\n";
+        f << "  DB 0\n";
+        f << "ENDIF\n";
+    }
+    {
+        std::ofstream f(exists_asm);
+        f << " ";
+    }
+    
+    Z80::StandardBus bus;
+    FileSystemSourceProvider provider;
+    Z80::Assembler<Z80::StandardBus> assembler(&bus, &provider);
+    
+    bool success = false;
+    try {
+        success = assembler.compile(main_asm);
+    } catch (const std::exception& e) {
+        std::cerr << "FAIL: Exception in Z80Asm_Coverage_FileSystemSourceProvider: " << e.what() << "\n";
+    }
+    
+    if (success) {
+        auto blocks = assembler.get_blocks();
+        if (!blocks.empty() && bus.peek(blocks[0].start_address) == 1) {
+            tests_passed++;
+        } else {
+            std::cerr << "FAIL: Z80Asm_Coverage_FileSystemSourceProvider: IFEXIST failed\n";
+            tests_failed++;
+        }
+    } else {
+        std::cerr << "FAIL: Z80Asm_Coverage_FileSystemSourceProvider: Compilation failed\n";
+        tests_failed++;
+    }
+    
+    std::filesystem::current_path(old_cwd);
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE(Z80Asm_Coverage_WriteBinFile_Order) {
+    std::string bin_file = "test_order.bin";
+    Z80::StandardBus bus;
+    bus.poke(0x2000, 0xAA);
+    bus.poke(0x1000, 0xBB);
+    
+    std::vector<Z80::Assembler<Z80::StandardBus>::BlockInfo> blocks;
+    blocks.push_back({0x2000, 1, false});
+    blocks.push_back({0x1000, 1, false});
+    
+    write_bin_file(bin_file, bus, blocks);
+    
+    std::ifstream f(bin_file, std::ios::binary);
+    if (f) {
+        f.seekg(0, std::ios::end);
+        size_t size = f.tellg();
+        f.seekg(0, std::ios::beg);
+        
+        if (size == 0x1001) {
+            std::vector<uint8_t> data(size);
+            f.read((char*)data.data(), size);
+            if (data[0] == 0xBB && data[0x1000] == 0xAA) {
+                tests_passed++;
+            } else {
+                std::cerr << "FAIL: Z80Asm_Coverage_WriteBinFile_Order: Content mismatch\n";
+                tests_failed++;
+            }
+        } else {
+            std::cerr << "FAIL: Z80Asm_Coverage_WriteBinFile_Order: Size mismatch " << size << "\n";
+            tests_failed++;
+        }
+    } else {
+        std::cerr << "FAIL: Z80Asm_Coverage_WriteBinFile_Order: File not created\n";
+        tests_failed++;
+    }
+    std::filesystem::remove(bin_file);
+}
+
+TEST_CASE(Z80Asm_Coverage_WriteLstFile_Multiline) {
+    std::string lst_file = "test_multi.lst";
+    std::vector<Z80::Assembler<Z80::StandardBus>::ListingLine> listing;
+    Z80::Assembler<Z80::StandardBus>::ListingLine line;
+    line.source_line.line_number = 1;
+    line.source_line.content = "DB 1,2,3,4,5,6,7,8,9,10";
+    line.address = 0x0000;
+    for(int i=1; i<=10; ++i) line.bytes.push_back(i);
+    listing.push_back(line);
+    
+    write_lst_file(lst_file, listing);
+    
+    std::ifstream f(lst_file);
+    if (f) {
+        std::stringstream buffer;
+        buffer << f.rdbuf();
+        std::string content = buffer.str();
+        if (content.find("01 02 03 04 05 06 07 08") != std::string::npos &&
+            content.find("09 0A") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cerr << "FAIL: Z80Asm_Coverage_WriteLstFile_Multiline: Content mismatch\n" << content << "\n";
+            tests_failed++;
+        }
+    } else {
+        std::cerr << "FAIL: Z80Asm_Coverage_WriteLstFile_Multiline: File not created\n";
+        tests_failed++;
+    }
+    std::filesystem::remove(lst_file);
+}
+
+TEST_CASE(Z80Asm_Coverage_LargeSymbols) {
+    std::string map_file = "test_large.map";
+    std::map<std::string, Z80::Assembler<Z80::StandardBus>::SymbolInfo> symbols;
+    symbols["LARGE"] = {"LARGE", 0x12345678, false};
+    symbols["NEG"] = {"NEG", -0x10000, false};
+    
+    write_map_file(map_file, symbols);
+    
+    std::ifstream f(map_file);
+    if (f) {
+        std::stringstream buffer;
+        buffer << f.rdbuf();
+        std::string content = buffer.str();
+        if (content.find("0000000012345678") != std::string::npos &&
+            content.find("FFFFFFFFFFFF0000") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cerr << "FAIL: Z80Asm_Coverage_LargeSymbols: Content mismatch\n" << content << "\n";
+            tests_failed++;
+        }
+    } else {
+        std::cerr << "FAIL: Z80Asm_Coverage_LargeSymbols: File not created\n";
+        tests_failed++;
+    }
+    std::filesystem::remove(map_file);
+}
+
+TEST_CASE(Z80Asm_Coverage_MemoryMapSummary) {
+    std::vector<uint8_t> map(10, (uint8_t)Z80::Assembler<Z80::StandardBus>::Map::Opcode);
+    std::string summary = generate_memory_map_summary(map);
+    if (summary.find("0x0000  0x0009      10  Code") != std::string::npos) {
+        tests_passed++;
+    } else {
+        std::cerr << "FAIL: Z80Asm_Coverage_MemoryMapSummary: Content mismatch\n" << summary << "\n";
+        tests_failed++;
+    }
+}
+
+TEST_CASE(Z80Asm_Coverage_RunZ80Asm_Exception) {
+    std::string asm_file = "invalid.asm";
+    {
+        std::ofstream f(asm_file);
+        f << "  ORG";
+    }
+    
+    std::vector<std::string> args_str = { "Z80Asm", asm_file };
+    std::vector<char*> argv;
+    for(auto& s : args_str) argv.push_back(const_cast<char*>(s.data()));
+    
+    std::stringstream buffer_err;
+    std::streambuf* old_cerr = std::cerr.rdbuf(buffer_err.rdbuf());
+    
+    run_z80asm(argv.size(), argv.data());
+    
+    std::cerr.rdbuf(old_cerr);
+    
+    if (buffer_err.str().find("ORG directive requires an address argument") != std::string::npos) {
+        tests_passed++;
+    } else {
+        std::cerr << "FAIL: Z80Asm_Coverage_RunZ80Asm_Exception: Error message mismatch\n" << buffer_err.str() << "\n";
+        tests_failed++;
+    }
+    std::filesystem::remove(asm_file);
+}
+
+TEST_CASE(Z80Asm_Coverage_EmptyBlocks) {
+    std::vector<Z80::Assembler<Z80::StandardBus>::BlockInfo> blocks;
+    Z80::StandardBus bus;
+    write_bin_file("empty.bin", bus, blocks);
+    if (!std::filesystem::exists("empty.bin")) {
+        tests_passed++;
+    } else {
+        tests_passed++;
+        std::filesystem::remove("empty.bin");
+    }
+}
+
+TEST_CASE(Z80Asm_Coverage_FileErrors) {
+    std::string dir = "test_dir_error";
+    std::filesystem::create_directory(dir);
+    
+    try {
+        std::map<std::string, Z80::Assembler<Z80::StandardBus>::SymbolInfo> symbols;
+        write_map_file(dir, symbols);
+        std::cerr << "FAIL: write_map_file should throw\n";
+        tests_failed++;
+    } catch (const std::runtime_error&) {
+        tests_passed++;
+    }
+    
+    try {
+        std::vector<Z80::Assembler<Z80::StandardBus>::ListingLine> listing;
+        write_lst_file(dir, listing);
+        std::cerr << "FAIL: write_lst_file should throw\n";
+        tests_failed++;
+    } catch (const std::runtime_error&) {
+        tests_passed++;
+    }
+    
+    std::filesystem::remove(dir);
+}
+
+TEST_CASE(AssemblerCoverage_Strings) {
+    // Escape sequences
+    ASSERT_CODE("DB \"\\a\"", {0x07});
+    ASSERT_CODE("DB \"\\b\"", {0x08});
+    ASSERT_CODE("DB \"\\f\"", {0x0C});
+    ASSERT_CODE("DB \"\\v\"", {0x0B});
+    ASSERT_CODE("DB \"\\?\"", {'\\', '?'}); // Default case
+    
+    // Number suffixes
+    ASSERT_CODE("LD A, 10h", {0x3E, 0x10});
+    ASSERT_CODE("LD A, 10H", {0x3E, 0x10});
+    ASSERT_CODE("LD A, 1010b", {0x3E, 0x0A});
+    ASSERT_CODE("LD A, 1010B", {0x3E, 0x0A});
+}
+
+TEST_CASE(AssemblerCoverage_NumberOptions) {
+    Z80::Assembler<Z80::StandardBus>::Config config;
+    
+    config.numbers.allow_hex_prefix_0x = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 0x10", config);
+    
+    config.numbers.allow_hex_prefix_dollar = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, $10", config);
+    
+    config.numbers.allow_hex_suffix_h = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 10h", config);
+    
+    config.numbers.allow_bin_prefix_percent = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, %10", config);
+    
+    config.numbers.allow_bin_suffix_b = false;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 10b", config);
+}
+
+TEST_CASE(AssemblerCoverage_DirectivesErrors) {
+    // INCLUDE
+    ASSERT_COMPILE_FAILS("INCLUDE \"no_quote.asm");
+    ASSERT_COMPILE_FAILS("INCLUDE");
+    
+    // OPTIMIZE
+    ASSERT_COMPILE_FAILS("OPTIMIZE POP"); // Empty stack
+    
+    // OPTION
+    ASSERT_COMPILE_FAILS("OPTION POP"); // Empty stack
+    
+    // REPT
+    ASSERT_COMPILE_FAILS("REPT -1");
+    
+    // WHILE infinite loop
+    Z80::Assembler<Z80::StandardBus>::Config config;
+    config.compilation.max_while_iterations = 5;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("WHILE 1\nENDW", config);
+    
+    // MACRO
+    ASSERT_COMPILE_FAILS("123INVALID MACRO\nENDM");
+    
+    // Data directives
+    ASSERT_COMPILE_FAILS("DB invalid");
+    ASSERT_COMPILE_FAILS("DW invalid");
+    ASSERT_COMPILE_FAILS("DC 123");
+    ASSERT_COMPILE_FAILS("DQ invalid");
+    ASSERT_COMPILE_FAILS("DZ invalid");
+    ASSERT_COMPILE_FAILS("DG 123");
+    ASSERT_COMPILE_FAILS("DH 123");
+    
+    // DS
+    ASSERT_COMPILE_FAILS("DS invalid");
+    ASSERT_COMPILE_FAILS("DS 10, invalid");
+    ASSERT_COMPILE_FAILS("DS 1, 2, 3");
+}
+
+TEST_CASE(AssemblerCoverage_Expressions) {
+    ASSERT_COMPILE_FAILS("DB {");
+    ASSERT_COMPILE_FAILS("DB }");
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";

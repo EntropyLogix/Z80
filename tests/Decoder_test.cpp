@@ -1563,6 +1563,100 @@ void test_z80n(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
     }
 }
 
+void test_coverage_gaps(Z80::Decoder<TestMemory>& analyzer, TestMemory& memory) {
+    // Missing 16-bit loads
+    check_inst(analyzer, memory, {0x11, 0x34, 0x12}, "LD", {"DE", "0x1234"});
+    check_inst(analyzer, memory, {0x31, 0x00, 0x80}, "LD", {"SP", "0x8000"});
+
+    // Missing 8-bit loads
+    check_inst(analyzer, memory, {0x42}, "LD", {"B", "D"});
+    check_inst(analyzer, memory, {0x43}, "LD", {"B", "E"});
+    check_inst(analyzer, memory, {0x4A}, "LD", {"C", "D"});
+    check_inst(analyzer, memory, {0x4B}, "LD", {"C", "E"});
+    check_inst(analyzer, memory, {0x4C}, "LD", {"C", "H"});
+    check_inst(analyzer, memory, {0x4F}, "LD", {"C", "A"});
+    check_inst(analyzer, memory, {0x50}, "LD", {"D", "B"});
+    check_inst(analyzer, memory, {0x51}, "LD", {"D", "C"});
+    check_inst(analyzer, memory, {0x52}, "LD", {"D", "D"});
+    check_inst(analyzer, memory, {0x55}, "LD", {"D", "L"});
+    check_inst(analyzer, memory, {0x57}, "LD", {"D", "A"});
+    check_inst(analyzer, memory, {0x58}, "LD", {"E", "B"});
+    check_inst(analyzer, memory, {0x59}, "LD", {"E", "C"});
+    check_inst(analyzer, memory, {0x5B}, "LD", {"E", "E"});
+    check_inst(analyzer, memory, {0x5C}, "LD", {"E", "H"});
+    check_inst(analyzer, memory, {0x5F}, "LD", {"E", "A"});
+    check_inst(analyzer, memory, {0x61}, "LD", {"H", "C"});
+    check_inst(analyzer, memory, {0x63}, "LD", {"H", "E"});
+    check_inst(analyzer, memory, {0x64}, "LD", {"H", "H"});
+    check_inst(analyzer, memory, {0x68}, "LD", {"L", "B"});
+    check_inst(analyzer, memory, {0x6A}, "LD", {"L", "D"});
+    check_inst(analyzer, memory, {0x6D}, "LD", {"L", "L"});
+    check_inst(analyzer, memory, {0x6F}, "LD", {"L", "A"});
+    check_inst(analyzer, memory, {0x79}, "LD", {"A", "C"});
+    check_inst(analyzer, memory, {0x7A}, "LD", {"A", "D"});
+    check_inst(analyzer, memory, {0x7B}, "LD", {"A", "E"});
+    check_inst(analyzer, memory, {0x7D}, "LD", {"A", "L"});
+
+    // Missing ALU
+    check_inst(analyzer, memory, {0x81}, "ADD", {"A", "C"});
+    check_inst(analyzer, memory, {0x82}, "ADD", {"A", "D"});
+    check_inst(analyzer, memory, {0x83}, "ADD", {"A", "E"});
+    check_inst(analyzer, memory, {0x85}, "ADD", {"A", "L"});
+    check_inst(analyzer, memory, {0x87}, "ADD", {"A", "A"});
+    check_inst(analyzer, memory, {0x88}, "ADC", {"A", "B"});
+    check_inst(analyzer, memory, {0x89}, "ADC", {"A", "C"});
+    check_inst(analyzer, memory, {0x8A}, "ADC", {"A", "D"});
+    check_inst(analyzer, memory, {0x8B}, "ADC", {"A", "E"});
+    check_inst(analyzer, memory, {0x8C}, "ADC", {"A", "H"});
+    check_inst(analyzer, memory, {0x8F}, "ADC", {"A", "A"});
+    check_inst(analyzer, memory, {0x91}, "SUB", {"C"});
+    check_inst(analyzer, memory, {0x92}, "SUB", {"D"});
+    check_inst(analyzer, memory, {0x93}, "SUB", {"E"});
+    check_inst(analyzer, memory, {0x95}, "SUB", {"L"});
+    check_inst(analyzer, memory, {0x97}, "SUB", {"A"});
+    check_inst(analyzer, memory, {0x98}, "SBC", {"A", "B"});
+    check_inst(analyzer, memory, {0x99}, "SBC", {"A", "C"});
+    check_inst(analyzer, memory, {0x9A}, "SBC", {"A", "D"});
+    check_inst(analyzer, memory, {0x9B}, "SBC", {"A", "E"});
+    check_inst(analyzer, memory, {0x9C}, "SBC", {"A", "H"});
+    check_inst(analyzer, memory, {0x9F}, "SBC", {"A", "A"});
+    check_inst(analyzer, memory, {0xA1}, "AND", {"C"});
+    check_inst(analyzer, memory, {0xA2}, "AND", {"D"});
+    check_inst(analyzer, memory, {0xA3}, "AND", {"E"});
+    check_inst(analyzer, memory, {0xA5}, "AND", {"L"});
+    check_inst(analyzer, memory, {0xA7}, "AND", {"A"});
+    check_inst(analyzer, memory, {0xA9}, "XOR", {"C"});
+    check_inst(analyzer, memory, {0xAA}, "XOR", {"D"});
+    check_inst(analyzer, memory, {0xAB}, "XOR", {"E"});
+    check_inst(analyzer, memory, {0xAC}, "XOR", {"H"});
+    check_inst(analyzer, memory, {0xAF}, "XOR", {"A"});
+    check_inst(analyzer, memory, {0xB1}, "OR", {"C"});
+    check_inst(analyzer, memory, {0xB2}, "OR", {"D"});
+    check_inst(analyzer, memory, {0xB3}, "OR", {"E"});
+    check_inst(analyzer, memory, {0xB5}, "OR", {"L"});
+    check_inst(analyzer, memory, {0xB7}, "OR", {"A"});
+    check_inst(analyzer, memory, {0xB9}, "CP", {"C"});
+    check_inst(analyzer, memory, {0xBA}, "CP", {"D"});
+    check_inst(analyzer, memory, {0xBB}, "CP", {"E"});
+    check_inst(analyzer, memory, {0xBC}, "CP", {"H"});
+    check_inst(analyzer, memory, {0xBF}, "CP", {"A"});
+
+    // Missing Z80N
+    analyzer.set_options({.z80n = true});
+    check_inst(analyzer, memory, {0xED, 0x29}, "BSRA", {"DE", "B"});
+    check_inst(analyzer, memory, {0xED, 0x2A}, "BSRL", {"DE", "B"});
+    check_inst(analyzer, memory, {0xED, 0x2B}, "BSRF", {"DE", "B"});
+    check_inst(analyzer, memory, {0xED, 0x2C}, "BRLC", {"DE", "B"});
+    check_inst(analyzer, memory, {0xED, 0x32}, "ADD", {"DE", "A"});
+    check_inst(analyzer, memory, {0xED, 0x33}, "ADD", {"BC", "A"});
+    check_inst(analyzer, memory, {0xED, 0x34, 0x34, 0x12}, "ADD", {"HL", "0x1234"});
+    check_inst(analyzer, memory, {0xED, 0x36, 0x34, 0x12}, "ADD", {"BC", "0x1234"});
+    check_inst(analyzer, memory, {0xED, 0xAC}, "LDDX", {});
+    check_inst(analyzer, memory, {0xED, 0xB4}, "LDIRX", {});
+    check_inst(analyzer, memory, {0xED, 0xBC}, "LDDRX", {});
+    analyzer.set_options({.z80n = false});
+}
+
 void run_tests() {
     TestMemory memory;
     TestLabels labels;
@@ -1586,6 +1680,7 @@ void run_tests() {
     test_index_displacements_and_prefixes(analyzer, memory);
     test_more_indirect_hl(analyzer, memory);
     test_z80n(analyzer, memory);
+    test_coverage_gaps(analyzer, memory);
 
     std::cout << "Tests passed: " << tests_passed << ", Failed: " << tests_failed << "\n";
 }
