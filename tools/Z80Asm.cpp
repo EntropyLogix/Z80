@@ -272,7 +272,7 @@ inline int run_z80asm(int argc, char* argv[]) {
             std::cout << "\n" << generate_memory_map_summary(memory_map);
         }
     } catch (const std::exception& e) {
-        std::cerr << "Assembly error: " << e.what() << std::endl;
+        std::cerr << e.what() << std::endl;
     }
     return 0;
 }

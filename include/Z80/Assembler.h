@@ -626,8 +626,11 @@ public:
 protected:
     [[noreturn]] virtual void report_error(const std::string& message) const {
         std::stringstream error_stream;
-        if (m_context.source.source_location)
-            error_stream << m_context.source.source_location->file_path << ":" << m_context.source.source_location->line_number << ": ";
+        const SourceLine* loc = m_context.source.source_location;
+        if (!loc && !m_context.macros.stack.empty())
+            loc = m_context.macros.stack.back().invocation_location;
+        if (loc)
+            error_stream << loc->file_path << ":" << loc->line_number << ": ";
         error_stream << "error: " << message;
         if (!m_context.macros.stack.empty())
             error_stream << "\n    (in macro '" << m_context.macros.stack.back().name << "')";
@@ -988,6 +991,7 @@ protected:
                 std::vector<std::string> parameters;
                 size_t next_line_index;
                 size_t initial_control_stack_depth;
+                const SourceLine* invocation_location;
             };
             std::vector<ExpansionState> stack;
             std::map<std::string, Macro> definitions;
@@ -3127,7 +3131,7 @@ protected:
                     }
                 }
             }                
-            m_context.macros.stack.push_back({macro, name, parameters, 0, m_context.source.control_stack.size()});
+            m_context.macros.stack.push_back({macro, name, parameters, 0, m_context.source.control_stack.size(), m_context.source.source_location});
             m_context.macros.in_expansion = true;
             m_context.macros.is_exiting = false;
         }
@@ -3157,6 +3161,15 @@ protected:
                 return m_context.symbols.last_global_label + name;
             }
             return name;
+        }
+        void check_macro_param_hint(const std::string& symbol) {
+            if (!m_context.macros.in_expansion || m_context.macros.stack.empty())
+                return;
+            const auto& current_macro_state = m_context.macros.stack.back();
+            for (const auto& arg_name : current_macro_state.macro.arg_names) {
+                if (arg_name == symbol)
+                    m_context.assembler.report_error("Undefined symbol '" + symbol + "'. It matches a macro parameter name. Did you forget braces? Use '{" + symbol + "}' to access the parameter value.");
+            }
         }
     protected:
         void on_if_directive(const std::string& expression, bool stop_on_evaluate_error) {
@@ -3322,6 +3335,9 @@ protected:
                     resolved = !symbol->undefined[index];
                 }
             }
+            if (!resolved) {
+                this->check_macro_param_hint(symbol);
+            }
             return resolved;
         }
         virtual void on_label_definition(const std::string& label) override {
@@ -3473,6 +3489,7 @@ protected:
                     return true;
                 }
             }
+            this->check_macro_param_hint(symbol);
             return false;
         }
         virtual void on_label_definition(const std::string& label) override {
@@ -5372,38 +5389,36 @@ protected:
         bool process_line(const std::string& line_content) {
             m_policy.on_source_line_begin();
             m_line = line_content;
-            {
-                m_tokens.process(m_line);
-                if (m_tokens.count() == 0) {
-                    m_policy.on_source_line_end();
+            m_tokens.process(m_line);
+            if (m_tokens.count() == 0) {
+                m_policy.on_source_line_end();
+                return true;
+            }
+            if (process_macro_definition_structure()) {
+                m_policy.on_source_line_end();
+                return true;
+            }
+            apply_defines();
+            if (is_in_active_block() && process_loops())
+                return true;
+            if (process_recordings())
+                return true;
+            if (process_conditional_directives())
+                return true;
+            if (is_in_active_block()) {
+                if (process_defines())
                     return true;
-                }
-                if (process_macro_definition_structure()) {
-                    m_policy.on_source_line_end();
+                if (process_macro())
                     return true;
-                }
-                apply_defines();
-                if (is_in_active_block() && process_loops())
+                if (process_label())
                     return true;
-                if (process_recordings())
+                if (process_non_conditional_directives())
                     return true;
-                if (process_conditional_directives())
+                if (process_option_directive())
                     return true;
-                if (is_in_active_block()) {
-                    if (process_defines())
-                        return true;
-                    if (process_macro())
-                        return true;
-                    if (process_label())
-                        return true;
-                    if (process_non_conditional_directives())
-                        return true;
-                    if (process_option_directive())
-                        return true;
-                    if (m_end_of_source)
-                        return false;
-                    process_instruction();
-                }
+                if (m_end_of_source)
+                    return false;
+                process_instruction();
             }
             m_policy.on_source_line_end();
             return true;

@@ -6458,6 +6458,40 @@ TEST_CASE(Undocumented_Bit_Ops_Three_Operands) {
     ASSERT_COMPILE_FAILS_WITH_OPTS("SET 8, (IX+0), B", config);
 }
 
+TEST_CASE(MacroParamHint) {
+    std::string code = R"(
+        CHECK_VAL MACRO val
+            IF val == 0
+                NOP
+            ENDIF
+        ENDM
+        CHECK_VAL 0
+    )";
+
+    Z80::StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", code);
+    Z80::Assembler<Z80::StandardBus> assembler(&bus, &file_provider);
+
+    try {
+        assembler.compile("main.asm");
+        std::cerr << "Failing code:\n---\n" << code << "\n---\n";
+        std::cerr << "Assertion failed: Compilation succeeded but should have failed with hint.\n";
+        tests_failed++;
+    } catch (const std::runtime_error& e) {
+        std::string msg = e.what();
+        if (msg.find("Undefined symbol") != std::string::npos &&
+            msg.find("matches a macro parameter name") != std::string::npos &&
+            msg.find("Did you forget braces?") != std::string::npos) {
+            tests_passed++;
+        } else {
+            std::cerr << "Failing code:\n---\n" << code << "\n---\n";
+            std::cerr << "Assertion failed: Wrong error message. Got: " << msg << "\n";
+            tests_failed++;
+        }
+    }
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
