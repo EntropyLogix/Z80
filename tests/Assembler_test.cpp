@@ -6134,6 +6134,199 @@ TEST_CASE(TryGetValCoverage) {
     ASSERT_CODE("DB 65 != \"AB\"", {1});
 }
 
+TEST_CASE(ComplexNestedStructures) {
+    std::string code = R"(
+        ORG 0x0000
+        
+        ; --- Block 1: Nested REPT/WHILE/IF/EXITW/BREAK ---
+        ; REPT runs for i=1, 2, 3.
+        ; Inside:
+        ;   WHILE runs j=0..
+        ;   j increments.
+        ;   DB j
+        ;   IF j == 2 -> EXITW (jumps to ENDW)
+        ;   DB 0xEE (skipped if j==2)
+        ;   ENDW
+        ;   IF \@ == 2 -> BREAK (jumps out of REPT)
+        
+        REPT 3
+            j SET 0
+            WHILE 1
+                j SET j + 1
+                DB j
+                IF j == 2
+                    EXITW
+                ENDIF
+                DB 0xEE
+            ENDW
+            
+            IF \@ == 2
+                BREAK
+            ENDIF
+            DB 0xFF ; Marker for end of REPT body
+        ENDR
+        
+        DB 0xAA ; Separator
+        
+        ; --- Block 2: WHILE with nested REPT/EXITR ---
+        ; k runs 0..
+        ; k increments
+        ; REPT 4
+        ;   DB 0x55
+        ;   IF \@ == 2 -> EXITR
+        ;   DB 0x66
+        ; ENDR
+        ; IF k == 2 -> BREAK
+        
+        k SET 0
+        WHILE 1
+            k SET k + 1
+            DB k
+            
+            REPT 4
+                DB 0x55
+                IF \@ == 2
+                    EXITR
+                ENDIF
+                DB 0x66
+            ENDR
+            
+            IF k == 2
+                BREAK
+            ENDIF
+        ENDW
+        
+        DB 0xBB ; Separator
+
+        ; --- Block 3: Macro with complex flow ---
+        COMPLEX_MACRO MACRO count
+            LOCAL x
+            x SET 0
+            WHILE x < {count}
+                x SET x + 1
+                IF x == 2
+                    ; Skip 2
+                    x SET x + 1
+                ENDIF
+                DB x
+            ENDW
+        ENDM
+        
+        COMPLEX_MACRO 4
+    )";
+
+    std::vector<uint8_t> expected = {
+        // Block 1
+        1, 0xEE, 2, 0xFF, // Iter 1
+        1, 0xEE, 2,       // Iter 2 (BREAK before 0xFF)
+        0xAA,
+        
+        // Block 2
+        1, 0x55, 0x66, 0x55, // k=1
+        2, 0x55, 0x66, 0x55, // k=2
+        0xBB,
+        
+        // Block 3
+        1, 3, 4
+    };
+
+    ASSERT_CODE(code, expected);
+}
+
+TEST_CASE(ComplexNestedStructures_Block1) {
+    std::string code = R"(
+        ORG 0x0000
+        
+        REPT 3
+            j SET 0
+            WHILE 1
+                j SET j + 1
+                DB j
+                IF j == 2
+                    EXITW
+                ENDIF
+                DB 0xEE
+            ENDW
+            
+            IF \@ == 2
+                BREAK
+            ENDIF
+            DB 0xFF ; Marker for end of REPT body
+        ENDR
+        
+        DB 0xAA ; Separator
+    )";
+
+    std::vector<uint8_t> expected = {
+        1, 0xEE, 2, 0xFF, // Iter 1
+        1, 0xEE, 2,       // Iter 2 (BREAK before 0xFF)
+        0xAA
+    };
+
+    ASSERT_CODE(code, expected);
+}
+
+TEST_CASE(ComplexNestedStructures_Block2) {
+    std::string code = R"(
+        ORG 0x0000
+        
+        k SET 0
+        WHILE 1
+            k SET k + 1
+            DB k
+            
+            REPT 4
+                DB 0x55
+                IF \@ == 2
+                    EXITR
+                ENDIF
+                DB 0x66
+            ENDR
+            
+            IF k == 2
+                BREAK
+            ENDIF
+        ENDW
+        
+        DB 0xBB ; Separator
+    )";
+
+    std::vector<uint8_t> expected = {
+        1, 0x55, 0x66, 0x55, // k=1
+        2, 0x55, 0x66, 0x55, // k=2
+        0xBB
+    };
+
+    ASSERT_CODE(code, expected);
+}
+
+TEST_CASE(ComplexNestedStructures_Block3) {
+    std::string code = R"(
+        ORG 0x0000
+
+        COMPLEX_MACRO MACRO count
+            LOCAL x
+            x SET 0
+            WHILE x < {count}
+                x SET x + 1
+                IF x == 2
+                    ; Skip 2
+                    x SET x + 1
+                ENDIF
+                DB x
+            ENDW
+        ENDM
+        
+        COMPLEX_MACRO 4
+    )";
+
+    std::vector<uint8_t> expected = {
+        1, 3, 4
+    };
+
+    ASSERT_CODE(code, expected);
+}
+
 int main() {
     std::cout << "=============================\n";
     std::cout << "  Running Z80Assembler Tests \n";
