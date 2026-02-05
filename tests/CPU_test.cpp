@@ -1352,6 +1352,111 @@ void test_z80n_disabled() {
     check(cpu.get_ticks() == 8, "Disabled exec_SWAPNIB: 8 T-states");
 }
 
+void test_interrupts() {
+    TestCPU cpu;
+    cpu.reset();
+
+    // Test NMI
+    cpu.set_PC(0x1000);
+    cpu.set_IFF1(true);
+    cpu.set_IFF2(true);
+    cpu.request_NMI();
+    cpu.step(); 
+    
+    check(cpu.get_PC() == 0x0066, "NMI jumps to 0x0066");
+    check(cpu.get_IFF1() == false, "NMI disables IFF1");
+    check(cpu.get_IFF2() == true, "NMI preserves IFF1 in IFF2");
+
+    // Test IM 1
+    cpu.reset();
+    cpu.set_PC(0x2000);
+    cpu.set_IFF1(true);
+    cpu.set_IRQ_mode(1);
+    cpu.request_interrupt(0xFF); 
+    cpu.step();
+    check(cpu.get_PC() == 0x0038, "IM 1 jumps to 0x0038");
+    check(cpu.get_IFF1() == false, "IRQ disables IFF1");
+    check(cpu.get_IFF2() == false, "IRQ disables IFF2");
+
+    // Test IM 2
+    cpu.reset();
+    cpu.set_PC(0x3000);
+    cpu.set_IFF1(true);
+    cpu.set_IRQ_mode(2);
+    cpu.set_I(0x40);
+    cpu.request_interrupt(0x04); // Vector = 0x4004
+    cpu.get_bus()->write(0x4004, 0x12);
+    cpu.get_bus()->write(0x4005, 0x34); // Handler at 0x3412
+    cpu.step();
+    check(cpu.get_PC() == 0x3412, "IM 2 jumps to vector handler");
+
+    // Test IM 0
+    cpu.reset();
+    cpu.set_PC(0x4000);
+    cpu.set_IFF1(true);
+    cpu.set_IRQ_mode(0);
+    cpu.request_interrupt(0xD7); // RST 10H
+    cpu.step();
+    check(cpu.get_PC() == 0x0010, "IM 0 executes opcode (RST 10H)");
+}
+
+void test_state_save_restore() {
+    TestCPU cpu;
+    cpu.reset();
+    cpu.set_AF(0x1234);
+    cpu.set_BC(0x5678);
+    cpu.set_PC(0x9ABC);
+    
+    auto state = cpu.save_state();
+    
+    TestCPU cpu2;
+    cpu2.restore_state(state);
+    
+    check(cpu2.get_AF() == 0x1234, "Restore AF");
+    check(cpu2.get_BC() == 0x5678, "Restore BC");
+    check(cpu2.get_PC() == 0x9ABC, "Restore PC");
+}
+
+void test_accessors_and_copy() {
+    TestCPU cpu;
+    cpu.set_address_bus(0x1234);
+    check(cpu.get_address_bus() == 0x1234, "get/set address bus");
+    
+    cpu.set_data_bus(0x55);
+    check(cpu.get_data_bus() == 0x55, "get/set data bus");
+
+    TestCPU cpu2(cpu);
+    check(cpu2.get_address_bus() == 0x1234, "Copy constructor preserves address bus");
+    
+    TestCPU cpu3;
+    cpu3 = cpu;
+    check(cpu3.get_data_bus() == 0x55, "Assignment operator preserves data bus");
+}
+
+void test_auxiliary_classes() {
+    Z80::StandardBus bus;
+    bus.in(0);
+    bus.out(0, 0);
+    bus.peek(0);
+    bus.poke(0, 0);
+    
+    Z80::StandardEvents events;
+    events.reset();
+    events.get_event_limit();
+    events.handle_event(0);
+    
+    Z80::StandardDebugger debugger;
+    debugger.reset();
+    debugger.before_step();
+    debugger.after_step({});
+    debugger.before_IRQ();
+    debugger.after_IRQ();
+    debugger.before_NMI();
+    debugger.after_NMI();
+    
+    tests_passed++; // Assuming no crash
+}
+
 int main() {
     std::cout << "Running Z80 Execution Tests (Z80Next_test.cpp)...\n";
     
@@ -1385,6 +1490,10 @@ int main() {
     test_z80n_no_flag_changes();
     test_z80n_mul_flags();
     test_z80n_disabled();
+    test_interrupts();
+    test_state_save_restore();
+    test_accessors_and_copy();
+    test_auxiliary_classes();
 
     std::cout << "Tests passed: " << tests_passed << "\n";
     std::cout << "Tests failed: " << tests_failed << "\n";

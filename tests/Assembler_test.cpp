@@ -3972,10 +3972,28 @@ public:
             if (!t.to_number(val)) throw std::runtime_error("Token::to_number failed");
             if (val != 123) throw std::runtime_error("Token::to_number wrong value");
             
+            // Test cache
+            if (!t.to_number(val)) throw std::runtime_error("Token::to_number cache failed");
+            
+            Token t2("abc");
+            if (t2.to_number(val)) throw std::runtime_error("Token::to_number should fail for abc");
+            if (t2.to_number(val)) throw std::runtime_error("Token::to_number cache should fail for abc");
+            
             if (!t.matches([](char c){ return isdigit(c); })) throw std::runtime_error("Token::matches failed");
             
             std::regex re("\\d+");
             if (!t.matches_regex(re)) throw std::runtime_error("Token::matches_regex failed");
+            
+            // Test Tokens class
+            typename Strings::Tokens tokens;
+            tokens.process("A B");
+            try {
+                auto x = tokens[2];
+                (void)x;
+                throw std::runtime_error("Tokens::operator[] did not throw");
+            } catch (const std::out_of_range&) {}
+            
+            tokens.remove(100); // Should not crash
         }
     }
 };
@@ -6799,6 +6817,189 @@ TEST_CASE(AssemblerCoverage_DirectivesErrors) {
 TEST_CASE(AssemblerCoverage_Expressions) {
     ASSERT_COMPILE_FAILS("DB {");
     ASSERT_COMPILE_FAILS("DB }");
+}
+
+TEST_CASE(CompileWithOptionsStruct) {
+    Z80::StandardBus bus;
+    MockFileProvider file_provider;
+    file_provider.add_source("main.asm", "SWAPNIB");
+    Z80::Assembler<Z80::StandardBus> assembler(&bus, &file_provider);
+    
+    Z80::Assembler<Z80::StandardBus>::InstructionOptions inst_opts;
+    inst_opts.enable_z80n = true;
+    
+    bool success = assembler.compile("main.asm", 0x0000, &inst_opts);
+    assert(success);
+    assert(bus.peek(0x0000) == 0xED);
+    assert(bus.peek(0x0001) == 0x23);
+    tests_passed++;
+}
+
+TEST_CASE(EscapeSequencesHexLower) {
+    ASSERT_CODE("DB \"\\x61\"", {0x61});
+    ASSERT_CODE("DB \"\\xab\"", {0xAB});
+}
+
+TEST_CASE(IncludeUnquoted) {
+    ASSERT_COMPILE_FAILS("INCLUDE no_quote.asm");
+}
+
+TEST_CASE(FloatModulo) {
+    ASSERT_CODE("DB 6.0 % 4.0", {2});
+}
+
+TEST_CASE(FloatEquality) {
+    ASSERT_CODE("DB 1.0 == 1.0", {1});
+    ASSERT_CODE("DB 1.0 != 1.001", {1});
+}
+
+TEST_CASE(ExpressionsDisabled) {
+    Z80::Assembler<Z80::StandardBus>::Config config;
+    config.expressions.enabled = false;
+    ASSERT_CODE_WITH_OPTS("LD A, 10", {0x3E, 0x0A}, config);
+    ASSERT_COMPILE_FAILS_WITH_OPTS("LD A, 1+1", config);
+}
+
+TEST_CASE(StringAsNumberExpected) {
+    ASSERT_COMPILE_FAILS("LD A, \"AB\"");
+}
+
+TEST_CASE(IncbinMissingFile) {
+    Z80::Assembler<Z80::StandardBus>::Config config;
+    config.directives.allow_incbin = true;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("INCBIN \"missing.bin\"", config);
+}
+
+TEST_CASE(LocalInvalidName) {
+    ASSERT_COMPILE_FAILS(R"(
+        PROC Test
+        LOCAL 123
+        ENDP
+    )");
+}
+
+TEST_CASE(OptimizeInvalidParam) {
+    ASSERT_COMPILE_FAILS("OPTIMIZE INVALID");
+}
+
+TEST_CASE(ReptInvalidExpr) {
+    ASSERT_COMPILE_FAILS("REPT 1+");
+}
+
+TEST_CASE(WhileInvalidExpr) {
+    ASSERT_COMPILE_FAILS("WHILE 1+");
+}
+
+TEST_CASE(DbOutOfRange) {
+    ASSERT_COMPILE_FAILS("DB 256");
+}
+
+TEST_CASE(DwOutOfRange) {
+    ASSERT_COMPILE_FAILS("DW 70000");
+}
+
+TEST_CASE(D24OutOfRange) {
+    ASSERT_CODE("D24 0x1000000", {0x00, 0x00, 0x00});
+}
+
+TEST_CASE(DzOutOfRange) {
+    ASSERT_COMPILE_FAILS("DZ 300");
+}
+
+TEST_CASE(DsInvalidArgs) {
+    ASSERT_COMPILE_FAILS("DS \"abc\"");
+    ASSERT_COMPILE_FAILS("DS 10, \"abc\"");
+}
+
+TEST_CASE(MixIxIy) {
+    ASSERT_COMPILE_FAILS("LD IXH, IYH");
+}
+
+TEST_CASE(InOutPortCheck) {
+    ASSERT_COMPILE_FAILS("IN A, (0x100)");
+    ASSERT_COMPILE_FAILS("OUT (0x100), A");
+}
+
+TEST_CASE(OutCHl) {
+    ASSERT_COMPILE_FAILS("OUT (C), (HL)");
+}
+
+TEST_CASE(BitSetResIndexCheck) {
+    ASSERT_COMPILE_FAILS("BIT 8, A");
+    ASSERT_COMPILE_FAILS("SET 8, A");
+    ASSERT_COMPILE_FAILS("RES 8, A");
+    ASSERT_COMPILE_FAILS("BIT 8, (IX+0)");
+    ASSERT_COMPILE_FAILS("SET 8, (IX+0)");
+    ASSERT_COMPILE_FAILS("RES 8, (IX+0)");
+    
+    Z80::Assembler<Z80::StandardBus>::Config config;
+    config.compilation.enable_undocumented = true;
+    ASSERT_COMPILE_FAILS_WITH_OPTS("SET 8, (IX+0), B", config);
+}
+
+TEST_CASE(Z80Asm_Coverage_MoreFileAndOutput) {
+    // Test for FileSystemSourceProvider relative paths (lines 71, 77)
+    {
+        std::filesystem::path old_cwd = std::filesystem::current_path();
+        std::filesystem::path test_dir = "fs_provider_rel_test";
+        if (std::filesystem::exists(test_dir)) std::filesystem::remove_all(test_dir);
+        std::filesystem::create_directory(test_dir);
+        
+        std::filesystem::path subdir = test_dir / "sub";
+        std::filesystem::create_directory(subdir);
+
+        std::ofstream main_asm(test_dir / "main.asm");
+        main_asm << "INCLUDE \"sub/inc.asm\"";
+        main_asm.close();
+
+        std::ofstream inc_asm(subdir / "inc.asm");
+        inc_asm << "DB FILESIZE(\"data.bin\")";
+        inc_asm.close();
+
+        std::ofstream data_bin(subdir / "data.bin");
+        data_bin << "12345";
+        data_bin.close();
+
+        Z80::StandardBus bus;
+        FileSystemSourceProvider provider;
+        Z80::Assembler<Z80::StandardBus> assembler(&bus, &provider);
+        
+        bool success = false;
+        try {
+            std::filesystem::current_path(test_dir);
+            success = assembler.compile("main.asm");
+        } catch (const std::exception& e) {
+            std::cerr << "FAIL: Exception in Z80Asm_Coverage_MoreFileAndOutput (FS provider): " << e.what() << "\n";
+        }
+        std::filesystem::current_path(old_cwd);
+        
+        if (success) {
+            auto blocks = assembler.get_blocks();
+            if (!blocks.empty() && bus.peek(blocks[0].start_address) == 5) {
+                tests_passed++;
+            } else {
+                std::cerr << "FAIL: Z80Asm_Coverage_MoreFileAndOutput (FS provider): FILESIZE failed\n";
+                tests_failed++;
+            }
+        } else {
+            std::cerr << "FAIL: Z80Asm_Coverage_MoreFileAndOutput (FS provider): Compilation failed\n";
+            tests_failed++;
+        }
+        std::filesystem::remove_all(test_dir);
+    }
+
+    // Test for write_lst_file empty line (line 201)
+    {
+        std::string lst_filename = "test_empty_line.lst";
+        std::vector<Z80::Assembler<Z80::StandardBus>::ListingLine> listing;
+        Z80::Assembler<Z80::StandardBus>::ListingLine line; // Empty line
+        line.source_line.line_number = 2;
+        line.source_line.content = "";
+        line.source_line.original_text = "";
+        listing.push_back(line);
+
+        write_lst_file(lst_filename, listing);
+    }
 }
 
 int main() {
