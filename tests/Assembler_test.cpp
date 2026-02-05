@@ -6999,6 +6999,7 @@ TEST_CASE(Z80Asm_Coverage_MoreFileAndOutput) {
         listing.push_back(line);
 
         write_lst_file(lst_filename, listing);
+        std::filesystem::remove(lst_filename);
     }
 }
 

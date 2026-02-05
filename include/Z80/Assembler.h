@@ -4049,12 +4049,8 @@ protected:
             return match;
         }
         void assemble(std::vector<uint8_t> bytes, bool is_code) { this->m_policy.on_assemble(bytes, is_code);}
-        bool encode_data_block(const std::string& mnemonic, const std::vector<typename Operands::Operand>& ops) {
-            const auto& directive_options = this->m_policy.context().assembler.m_config.directives;
-            if (!directive_options.enabled || !directive_options.allow_data_definitions)
-                return false;
+        bool get_data_bytes(const std::string& mnemonic, const std::vector<typename Operands::Operand>& ops, std::vector<uint8_t>& bytes) {
             if (mnemonic == "DB" || mnemonic == "DEFB" || mnemonic == "BYTE" || mnemonic == "DM" || mnemonic == "DEFM") {
-                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (op.type == Operands::Operand::Type::STRING) {
                         for (char c : op.str_val)
@@ -4064,11 +4060,8 @@ protected:
                     else
                         this->m_policy.context().assembler.report_error("Unsupported or out-of-range operand for DB: " + op.str_val);
                 }
-                if (!bytes.empty())
-                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DW" || mnemonic == "DEFW" || mnemonic == "WORD") {
-                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (this->match_data16(op)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
@@ -4076,11 +4069,8 @@ protected:
                     } else
                         this->m_policy.context().assembler.report_error("Unsupported operand for DW: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
-                if (!bytes.empty())
-                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "D24") {
-                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (this->match_data_value(op)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
@@ -4089,11 +4079,8 @@ protected:
                     } else
                         this->m_policy.context().assembler.report_error("Unsupported operand for D24: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
-                if (!bytes.empty())
-                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DWORD" || mnemonic == "DD" || mnemonic == "DEFD") {
-                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (this->match_data_value(op)) {
                         bytes.push_back((uint8_t)(op.num_val & 0xFF));
@@ -4103,11 +4090,8 @@ protected:
                     } else
                         this->m_policy.context().assembler.report_error("Unsupported operand for DWORD/DD/DEFD: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
-                if (!bytes.empty())
-                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DC") {
-                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (this->match_string(op)) {
                         if (op.str_val.empty())
@@ -4121,11 +4105,8 @@ protected:
                     } else
                         this->m_policy.context().assembler.report_error("Unsupported operand for DC: " + op.str_val);
                 }
-                if (!bytes.empty())
-                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DQ") {
-                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (this->match_data_value(op)) {
                         uint64_t val = (uint64_t)(op.num_val);
@@ -4134,13 +4115,10 @@ protected:
                     } else
                         this->m_policy.context().assembler.report_error("Unsupported operand for DQ: " + (op.str_val.empty() ? "unknown" : op.str_val));
                 }
-                if (!bytes.empty())
-                    assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DH" || mnemonic == "HEX" || mnemonic == "DEFH") {
                 if (ops.empty())
                     this->m_policy.context().assembler.report_error(mnemonic + " requires at least one string argument.");
-                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (!this->match_string(op))
                         this->m_policy.context().assembler.report_error(mnemonic + " arguments must be string literals. Found: '" + op.str_val + "'");
@@ -4161,12 +4139,10 @@ protected:
                         bytes.push_back(byte_val);
                     }
                 }
-                if (!bytes.empty()) assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DZ" || mnemonic == "ASCIZ") {
                 if (ops.empty())
                     this->m_policy.context().assembler.report_error(mnemonic + " requires at least one argument.");
-                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (this->match_string(op)) {
                         for (char c : op.str_val)
@@ -4177,7 +4153,6 @@ protected:
                         this->m_policy.context().assembler.report_error("Unsupported operand for " + mnemonic + ": " + op.str_val);
                 }
                 bytes.push_back(0x00);
-                assemble(bytes, false);
                 return true;
             } else if (mnemonic == "DS" || mnemonic == "DEFS" || mnemonic == "BLOCK") {
                 if (ops.empty() || ops.size() > 2)
@@ -4188,11 +4163,9 @@ protected:
                     this->m_policy.context().assembler.report_error(mnemonic + " fill value must be a number.");
                 size_t count = ops[0].num_val;
                 uint8_t fill_value = (ops.size() == 2) ? (uint8_t)(ops[1].num_val) : 0;
-                std::vector<uint8_t> bytes(count, fill_value);
-                assemble(bytes, false);
+                bytes.resize(count, fill_value);
                 return true;
             } else if (mnemonic == "DG" || mnemonic == "DEFG") {
-                std::vector<uint8_t> bytes;
                 for (const auto& op : ops) {
                     if (!this->match_string(op))
                         this->m_policy.context().assembler.report_error("DG directive requires a string literal operand.");
@@ -4212,6 +4185,16 @@ protected:
                         bytes.push_back((uint8_t)std::stoul(byte_str, nullptr, 2));
                     }
                 }
+                return true;
+            }
+            return false;
+        }
+        bool encode_data_block(const std::string& mnemonic, const std::vector<typename Operands::Operand>& ops) {
+            const auto& directive_options = this->m_policy.context().assembler.m_config.directives;
+            if (!directive_options.enabled || !directive_options.allow_data_definitions)
+                return false;
+            std::vector<uint8_t> bytes;
+            if (get_data_bytes(mnemonic, ops, bytes)) {
                 if (!bytes.empty())
                     assemble(bytes, false);
                 return true;
