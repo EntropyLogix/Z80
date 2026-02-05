@@ -5,7 +5,7 @@ set -e
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PROJECT_ROOT="$SCRIPT_DIR/.."
-BUILD_DIR="$SCRIPT_DIR/build" # Budujemy w tools/build
+BUILD_DIR="$SCRIPT_DIR/build" # Build in tools/build
 
 echo "--- Building Z80 tools (Release mode) ---"
 

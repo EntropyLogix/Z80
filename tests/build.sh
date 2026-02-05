@@ -3,7 +3,7 @@ set -e
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 PROJECT_ROOT="$SCRIPT_DIR/.."
-BUILD_DIR="$SCRIPT_DIR/build" # Budujemy w tests/build dla kompatybilności ze skryptem run-tests.sh
+BUILD_DIR="$SCRIPT_DIR/build" # Build in tests/build for compatibility with run-tests.sh script
 
 if [ "$1" = "--optimized" ]; then
   echo "--- Running optimized build (PGO) ---"

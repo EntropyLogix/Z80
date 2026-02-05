@@ -1,0 +1,5 @@
+ignore:
+  - "tests"           # Excludes tests directory from Codecov report
+  - "build"           # Excludes build directory
+  - "tools/build"     # Excludes build directory inside tools
+  - "**/*_test.cpp"   # Excludes test source files
