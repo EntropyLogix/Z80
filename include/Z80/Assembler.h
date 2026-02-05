@@ -90,11 +90,9 @@
 //   Comparison   | ==, !=, >, <, >=, <=    | EQ, NE, GT, LT, GE, LE      | Comparison operators.
 //   Unary        | +, - (sign)             | DEFINED                     | Sign operators and symbol check.
 //   Conditional  | ? :                     |                             | Ternary operator (e.g., `cond ? val1 : val2`).
-//   String       | ##                      |                             | String concatenation.
 //
 //   Operator Details:
-//   - +  : Adds numbers. Single-char strings are treated as ASCII codes. Multi-char strings cause error.
-//   - ## : Concatenates operands as strings (e.g., "R" ## 2 -> "R2").
+//   - +  : Adds numbers or concatenates strings. Single-char strings are treated as ASCII codes in numeric context.
 //
 // Functions:
 //   The assembler supports a wide range of built-in functions for compile-time calculations.
