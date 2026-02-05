@@ -142,6 +142,88 @@ public:
     virtual void set_SP(uint16_t value) = 0;
     virtual uint16_t get_PC() const = 0;
     virtual void set_PC(uint16_t value) = 0;
+
+    virtual uint16_t get_WZ() const = 0;
+    virtual void set_WZ(uint16_t value) = 0;
+    virtual uint8_t get_W() const = 0;
+    virtual void set_W(uint8_t value) = 0;
+    virtual uint8_t get_Z() const = 0;
+    virtual void set_Z(uint8_t value) = 0;
+
+    virtual uint16_t get_AFp() const = 0;
+    virtual void set_AFp(uint16_t value) = 0;
+    virtual uint16_t get_BCp() const = 0;
+    virtual void set_BCp(uint16_t value) = 0;
+    virtual uint16_t get_DEp() const = 0;
+    virtual void set_DEp(uint16_t value) = 0;
+    virtual uint16_t get_HLp() const = 0;
+    virtual void set_HLp(uint16_t value) = 0;
+
+    virtual uint8_t get_A() const = 0;
+    virtual void set_A(uint8_t value) = 0;
+    virtual Flags get_F() const = 0;
+    virtual void set_F(Flags value) = 0;
+    virtual uint8_t get_B() const = 0;
+    virtual void set_B(uint8_t value) = 0;
+    virtual uint8_t get_C() const = 0;
+    virtual void set_C(uint8_t value) = 0;
+    virtual uint8_t get_D() const = 0;
+    virtual void set_D(uint8_t value) = 0;
+    virtual uint8_t get_E() const = 0;
+    virtual void set_E(uint8_t value) = 0;
+    virtual uint8_t get_H() const = 0;
+    virtual void set_H(uint8_t value) = 0;
+    virtual uint8_t get_L() const = 0;
+    virtual void set_L(uint8_t value) = 0;
+    virtual uint8_t get_IXH() const = 0;
+    virtual void set_IXH(uint8_t value) = 0;
+    virtual uint8_t get_IXL() const = 0;
+    virtual void set_IXL(uint8_t value) = 0;
+    virtual uint8_t get_IYH() const = 0;
+    virtual void set_IYH(uint8_t value) = 0;
+    virtual uint8_t get_IYL() const = 0;
+    virtual void set_IYL(uint8_t value) = 0;
+
+    virtual uint8_t get_I() const = 0;
+    virtual void set_I(uint8_t value) = 0;
+    virtual uint8_t get_R() const = 0;
+    virtual void set_R(uint8_t value) = 0;
+    virtual uint8_t get_Q() const = 0;
+    virtual void set_Q(uint8_t value) = 0;
+
+    virtual bool get_IFF1() const = 0;
+    virtual void set_IFF1(bool state) = 0;
+    virtual bool is_EI_executed() const = 0;
+    virtual void set_EI_executed(bool state) = 0;
+    virtual bool get_IFF2() const = 0;
+    virtual void set_IFF2(bool state) = 0;
+    virtual bool is_halted() const = 0;
+    virtual void set_halted(bool state) = 0;
+
+    virtual bool is_NMI_pending() const = 0;
+    virtual void set_NMI_pending(bool state) = 0;
+    virtual bool is_IRQ_requested() const = 0;
+    virtual void set_IRQ_request(bool state) = 0;
+    virtual bool is_IRQ_pending() const = 0;
+    virtual uint8_t get_IRQ_data() const = 0;
+    virtual void set_IRQ_data(uint8_t data) = 0;
+    virtual uint8_t get_IRQ_mode() const = 0;
+    virtual void set_IRQ_mode(uint8_t mode) = 0;
+    virtual void set_RETI_signaled(bool state) = 0;
+    virtual bool is_RETI_signaled() const = 0;
+    virtual bool get_flags_modified() const = 0;
+    virtual void set_flags_modified(bool state) = 0;
+
+    virtual IndexMode get_index_mode() const = 0;
+    virtual void set_index_mode(IndexMode mode) = 0;
+
+    virtual void add_tick() = 0;
+    virtual void add_ticks(long long delta) = 0;
+
+    virtual uint16_t get_address_bus() const = 0;
+    virtual void set_address_bus(uint16_t value) = 0;
+    virtual uint8_t get_data_bus() const = 0;
+    virtual void set_data_bus(uint8_t value) = 0;
 };
 
 template <typename TBus = StandardBus, typename TEvents = StandardEvents, typename TDebugger = StandardDebugger, bool EnableNext = false>
@@ -345,7 +427,7 @@ public:
     void set_ticks(long long value) override {
         m_ticks = value;
     }
-    void add_tick() {
+    void add_tick() override {
         if constexpr (std::is_same_v<TEvents, StandardEvents>) {
             ++m_ticks;
         } else {
@@ -354,7 +436,7 @@ public:
             m_events->handle_event(m_ticks);
         }
     }
-    void add_ticks(long long delta) {
+    void add_ticks(long long delta) override {
         if constexpr (std::is_same_v<TEvents, StandardEvents>) {
             m_ticks += delta;
         } else {
@@ -373,16 +455,16 @@ public:
     }
 
     // Bus
-    uint16_t get_address_bus() const {
+    uint16_t get_address_bus() const override {
         return m_address_bus;
     }
-    void set_address_bus(uint16_t value) {
+    void set_address_bus(uint16_t value) override {
         m_address_bus = value;
     }
-    uint8_t get_data_bus() const {
+    uint8_t get_data_bus() const override {
         return m_data_bus;
     }
-    void set_data_bus(uint8_t value) {
+    void set_data_bus(uint8_t value) override {
         m_data_bus = value;
     }
 
@@ -481,221 +563,221 @@ public:
     }
 
     // 16-bit internal temporary register
-    uint16_t get_WZ() const {
+    uint16_t get_WZ() const override {
         return m_WZ.w;
     }
-    void set_WZ(uint16_t value) {
+    void set_WZ(uint16_t value) override {
         m_WZ.w = value;
     }
 
     // 8-bit parts of WZ
-    uint8_t get_W() const {
+    uint8_t get_W() const override {
         return m_WZ.h;
     }
-    void set_W(uint8_t value) {
+    void set_W(uint8_t value) override {
         m_WZ.h = value;
     }
-    uint8_t get_Z() const {
+    uint8_t get_Z() const override {
         return m_WZ.l;
     }
-    void set_Z(uint8_t value) {
+    void set_Z(uint8_t value) override {
         m_WZ.l = value;
     }
 
     // 16-bit alternate registers
-    uint16_t get_AFp() const {
+    uint16_t get_AFp() const override {
         return m_AFp.w;
     }
-    void set_AFp(uint16_t value) {
+    void set_AFp(uint16_t value) override {
         m_AFp.w = value;
     }
-    uint16_t get_BCp() const {
+    uint16_t get_BCp() const override {
         return m_BCp.w;
     }
-    void set_BCp(uint16_t value) {
+    void set_BCp(uint16_t value) override {
         m_BCp.w = value;
     }
-    uint16_t get_DEp() const {
+    uint16_t get_DEp() const override {
         return m_DEp.w;
     }
-    void set_DEp(uint16_t value) {
+    void set_DEp(uint16_t value) override {
         m_DEp.w = value;
     }
-    uint16_t get_HLp() const {
+    uint16_t get_HLp() const override {
         return m_HLp.w;
     }
-    void set_HLp(uint16_t value) {
+    void set_HLp(uint16_t value) override {
         m_HLp.w = value;
     }
 
     // 8-bit registers
-    uint8_t get_A() const {
+    uint8_t get_A() const override {
         return m_AF.h;
     }
-    void set_A(uint8_t value) {
+    void set_A(uint8_t value) override {
         m_AF.h = value;
     }
-    Flags get_F() const {
+    Flags get_F() const override {
         return m_AF.l;
     }
-    void set_F(Flags value) {
+    void set_F(Flags value) override {
         m_AF.l = value;
         set_flags_modified(true);
     }
-    uint8_t get_B() const {
+    uint8_t get_B() const override {
         return m_BC.h;
     }
-    void set_B(uint8_t value) {
+    void set_B(uint8_t value) override {
         m_BC.h = value;
     }
-    uint8_t get_C() const {
+    uint8_t get_C() const override {
         return m_BC.l;
     }
-    void set_C(uint8_t value) {
+    void set_C(uint8_t value) override {
         m_BC.l = value;
     }
-    uint8_t get_D() const {
+    uint8_t get_D() const override {
         return m_DE.h;
     }
-    void set_D(uint8_t value) {
+    void set_D(uint8_t value) override {
         m_DE.h = value;
     }
-    uint8_t get_E() const {
+    uint8_t get_E() const override {
         return m_DE.l;
     }
-    void set_E(uint8_t value) {
+    void set_E(uint8_t value) override {
         m_DE.l = value;
     }
-    uint8_t get_H() const {
+    uint8_t get_H() const override {
         return m_HL.h;
     }
-    void set_H(uint8_t value) {
+    void set_H(uint8_t value) override {
         m_HL.h = value;
     }
-    uint8_t get_L() const {
+    uint8_t get_L() const override {
         return m_HL.l;
     }
-    void set_L(uint8_t value) {
+    void set_L(uint8_t value) override {
         m_HL.l = value;
     }
-    uint8_t get_IXH() const {
+    uint8_t get_IXH() const override {
         return m_IX.h;
     }
-    void set_IXH(uint8_t value) {
+    void set_IXH(uint8_t value) override {
         m_IX.h = value;
     }
-    uint8_t get_IXL() const {
+    uint8_t get_IXL() const override {
         return m_IX.l;
     }
-    void set_IXL(uint8_t value) {
+    void set_IXL(uint8_t value) override {
         m_IX.l = value;
     }
-    uint8_t get_IYH() const {
+    uint8_t get_IYH() const override {
         return m_IY.h;
     }
-    void set_IYH(uint8_t value) {
+    void set_IYH(uint8_t value) override {
         m_IY.h = value;
     }
-    uint8_t get_IYL() const {
+    uint8_t get_IYL() const override {
         return m_IY.l;
     }
-    void set_IYL(uint8_t value) {
+    void set_IYL(uint8_t value) override {
         m_IY.l = value;
     }
 
     // Special purpose registers
-    uint8_t get_I() const {
+    uint8_t get_I() const override {
         return m_I;
     }
-    void set_I(uint8_t value) {
+    void set_I(uint8_t value) override {
         m_I = value;
     }
-    uint8_t get_R() const {
+    uint8_t get_R() const override {
         return m_R;
     }
-    void set_R(uint8_t value) {
+    void set_R(uint8_t value) override {
         m_R = value;
     }
 
     // CPU state flags
-    bool get_IFF1() const {
+    bool get_IFF1() const override {
         return m_IFF1;
     }
-    void set_IFF1(bool state) {
+    void set_IFF1(bool state) override {
         m_IFF1 = state;
     }
-    bool is_EI_executed() const {
+    bool is_EI_executed() const override {
         return m_EI_executed;
     }
-    void set_EI_executed(bool state) {
+    void set_EI_executed(bool state) override {
         m_EI_executed = state;
     }
-    bool get_IFF2() const {
+    bool get_IFF2() const override {
         return m_IFF2;
     }
-    void set_IFF2(bool state) {
+    void set_IFF2(bool state) override {
         m_IFF2 = state;
     }
-    bool is_halted() const {
+    bool is_halted() const override {
         return m_halted;
     }
-    void set_halted(bool state) {
+    void set_halted(bool state) override {
         m_halted = state;
     }
 
     // Interrupt state flags
-    bool is_NMI_pending() const {
+    bool is_NMI_pending() const override {
         return m_NMI_pending;
     }
-    void set_NMI_pending(bool state) {
+    void set_NMI_pending(bool state) override {
         m_NMI_pending = state;
     }
-    bool is_IRQ_requested() const {
+    bool is_IRQ_requested() const override {
         return m_IRQ_request;
     }
-    void set_IRQ_request(bool state) {
+    void set_IRQ_request(bool state) override {
         m_IRQ_request = state;
     }
-    bool is_IRQ_pending() const {
+    bool is_IRQ_pending() const override {
         return is_IRQ_requested() && get_IFF1();
     }
-    uint8_t get_IRQ_data() const {
+    uint8_t get_IRQ_data() const override {
         return m_IRQ_data;
     }
-    void set_IRQ_data(uint8_t data) {
+    void set_IRQ_data(uint8_t data) override {
         m_IRQ_data = data;
     }
-    uint8_t get_IRQ_mode() const {
+    uint8_t get_IRQ_mode() const override {
         return m_IRQ_mode;
     }
-    void set_IRQ_mode(uint8_t mode) {
+    void set_IRQ_mode(uint8_t mode) override {
         m_IRQ_mode = mode;
     }
-    void set_RETI_signaled(bool state) {
+    void set_RETI_signaled(bool state) override {
         m_RETI_signaled = state;
     }
-    bool is_RETI_signaled() const {
+    bool is_RETI_signaled() const override {
         return m_RETI_signaled;
     }
-    bool get_flags_modified() const {
+    bool get_flags_modified() const override {
         return m_flags_modified;
     }
-    void set_flags_modified(bool state) {
+    void set_flags_modified(bool state) override {
         m_flags_modified = state;
     }
 
     // Processing opcodes DD and FD index
-    IndexMode get_index_mode() const {
+    IndexMode get_index_mode() const override {
         return m_index_mode;
     }
-    void set_index_mode(IndexMode mode) {
+    void set_index_mode(IndexMode mode) override {
         m_index_mode = mode;
     }
 
-    uint8_t get_Q() const {
+    uint8_t get_Q() const override {
         return m_Q;
     }
-    void set_Q(uint8_t value) {
+    void set_Q(uint8_t value) override {
         m_Q = value;
     }
 
