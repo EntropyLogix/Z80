@@ -6953,7 +6953,7 @@ TEST_CASE(Z80Asm_Coverage_MoreFileAndOutput) {
         main_asm.close();
 
         std::ofstream inc_asm(subdir / "inc.asm");
-        inc_asm << "DB FILESIZE(\"data.bin\")";
+        inc_asm << "DB FILESIZE(\"sub/data.bin\")";
         inc_asm.close();
 
         std::ofstream data_bin(subdir / "data.bin");
